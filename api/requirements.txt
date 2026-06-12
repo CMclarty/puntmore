@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+pydantic-settings
+httpx
+pytest
+python-multipart
+anthropic
+google-genai
+apscheduler
+bcrypt
+itsdangerous

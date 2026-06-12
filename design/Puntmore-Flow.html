@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Puntmore — User Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --ink:#1A1A18; --muted:#6B6862; --faint:#9C988F;
+    --line:#D8D5CD; --line-strong:#BBB7AD;
+    --paper:#FCFBF8; --zebra:#F4F2EC; --page:#E9E6DF;
+    --accent:#2F7D55; --accent-soft:#E1EFE7;
+    --hand:'Caveat',cursive;
+    --ui:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; background:var(--page); color:var(--ink); font-family:var(--ui); -webkit-font-smoothing:antialiased; }
+
+  /* page */
+  .masthead{ padding:32px 36px 0; }
+  .masthead h1{ font-family:var(--hand); font-weight:700; font-size:42px; line-height:1; margin:0 0 4px; }
+  .masthead .sub{ font-size:13.5px; color:var(--muted); margin:0; line-height:1.5; }
+
+  /* flow rail */
+  .flow{ padding:32px 36px 64px; display:flex; gap:0; align-items:flex-start; overflow-x:auto; min-width:min-content; }
+  .flow::-webkit-scrollbar{ height:6px; }
+  .flow::-webkit-scrollbar-thumb{ background:var(--line-strong); border-radius:3px; }
+
+  /* connector */
+  .conn{ display:flex; flex-direction:column; align-items:center; justify-content:center; padding:0 10px; margin-top:220px; gap:4px; flex:none; }
+  .conn .lbl{ font-family:var(--hand); font-size:14px; color:var(--muted); white-space:nowrap; text-align:center; line-height:1.2; }
+  .conn .arr{ font-size:22px; color:var(--line-strong); line-height:1; }
+  .conn.branch{ margin-top:60px; flex-direction:row; gap:6px; align-items:center; }
+  .conn.branch .lbl{ font-size:13px; }
+
+  /* screen col */
+  .scol{ display:flex; flex-direction:column; align-items:center; gap:12px; flex:none; }
+  .slabel{ text-align:center; }
+  .slabel .n{ font-family:var(--hand); font-weight:700; font-size:20px; color:var(--accent); }
+  .slabel .t{ font-family:var(--hand); font-weight:700; font-size:22px; line-height:1.1; }
+  .sdesc{ font-size:11.5px; color:var(--muted); text-align:center; max-width:200px; line-height:1.5; }
+  .sdesc b{ color:var(--ink); font-weight:600; }
+
+  /* branch group */
+  .branchgroup{ display:flex; gap:0; align-items:flex-start; }
+
+  /* phone */
+  .phone{ width:230px; height:490px; background:var(--paper); border:2px solid var(--ink); border-radius:26px; box-shadow:4px 5px 0 rgba(26,26,24,.09); padding:6px; display:flex; flex-direction:column; position:relative; flex:none; }
+  .screen{ flex:1; border:1px solid var(--line); border-radius:20px; overflow:hidden; display:flex; flex-direction:column; position:relative; background:var(--paper); }
+  .notch{ position:absolute; top:9px; left:50%; transform:translateX(-50%); width:66px; height:4px; background:var(--line-strong); border-radius:2px; z-index:5; }
+
+  /* shared inner elements */
+  .ahead{ display:flex; align-items:center; justify-content:space-between; padding:16px 10px 9px; border-bottom:1px solid var(--line); flex:none; }
+  .feedtitle{ font-size:13px; font-weight:700; letter-spacing:-.01em; }
+  .coupbtn{ display:inline-flex; align-items:center; gap:5px; border:0; background:transparent; padding:0; }
+  .coupbtn .lab{ font-size:11px; font-weight:700; letter-spacing:.03em; color:var(--muted); }
+  .coupbtn .sel{ display:inline-flex; align-items:center; gap:5px; border:1.5px solid var(--ink); border-radius:6px; padding:2px 6px 2px 8px; }
+  .coupbtn .name{ font-size:11px; font-weight:700; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100px; }
+  .coupbtn .chev{ font-size:8px; color:var(--muted); flex:none; }
+  .coupbtn .sel{ display:inline-flex; align-items:center; gap:4px; border:1.5px solid var(--ink); border-radius:5px; padding:2px 6px 2px 7px; }
+  .status{ display:flex; align-items:center; gap:4px; font-family:var(--mono); font-size:8px; color:var(--faint); }
+  .live{ width:5px; height:5px; border-radius:50%; background:var(--accent); }
+
+  .list{ flex:1; overflow:hidden; }
+  .cards{ padding:0 8px; display:flex; flex-direction:column; }
+  .bcard{ border:0; border-bottom:1px solid var(--line); background:var(--paper); padding:7px 2px; display:flex; align-items:center; gap:8px; }
+  .bcard .body{ flex:1; min-width:0; }
+  .bcard .match{ font-size:10px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bcard .meta{ display:flex; align-items:center; gap:5px; margin-top:2px; }
+  .bcard .pick{ font-size:9px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bcard .odds{ font-family:var(--mono); font-size:9px; font-weight:600; color:var(--muted); flex:none; }
+  .vbadge{ flex:none; min-width:36px; text-align:right; font-family:var(--mono); font-weight:700; font-size:10px; line-height:1; }
+  .vbadge small{ display:none; }
+  .vbadge.hi{ color:var(--accent); }
+  .vbadge.mid{ color:var(--ink); }
+  .vbadge.lo{ color:var(--faint); }
+
+  /* bottom nav */
+  .bnav{ display:flex; flex:none; border-top:1px solid var(--line-strong); background:var(--paper); }
+  .bnav button{ flex:1; border:0; background:transparent; padding:8px 2px 10px; display:flex; flex-direction:column; align-items:center; gap:4px; color:var(--muted); font-size:8.5px; font-weight:600; font-family:var(--ui); }
+  .bnav .ic{ width:15px; height:15px; border:1.5px solid currentColor; border-radius:4px; }
+  .bnav .ic.tennis{ border-radius:50%; }
+  .bnav .ic.corner{ border-radius:0 0 0 4px; border-top:0; border-right:0; }
+  .bnav button.on{ color:var(--accent); }
+  .bnav button.on .ic{ background:var(--accent-soft); }
+
+  /* login screen */
+  .login-wrap{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:16px 18px; gap:10px; }
+  .login-logo{ font-family:var(--ui); font-weight:700; font-size:11px; letter-spacing:.20em; color:var(--ink); }
+  .login-sub{ font-size:9px; color:var(--faint); text-align:center; }
+  .fld{ width:100%; border:1px solid var(--line-strong); border-radius:7px; padding:8px 10px; font-size:10px; color:var(--muted); background:var(--zebra); }
+  .btn-pri{ width:100%; background:var(--ink); color:var(--paper); border:0; border-radius:7px; padding:9px; font-size:10px; font-weight:700; letter-spacing:.06em; }
+
+  /* coupon picker sheet */
+  .sheet-panel{ background:var(--paper); border-bottom:1px solid var(--line-strong); box-shadow:0 6px 16px rgba(26,26,24,.14); }
+  .sheet-head{ display:flex; align-items:center; justify-content:space-between; padding:9px 10px 7px; border-bottom:1px solid var(--line); }
+  .sheet-head .t{ font-size:7.5px; letter-spacing:.12em; font-weight:700; color:var(--faint); }
+  .sheet-head .x{ font-family:var(--mono); font-size:11px; color:var(--muted); }
+  .copt{ display:flex; align-items:center; gap:7px; padding:8px 10px; border-bottom:1px solid var(--line); }
+  .copt:last-child{ border-bottom:0; }
+  .copt .tick{ width:12px; height:12px; border:1.5px solid var(--line-strong); border-radius:50%; flex:none; display:grid; place-items:center; }
+  .copt.on .tick{ border-color:var(--accent); background:var(--accent); }
+  .copt.on .tick::after{ content:''; width:4px; height:4px; border-radius:50%; background:#fff; }
+  .copt .nm{ font-size:10px; font-weight:600; }
+  .copt.on .nm{ color:var(--accent); }
+  .copt .mt{ font-family:var(--mono); font-size:8px; color:var(--faint); margin-top:1px; }
+  .dimmed{ position:absolute; inset:0; background:rgba(26,26,24,.22); z-index:10; display:flex; flex-direction:column; }
+
+  /* upload screen */
+  .upload-header{ display:flex; align-items:center; gap:6px; padding:16px 10px 10px; border-bottom:1px solid var(--line); flex:none; }
+  .back-btn{ width:22px; height:22px; border:1.5px solid var(--line-strong); border-radius:7px; display:grid; place-items:center; font-size:10px; color:var(--muted); flex:none; }
+  .upload-header .title{ font-size:12px; font-weight:700; }
+  .upload-body{ flex:1; overflow:hidden; padding:10px 9px; display:flex; flex-direction:column; gap:9px; }
+  .drop-zone{ border:1.5px dashed var(--line-strong); border-radius:10px; padding:16px 10px; display:flex; flex-direction:column; align-items:center; gap:5px; background:var(--zebra); }
+  .drop-zone .di{ width:28px; height:28px; border:1.5px solid var(--line-strong); border-radius:7px; display:grid; place-items:center; font-size:14px; color:var(--muted); }
+  .drop-zone .dt{ font-size:10px; font-weight:600; color:var(--ink); }
+  .drop-zone .ds{ font-size:8.5px; color:var(--faint); }
+  .drop-zone .btn-up{ margin-top:4px; border:1.5px solid var(--ink); border-radius:7px; padding:5px 12px; font-size:9.5px; font-weight:700; background:transparent; color:var(--ink); }
+  .prev-head{ font-size:9px; letter-spacing:.1em; font-weight:700; color:var(--faint); }
+  .urow{ display:flex; align-items:center; gap:6px; padding:6px 0; border-bottom:1px solid var(--line); }
+  .urow:last-child{ border-bottom:0; }
+  .urow .un{ flex:1; font-size:10px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .urow .ud{ font-family:var(--mono); font-size:8.5px; color:var(--faint); flex:none; }
+  .chip{ font-size:7.5px; font-weight:700; letter-spacing:.04em; border-radius:5px; padding:2px 6px; flex:none; }
+  .chip.ok{ background:var(--accent-soft); color:var(--accent); }
+  .chip.pend{ background:var(--zebra); color:var(--faint); }
+
+  /* C/C match rows */
+  .mrow{ display:flex; align-items:center; justify-content:space-between; padding:8px 2px; border-bottom:1px solid var(--line); gap:6px; }
+  .mrow.open{ background:var(--zebra); border-bottom:0; padding-bottom:6px; }
+  .mname{ font-size:10.5px; font-weight:600; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .mright{ display:flex; align-items:center; gap:5px; flex:none; }
+  .mchev{ font-size:12px; color:var(--faint); line-height:1; }
+  .mrow.open .mchev{ transform:rotate(90deg); color:var(--accent); }
+
+  /* expanded bet sub-rows */
+  .mbets{ background:var(--zebra); border-bottom:1px solid var(--line); padding:0 2px 6px 10px; }
+  .mbet{ display:flex; align-items:center; gap:6px; padding:5px 0; border-top:1px solid var(--line); }
+  .mbet:first-child{ border-top:0; }
+  .mbet .bpick{ flex:1; font-size:9px; color:var(--muted); min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .mbet .bodds{ font-family:var(--mono); font-size:8.5px; color:var(--faint); flex:none; }
+  .mbet .bval{ font-family:var(--mono); font-size:9px; font-weight:700; flex:none; min-width:30px; text-align:right; }
+  .mbet .bval.hi{ color:var(--accent); }
+  .mbet .bval.mid{ color:var(--ink); }
+  .mbet .bval.lo{ color:var(--faint); }
+
+  /* big upload button inside coupon picker sheet */
+  .sheet-upload{ display:flex; align-items:center; justify-content:center; gap:6px; width:calc(100% - 16px); margin:9px 8px 8px; padding:11px; background:var(--ink); color:var(--paper); border:0; border-radius:8px; font-size:11px; font-weight:700; letter-spacing:.04em; font-family:var(--ui); }
+  .sheet-upload .upic{ font-size:13px; line-height:1; }
+  .sheet-sep{ height:1px; background:var(--line); margin:0; }
+
+  /* upload metadata option fields */
+  .up-opts{ display:flex; flex-direction:column; gap:7px; }
+  .up-field{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .up-field .ul{ font-size:9.5px; font-weight:600; color:var(--muted); }
+  .up-sel{ display:inline-flex; align-items:center; gap:7px; border:1.5px solid var(--ink); border-radius:7px; padding:5px 8px 5px 10px; background:var(--paper); }
+  .up-sel .uv{ font-size:10px; font-weight:700; color:var(--ink); font-family:var(--mono); }
+  .up-sel .uchev{ font-size:8px; color:var(--muted); }
+</style>
+
+<style>
+  .flow-section{ padding:28px 36px 0; }
+  .flow-label{ font-family:var(--hand); font-size:22px; font-weight:700; color:var(--ink); margin-bottom:18px; display:flex; align-items:baseline; gap:10px; }
+  .flow-label .from{ font-size:15px; font-weight:500; color:var(--faint); }
+  .subflows-wrap{ display:flex; flex-direction:column; gap:0; padding-bottom:64px; }
+  .origin-chip{ width:90px; height:60px; border:2px dashed var(--line-strong); border-radius:12px; display:flex; align-items:center; justify-content:center; text-align:center; font-family:var(--hand); font-size:14px; color:var(--muted); line-height:1.3; flex:none; margin-top:220px; }
+</style>
+<body>
+
+<div class="masthead">
+  <h1>Puntmore — User Flow</h1>
+  <p class="sub">6 screens across three flows: the main navigation path, the coupon picker &amp; upload, and the C/C match expand.</p>
+</div>
+
+<!-- ════ MAIN FLOW ════ -->
+<div class="flow-section">
+  <div class="flow-label">Main flow</div>
+  <div class="flow">
+
+    <!-- ① LOGIN -->
+    <div class="scol">
+      <div class="slabel"><div class="n">01</div><div class="t">Login</div></div>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="screen">
+          <div class="login-wrap">
+            <div style="margin-bottom:8px;text-align:center;">
+              <div style="display:inline-flex;align-items:center;gap:6px;">
+                <span style="width:12px;height:12px;background:var(--ink);border-radius:2px;position:relative;display:inline-block;flex:none;"><span style="position:absolute;left:3px;top:3px;width:4px;height:4px;background:var(--accent);"></span></span>
+                <span class="login-logo">PUNTMORE</span>
+              </div>
+              <div class="login-sub" style="margin-top:4px;">Betting intelligence</div>
+            </div>
+            <div class="fld">email address</div>
+            <div class="fld">password</div>
+            <button class="btn-pri">LOG IN</button>
+            <div style="font-size:9px;color:var(--faint);">Forgot password?</div>
+          </div>
+        </div>
+      </div>
+      <div class="sdesc"><b>Entry point.</b> Accounts provisioned externally — no self-signup.</div>
+    </div>
+
+    <div class="conn"><div class="lbl">login<br>success</div><div class="arr">→</div></div>
+
+    <!-- ② COUPON TRACKER -->
+    <div class="scol">
+      <div class="slabel"><div class="n">02</div><div class="t">Coupon tracker</div></div>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="screen">
+          <div class="ahead">
+            <div class="coupbtn">
+              <span class="lab">COUPON:</span>
+              <span class="sel"><span class="name">Saturday Acca</span><span class="chev">▾</span></span>
+            </div>
+            <div class="status"><span class="live"></span>LIVE · 14:32</div>
+          </div>
+          <div class="list">
+            <div class="cards">
+              <div class="bcard"><div class="body"><div class="match">PSG v Lyon</div><div class="meta"><span class="odds">2.30</span><span class="pick">PSG HT/FT</span></div></div><div class="vbadge hi">+8.1%</div></div>
+              <div class="bcard"><div class="body"><div class="match">Liverpool v Brighton</div><div class="meta"><span class="odds">1.90</span><span class="pick">Liverpool −1</span></div></div><div class="vbadge hi">+6.8%</div></div>
+              <div class="bcard"><div class="body"><div class="match">Bayern v Leipzig</div><div class="meta"><span class="odds">1.72</span><span class="pick">BTTS — Yes</span></div></div><div class="vbadge mid">+5.5%</div></div>
+              <div class="bcard"><div class="body"><div class="match">Porto v Benfica</div><div class="meta"><span class="odds">3.20</span><span class="pick">Draw</span></div></div><div class="vbadge mid">+5.1%</div></div>
+            </div>
+          </div>
+          <div class="bnav">
+            <button class="on"><span class="ic"></span>Coupon</button>
+            <button><span class="ic tennis"></span>Tennis</button>
+            <button><span class="ic corner"></span>C/C</button>
+          </div>
+        </div>
+      </div>
+      <div class="sdesc"><b>Default landing.</b> Read-only. Tap coupon name to switch coupon or upload.</div>
+    </div>
+
+    <div class="conn"><div class="lbl">bottom nav</div><div class="arr">→</div></div>
+
+    <!-- ③ TENNIS TRACKER -->
+    <div class="scol">
+      <div class="slabel"><div class="n">03</div><div class="t">Tennis tracker</div></div>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="screen">
+          <div class="ahead">
+            <span class="feedtitle">Tennis</span>
+            <div class="status"><span class="live"></span>LIVE · 14:32</div>
+          </div>
+          <div class="list">
+            <div class="cards">
+              <div class="bcard"><div class="body"><div class="match">Sinner v Medvedev</div><div class="meta"><span class="odds">1.88</span><span class="pick">Sinner −4.5 games</span></div></div><div class="vbadge hi">+7.2%</div></div>
+              <div class="bcard"><div class="body"><div class="match">Djokovic v Ruud</div><div class="meta"><span class="odds">1.95</span><span class="pick">Djokovic −3.5</span></div></div><div class="vbadge hi">+6.9%</div></div>
+              <div class="bcard"><div class="body"><div class="match">Swiatek v Sabalenka</div><div class="meta"><span class="odds">2.10</span><span class="pick">Sabalenka +3.5</span></div></div><div class="vbadge hi">+6.4%</div></div>
+              <div class="bcard"><div class="body"><div class="match">Alcaraz v Zverev</div><div class="meta"><span class="odds">1.80</span><span class="pick">Over 22.5 games</span></div></div><div class="vbadge mid">+5.6%</div></div>
+              <div class="bcard"><div class="body"><div class="match">Rune v Fritz</div><div class="meta"><span class="odds">2.05</span><span class="pick">Rune ML</span></div></div><div class="vbadge mid">+4.8%</div></div>
+              <div class="bcard"><div class="body"><div class="match">Gauff v Rybakina</div><div class="meta"><span class="odds">1.92</span><span class="pick">Under 21.5 games</span></div></div><div class="vbadge lo">+3.7%</div></div>
+            </div>
+          </div>
+          <div class="bnav">
+            <button><span class="ic"></span>Coupon</button>
+            <button class="on"><span class="ic tennis"></span>Tennis</button>
+            <button><span class="ic corner"></span>C/C</button>
+          </div>
+        </div>
+      </div>
+      <div class="sdesc">Single feed. No dropdown.</div>
+    </div>
+
+    <div class="conn"><div class="lbl">bottom nav</div><div class="arr">→</div></div>
+
+    <!-- ④ C/C TRACKER -->
+    <div class="scol">
+      <div class="slabel"><div class="n">04</div><div class="t">C/C tracker</div></div>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="screen">
+          <div class="ahead">
+            <span class="feedtitle">Corners &amp; Cards</span>
+            <div class="status"><span class="live"></span>LIVE · 14:32</div>
+          </div>
+          <div class="list">
+            <div class="cards">
+              <div class="mrow"><div class="mname">Juventus v Milan</div><div class="mright"><div class="vbadge hi">+7.0%</div><div class="mchev">›</div></div></div>
+              <div class="mrow"><div class="mname">Atletico v Sevilla</div><div class="mright"><div class="vbadge hi">+6.1%</div><div class="mchev">›</div></div></div>
+              <div class="mrow"><div class="mname">Arsenal v Chelsea</div><div class="mright"><div class="vbadge mid">+5.4%</div><div class="mchev">›</div></div></div>
+              <div class="mrow"><div class="mname">Marseille v Nice</div><div class="mright"><div class="vbadge mid">+5.2%</div><div class="mchev">›</div></div></div>
+              <div class="mrow"><div class="mname">Dortmund v Wolfsburg</div><div class="mright"><div class="vbadge mid">+4.9%</div><div class="mchev">›</div></div></div>
+              <div class="mrow"><div class="mname">Man City v Spurs</div><div class="mright"><div class="vbadge mid">+4.3%</div><div class="mchev">›</div></div></div>
+              <div class="mrow"><div class="mname">Lazio v Roma</div><div class="mright"><div class="vbadge lo">+3.6%</div><div class="mchev">›</div></div></div>
+            </div>
+          </div>
+          <div class="bnav">
+            <button><span class="ic"></span>Coupon</button>
+            <button><span class="ic tennis"></span>Tennis</button>
+            <button class="on"><span class="ic corner"></span>C/C</button>
+          </div>
+        </div>
+      </div>
+      <div class="sdesc"><b>One row per match.</b> Tap to expand bets for that game.</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════ SUB-FLOWS ════ -->
+<div class="subflows-wrap">
+
+  <!-- SUB-FLOW A: Coupon picker → Upload -->
+  <div class="flow-section">
+    <div class="flow-label">Sub-flow A — Coupon picker &amp; upload <span class="from">from screen 02, tap coupon name</span></div>
+    <div class="flow">
+      <div class="origin-chip">Screen 02<br>Coupon tracker</div>
+      <div class="conn"><div class="lbl">tap<br>coupon name</div><div class="arr">→</div></div>
+      <div class="scol">
+        <div class="slabel"><div class="n">05</div><div class="t">Coupon picker</div></div>
+        <div class="phone">
+          <div class="notch"></div>
+          <div class="screen">
+            <div class="ahead">
+              <div class="coupbtn">
+                <span class="lab">COUPON:</span>
+                <span class="sel"><span class="name">Saturday Acca</span><span class="chev">▾</span></span>
+              </div>
+              <div class="status"><span class="live"></span>LIVE · 14:32</div>
+            </div>
+            <div style="flex:1;overflow:hidden;opacity:.2;">
+              <div class="cards">
+                <div class="bcard"><div class="body"><div class="match">PSG v Lyon</div><div class="meta"><span class="odds">2.30</span><span class="pick">PSG HT/FT</span></div></div><div class="vbadge hi">+8.1%</div></div>
+                <div class="bcard"><div class="body"><div class="match">Liverpool v Brighton</div><div class="meta"><span class="odds">1.90</span><span class="pick">Liverpool −1</span></div></div><div class="vbadge hi">+6.8%</div></div>
+              </div>
+            </div>
+            <div class="dimmed">
+              <div class="sheet-panel">
+                <div class="sheet-head"><span class="t">SELECT COUPON</span><span class="x">✕</span></div>
+                <div class="copt on"><span class="tick"></span><div><div class="nm">Saturday Acca</div><div class="mt">4 legs</div></div></div>
+                <div class="copt"><span class="tick"></span><div><div class="nm">Lunchtime 5-Fold</div><div class="mt">5 legs</div></div></div>
+                <div class="copt"><span class="tick"></span><div><div class="nm">Euro Night</div><div class="mt">3 legs</div></div></div>
+                <div class="copt"><span class="tick"></span><div><div class="nm">Value Singles</div><div class="mt">3 legs</div></div></div>
+                <div class="copt"><span class="tick"></span><div><div class="nm">Banker Builder</div><div class="mt">3 legs</div></div></div>
+                <div class="sheet-sep"></div>
+                <button class="sheet-upload"><span class="upic">↑</span>UPLOAD COUPONS</button>
+              </div>
+            </div>
+            <div class="bnav">
+              <button class="on"><span class="ic"></span>Coupon</button>
+              <button><span class="ic tennis"></span>Tennis</button>
+              <button><span class="ic corner"></span>C/C</button>
+            </div>
+          </div>
+        </div>
+        <div class="sdesc">Tap a row to switch coupon. Big button at the bottom opens upload.</div>
+      </div>
+
+      <div class="conn"><div class="lbl">tap<br>Upload</div><div class="arr">→</div></div>
+
+      <div class="scol">
+        <div class="slabel"><div class="n">06</div><div class="t">Upload coupons</div></div>
+        <div class="phone">
+          <div class="notch"></div>
+          <div class="screen">
+            <div class="upload-header">
+              <div class="back-btn">←</div>
+              <div class="title">Upload Coupons</div>
+            </div>
+            <div class="upload-body">
+              <div class="drop-zone">
+                <div class="di">↑</div>
+                <div class="dt">Drop file to upload</div>
+                <div class="ds">.csv or .xlsx supported</div>
+                <button class="btn-up">Browse file</button>
+              </div>
+              <div class="up-opts">
+                <div class="up-field">
+                  <span class="ul">Coupon type</span>
+                  <span class="up-sel"><span class="uv">TTS2</span><span class="uchev">▾</span></span>
+                </div>
+                <div class="up-field">
+                  <span class="ul">Match day</span>
+                  <span class="up-sel"><span class="uv">Sat</span><span class="uchev">▾</span></span>
+                </div>
+              </div>
+              <div class="prev-head">PREVIOUS UPLOADS</div>
+              <div>
+                <div class="urow"><span class="un">saturday_acca_wk23.csv</span><span class="ud">09 Jun</span><span class="chip ok">LIVE</span></div>
+                <div class="urow"><span class="un">lunchtime_fivefold.csv</span><span class="ud">09 Jun</span><span class="chip ok">LIVE</span></div>
+                <div class="urow"><span class="un">euro_night_draft.csv</span><span class="ud">08 Jun</span><span class="chip pend">PENDING</span></div>
+                <div class="urow"><span class="un">banker_builder_wk22.csv</span><span class="ud">02 Jun</span><span class="chip ok">LIVE</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="sdesc">Upload file → LIVE once processed. ← returns to the coupon tracker.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUB-FLOW B: C/C match expand -->
+  <div class="flow-section">
+    <div class="flow-label">Sub-flow B — C/C match expand <span class="from">from screen 04, tap a match row</span></div>
+    <div class="flow">
+      <div class="origin-chip">Screen 04<br>C/C tracker</div>
+      <div class="conn"><div class="lbl">tap<br>match row</div><div class="arr">→</div></div>
+      <div class="scol">
+        <div class="slabel"><div class="n">04a</div><div class="t">Bets expanded</div></div>
+        <div class="phone">
+          <div class="notch"></div>
+          <div class="screen">
+            <div class="ahead">
+              <span class="feedtitle">Corners &amp; Cards</span>
+              <div class="status"><span class="live"></span>LIVE · 14:32</div>
+            </div>
+            <div class="list">
+              <div class="cards">
+                <div class="mrow"><div class="mname">Juventus v Milan</div><div class="mright"><div class="vbadge hi">+7.0%</div><div class="mchev">›</div></div></div>
+                <div class="mrow"><div class="mname">Atletico v Sevilla</div><div class="mright"><div class="vbadge hi">+6.1%</div><div class="mchev">›</div></div></div>
+                <!-- Arsenal v Chelsea — expanded -->
+                <div class="mrow open"><div class="mname">Arsenal v Chelsea</div><div class="mright"><div class="vbadge mid">+5.4%</div><div class="mchev" style="transform:rotate(90deg);color:var(--accent);">›</div></div></div>
+                <div class="mbets">
+                  <div class="mbet"><span class="bpick">Over 10.5 corners</span><span class="bodds">1.95</span><span class="bval mid">+5.4%</span></div>
+                  <div class="mbet"><span class="bpick">Over 5.5 cards</span><span class="bodds">2.40</span><span class="bval mid">+4.8%</span></div>
+                  <div class="mbet"><span class="bpick">Arsenal most corners</span><span class="bodds">1.72</span><span class="bval lo">+3.2%</span></div>
+                </div>
+                <div class="mrow"><div class="mname">Marseille v Nice</div><div class="mright"><div class="vbadge mid">+5.2%</div><div class="mchev">›</div></div></div>
+                <div class="mrow"><div class="mname">Dortmund v Wolfsburg</div><div class="mright"><div class="vbadge mid">+4.9%</div><div class="mchev">›</div></div></div>
+                <div class="mrow"><div class="mname">Man City v Spurs</div><div class="mright"><div class="vbadge mid">+4.3%</div><div class="mchev">›</div></div></div>
+              </div>
+            </div>
+            <div class="bnav">
+              <button><span class="ic"></span>Coupon</button>
+              <button><span class="ic tennis"></span>Tennis</button>
+              <button class="on"><span class="ic corner"></span>C/C</button>
+            </div>
+          </div>
+        </div>
+        <div class="sdesc">Tapped match expands inline. Other rows stay collapsed. Tap again to close.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>

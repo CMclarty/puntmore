@@ -1,0 +1,19 @@
+# Secrets — never commit (.env.example is the committed template)
+.env
+
+# Python
+__pycache__/
+*.pyc
+api/.venv/
+.pytest_cache/
+
+# Local dev database & uploads
+api/coupontracker.db
+api/uploads/
+
+# Node / frontend build
+frontend/node_modules/
+frontend/dist/
+
+# Editor/OS noise
+.DS_Store

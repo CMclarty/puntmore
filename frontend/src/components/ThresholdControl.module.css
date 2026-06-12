@@ -1,0 +1,36 @@
+.wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.label {
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 4px 8px;
+  width: 80px;
+  text-align: right;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.hint {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .hint { display: none; }
+}

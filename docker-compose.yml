@@ -1,0 +1,28 @@
+services:
+  api:
+    build: ./api
+    env_file: .env
+    volumes:
+      - db_data:/data
+      - uploads:/uploads
+    environment:
+      - UPLOAD_DIR=/uploads
+      - DATABASE_URL=sqlite:////data/coupontracker.db
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+
+  nginx:
+    build: ./nginx
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+      - frontend
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  uploads:

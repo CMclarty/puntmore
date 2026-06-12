@@ -1,0 +1,165 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 0 0 8px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.meta {
+  font-size: 11px;
+  color: var(--faint);
+  padding: 4px 12px;
+  font-family: var(--font-mono);
+}
+
+.error {
+  font-size: 12px;
+  color: var(--red);
+  padding: 4px 12px;
+}
+
+.empty {
+  font-size: 13px;
+  color: var(--muted);
+  padding: 16px 12px;
+}
+
+.feed {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Value cards (tennis) */
+.card {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.card:last-child { border-bottom: none; }
+
+.cardRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.match {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  min-width: 0;
+}
+
+.pick {
+  flex: 1;
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.odds {
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.arbChip {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 4px;
+  padding: 1px 5px;
+  letter-spacing: 0.05em;
+}
+
+/* Value badge */
+.badge {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.hi   { color: var(--accent); background: var(--accent-soft); }
+.mid  { color: var(--ink);    background: var(--zebra); }
+.lo   { color: var(--muted);  background: var(--zebra); }
+.neg  { color: var(--faint);  background: transparent; }
+
+/* Match rows (cards accordion) */
+.matchBlock {
+  border-bottom: 1px solid var(--line);
+}
+
+.matchBlock:last-child { border-bottom: none; }
+
+.matchRow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.matchRowOpen {
+  background: var(--zebra);
+}
+
+.chevron {
+  font-size: 14px;
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+  display: inline-block;
+  transform: rotate(0deg);
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+  color: var(--accent);
+}
+
+.bets {
+  background: var(--zebra);
+  border-top: 1px solid var(--line);
+}
+
+.betRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.betRow:last-child { border-bottom: none; }

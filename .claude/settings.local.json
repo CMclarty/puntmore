@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(.venv/bin/python -m pytest tests/test_auth.py -q)",
+      "Bash(.venv/bin/python -m pytest tests/ -q)",
+      "Bash(sudo ss -ltnp)",
+      "Bash(curl -skI https://localhost -H \"Host: puntmore.com\")",
+      "Bash(cp \"/tmp/puntmore_handoff/design_handoff_puntmore/Puntmore Flow.html\" \"/home/callum/bettingtools/design/Puntmore-Flow.html\")",
+      "Bash(cp /tmp/puntmore_handoff/design_handoff_puntmore/README.md /home/callum/bettingtools/design/HANDOFF.md)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8080/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8080/api/auth/me)",
+      "Bash(curl -s -o /dev/null -w \"shell %{http_code}\\\\n\" http://localhost:8080/)",
+      "Bash(curl -s -o /dev/null -w \"api %{http_code}\\\\n\" http://localhost:8080/api/auth/me)",
+      "Bash(curl -s \"https://api.the-odds-api.com/v4/sports/?apiKey=2f2cd15f6e7effeb48f85204a4a7beef\")",
+      "Bash(curl -s -c /tmp/pm_cookies.txt -X POST http://localhost:8080/api/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"admin\"}')",
+      "Bash(curl -s -b /tmp/pm_cookies.txt \"http://localhost:8080/api/tennis/feed?min_edge=-0.5\")",
+      "Bash(.venv/bin/python -m pytest tests/test_feeds.py tests/test_tennis_arbs.py -q)"
+    ]
+  }
+}
