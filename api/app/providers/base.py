@@ -13,6 +13,10 @@ class MatchQuery:
 class OddsResult:
     match_id: int
     fair_odds: float | None
+    # The fixture name the provider fuzzy-matched the query to (None if no
+    # match). Surfaced so a wrong match is visible instead of silently
+    # producing a wrong fair price.
+    matched_fixture: str | None = None
 
 
 class OddsProvider(ABC):

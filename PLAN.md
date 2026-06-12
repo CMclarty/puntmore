@@ -74,6 +74,23 @@ Old components (NavTabs, SetNav, CouponList, VersionPanel, etc.) deleted. Build 
   and 3 refresh-endpoint tests. 70/70 green.
 - Dropped dead `getArbs`/`getCards` exports from frontend api.js.
 
+## Phase R7 — Alert dedupe & odds-match transparency ✅
+(Done out of order, before R6 — correctness hardening prioritised per user.)
+- [x] Repo put under git (initial commit `8f76fbc`); `.gitignore` excludes `.env`,
+      DBs, venv, node_modules, dist. **Remote push still manual** — add a private
+      remote and push.
+- [x] Discord value-bet alerts deduped: notify only when a leg's value tier
+      (hi/mid/lo, mirrors frontend cutoffs) is new or changed; tracked in new
+      `legs.notified_tier` column (guarded ALTER in `ensure_schema`).
+- [x] Fuzzy-match transparency: `OddsResult.matched_fixture` returned by
+      `TheOddsApiProvider`, persisted on `legs.matched_fixture`, shown in the
+      tracker when it differs from the OCR'd name. Borderline matches
+      (0.6 ≤ score < 0.75) logged as warnings.
+- [x] Compound picks ("win and over X.X") badged approximate: `Leg.is_approx`
+      property + `LegOut.is_approx`; tracker renders `fair ≈X.XX` with tooltip.
+- [x] 82/82 tests green (test_scheduler.py added: dedupe, tiers, fixture
+      surfacing, borderline logging); `npm run build` clean.
+
 ## Phase R6 — Polish, offline, verification
 - [ ] Live status `● LIVE · HH:MM`; stale/offline indicator when SW serves cache.
 - [ ] Animations (accordion, sheet) ~150–200ms ease; chevron rotation.

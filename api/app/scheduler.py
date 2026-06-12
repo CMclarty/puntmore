@@ -7,7 +7,7 @@ from apscheduler.events import EVENT_JOB_ERROR
 
 from .database import SessionLocal
 from .models import Coupon, Leg
-from .comparison import compute_value
+from .comparison import compute_value, value_tier
 from .providers.base import MatchQuery
 from .time_utils import utcnow
 
@@ -45,12 +45,19 @@ def cleanup_old_coupons(db=None, *, cutoff_days: int = 30, notifier=None) -> int
     return count
 
 
-def refresh_all_live_coupons(odds_provider, notifier=None) -> int:
+def refresh_all_live_coupons(odds_provider, notifier=None, db=None) -> int:
     """Refresh fair odds for all legs in live coupons.
+
+    Notifies only legs whose value tier is new or changed since the last
+    notification (tracked in Leg.notified_tier) — the 10-min loop must not
+    re-alert the same value bets every cycle.
 
     Returns the total number of legs updated.
     """
-    db = SessionLocal()
+    close = False
+    if db is None:
+        db = SessionLocal()
+        close = True
     total_updated = 0
     try:
         coupons = db.query(Coupon).filter(Coupon.status == "live").all()
@@ -70,31 +77,35 @@ def refresh_all_live_coupons(odds_provider, notifier=None) -> int:
 
             result_map = {r.match_id: r for r in results}
             now = utcnow()
-            updated = []
+            value_legs = []
             for leg in legs:
                 result = result_map.get(leg.id)
                 if result and result.fair_odds is not None:
                     leg.fair_odds = result.fair_odds
                     leg.value = compute_value(leg.odds, result.fair_odds)
                     leg.fair_odds_updated_at = now
-                    updated.append(leg)
+                    leg.matched_fixture = result.matched_fixture
                     total_updated += 1
+
+                    tier = value_tier(leg.value)
+                    if tier and tier != leg.notified_tier:
+                        value_legs.append(leg)
+                    leg.notified_tier = tier
 
             db.commit()
 
-            if notifier and updated:
-                value_legs = [l for l in updated if l.value is not None and l.value > 0]
-                if value_legs:
-                    lines = "\n".join(
-                        f"  {l.match_name} ({l.pick}) — your: {l.odds}, "
-                        f"fair: {l.fair_odds:.2f}, value: +{l.value:.1%}"
-                        for l in value_legs
-                    )
-                    notifier.send(
-                        f":moneybag: {len(value_legs)} value leg(s) found:\n{lines}"
-                    )
+            if notifier and value_legs:
+                lines = "\n".join(
+                    f"  {l.match_name} ({l.pick}) — your: {l.odds}, "
+                    f"fair: {l.fair_odds:.2f}, value: +{l.value:.1%}"
+                    for l in value_legs
+                )
+                notifier.send(
+                    f":moneybag: {len(value_legs)} new/changed value leg(s):\n{lines}"
+                )
     finally:
-        db.close()
+        if close:
+            db.close()
     return total_updated
 
 

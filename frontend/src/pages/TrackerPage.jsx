@@ -17,6 +17,11 @@ function fmtValue(v) {
   return v > 0 ? `+${s}%` : `${s}%`
 }
 
+function fixtureDiffers(leg) {
+  if (!leg.matched_fixture) return false
+  return leg.matched_fixture.trim().toLowerCase() !== leg.match_name.trim().toLowerCase()
+}
+
 function fmtDate(d) {
   if (!d) return ''
   const dt = new Date(d)
@@ -111,9 +116,19 @@ export default function TrackerPage() {
               <span className={styles.legPick}>{leg.pick}</span>
               <span className={`${styles.legOdds} ${styles.mono}`}>{leg.odds.toFixed(2)}</span>
               {leg.fair_odds != null && (
-                <span className={`${styles.legFair} ${styles.mono}`}>fair {leg.fair_odds.toFixed(2)}</span>
+                <span
+                  className={`${styles.legFair} ${styles.mono}`}
+                  title={leg.is_approx ? 'Compound pick — fair odds assume win and total are independent' : undefined}
+                >
+                  fair {leg.is_approx ? '≈' : ''}{leg.fair_odds.toFixed(2)}
+                </span>
               )}
             </div>
+            {fixtureDiffers(leg) && (
+              <div className={styles.legFixture} title="Fixture matched on TheOddsApi — check it's the right game">
+                → {leg.matched_fixture}
+              </div>
+            )}
           </div>
         ))}
       </div>

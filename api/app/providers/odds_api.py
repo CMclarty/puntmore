@@ -11,12 +11,21 @@ Compound fair odds = h2h_price × totals_price (independence approximation).
 """
 import re
 import difflib
+import logging
 
 from .base import OddsProvider, MatchQuery, OddsResult
 from ..normalise import normalise_match
 from ..odds.client import TheOddsApiClient
 
+logger = logging.getLogger("uvicorn.error")
+
 PREFERRED_BOOKMAKER = "pinnacle"
+
+# Fuzzy-match thresholds: below MATCH_THRESHOLD a query is unmatched; between
+# the two, the match is accepted but logged for human review (a wrong fixture
+# silently produces a wrong fair price).
+MATCH_THRESHOLD = 0.6
+CONFIDENT_THRESHOLD = 0.75
 
 SOCCER_SPORT_KEYS = [
     "soccer_epl",
@@ -110,7 +119,7 @@ class TheOddsApiProvider(OddsProvider):
         return events
 
     @staticmethod
-    def _best_match(query: str, candidates: list[str]) -> str | None:
+    def _best_match(query: str, candidates: list[str]) -> tuple[str, float] | None:
         q_norm = normalise_match(query)
         norm_to_orig: dict[str, str] = {}
         for c in candidates:
@@ -120,8 +129,9 @@ class TheOddsApiProvider(OddsProvider):
             for c_norm, orig in norm_to_orig.items()
         ]
         scored.sort(reverse=True)
-        if scored and scored[0][0] >= 0.6:
-            return scored[0][1]
+        if scored and scored[0][0] >= MATCH_THRESHOLD:
+            score, orig = scored[0]
+            return orig, score
         return None
 
     def get_fair_odds(self, queries: list[MatchQuery]) -> list[OddsResult]:
@@ -135,8 +145,17 @@ class TheOddsApiProvider(OddsProvider):
         results = []
         for q in queries:
             fair = None
-            matched = self._best_match(q.match_name, list(name_to_event.keys()))
-            if matched:
-                fair = _extract_fair_odds(name_to_event[matched], q.market)
-            results.append(OddsResult(match_id=q.match_id, fair_odds=fair))
+            fixture = None
+            match = self._best_match(q.match_name, list(name_to_event.keys()))
+            if match:
+                fixture, score = match
+                if score < CONFIDENT_THRESHOLD:
+                    logger.warning(
+                        "Borderline fixture match (%.2f): %r -> %r — verify in UI",
+                        score, q.match_name, fixture,
+                    )
+                fair = _extract_fair_odds(name_to_event[fixture], q.market)
+            results.append(
+                OddsResult(match_id=q.match_id, fair_odds=fair, matched_fixture=fixture)
+            )
         return results

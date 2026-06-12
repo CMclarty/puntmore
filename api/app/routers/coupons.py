@@ -65,6 +65,7 @@ def refresh_coupon(coupon_id: int, request: Request, db: Session = Depends(get_d
             leg.fair_odds = result.fair_odds
             leg.value = compute_value(leg.odds, result.fair_odds)
             leg.fair_odds_updated_at = now
+            leg.matched_fixture = result.matched_fixture
 
     db.commit()
     db.refresh(coupon)

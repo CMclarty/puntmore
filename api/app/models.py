@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime, Date, ForeignKey, Text
 from sqlalchemy.orm import relationship
+from .comparison import is_compound_pick
 from .database import Base
 from .time_utils import utcnow
 
@@ -40,8 +41,15 @@ class Leg(Base):
     fair_odds_updated_at = Column(DateTime, nullable=True)
     external_event_id = Column(Integer, nullable=True)
     rank = Column(Integer, nullable=False, default=0)
+    matched_fixture = Column(String, nullable=True)  # TheOddsApi fixture the fuzzy match linked
+    notified_tier = Column(String, nullable=True)    # last value tier sent to Discord (dedupe)
 
     coupon = relationship("Coupon", back_populates="legs")
+
+    @property
+    def is_approx(self) -> bool:
+        """Fair odds for compound picks are an independence approximation."""
+        return is_compound_pick(self.pick)
 
 
 class User(Base):

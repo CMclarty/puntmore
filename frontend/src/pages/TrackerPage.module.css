@@ -160,6 +160,12 @@
   color: var(--faint);
 }
 
+.legFixture {
+  font-size: 11px;
+  color: var(--faint);
+  font-style: italic;
+}
+
 /* Value badges */
 .valueBadge {
   font-size: 11px;

@@ -84,7 +84,9 @@ loop). Tennis and cards consume the client directly via `app.state.arbs_client` 
 
 ### Notification provider (`app/notifications/`)
 `send(message)`. `DiscordNotificationProvider` (`DISCORD_WEBHOOK_URL`) →
-`NullNotificationProvider` (no webhook).
+`NullNotificationProvider` (no webhook). Value-bet alerts from the refresh loop
+are deduped via `legs.notified_tier` (notify only on new/changed tier) — keep
+that behaviour when touching the loop, or live coupons re-alert every 10 min.
 
 ## Workflow
 - Work in phases per `PLAN.md`. Complete and verify one phase before the next.

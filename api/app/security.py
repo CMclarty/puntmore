@@ -92,3 +92,13 @@ def ensure_schema() -> None:
                 conn.execute(text("DROP TABLE IF EXISTS coupons"))
                 conn.execute(text("DROP TABLE IF EXISTS legs"))
             Base.metadata.create_all(bind=engine)
+            return
+
+    # R7 migration: matched-fixture transparency + notification dedupe columns.
+    if "legs" in tables:
+        cols = {c["name"] for c in inspector.get_columns("legs")}
+        with engine.begin() as conn:
+            if "matched_fixture" not in cols:
+                conn.execute(text("ALTER TABLE legs ADD COLUMN matched_fixture VARCHAR"))
+            if "notified_tier" not in cols:
+                conn.execute(text("ALTER TABLE legs ADD COLUMN notified_tier VARCHAR"))

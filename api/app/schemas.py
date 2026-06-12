@@ -14,6 +14,8 @@ class LegOut(BaseModel):
     fair_odds_updated_at: Optional[datetime]
     external_event_id: Optional[int]
     rank: int
+    matched_fixture: Optional[str] = None
+    is_approx: bool = False
 
     model_config = {"from_attributes": True}
 

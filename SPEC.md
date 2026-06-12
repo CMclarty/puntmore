@@ -106,7 +106,8 @@ All three tools read odds through one shared client
   market). Used identically by tennis arbs and cards.
 - **Coupon market mapping** (`providers/odds_api.py`): `win` → home h2h;
   `over X.X` / `under X.X` → totals; `win and over X.X` → h2h × totals
-  (independence approximation). TheOddsApi returns the totals line as `"point"`
+  (independence approximation — these legs carry `is_approx: true` and the UI
+  shows `fair ≈X.XX`). TheOddsApi returns the totals line as `"point"`
   (numeric) on each outcome.
 
 ## 6. The provider seams (must stay abstracted)
@@ -136,14 +137,21 @@ coupon set **live**. Coupon `status` tracks this (pending → live).
 
 Team-name normalisation (`app/normalise.py`): OCR'd names won't match TheOddsApi
 fixture names exactly ("Man Utd" vs "Manchester United"). A fuzzy-match layer
-(difflib ratio, ≥0.6 threshold) sits between extraction and odds lookup.
+(difflib ratio, ≥0.6 threshold) sits between extraction and odds lookup. The
+matched fixture name is stored on the leg (`matched_fixture`) and shown in the
+tracker when it differs from the OCR'd name, so a wrong match is visible rather
+than silently producing a wrong fair price; matches scoring < 0.75 are also
+logged as warnings.
 
 ## 8. Refresh loop (coupons)
 - Every 10 minutes APScheduler refreshes fair odds for all legs in live coupons,
-  recomputes value, and (if a Discord webhook is set) notifies on any
-  positive-value legs. `POST /coupons/{id}/refresh` triggers the same refresh
-  on demand for one coupon. Both recompute locally and read through the odds
-  cache — they never increase TheOddsApi call frequency.
+  recomputes value, and (if a Discord webhook is set) notifies on positive-value
+  legs. Alerts are deduplicated: a leg notifies only when its value tier
+  (hi ≥ +6% / mid ≥ +4% / lo > 0) is new or changed since the last alert
+  (tracked in `legs.notified_tier`; cleared when value drops non-positive, so a
+  leg that recovers re-alerts). `POST /coupons/{id}/refresh` triggers the same
+  refresh on demand for one coupon. Both recompute locally and read through the
+  odds cache — they never increase TheOddsApi call frequency.
 
 ## 9. Auto-deletion (30 days)
 - Daily APScheduler job + a run on startup (self-heals after downtime): delete
