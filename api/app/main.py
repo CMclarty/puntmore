@@ -8,7 +8,13 @@ from .database import engine, SessionLocal
 from .models import Base
 from .seed import seed
 from .config import settings
-from .security import require_user, seed_users, ensure_schema
+from .security import (
+    require_user,
+    seed_users,
+    ensure_schema,
+    weak_seed_passwords,
+    MIN_PASSWORD_LENGTH,
+)
 from .odds.client import TheOddsApiClient
 from .providers.odds_api import TheOddsApiProvider
 from .providers.bettingiscool import (
@@ -42,6 +48,18 @@ async def lifespan(app: FastAPI):
         created = seed_users(db, settings.auth_users)
         if created:
             logger.info("Seeded %d user(s) from AUTH_USERS", created)
+        # Login is reachable from the public internet, so a guessable password
+        # is the whole attack. Warn every startup until it is fixed — seeding
+        # never rewrites an existing user, so changing AUTH_USERS alone is not
+        # enough: delete the row too.
+        weak = weak_seed_passwords(settings.auth_users)
+        if weak:
+            logger.warning(
+                "WEAK PASSWORD for user(s): %s — guessable or under %d chars. "
+                "Change AUTH_USERS *and* delete the existing row(s), or the old "
+                "password stays live.",
+                ", ".join(weak), MIN_PASSWORD_LENGTH,
+            )
     finally:
         db.close()
 
@@ -159,7 +177,11 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=_secret_key,
     same_site="lax",
-    https_only=False,  # TLS terminates at Caddy; cookie travels http internally
+    # Sets the cookie's Secure flag, i.e. whether the BROWSER will send it over
+    # plain HTTP. Independent of the proxy hop: TLS still terminates at Caddy and
+    # the cookie still travels http internally, which is fine. Off only when
+    # SESSION_COOKIE_INSECURE=1 for local dev over http://localhost.
+    https_only=not settings.session_cookie_insecure,
     max_age=30 * 24 * 60 * 60,  # 30 days
 )
 

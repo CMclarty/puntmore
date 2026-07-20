@@ -165,3 +165,62 @@ def test_data_router_200_with_session():
     app.dependency_overrides.pop(require_user, None)
     client.post("/auth/login", json={"username": "alice", "password": "secret"})
     assert client.get("/coupons").status_code == 200
+
+
+# --- brute-force throttle + constant-time login ---
+
+def test_repeated_failures_lock_out_then_429():
+    from app.routers.auth import _throttle
+    _throttle._failures.clear()
+    _seed_user("bob", "goodpass")
+    client = TestClient(app)
+
+    for _ in range(_throttle._max):
+        r = client.post("/auth/login", json={"username": "bob", "password": "bad"})
+        assert r.status_code == 401
+
+    # Once locked, the response no longer distinguishes a wrong password from a
+    # right one — the correct password is refused too.
+    assert client.post(
+        "/auth/login", json={"username": "bob", "password": "bad"}
+    ).status_code == 429
+    assert client.post(
+        "/auth/login", json={"username": "bob", "password": "goodpass"}
+    ).status_code == 429
+    _throttle._failures.clear()
+
+
+def test_successful_login_clears_the_counter():
+    from app.routers.auth import _throttle
+    _throttle._failures.clear()
+    _seed_user("carol", "goodpass")
+    client = TestClient(app)
+
+    client.post("/auth/login", json={"username": "carol", "password": "bad"})
+    assert client.post(
+        "/auth/login", json={"username": "carol", "password": "goodpass"}
+    ).status_code == 200
+    assert _throttle._failures == {}
+
+
+def test_unknown_user_still_runs_a_hash_check():
+    # Timing-oracle guard: a missing user must not short-circuit past bcrypt,
+    # or response time reveals which usernames exist.
+    import time as _t
+
+    from app.security import verify_login
+
+    start = _t.monotonic()
+    assert verify_login("anything", None) is False
+    assert _t.monotonic() - start > 0.01
+
+
+def test_weak_seed_passwords_flags_the_obvious_ones():
+    from app.security import weak_seed_passwords
+
+    assert weak_seed_passwords("admin:admin") == ["admin"]        # common
+    assert weak_seed_passwords("bob:bob") == ["bob"]              # equals username
+    assert weak_seed_passwords("carol:short") == ["carol"]        # too short
+    assert weak_seed_passwords("dave:cqR7-vv2N!ktPz") == []       # fine
+    # Reports usernames only — this gets logged, so it must never leak secrets.
+    assert "admin" not in str(weak_seed_passwords("x:admin"))

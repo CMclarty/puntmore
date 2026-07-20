@@ -63,6 +63,15 @@ class Settings(BaseSettings):
     # Session cookie signing key. If blank, a random key is generated at startup
     # (sessions reset on restart — fine for dev; set a fixed value in prod).
     secret_key: str = ""
+    # Drop the session cookie's Secure flag so it works over http://localhost.
+    # NEVER set this in production — it lets the browser send the session cookie
+    # over plain HTTP.
+    session_cookie_insecure: bool = False
+    # Failed logins allowed per username+IP before lockout, and the lockout
+    # window in seconds. In-process counters: fine on one instance (SQLite pins
+    # us to one anyway); a multi-instance deploy would need a shared store.
+    login_max_attempts: int = 10
+    login_lockout_seconds: int = 900
     # Seed users, format "user1:pass1,user2:pass2". Parsed on startup; missing
     # users are created. Existing users are never modified.
     auth_users: str = ""

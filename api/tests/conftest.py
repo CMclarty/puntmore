@@ -12,6 +12,10 @@ import os
 # is imported (routers are mounted at import time).
 os.environ.setdefault("ENABLE_ACCABONUS", "true")
 os.environ.setdefault("ENABLE_CARDS", "true")
+# The session cookie carries the Secure flag in production, so a client will not
+# send it back over plain http. TestClient talks to http://testserver, so drop
+# the flag for tests only — same reason it is dropped for local dev.
+os.environ.setdefault("SESSION_COOKIE_INSECURE", "true")
 
 import pytest
 

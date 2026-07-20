@@ -3,6 +3,8 @@
 No registration / reset flows. Users are seeded from Settings.auth_users on
 startup. require_user is the single guard applied to every data router.
 """
+import time
+
 import bcrypt
 from fastapi import HTTPException, Request
 from sqlalchemy import inspect, text
@@ -21,6 +23,56 @@ def verify_password(plain: str, hashed: str) -> bool:
         return bcrypt.checkpw(plain.encode(), hashed.encode())
     except (ValueError, TypeError):
         return False
+
+
+# A real bcrypt hash to check against when the username doesn't exist, so a
+# miss costs the same ~100ms as a wrong password. Without this, an unknown
+# username returns immediately and a known one doesn't — a timing oracle that
+# enumerates valid usernames before an attacker spends a single guess.
+_DUMMY_HASH = hash_password("dummy-password-for-constant-time-comparison")
+
+
+def verify_login(password: str, user) -> bool:
+    """Check a password, doing equal work whether or not the user exists."""
+    if user is None:
+        verify_password(password, _DUMMY_HASH)
+        return False
+    return verify_password(password, user.password_hash)
+
+
+class LoginThrottle:
+    """In-process failed-login counter, keyed by (username, client IP).
+
+    Keyed on both so one attacker cannot lock out a legitimate user by
+    hammering their username, and one IP cannot spray many usernames freely.
+    Counters live in memory: they reset on restart, which is acceptable here —
+    this raises the cost of a brute-force attempt, it is not an audit log.
+    """
+
+    def __init__(self, max_attempts: int, lockout_seconds: int):
+        self._max = max_attempts
+        self._window = lockout_seconds
+        self._failures: dict[tuple[str, str], list[float]] = {}
+
+    def _recent(self, key: tuple[str, str]) -> list[float]:
+        now = time.monotonic()
+        hits = [t for t in self._failures.get(key, []) if now - t < self._window]
+        if hits:
+            self._failures[key] = hits
+        else:
+            self._failures.pop(key, None)
+        return hits
+
+    def is_locked(self, username: str, ip: str) -> bool:
+        return len(self._recent((username, ip))) >= self._max
+
+    def record_failure(self, username: str, ip: str) -> None:
+        key = (username, ip)
+        self._recent(key)
+        self._failures.setdefault(key, []).append(time.monotonic())
+
+    def reset(self, username: str, ip: str) -> None:
+        self._failures.pop((username, ip), None)
 
 
 def require_user(request: Request) -> str:
@@ -46,6 +98,31 @@ def parse_auth_users(raw: str) -> list[tuple[str, str]]:
         if username and password:
             pairs.append((username, password))
     return pairs
+
+
+# Passwords that are effectively public knowledge. Not an exhaustive strength
+# check — just the ones an attacker's first ten guesses will cover.
+_COMMON_PASSWORDS = {
+    "admin", "password", "changeme", "letmein", "secret", "test",
+    "123456", "12345678", "qwerty", "puntmore",
+}
+MIN_PASSWORD_LENGTH = 12
+
+
+def weak_seed_passwords(raw: str) -> list[str]:
+    """Usernames in AUTH_USERS whose password is guessable.
+
+    Returns usernames only — never the passwords, since the caller logs this.
+    """
+    weak = []
+    for username, password in parse_auth_users(raw):
+        if (
+            password.lower() in _COMMON_PASSWORDS
+            or password.lower() == username.lower()
+            or len(password) < MIN_PASSWORD_LENGTH
+        ):
+            weak.append(username)
+    return weak
 
 
 def seed_users(db: Session, raw: str) -> int:
