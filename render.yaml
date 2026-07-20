@@ -18,7 +18,11 @@ services:
     plan: starter              # free has no persistent disk; the DB needs one
     dockerfilePath: ./api/Dockerfile
     dockerContext: .           # repo root: the build needs api/ AND frontend/
-    healthCheckPath: /api/health
+    # /ready, NOT /health: /health has no dependencies and answers 200 on a
+    # process that cannot serve a single request, which is how a deploy with an
+    # uninitialised database once went green. /ready checks that startup
+    # actually happened, so a broken deploy fails to promote.
+    healthCheckPath: /api/ready
     autoDeploy: true
 
     disk:

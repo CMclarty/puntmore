@@ -2,10 +2,11 @@ import logging
 import secrets
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from .database import engine, SessionLocal
-from .models import Base
+from .models import Base, User
 from .seed import seed
 from .config import settings
 from .security import (
@@ -76,11 +77,11 @@ async def lifespan(app: FastAPI):
 
     # Coupon odds provider (behind the OddsProvider seam).
     #
-    # bettingiscool is the intended source (SPEC §5). Its transport is not yet
-    # implemented, so selecting it without a key degrades to TheOddsApi rather
-    # than to the mock: a deployed instance must keep pricing real legs. The
-    # moment BETTINGISCOOL_API_KEY is set AND the provider is implemented, this
-    # branch takes it and TheOddsApi drops out of the coupon path entirely.
+    # bettingiscool is the live source (SPEC §5) and is implemented. Without a
+    # key it degrades to TheOddsApi rather than to the mock: a deployed
+    # instance must keep pricing real legs. Note TheOddsApi cannot derive
+    # Win-and-Over off the score grid, so that fallback prices compound legs
+    # naively — it is a stopgap, not an equivalent.
     #
     # TheOddsApi pulls one full /v4/sports/{sport}/odds response per sport and
     # reuses it for coupon_odds_cache_ttl across every leg and the 10-min
@@ -206,10 +207,56 @@ app.include_router(state_router.router)
 
 @app.get("/health", include_in_schema=False)
 def health():
-    """Liveness probe for the host's health check.
+    """Liveness probe.
 
     Deliberately does NOT touch the database or any vendor API: this answers
     "is the process up", and a slow upstream must not cause the host to kill an
     otherwise healthy container. Unauthenticated by design — it leaks nothing.
+
+    Because it has no dependencies it will answer 200 on a process that cannot
+    serve a single real request. Do NOT use it to gate deploys — that is what
+    /ready below is for.
     """
     return {"status": "ok"}
+
+
+@app.get("/ready", include_in_schema=False)
+def ready():
+    """Readiness probe — gates deploy promotion.
+
+    Exists because a broken deploy once went live with /health green: the app
+    was mounted as a sub-application whose lifespan never ran, so it had no
+    tables, no users and no providers, and every real request failed while the
+    host believed the service was healthy. This checks the things that startup
+    is responsible for, so that failure mode cannot pass again.
+
+    Unauthenticated like /health, and says only whether each check passed —
+    no schema, no config, no vendor detail.
+    """
+    checks: dict[str, bool] = {}
+
+    # The lifespan runs create_all + ensure_schema + seed_users. Querying a
+    # table it is responsible for proves all three happened against the same
+    # database this process actually reads.
+    try:
+        db = SessionLocal()
+        try:
+            db.query(User).limit(1).all()
+            checks["database"] = True
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("Readiness: database check failed")
+        checks["database"] = False
+
+    # Providers are assigned by the lifespan; missing means it did not run.
+    checks["providers"] = all(
+        getattr(app.state, name, None) is not None
+        for name in ("odds_provider", "ocr_provider", "notifier")
+    )
+
+    ok = all(checks.values())
+    return JSONResponse(
+        status_code=200 if ok else 503,
+        content={"status": "ready" if ok else "not ready", "checks": checks},
+    )

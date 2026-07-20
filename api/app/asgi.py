@@ -15,6 +15,7 @@ from one origin makes that class of bug impossible.
 Tests import `app.main:app` directly, so mounting here costs no test churn.
 """
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -28,7 +29,28 @@ logger = logging.getLogger("uvicorn.error")
 # Where the Dockerfile's frontend build stage drops the compiled assets.
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
-root = FastAPI(title="Puntmore", docs_url=None, redoc_url=None)
+
+@asynccontextmanager
+async def lifespan(_root: FastAPI):
+    """Run the mounted API's lifespan.
+
+    Starlette does NOT run a mounted sub-application's lifespan — only the
+    top-level app's. Without this, `main.lifespan` never fires under this
+    entrypoint: no `create_all`, no `ensure_schema`, no seeded users, no
+    providers on `app.state`. The symptom is nasty because /health has no
+    dependencies and answers 200, so the platform health check goes green and
+    the service looks up while every real request dies on
+    "no such table: users".
+
+    It must run against `api_app`, not the root: the lifespan assigns to
+    `app.state`, and inside a mount `request.app` is the sub-app, so state set
+    on the root would be invisible to every route that reads it.
+    """
+    async with api_app.router.lifespan_context(api_app):
+        yield
+
+
+root = FastAPI(title="Puntmore", docs_url=None, redoc_url=None, lifespan=lifespan)
 root.mount("/api", api_app)
 
 
