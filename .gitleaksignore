@@ -1,0 +1,13 @@
+# Accepted findings — each line is a gitleaks fingerprint
+# (commit:file:rule:line). Only add a line here after deciding the finding is
+# genuinely not a live secret; everything listed becomes invisible to scans.
+
+# Odds API trial key committed in the initial commit, inside a Claude Code
+# permission allowlist entry. Decision (July 2026): the key is a disposable
+# free-tier trial credential and the repo had no remote until after this was
+# found, so history was deliberately NOT rewritten. The file is now untracked
+# and gitignored (commit a797139).
+# NOTE: this key is still present in commit 8f76fbc. It is only shielded by the
+# repo being PRIVATE — rotate it before ever making this repo public.
+8f76fbcb13959c4657440229f22661c9aa1450ed:.claude/settings.local.json:keyword-adjacent-hex-secret:15
+8f76fbcb13959c4657440229f22661c9aa1450ed:.claude/settings.local.json:the-odds-api-key:15

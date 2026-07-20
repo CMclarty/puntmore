@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Block any commit whose staged changes contain a secret.
+#
+# Enabled via `git config core.hooksPath .githooks` (see CLAUDE.md). Rules live
+# in .gitleaks.toml — the default gitleaks ruleset alone does NOT catch every
+# shape this repo has actually leaked, so the custom rules there matter.
+set -uo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+    cat >&2 <<'MSG'
+✗ Commit blocked: gitleaks is not on PATH, so staged changes were not scanned.
+
+  Install:  see CLAUDE.md (binary drops into ~/.local/bin, no root needed)
+  Override: git commit --no-verify   (only if you are certain)
+MSG
+    exit 1
+fi
+
+if ! gitleaks git --staged --no-banner --redact=50 -v; then
+    cat >&2 <<'MSG'
+
+✗ Commit blocked: a secret was detected in your staged changes.
+
+  The offending value is shown above (partially redacted).
+
+  To fix:
+    1. Remove the secret from the file.
+    2. Put it in .env instead — that file is gitignored.
+    3. Re-stage and commit again.
+
+  If this is a false positive:
+    - add a `gitleaks:allow` comment on that line, or
+    - append its fingerprint to .gitleaksignore
+
+  Emergency override (leaves the secret in history): git commit --no-verify
+MSG
+    exit 1
+fi

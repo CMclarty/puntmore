@@ -1,0 +1,46 @@
+# Puntmore secret-scanning config.
+#
+# Extends gitleaks' default ruleset. The default rules alone did NOT catch the
+# real leak this repo had (an Odds API key committed in .claude/settings.local.json
+# as `apiKey=2f2cd15f...`): a 32-char lowercase hex string draws from only 16
+# symbols, so its Shannon entropy sits below the generic-api-key threshold.
+# The rules below close that gap — they key off the *variable name* next to the
+# value rather than the value's entropy.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "keyword-adjacent-hex-secret"
+description = "Hex secret (16+ chars) assigned to an api-key/token/secret-like name"
+# Matches apiKey=abc123..., "api_key": "abc123...", ODDS_API_KEY=abc123..., etc.
+regex = '''(?i)\b(api[_-]?key|apikey|access[_-]?token|auth[_-]?token|secret[_-]?key|webhook[_-]?url|state[_-]?api[_-]?key)\b["'`]?\s*[:=]\s*["'`]?([a-f0-9]{16,})'''
+secretGroup = 2
+entropy = 0.0
+
+[[rules]]
+id = "the-odds-api-key"
+description = "the-odds-api.com key in a URL query string"
+regex = '''(?i)the-odds-api\.com[^\s"'`]*[?&]apiKey=([A-Za-z0-9]{16,})'''
+secretGroup = 1
+
+# NOTE: a custom Discord-webhook rule was tried here and removed. It matched
+# correctly in isolation but never fired under `useDefault = true`, and the
+# cause wasn't worth chasing: DISCORD_WEBHOOK_URL only ever lives in .env,
+# which is gitignored. If you ever need it, verify it actually fires before
+# trusting it.
+
+[allowlist]
+description = "Template and documentation files that carry placeholder values only"
+paths = [
+  # .env.example ships blank/placeholder values by design; .env is gitignored.
+  '''\.env\.example$''',
+  # Prose docs describe key *shapes* and setup, never real values.
+  '''^(SPEC|PLAN|CLAUDE)\.md$''',
+]
+# Placeholder values that look secret-shaped but are not.
+regexes = [
+  '''changeme''',
+  '''your[_-]?(api[_-]?)?key[_-]?here''',
+  '''(?i)example|placeholder|dummy|xxxx+''',
+]
