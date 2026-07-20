@@ -11,6 +11,10 @@ from .config import settings
 from .security import require_user, seed_users, ensure_schema
 from .odds.client import TheOddsApiClient
 from .providers.odds_api import TheOddsApiProvider
+from .providers.bettingiscool import (
+    BettingIsCoolProvider,
+    BettingIsCoolProviderNotConfigured,
+)
 from .providers.mock_odds import MockOddsProvider
 from .providers.claude_ocr import ClaudeOCRProvider
 from .providers.gemini_ocr import GeminiOCRProvider
@@ -52,17 +56,47 @@ async def lifespan(app: FastAPI):
         app.state.arbs_client = None
         app.state.cards_client = None
 
-    # Coupon odds provider (behind the OddsProvider seam). TheOddsApi pulls one
-    # full /v4/sports/{sport}/odds response per sport and reuses it for
-    # coupon_odds_cache_ttl (30 min default) across every leg and the 10-min
-    # refresh loop. "bettingiscool" is the planned alternative (PLAN v4 §V2);
-    # until it exists, any non-theoddsapi source falls back to the mock.
-    if odds_client is not None and settings.coupon_odds_source == "theoddsapi":
-        app.state.odds_provider = TheOddsApiProvider(
+    # Coupon odds provider (behind the OddsProvider seam).
+    #
+    # bettingiscool is the intended source (SPEC §5). Its transport is not yet
+    # implemented, so selecting it without a key degrades to TheOddsApi rather
+    # than to the mock: a deployed instance must keep pricing real legs. The
+    # moment BETTINGISCOOL_API_KEY is set AND the provider is implemented, this
+    # branch takes it and TheOddsApi drops out of the coupon path entirely.
+    #
+    # TheOddsApi pulls one full /v4/sports/{sport}/odds response per sport and
+    # reuses it for coupon_odds_cache_ttl across every leg and the 10-min
+    # refresh loop.
+    source = settings.coupon_odds_source
+    provider = None
+
+    if source == "bettingiscool":
+        if settings.bettingiscool_api_key:
+            try:
+                provider = BettingIsCoolProvider(
+                    settings.bettingiscool_api_key,
+                    cache_ttl=settings.coupon_odds_cache_ttl,
+                )
+            except BettingIsCoolProviderNotConfigured as exc:
+                logger.error("bettingiscool provider unavailable: %s", exc)
+        else:
+            logger.warning(
+                "COUPON_ODDS_SOURCE=bettingiscool but BETTINGISCOOL_API_KEY is "
+                "unset — falling back to TheOddsApi for coupon pricing."
+            )
+
+    if provider is None and odds_client is not None and source in (
+        "bettingiscool", "theoddsapi",
+    ):
+        provider = TheOddsApiProvider(
             odds_client, cache_ttl=settings.coupon_odds_cache_ttl
         )
-    else:
-        app.state.odds_provider = MockOddsProvider()
+
+    app.state.odds_provider = provider or MockOddsProvider()
+    logger.info(
+        "Coupon odds provider: %s (source=%s)",
+        type(app.state.odds_provider).__name__, source,
+    )
 
     if settings.google_api_key:
         app.state.ocr_provider = GeminiOCRProvider(settings.google_api_key)

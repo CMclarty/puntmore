@@ -312,3 +312,31 @@ def test_provider_logs_borderline_match(caplog):
         results = provider.get_fair_odds([MatchQuery(1, "Gladbach vs Bayern", "Win")])
     assert results[0].matched_fixture == "Borussia Monchengladbach vs Bayern Munich"
     assert any("Borderline fixture match" in r.message for r in caplog.records)
+
+
+# --- Coupon odds source selection ---
+
+def test_default_coupon_odds_source_is_bettingiscool():
+    from app.config import Settings
+    assert Settings().coupon_odds_source == "bettingiscool"
+
+
+def test_bettingiscool_provider_requires_a_key():
+    from app.providers.bettingiscool import (
+        BettingIsCoolProvider,
+        BettingIsCoolProviderNotConfigured,
+    )
+    with pytest.raises(BettingIsCoolProviderNotConfigured):
+        BettingIsCoolProvider("")
+
+
+def test_bettingiscool_provider_refuses_to_price_until_implemented():
+    # The transport is a stub. It must fail loudly rather than return
+    # plausible-looking odds derived from guessed field names.
+    from app.providers.bettingiscool import (
+        BettingIsCoolProvider,
+        BettingIsCoolProviderNotConfigured,
+    )
+    provider = BettingIsCoolProvider("a-key")
+    with pytest.raises(BettingIsCoolProviderNotConfigured):
+        provider.get_fair_odds([MatchQuery(1, "A vs B", "Win")])

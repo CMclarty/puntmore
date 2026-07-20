@@ -25,12 +25,18 @@ class Settings(BaseSettings):
     # single key (e.g. "tennis_atp") to cap quota burn at ~1 API request per
     # 24 h while testing live data.
     accabonus_sport_keys: str = ""
-    # Coupon tracker odds source (behind the OddsProvider seam). "theoddsapi"
-    # (default) prices coupon legs via TheOddsApiProvider; "bettingiscool" is the
-    # planned Pinnacle-native alternative (PLAN v4 §V2 — not yet built, treated
-    # as the mock until it exists). With no ODDS_API_KEY set, the mock provider
-    # is used regardless.
-    coupon_odds_source: str = "theoddsapi"
+    # Coupon tracker odds source (behind the OddsProvider seam).
+    # "bettingiscool" (default, user decision July 2026) prices coupon legs
+    # Pinnacle-referenced via BettingIsCoolProvider. "theoddsapi" is retained
+    # as a working fallback but is no longer the intended source.
+    #
+    # BettingIsCoolProvider's transport is NOT implemented (the vendor's request
+    # /response schema isn't known yet), so with the default source selected and
+    # no key present, main.py falls back to TheOddsApi if an ODDS_API_KEY is
+    # available, else the mock. That keeps a deployed instance pricing real legs
+    # instead of silently serving mock data.
+    coupon_odds_source: str = "bettingiscool"
+    bettingiscool_api_key: str = ""
     # Cache TTL (seconds) for the coupon tracker's TheOddsApi pulls. One FULL
     # /v4/sports/{sport}/odds response per sport is fetched and reused across
     # every coupon leg and the 10-min refresh loop for this long. Independent of
