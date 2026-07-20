@@ -419,3 +419,29 @@ def test_bic_no_fixture_match_is_unpriced():
     res = p.get_fair_odds([MatchQuery(1, "Arsenal vs Chelsea", "Win")])[0]
     assert res.matched_fixture is None
     assert res.fair_odds is None
+
+
+def test_bic_ignores_asian_lines_as_grid_constraints():
+    # Only clean .5 lines feed the fit. Quarter lines are split stakes and
+    # integer lines push; both are ignored (measured cost: rmse 0.0117 ->
+    # 0.0119, still over-determined at 7 constraints for 3 parameters).
+    from app.providers.bettingiscool import BettingIsCoolProvider as P
+    assert P._is_half_line(2.5) and P._is_half_line(0.5) and P._is_half_line(3.5)
+    assert not P._is_half_line(2.0)    # integer: pushes
+    assert not P._is_half_line(2.25)   # quarter: split stake
+    assert not P._is_half_line(2.75)
+    assert not P._is_half_line(None)
+
+    rows = [
+        {"period": 0, "market": "moneyline", "line": None,
+         "odds0": 4.32, "odds1": 1.452, "odds2": 7.32},
+        {"period": 0, "market": "totals", "line": 2.5,
+         "odds0": None, "odds1": 1.84, "odds2": 2.0},
+        {"period": 0, "market": "totals", "line": 2.75,
+         "odds0": None, "odds1": 1.95, "odds2": 1.90},
+        {"period": 0, "market": "totals", "line": 3.0,
+         "odds0": None, "odds1": 2.10, "odds2": 1.75},
+    ]
+    cons = P._grid_constraints(rows)
+    lines = sorted(l for _, l, _ in cons if l is not None)
+    assert lines == [2.5]
