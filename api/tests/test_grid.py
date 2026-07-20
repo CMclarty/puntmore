@@ -11,7 +11,6 @@ from app.pricing.grid import (
     p_team_over,
     p_win_and_over,
     model_prob,
-    _asian_split,
 )
 
 
@@ -44,35 +43,9 @@ def test_rho_shifts_draw_probability():
     assert lifted != pytest.approx(base, abs=1e-6)
 
 
-# --- Asian lines ---
+# --- totals ---
 
-def test_asian_split_decomposes_quarter_lines_only():
-    assert _asian_split(2.5) == [(2.5, 1.0)]
-    assert _asian_split(3.0) == [(3.0, 1.0)]
-    assert _asian_split(2.25) == [(2.0, 0.5), (2.5, 0.5)]
-    assert _asian_split(2.75) == [(2.5, 0.5), (3.0, 0.5)]
-
-
-def test_quarter_and_integer_lines_are_distinct():
-    # The bug this guards: `h + a > line` collapses 2.0/2.25/2.5/2.75 to one
-    # value, because all four mean "total >= 3" under a naive comparison. The
-    # market prices them distinctly and the fit residuals exposed it.
-    g = score_grid(2.2, 0.75, 0.0)
-    vals = [p_over(g, L) for L in (2.0, 2.25, 2.5, 2.75)]
-    assert len(set(round(v, 6) for v in vals)) == 4
-    # Higher line => lower P(over), strictly.
-    assert vals == sorted(vals, reverse=True)
-
-
-def test_integer_line_conditions_on_no_push():
-    # On a 2.0 line a total of exactly 2 is a push. P(over) must be computed
-    # against the non-push mass, so it exceeds the raw P(total > 2).
-    g = score_grid(1.5, 1.2, 0.0)
-    raw = sum(p for (h, a), p in g.items() if h + a > 2)
-    assert p_over(g, 2.0) > raw
-
-
-def test_team_totals_respect_the_split():
+def test_team_totals_are_monotonic_in_the_line():
     g = score_grid(1.8, 0.9, 0.0)
     assert p_team_over(g, 1.5, home=True) > p_team_over(g, 2.5, home=True)
     assert p_team_over(g, 0.5, home=False) > p_team_over(g, 1.5, home=False)
@@ -105,7 +78,7 @@ def test_away_side_compound():
 
 # --- fitting ---
 
-def _constraints_from(g, lines=(2.0, 2.5, 3.0, 3.5)):
+def _constraints_from(g, lines=(1.5, 2.5, 3.5, 4.5)):
     cons = [("home_win", None, p_home_win(g)), ("draw", None, p_draw(g))]
     cons += [("over", L, p_over(g, L)) for L in lines]
     return cons
@@ -132,9 +105,9 @@ def test_fit_reproduces_its_own_constraints():
 def test_hold_one_out_predicts_a_withheld_line():
     # Only meaningful because the constraint set is over-determined: 6
     # constraints, 3 parameters. On a source giving only 1X2 + one totals line
-    # there would be nothing spare to withhold.
+    # there would be nothing spare to withhold. Half lines only.
     g = score_grid(1.55, 1.15, -0.06)
-    cons = _constraints_from(g, lines=(2.0, 2.5, 3.0, 3.5))
+    cons = _constraints_from(g, lines=(1.5, 2.5, 3.5, 4.5))
     held = cons[3]  # the 2.5 totals line
     kept = [c for c in cons if c is not held]
 
