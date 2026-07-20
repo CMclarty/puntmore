@@ -1,75 +1,249 @@
 """BettingIsCool OddsProvider — Pinnacle-referenced coupon fair odds.
 
-The coupon tracker's intended odds source (SPEC §5, user decision July 2026):
-team totals are a standard market and raw prices are exposed on every snapshot,
-which is what in-house de-vig (§7) and the derived score-grid model (§8) need.
+The coupon tracker's odds source (SPEC §5). Pinnacle-native: team totals are a
+standard market and RAW prices are exposed on every snapshot, which is what
+in-house de-vig (§7) and the derived score-grid model (§8) need.
 
-STATUS: transport NOT IMPLEMENTED — see `_fetch` below.
+Vendor API (https://api.bettingiscool.com, `X-API-Key` header, OpenAPI at
+/openapi.json). Verified against the live API, July 2026:
 
-What is known about the vendor API:
-  Base URL   https://api.bettingiscool.com
-  Auth       X-API-Key header
-  Endpoints  /api/odds (odds snapshots), /api/fixtures (fixtures; live=1 for
-             in-play, each live event carries parent_id -> prematch event)
-  Billing    1 token per request + 1 token per row; empty responses still cost 1
-  Quota      responses carry X-Quota-Limit / X-Quota-Remaining / X-Quota-Cost /
-             X-Rows headers
-  Fields     todds1 / todds0 / todds2 = vendor de-vigged fair odds for home /
-             draw / away
+  GET /api/fixtures?sport_id=29&starts_from=&limit=
+      → [{event_id, league_name, runner_home, runner_away, starts, ...}]
+  GET /api/odds?event_id=
+      → one row per (period, market, line). `main_lines_only=1` collapses this
+        to the single main line and is deliberately NOT used — see _odds().
+        market  ∈ moneyline | totals | home_totals | away_totals | spread
+        period  0 = full match, 1 = first half
+        line    the handicap/total (null for moneyline)
+        odds0/1/2   RAW prices   ← the pricing path uses these
+        todds0/1/2  vendor de-vigged  ← cross-check tests ONLY (§7.1)
 
-What is NOT known, and must not be guessed:
-  - /api/odds query parameters (how to select sport, league, fixture, market)
-  - the RAW price field names — the pricing path depends on these, not on
-    todds*, which SPEC §7.1 restricts to cross-check tests only
-  - how team totals are represented (market key, line encoding, per-team split)
-  - the fixtures schema and how to map an OCR'd match name onto an event id
+  Index convention (confirmed empirically — index 0 is null on every
+  two-outcome market, and is the draw price on moneyline):
+        0 = draw          1 = home / over        2 = away / under
 
-Filling those in requires either the vendor docs or a key to probe the live API.
-Until then this class raises on use and `main.py` does not select it.
+  Billing: 1 token per request + 1 per row. Quota is reported per UTC DAY via
+  X-Quota-Limit / X-Quota-Remaining (500,000/day on the current plan), so the
+  free-tier arithmetic that constrains TheOddsApi does not apply here.
 
-To implement:
-  1. `_fetch` — HTTP against /api/odds with X-API-Key, honouring the quota
-     headers (log X-Quota-Remaining; back off rather than burn the daily cap).
-  2. `get_fair_odds` — map queries to fixtures, pull raw prices, de-vig
-     IN-HOUSE via odds/utils.py (never return todds* as fair odds), return
-     OddsResult with matched_fixture set so a wrong fuzzy match stays visible.
-  3. Add a cross-check test asserting in-house de-vigged probabilities agree
-     with vendor todds* within tolerance — that is what todds* is for.
+De-vig cross-check (July 2026): our `devigd_multi` reproduces the vendor's
+`todds` to within 0.03% on all five markets including the 3-way moneyline —
+independent confirmation that the power method is the right one. The pricing
+path still de-vigs in-house so the provider stays swappable (§7.1).
 """
+import difflib
 import logging
+import re
+import time
+
+import httpx
 
 from .base import OddsProvider, MatchQuery, OddsResult
+from ..normalise import normalise_match
+from ..odds.utils import devigd_multi
 
 logger = logging.getLogger("uvicorn.error")
 
 BASE_URL = "https://api.bettingiscool.com"
-ODDS_PATH = "/api/odds"
-FIXTURES_PATH = "/api/fixtures"
+SOCCER_SPORT_ID = 29
+FULL_MATCH_PERIOD = 0
+FIXTURE_LIMIT = 500
+
+# Fuzzy-match thresholds. HIGHER than the TheOddsApi provider's 0.6 on purpose:
+# that one scores against ~10 fixtures per league, this one against the whole
+# soccer board (500+). A bigger candidate pool means more chances for an
+# unrelated name to clear a loose threshold — observed live, "Nonexistent FC vs
+# Fake United" scored 0.63 against "Newmarket vs North Lakes United". A missed
+# match leaves a leg unpriced and visible; a wrong match produces a confident
+# wrong price, so err toward missing.
+MATCH_THRESHOLD = 0.72
+CONFIDENT_THRESHOLD = 0.82
+# The board carries derived-market fixtures ("X (Corners) vs Y (Corners)") whose
+# names are near-identical to the real fixture. Never price a coupon leg off one.
+EXCLUDED_LEAGUE_RE = re.compile(r"\b(corners|bookings|cards)\b", re.IGNORECASE)
+
+_OVER_RE = re.compile(r"over\s+([\d.]+)", re.IGNORECASE)
+_UNDER_RE = re.compile(r"under\s+([\d.]+)", re.IGNORECASE)
+_WIN_RE = re.compile(r"\bwin\b", re.IGNORECASE)
 
 
 class BettingIsCoolProviderNotConfigured(RuntimeError):
-    """Raised when the provider is selected before its transport exists."""
+    """Raised when the provider is constructed without an API key."""
+
+
+def _fair(prices: dict[int, float], want: int) -> float | None:
+    """De-vig a market in-house and return the fair price for outcome `want`.
+
+    `prices` maps outcome index → raw price. The FULL outcome set is required:
+    the margin is a property of the market, not of one selection. Returns None
+    rather than a vigged price if the market is partial or `want` is absent.
+    """
+    if want not in prices or len(prices) < 2:
+        return None
+    idx = sorted(prices)
+    fair_prices, _margin = devigd_multi([prices[i] for i in idx])
+    return round(fair_prices[idx.index(want)], 4)
 
 
 class BettingIsCoolProvider(OddsProvider):
-    def __init__(self, api_key: str, cache_ttl: int | None = None):
+    def __init__(
+        self,
+        api_key: str,
+        cache_ttl: int | None = None,
+        sport_id: int = SOCCER_SPORT_ID,
+    ):
         if not api_key:
             raise BettingIsCoolProviderNotConfigured(
                 "BETTINGISCOOL_API_KEY is not set"
             )
         self._api_key = api_key
-        self._cache_ttl = cache_ttl
+        self._cache_ttl = cache_ttl or 600
+        self._sport_id = sport_id
+        self._fixtures_cache: tuple[float, list[dict]] | None = None
+        self._odds_cache: dict[int, tuple[float, list[dict]]] = {}
 
-    def _fetch(self, *args, **kwargs):
-        raise BettingIsCoolProviderNotConfigured(
-            "BettingIsCoolProvider transport is not implemented: the vendor's "
-            "/api/odds request and response schema is not known. Supply the "
-            "vendor docs or an API key to probe the live endpoint. Do NOT "
-            "guess field names — the pricing path depends on raw prices, and "
-            "silently wrong ones produce plausible-looking fair odds."
+    # --- transport ---
+
+    def _get(self, path: str, params: dict) -> list[dict]:
+        resp = httpx.get(
+            f"{BASE_URL}{path}",
+            params=params,
+            headers={"X-API-Key": self._api_key},
+            timeout=20.0,
         )
+        resp.raise_for_status()
+        remaining = resp.headers.get("x-quota-remaining")
+        if remaining is not None and int(remaining) < 10000:
+            logger.warning("bettingiscool quota low: %s left today", remaining)
+        data = resp.json()
+        return data if isinstance(data, list) else []
+
+    def _fixtures(self) -> list[dict]:
+        now = time.time()
+        if self._fixtures_cache and now - self._fixtures_cache[0] < self._cache_ttl:
+            return self._fixtures_cache[1]
+        try:
+            rows = self._get(
+                "/api/fixtures",
+                {
+                    "sport_id": self._sport_id,
+                    "starts_from": time.strftime("%Y-%m-%d", time.gmtime(now)),
+                    "limit": FIXTURE_LIMIT,
+                },
+            )
+        except Exception as exc:
+            logger.error("bettingiscool fixtures fetch failed: %s", exc)
+            return self._fixtures_cache[1] if self._fixtures_cache else []
+        self._fixtures_cache = (now, rows)
+        return rows
+
+    def _odds(self, event_id: int) -> list[dict]:
+        now = time.time()
+        cached = self._odds_cache.get(event_id)
+        if cached and now - cached[0] < self._cache_ttl:
+            return cached[1]
+        try:
+            # NOT main_lines_only: coupons name specific lines ("Over 2.5") and
+            # the main line is often something else (2.75 on the fixture this
+            # was verified against). The full ladder costs ~22 tokens instead of
+            # ~11 and is also what the derived score grid needs.
+            rows = self._get("/api/odds", {"event_id": event_id})
+        except Exception as exc:
+            logger.error("bettingiscool odds fetch failed (%s): %s", event_id, exc)
+            return cached[1] if cached else []
+        self._odds_cache[event_id] = (now, rows)
+        return rows
+
+    # --- pricing ---
+
+    @staticmethod
+    def _market_prices(rows: list[dict], market: str, line: float | None) -> dict:
+        """Raw prices for one market at one line, keyed by outcome index."""
+        for r in rows:
+            if r.get("period") != FULL_MATCH_PERIOD or r.get("market") != market:
+                continue
+            if line is not None:
+                try:
+                    if abs(float(r.get("line")) - line) >= 0.05:
+                        continue
+                except (TypeError, ValueError):
+                    continue
+            return {
+                i: float(r[f"odds{i}"])
+                for i in (0, 1, 2)
+                if isinstance(r.get(f"odds{i}"), (int, float))
+                and r[f"odds{i}"] > 1.0
+            }
+        return {}
+
+    def _fair_odds_for(self, rows: list[dict], market_str: str) -> float | None:
+        key = market_str.strip().lower()
+        has_win = bool(_WIN_RE.search(key))
+        over_m = _OVER_RE.search(key)
+        under_m = _UNDER_RE.search(key)
+
+        def total(side: int, points: float) -> float | None:
+            return _fair(self._market_prices(rows, "totals", points), side)
+
+        if has_win and over_m:
+            # INTERIM — same independence approximation as the TheOddsApi path,
+            # and equally wrong: it overstates fair odds and so understates
+            # value. Kept only until the score grid lands (PLAN open item 1),
+            # which this provider now makes properly identifiable — home_totals
+            # and away_totals give the grid more constraints than parameters.
+            win = _fair(self._market_prices(rows, "moneyline", None), 1)
+            over = total(1, float(over_m.group(1)))
+            if win is not None and over is not None:
+                return round(win * over, 4)
+            return None
+
+        if has_win:
+            return _fair(self._market_prices(rows, "moneyline", None), 1)
+        if over_m:
+            return total(1, float(over_m.group(1)))
+        if under_m:
+            return total(2, float(under_m.group(1)))
+        return None
+
+    @staticmethod
+    def _best_match(query: str, candidates: list[str]) -> tuple[str, float] | None:
+        q_norm = normalise_match(query)
+        norm_to_orig: dict[str, str] = {}
+        for c in candidates:
+            norm_to_orig.setdefault(normalise_match(c), c)
+        scored = [
+            (difflib.SequenceMatcher(None, q_norm, c_norm).ratio(), orig)
+            for c_norm, orig in norm_to_orig.items()
+        ]
+        scored.sort(reverse=True)
+        if scored and scored[0][0] >= MATCH_THRESHOLD:
+            return scored[0][1], scored[0][0]
+        return None
 
     def get_fair_odds(self, queries: list[MatchQuery]) -> list[OddsResult]:
-        raise BettingIsCoolProviderNotConfigured(
-            "BettingIsCoolProvider is not implemented — see module docstring."
-        )
+        by_name: dict[str, dict] = {}
+        for f in self._fixtures():
+            if EXCLUDED_LEAGUE_RE.search(f.get("league_name", "")):
+                continue
+            name = f"{f.get('runner_home', '')} vs {f.get('runner_away', '')}"
+            by_name.setdefault(name, f)
+
+        results = []
+        for q in queries:
+            fair = None
+            fixture = None
+            match = self._best_match(q.match_name, list(by_name))
+            if match:
+                fixture, score = match
+                if score < CONFIDENT_THRESHOLD:
+                    logger.warning(
+                        "Borderline fixture match (%.2f): %r -> %r — verify in UI",
+                        score, q.match_name, fixture,
+                    )
+                event_id = by_name[fixture].get("event_id")
+                if event_id is not None:
+                    fair = self._fair_odds_for(self._odds(event_id), q.market)
+            results.append(
+                OddsResult(match_id=q.match_id, fair_odds=fair, matched_fixture=fixture)
+            )
+        return results
