@@ -1,478 +1,241 @@
-# Puntmore — Coupon-tracker-only focus (v5) — July 2026
+# Puntmore — Plan
 
-Goal: surface **only the coupon tracker** for now. AccaBonus and Cards/Corners
-are hidden from the app and disabled in the backend. **All their code stays in
-the repo** — this is a visibility change, not a removal, reversible by flipping
-two flags. This narrows the surface while the coupon realignment (v4 below)
-continues.
+Current work is in **Open work** below. **Decisions** are settled — don't
+re-litigate them. **History** is a record of completed phases, kept because the
+reasoning behind some of them is expensive to reconstruct.
 
-## Decisions locked in (do not re-litigate)
-- **Coupon tracker is the only visible tool.** AccaBonus + Cards/Corners are
-  hidden. Nothing about their compute/pricing logic is deleted.
-- **Hidden = gated, not gone.** Config flags `ENABLE_ACCABONUS` /
-  `ENABLE_CARDS` (`config.py`, default False) decide whether each tool's API
-  router is mounted (`main.py`). The frontend mirrors this: the nav tabs
-  (`BottomNav.jsx`, `hidden: true`) and page routes (`App.jsx`, redirect to `/`)
-  are suppressed. Their pages/routers/tests remain in the tree.
-- **CLAUDE.md's "keep the 3-tool suite" still holds** as the architecture — the
-  tools are dormant, not dropped. Re-enabling is: set both flags true in `.env`,
-  restore the tabs/routes in the frontend, rebuild.
-
-## What changed (done)
-- `config.py`: `enable_accabonus` / `enable_cards` bool flags (default False).
-- `main.py`: AccaBonus + Cards routers only `include_router`'d when their flag
-  is set. Coupons, upload, auth, `/state` unchanged.
-- `frontend`: `BottomNav.jsx` tabs marked `hidden` + filtered; `App.jsx`
-  `/accabonus`, `/tennis`, `/cards` redirect to the tracker; the two page
-  imports dropped (files kept).
-- `tests/conftest.py`: sets both flags before importing `app` so the kept
-  AccaBonus/Cards tests still run. Full suite green; `npm run build` clean.
-
-## Coupon odds = TheOddsApi provider + full-response cache (done)
-The coupon tracker prices legs through `TheOddsApiProvider` (behind the
-`OddsProvider` seam). It pulls one FULL `/v4/sports/{sport}/odds` response per
-sport and reuses it for `coupon_odds_cache_ttl` across every leg and the 10-min
-refresh loop — the loop reads through the cache and never adds vendor calls.
-
-- **Config, backend-only (no UI):** `COUPON_ODDS_SOURCE` (default `theoddsapi`)
-  and `COUPON_ODDS_CACHE_TTL` (default `86400` = 24 h, the free-tier-safe value —
-  see ceiling below) in `config.py` / `.env`. The odds source is NOT surfaced in
-  the frontend and must stay that way — it is an operator setting, not a user
-  choice.
-- **Own cache TTL:** `TheOddsApiClient.fetch(..., ttl=)` lets the coupon path use
-  its own TTL, independent of `odds_cache_ttl` (the hidden AccaBonus/Cards 24-h
-  cache). `TheOddsApiProvider(cache_ttl=...)` threads it through; `main.py` wires
-  `settings.coupon_odds_cache_ttl`.
-- Tests: `test_scheduler.py::test_provider_threads_cache_ttl_to_client`. 98/98
-  green; `npm run build` clean.
-
-### Free-tier quota ceiling (the real numbers)
-The-odds-api bills `credits = markets × regions`. The coupon path pulls
-`h2h,totals` (2 markets) × `eu` (1 region) = **2 credits per sport key per
-pull**, all keys each cache cycle. With the loop polling continuously (an 8-day
-coupon window ⇒ near-always a live coupon), one pull happens per cache window:
-
-```
-min safe TTL (s) = 2,592,000 × keys × 2 / 500 = 10,368 × keys
-```
-
-| Coupon sport scope | Credits/pull | Shortest cache ≤ 500/mo |
-|---|---|---|
-| 7 soccer leagues (default) | 14 | ~20 h (use ~24 h for margin) |
-| 3 leagues | 6 | ~8.6 h |
-| 1 league | 2 | ~2.9 h (the floor) |
-
-**30-min refresh is NOT reachable on the free tier at any usable scope.** The
-default is therefore `86400` (24 h) — free-tier-safe at ~420 credits/month. On a
-PAID tier, drop `COUPON_ODDS_CACHE_TTL` to `1800` for a 30-min refresh (a
-one-line `.env` change, no code change).
-
-## Compatibility for the eventual bettingiscool switch (keep this true)
-bettingiscool is still the planned coupon odds provider (v4 §V1/§V2). The seam is
-already shaped for a drop-in switch — do not regress it:
-- Selection is a single branch in `main.py` keyed on `COUPON_ODDS_SOURCE`. Adding
-  bettingiscool = implement `providers/bettingiscool.py` (satisfying
-  `OddsProvider`) + an `elif settings.coupon_odds_source == "bettingiscool":`
-  branch. No caller changes: the scheduler/upload paths depend only on the seam.
-- Keep the switch **backend/config-only** — never add a provider picker to the UI.
-- The v4 realignment (RawPrices seam, in-house devig, derived Win-and-Over) is the
-  larger dependent work; TheOddsApi remaining the live provider until the €49 key
-  lands does not change those plans.
+> Consolidated July 2026 from four stacked plan generations (v2 rework, v3 PWA
+> redesign, v4 coupon realignment, v5 coupon-only focus). Those generations used
+> three different phase prefixes (`A–D`, `R0–R10`, `V1–V6`) and the file read
+> newest-first, so the open work sat below the completed work and phase `V2` was
+> easy to confuse with plan `v2`. There is now one list. Old phase IDs are kept
+> in History so existing commit messages still resolve.
 
 ---
 
-# Puntmore Coupon Realignment (v4) — Plan
+## Current status (July 2026)
 
-Goal: bring the **coupon tracker** into line with the reworked design (real
-Pinnacle team totals, in-house devig, a proper derived Win-and-Over model, and
-phone-friendly OCR) WITHOUT disturbing the rest of the deployed suite. Source of
-truth: `SPEC.md` §5–§10, §13. The v3 plan below is complete and kept for history.
+Only the **coupon tracker** is surfaced. AccaBonus and Cards/Corners are gated
+off (`ENABLE_ACCABONUS` / `ENABLE_CARDS`, default False) — hidden, not removed.
 
-## Decisions locked in (from the June/July 2026 realignment review — do not re-litigate)
-- **Keep the 3-tool suite.** AccaBonus, Cards, in-app auth, the v3 PWA, and the
-  compose/nginx/Caddy deployment all stay. The seed spec's single-tool /
-  Railway / Cloudflare-Access / sets-versions framing is STALE — ignore it.
-- **Coupon odds move to bettingiscool** (Pinnacle-native, exposes team totals +
-  raw prices) behind the existing `OddsProvider` seam. AccaBonus + Cards keep
-  TheOddsApi. Two odds sources on purpose (SPEC §5). Paid Starter key (€49).
-- **Keep the coupons/legs model** (the R1 migration stands). Do NOT reintroduce
-  sets/versions/matches or the Mon–Wed/Sat/Sun set navigation.
-- **Coupons devig IN-HOUSE** (power method, reuse `odds/utils.py::devigd_multi`).
-  This reverses the R10 raw-Pinnacle exception. Vendor `todds` = cross-check only.
-- **Win-and-Over is DERIVED** via a calibrated score-grid model (SPEC §8). The
-  old naive h2h×totals `is_approx` path is retired. NEVER multiply moneyline×over.
-- **OCR is auto-confirm** (no blocking review): rows auto-save + price, anomaly
-  ⚠ flags, inline edit, re-scan preserving human edits (SPEC §7.2). Status
-  becomes processing→confirmed.
-- **Cleanup window → 8 days** for coupons (`Settings.coupon_cleanup_days`).
+The coupon tracker prices via **TheOddsApi** and de-vigs in-house. Win-and-Over
+legs are still an independence approximation — that's open work item 1.
 
-## Migration notes (target shape)
-- `legs` gains: `fair_odds_source` (direct|derived_model), `uncertainty_band`
-  (nullable), `flags` (nullable JSON — anomaly reasons), `edited` (bool).
-- `coupons.status`: map `pending|live` → `processing|confirmed` (guarded DDL in
-  `security.ensure_schema`; no Alembic).
-- New modules: `providers/bettingiscool.py`, `app/pricing/` (devig pipeline +
-  `grid.py` derived model), `api/tools/backtest_calibration.py`,
-  `docs/provider-verification.md`.
-- The `OddsProvider` seam changes from `get_fair_odds -> OddsResult(fair_odds)`
-  to `get_market_prices -> RawPrices` (1X2 + totals ladder + team totals). The
-  refresh loop and upload path move from "provider returns a price" to "provider
-  returns raw prices → core devigs/derives → price". `MockOddsProvider` updates
-  to match.
+---
 
-## Phase V1 — Provider verification GATE (bettingiscool) ⏳ BLOCKED on €49 key
-Nothing downstream starts until this passes (SPEC §13.1). External dependency:
-buy a bettingiscool Starter key, put it in `.env` as `BETTINGISCOOL_API_KEY`.
-- [ ] For a real upcoming fixture in EACH league on the physical coupons: the
-      match resolves to a bettingiscool event id.
-- [ ] Odds payload contains 1X2, ≥2 totals lines, and TEAM TOTALS for both
-      teams (the decisive check — no team totals ⇒ stop and reassess provider).
-- [ ] Raw prices exposed (for in-house devig); note whether `todds` present.
-- [ ] Record refresh latency + token/request cost for ~20 fixtures at 10-min
-      cadence; confirm it fits the plan quota.
-- DoD: `docs/provider-verification.md` committed with results for every league.
-  PASS on all leagues, or the phase fails and providers are reassessed.
+## Decisions (settled — do not re-litigate)
 
-## Phase V2 — bettingiscool provider + in-house devig (direct markets)
-- [ ] `RawPrices` dataclass + `OddsProvider.get_market_prices` in `providers/base.py`.
-- [ ] `providers/bettingiscool.py` (X-API-Key client → RawPrices: 1X2, totals
-      ladder, team totals). `config.py` + `.env.example`: `BETTINGISCOOL_API_KEY`.
-- [ ] `app/pricing/` devig pipeline: raw prices → `devigd_multi` → fair probs →
-      direct-market fair odds (Team-to-Score 2+/3+ → team total O1.5/O2.5).
-- [ ] Cross-check tests: in-house devigged probs vs vendor `todds` within tol.
-- [ ] Wire refresh loop (`scheduler.py`) + upload pricing to the new pipeline;
-      update `MockOddsProvider`; `main.py` lifespan selects BettingIsCool.
-- [ ] `legs.fair_odds_source` column (guarded ALTER); direct legs = "direct".
-      Win-and-Over legs left unpriced+flagged until V3 (no naive fallback).
-- DoD: pytest green; a real fixture prices its direct markets end-to-end;
-      `npm run build` clean.
+### Product
+- **Coupon tracker is the only visible tool.** AccaBonus + Cards stay in the
+  tree, gated behind config flags. Re-enabling = flip both flags, restore the
+  nav tabs/routes, rebuild.
+- **Keep the 3-tool suite as the architecture.** The tools are dormant, not
+  dropped.
+- **Keep the coupons/legs model.** Do NOT reintroduce sets/versions/matches or
+  the Mon–Wed/Sat/Sun set navigation.
+- **Syndicate model**: 4 members, shared data, all equal. No roles, no per-user
+  partitioning. Auth = in-app sessions (bcrypt + signed cookie); no JWT, no
+  registration, no password reset.
+- **Image OCR upload, not CSV/XLSX.**
+- **Coupon cleanup window is 8 days**, and deletes BOTH database rows AND the
+  stored image files. Never one without the other.
+  *(Supersedes the v2-era 30-day window.)*
+- **OCR is auto-confirm** — rows auto-save and price immediately with per-row
+  anomaly flags and inline editing. *(Supersedes the v2-era rule that OCR always
+  passes through a blocking manual-correction step.)*
 
-## Phase V3 — Derived Win-and-Over model (SPEC §8)
+### Pricing
+- **Fair odds are computed IN-HOUSE by de-vigging raw prices** with the power
+  method (`odds/utils.py`). Vendor-supplied de-vigged fields are cross-check
+  only, so providers stay swappable. Applies to every tool including coupons.
+- **Power method, not multiplicative** (June 2026). Solve k where
+  `Σ(1/price)^k = 1`, `fair = price^k`. Loads more vig onto longshots, matching
+  the favourite–longshot bias. `margin` stays the raw overround.
+- **Incomplete markets go unpriced.** De-vigging needs the full outcome set;
+  where it isn't available the provider returns None. A vigged price mislabelled
+  as fair is worse than no price.
+- **Win-and-Over must be DERIVED** from a calibrated score grid. NEVER price it
+  as moneyline × over — result and total goals are correlated, so the product
+  overstates fair odds. (Currently still approximated; see open item 1.)
+- **Derived-market thresholds come from MEASURED backtest calibration**, not
+  assumption. Until measured: provisional 8% with the uncertainty band shown.
+
+### Providers & quota
+- **TheOddsApi is the live coupon odds provider.** `COUPON_ODDS_SOURCE`
+  (default `theoddsapi`), backend-only — never surface a provider picker in the
+  UI.
+- **bettingiscool is deferred, not blocking.** It remains attractive (Pinnacle
+  native, exposes team totals) but nothing waits on it. Adding it = implement
+  `providers/bettingiscool.py` against the `OddsProvider` seam + one `elif` in
+  the `main.py` lifespan. Keep that seam intact.
+  *(Supersedes v4's "coupon odds move to bettingiscool", which gated all
+  realignment work behind a €49 key purchase.)*
+- **Free tier is 500 credits/month**; credits = markets × regions. The coupon
+  path pulls `h2h,totals` × `eu` = 2 credits per sport key per cache cycle.
+  `min safe TTL (s) = 10,368 × keys` → 7 leagues needs ~20 h, so the default is
+  86400 (24 h, ~420 credits/month). **A 30-min refresh is unreachable on the
+  free tier at any usable scope.** On a paid tier, drop
+  `COUPON_ODDS_CACHE_TTL` to 1800 — an `.env` change, no code change.
+- **The 500-credit cap is a testing-phase constraint.** A paid upgrade is
+  planned; don't cut scope permanently to fit it.
+- **Never call external APIs from core logic** — everything goes through the
+  seams (`OCRProvider`, `OddsProvider`, `TheOddsApiClient`,
+  `NotificationProvider`).
+
+### Design
+- **Paper theme.** `--paper #FCFBF8`, `--zebra #F4F2EC`, `--ink #1A1A18`,
+  `--muted #6B6862`, `--faint #9C988F`, `--line #D8D5CD`,
+  `--line-strong #BBB7AD`, `--accent #2F7D55`, `--accent-soft #E1EFE7`.
+  System sans for UI, mono for ALL numbers. Caveat is flow-diagram annotation
+  only — never in the app.
+- **Mobile-first PWA.** Single column, safe-area insets, capped width on tablet,
+  bottom tab bar, touch targets ≥44px.
+
+---
+
+## Open work
+
+Ordered by dependency, then value. Each item ends with its Definition of Done.
+
+### 1. Derived Win-and-Over score grid  *(was Phase V3)*
+Retires the last naive-independence path in pricing.
 - [ ] `pricing/grid.py`: fit λ_home/λ_away + dependence (independent Poisson +
-      Dixon–Coles, or bivariate Poisson) to devigged 1X2/totals/team-totals by
-      least squares; grid truncated at 10 goals/team.
-- [ ] Derive P(win ∧ over X) off the grid → fair odds = 1/p; wire Win-and-Over
-      legs to it; `fair_odds_source = "derived_model"`; set `uncertainty_band`.
+      Dixon–Coles, or bivariate Poisson) to de-vigged 1X2 + totals by least
+      squares; grid truncated at 10 goals/team.
+- [ ] Derive P(win ∧ over X) off the grid → fair odds = 1/p. Wire Win-and-Over
+      legs to it; set `fair_odds_source = "derived_model"` and
+      `uncertainty_band`.
 - [ ] Hold-one-out test: refit dropping a totals line, reproduce it within tol.
-- [ ] Provisional derived threshold 8% (until V4); UI shows derived marker +
-      band ("+9% (±3%)"). Frontend TrackerPage badge update.
-- DoD: pytest incl. hold-one-out; derived legs price + display band; build clean.
+- [ ] Provisional 8% derived threshold; UI shows the derived marker + band
+      ("+9% (±3%)"). Retire `Leg.is_approx` and its `≈` badge.
+- **Scope note:** TheOddsApi exposes no team totals, so the fit uses 1X2 + the
+  single totals line — 3 constraints for 2 parameters. Identifiable, but the
+  dependence parameter is less well pinned than team totals would allow. A
+  fuller ladder via `alternate_totals` adds a third market (2 → 3 credits per
+  sport per pull, pushing min safe TTL ~20 h → ~31 h), so it is **paid-tier
+  only**.
+- DoD: pytest incl. hold-one-out; derived legs price and display their band;
+  `npm run build` clean.
 
-## Phase V4 — Calibration backtest (SPEC §8.4)
-- [ ] `api/tools/backtest_calibration.py`: over a season+ of historical fixtures
-      w/ settlements, fit grids, compute derived P(win∧over X), score against
-      outcomes (reliability curve + Brier, bucketed).
-- [ ] Set the production derived threshold + displayed uncertainty band FROM the
-      measured error band (replace the provisional 8%).
-- DoD: backtest report committed; thresholds wired to config; script re-runnable.
-
-## Phase V5 — OCR auto-confirm + anomaly flags + inline edit + re-scan (SPEC §7.2)
-- [ ] Remove the blocking review gate: upload → rows persist + price;
-      status processing→confirmed. Schema: `flags`, `edited`, status remap
-      (guarded DDL).
+### 2. OCR auto-confirm, anomaly flags, inline edit, re-scan  *(was Phase V5)*
+- [ ] Remove the blocking review gate: upload → rows persist + price; status
+      `processing`→`confirmed`. Schema: `flags`, `edited`, status remap (guarded
+      DDL in `ensure_schema`, no Alembic).
 - [ ] Sanity checks → `legs.flags`: odds-range per market, fuzzy-match
       confidence, value plausibility cap (±15%). ⚠ badge rendering.
-- [ ] Inline edit (match/pick/odds) reprices + sets `edited=true`. Unmatched
+- [ ] Inline edit (match/pick/odds) reprices and sets `edited=true`. Unmatched
       rows persist with blank fair odds.
-- [ ] Re-scan endpoint + button: re-run OCR, replace UNEDITED rows only,
-      re-run checks. Frontend UploadPage + TrackerPage.
-- DoD: OCR round-trip on a real coupon image (auto-save, flags, re-scan keeps
+- [ ] Re-scan endpoint + button: re-run OCR, replace UNEDITED rows only, re-run
+      checks. **Never overwrite a human correction with a machine re-read.**
+- DoD: OCR round-trip on a real coupon image (auto-saves, flags, re-scan keeps
       edits); pytest green; build clean.
 
-## Phase V6 — Cleanup window, staleness, verification & deploy
+### 3. Calibration backtest  *(was Phase V4 — depends on 1)*
+- [ ] `api/tools/backtest_calibration.py`: over a season+ of historical fixtures
+      with settlements, fit grids, compute derived P(win ∧ over X), score
+      against outcomes (reliability curve + Brier, bucketed).
+- [ ] Replace the provisional 8% threshold and the displayed uncertainty band
+      with the MEASURED error band.
+- DoD: backtest report committed; thresholds wired to config; script re-runnable.
+
+### 4. Cleanup window, staleness, deploy  *(was Phase V6)*
 - [ ] Coupon cleanup 30→8 days (`Settings.coupon_cleanup_days`, default 8);
-      test shows rows AND image files deleted.
-- [ ] Staleness banner: prices older than 2× refresh interval → last-updated
-      banner (SPEC §5).
-- [ ] Docs sync check; full verification: pytest green, `npm run build` clean,
-      responsive 390/768px, `docker compose up --build -d` + live smoke test.
+      test proves rows AND image files are deleted.
+- [ ] Staleness banner: prices older than 2× the refresh interval show a
+      last-updated banner.
+- [ ] Full verification: pytest green, `npm run build` clean, responsive
+      390/768px, `docker compose up --build -d` + live smoke test.
+
+### 5. PWA polish & offline  *(was Phase R6 — the only unfinished v3 phase)*
+- [ ] Live status `● LIVE · HH:MM`; stale/offline indicator when the service
+      worker serves cache.
+- [ ] Animations (accordion, sheet) ~150–200 ms ease; chevron rotation.
+- [ ] Lighthouse PWA pass.
+
+### 6. bettingiscool provider  *(deferred — was Phases V1–V2, no longer gating)*
+Only worth doing if team totals prove necessary for grid accuracy (see item 1),
+or if TheOddsApi's quota becomes the binding constraint.
+- [ ] Verification first: for a real fixture in each coupon league, confirm the
+      match resolves, the payload carries 1X2 + ≥2 totals lines + team totals
+      for both teams, and raw prices are exposed. Record latency and request
+      cost at 10-min cadence. Results → `docs/provider-verification.md`.
+- [ ] Then `providers/bettingiscool.py` + the `main.py` branch. No caller
+      changes — the seam already fits.
+- **Known risk (accepted):** one-person vendor. The seam is the mitigation.
 
 ---
 
-# Puntmore PWA Redesign (v3) — Plan
+## History
 
-Source of truth: `design/HANDOFF.md` + `design/Puntmore-Flow.html` (6 screens + 2
-sub-flows). Read the handoff before each phase. The v2 plan below this section is
-complete and kept for history.
+Chronological. Original phase IDs preserved.
 
-## Decisions locked in (do not re-litigate)
-- **Paper theme replaces dark.** Tokens: `--paper #FCFBF8`, `--zebra #F4F2EC`,
-  `--ink #1A1A18`, `--muted #6B6862`, `--faint #9C988F`, `--line #D8D5CD`,
-  `--line-strong #BBB7AD`, `--accent #2F7D55`, `--accent-soft #E1EFE7`.
-  System sans for UI; mono (`ui-monospace…`) for ALL numbers (odds/values/status/
-  dates). Do NOT use Caveat — that's flow-diagram annotation only.
-- **Mobile-first PWA.** Single mobile column, safe-area insets, cap width on tablet
-  (center the column). Bottom tab bar (Coupon/Tennis/C/C). Touch targets ≥44px.
-  Don't reproduce the mock's phone bezel/notch — build screen contents only.
-- **Keep image-OCR upload** (NOT CSV/XLSX). Screen 06 is restyled over the existing
-  image-upload → OCR → correction-review → confirm pipeline. The drop-zone copy can
-  stay generic; the `<input>` accepts images, not `.csv/.xlsx`.
-- **Rework the backend coupon model** to the design's shape: a Coupon is a named
-  accumulator with N legs (replaces the sets/versions/templates machinery).
-- **Density principle still applies** (see memory) — just light now.
+### v2 — Rework (complete)
+- **A — Documentation truth pass.** SPEC.md and CLAUDE.md rewritten around what
+  actually exists (three tools, unified frontend, `TheOddsApiClient`). PS3838
+  removed as a backend. `CACHE_TTL` moved into `Settings.odds_cache_ttl`.
+- **B — Auth.** `users` table, bcrypt, `SessionMiddleware`, startup seeding from
+  `AUTH_USERS`. Login/logout/me endpoints.
+- **C — Mobile-friendly UI.**
+- **D — Loose ends.**
 
-## Open product questions (resolve in Phase 0, don't block planning)
-- **Coupon name origin:** design shows "Saturday Acca". Propose: optional name field
-  on upload, default `"{type_code} · {match_day}"`. Confirm.
-- **Match day:** dropdown of days vs date picker. Propose a date → derive day label.
-- **Login identifier:** handoff says "email address"; current auth is username.
-  Propose: keep username under the hood, label field "Email or username". Confirm.
-- **Value tiers:** hi ≥ +6% (green), mid (ink), lo < +4% (faint) are illustrative —
-  wire to real cutoffs. Confirm thresholds or keep as constants for now.
-- **Dropping sets/versions:** the rework removes the Mon–Wed/Sat/Sun set nav and the
-  3-versions-per-coupon cap. Confirm that machinery goes.
+### v3 — PWA redesign (complete except item 5 above)
+- **R0 — Foundations.** Paper tokens replaced the dark theme; manifest + icon;
+  mobile app shell.
+- **R1 — Coupon model rework.** `Coupon` (accumulator) + `Leg`; dropped
+  Set/Version/template-Coupon/Match. 59/59 green.
+- **R2 — Tennis & C/C feeds.**
+- **R3–R5 — Frontend.** Bottom tab bar, paper theme, all four pages rewritten,
+  service worker. Old components deleted.
+- **Reassessment (post-R5).** SPEC rewritten around coupons+legs; added
+  `POST /coupons/{id}/refresh`; test_feeds.py. 70/70 green.
+- **R7 — Alert dedupe & match transparency.** Repo under git. Discord alerts
+  deduped via `legs.notified_tier` (notify only on new/changed tier) — without
+  this, live coupons re-alert every 10 minutes. `OddsResult.matched_fixture`
+  surfaced so a wrong fuzzy match is visible; borderline matches
+  (0.6 ≤ score < 0.75) logged. 82/82 green. *(Done before R6 — correctness
+  prioritised over polish.)*
+- **R8 — AccaBonus pivot** (June 2026). Tennis tracker → all bet365 Acca
+  Boost-eligible competitions. **Do not redo this research.** Eligibility
+  verified against bet365's published terms: tennis all ATP/WTA/Challenger, MMA
+  any event; restricted to NBA/Euroleague/EuroBasket/FIBA/Olympics,
+  NFL only, MLB/NPB/KBO, NHL/Worlds/Olympics. **Cricket and rugby are NOT
+  eligible** (the pre-pivot filter wrongly included them). **Soccer IS eligible
+  but is deliberately excluded** — it's covered by the coupon tracker and
+  cards/corners. Pre-season/exhibition/All-Star excluded. Encoded in
+  `accabonus/arbs.py::select_accabonus_keys`. Re-verify only if bet365 changes
+  the offer. Legacy `/tennis/*` paths kept as deliberate aliases for stale
+  cached PWA shells. 96/96 green.
+- **R9 — `/state` snapshot.** Whole-app JSON for machine consumers, guarded by a
+  static `STATE_API_KEY` (constant-time compare, blank = 503). Reads through the
+  odds cache, so polling costs zero credits. Keep it read-only.
+- **R10 — Power-method de-vig.** Replaced multiplicative de-vig in
+  `odds/utils.py`. Applied to AccaBonus + cards. 97/97 green.
+  ⚠️ **This phase's note recorded that the coupon tracker did not de-vig and
+  called the resulting value "slightly conservative". That was backwards** — no
+  de-vig means fair odds are too low, so value was over*stated* and Discord
+  fired on non-value legs. The error stood until July 2026 (see v5 below).
+  Lesson: state the *direction* of a known bias, not just its existence.
 
-## Data-model rework (target shape)
-- `coupons` (accumulators): id, name, type_code (e.g. "TTS2"), match_day,
-  status (pending|live), image_path (OCR source), created_at.
-- `legs`: id, coupon_id (FK, cascade), match_name, pick (selection text,
-  e.g. "PSG HT/FT"), odds (your_odds), fair_odds, value, external_event_id, rank.
-- Value tier derived from `value`. Map current `Match`→`Leg`, current
-  `Version`→`Coupon`, current coupon-template→`type_code`, current `Set`→`match_day`.
-- Migration: dev DB is reseeded; provide a fresh `seed.py`. SQLite — recreate tables
-  (drop old sets/versions/matches/coupons-as-templates), no Alembic.
+### v4 — Coupon realignment
+Superseded in part. V1/V2's bettingiscool dependency is now open item 6; V3–V6
+are open items 1–4. The realignment's pricing decisions survive in **Decisions**
+above.
 
----
-
-## Phase R0 — Foundations & decisions ✅
-All product questions resolved (all defaults). Paper tokens replaced dark CSS vars.
-`manifest.webmanifest` + `icon.svg` added. Mobile app shell (max-width 480px,
-safe-area insets). Build clean.
-
-## Phase R1 — Backend: coupon model rework ✅
-New `Coupon` (accumulator) + `Leg` model; dropped Set/Version/template-Coupon/Match.
-New seed.py with sample accas. Routers: `GET /coupons`, `GET /coupons/{id}/legs`.
-Upload: `POST /upload` (type_code + match_day + image) → OCR → confirm → live.
-Scheduler + cleanup updated. R1-migration in `ensure_schema()`. 59/59 tests green.
-
-## Phase R2 — Backend: tennis & C/C feeds ✅
-Added `GET /tennis/feed` ({match, pick, odds, value, is_arb}) and `GET /cards/feed`
-(grouped by match, sorted by best_value). Legacy endpoints kept. 59/59 tests green.
-
-## Phase R3-R5 — Frontend: PWA shell + all screens ✅
-Bottom tab bar (Coupon/Tennis/C/C), paper theme throughout. Login restyled (wordmark
-lockup, "Email or username", LOG IN). Service worker registered. All four pages
-rewritten: TrackerPage (coupon pill + picker sheet + leg cards), UploadPage (drop-zone
-+ OCR review + previous uploads), ArbsPage (tennis feed cards), CardsPage (accordion).
-Old components (NavTabs, SetNav, CouponList, VersionPanel, etc.) deleted. Build clean.
-
-## Reassessment pass (post R5) ✅
-- SPEC.md rewritten around the v3 model (coupons+legs, pending→live, PWA layout §11).
-- Added `POST /coupons/{id}/refresh` (on-demand fair-odds refresh, reads through
-  cache) + "↻ Refresh odds" button on the tracker — replaces the lost
-  `/versions/{id}/refresh-odds` capability.
-- Added test_feeds.py (8 tests: feed shapes, grouping, min_edge, arb flag, auth)
-  and 3 refresh-endpoint tests. 70/70 green.
-- Dropped dead `getArbs`/`getCards` exports from frontend api.js.
-
-## Phase R7 — Alert dedupe & odds-match transparency ✅
-(Done out of order, before R6 — correctness hardening prioritised per user.)
-- [x] Repo put under git (initial commit `8f76fbc`); `.gitignore` excludes `.env`,
-      DBs, venv, node_modules, dist. **Remote push still manual** — add a private
-      remote and push.
-- [x] Discord value-bet alerts deduped: notify only when a leg's value tier
-      (hi/mid/lo, mirrors frontend cutoffs) is new or changed; tracked in new
-      `legs.notified_tier` column (guarded ALTER in `ensure_schema`).
-- [x] Fuzzy-match transparency: `OddsResult.matched_fixture` returned by
-      `TheOddsApiProvider`, persisted on `legs.matched_fixture`, shown in the
-      tracker when it differs from the OCR'd name. Borderline matches
-      (0.6 ≤ score < 0.75) logged as warnings.
-- [x] Compound picks ("win and over X.X") badged approximate: `Leg.is_approx`
-      property + `LegOut.is_approx`; tracker renders `fair ≈X.XX` with tooltip.
-- [x] 82/82 tests green (test_scheduler.py added: dedupe, tiers, fixture
-      surfacing, borderline logging); `npm run build` clean.
-
-## Phase R8 — AccaBonus pivot (tennis → all Acca Boost leagues) ✅ (June 2026)
-Done — do NOT redo or re-research. The tennis tracker is now the AccaBonus
-tracker, scanning bet365's Acca Boost-eligible competitions.
-
-- [x] **Eligibility verified against bet365's published Acca Boost terms
-      (June 2026, via aceodds.com/promotions/bet365-football-acca-bonus):**
-      Tennis all ATP/WTA/Challenger (whole group), MMA any event (whole group);
-      restricted: Basketball NBA/Euroleague/EuroBasket/FIBA/Olympics,
-      Am. Football NFL only, Baseball MLB/NPB/KBO, Ice Hockey
-      NHL/Worlds/Olympics. **Cricket and rugby are NOT eligible** (the
-      pre-pivot filter wrongly included them). **Soccer IS eligible for the
-      boost but is deliberately EXCLUDED from this tool — user decision
-      (June 2026): football is covered by the coupon tracker and cards/corners
-      tools. Don't re-add it.** Pre-season/exhibition/All-Star excluded per
-      terms (`_EXCLUDED_RE`). Encoded in
-      `accabonus/arbs.py::select_accabonus_keys` + tests. Re-verify terms only
-      if bet365 changes the offer.
-- [x] Multi-outcome de-vig: `odds/utils.py::devigd_multi` de-vigs across all
-      priced outcomes (handles a draw generically when both books price one,
-      e.g. MMA fight-outcome); `ArbRow`/`ArbOut` gained nullable `*_draw`
-      fields; arb check generalised to best-price-per-outcome. The old 2-way
-      `devigd` kept for cards.
-- [x] Rename throughout: `app/accabonus/`, `routers/accabonus.py`,
-      `/accabonus/{arbs,feed}`, `ACCABONUS_SPORT_KEYS`, `AccaBonusFeedItem`
-      (+ `sport` league tag, rendered on feed cards), `AccaBonusPage.jsx`,
-      route `/accabonus`, stacked-legs nav icon. **Legacy `/tennis/*` API paths
-      and the `/tennis` route are intentional aliases/redirects** for stale
-      cached PWA shells — keep until clients have rotated; don't add code there.
-- [x] Quota reality (testing phase): without soccer the discovered scan is
-      ≈ 10–30 keys ≈ 300–900 credits/month at the 24 h cache — can still
-      **exceed the 500 free-tier cap** in a busy tennis month. While on the
-      free tier set `ACCABONUS_SPORT_KEYS` to a few leagues if needed; the cap
-      stops applying after the planned paid upgrade (user decision).
-- [x] 96/96 tests green (`test_accabonus.py`: eligibility, 3-way, draw edge,
-      legacy aliases); `npm run build` clean; deployed + live smoke-tested.
-
-## Phase R9 — `/state` snapshot endpoint ✅ (June 2026)
-- [x] `GET /api/state` (`routers/state.py`): whole-app JSON snapshot — coupons
-      with legs (best value first), AccaBonus feed, cards feed, `generated_at`.
-      For machine consumers (dashboards/bots).
-- [x] Auth: static `STATE_API_KEY` via `X-API-Key` header (constant-time
-      compare), NOT session-guarded; blank key = 503/disabled. A live key is
-      already set in `.env` (generated June 2026). Reads through the odds cache
-      — polling costs zero credits. Keep the endpoint read-only.
-- [x] `test_state.py` covers 503/401/200 + leg sorting; verified live.
-
-## Phase R10 — Power-method de-vig ✅ (June 2026)
-- [x] Replaced the multiplicative de-vig with the **power method** in
-      `odds/utils.py` (user decision): solve k so `Σ (1/price)^k = 1`,
-      `fair = price^k` (bisection, tol 1e-13). Loads more vig onto longshots —
-      corrects the favourite–longshot bias the multiplicative method ignores.
-      Applies to AccaBonus + cards via the shared seam. NOTE: the coupon
-      tracker does NOT de-vig — `providers/odds_api.py::_extract_fair_odds`
-      uses raw Pinnacle prices as fair (pre-existing behaviour, left
-      unchanged; coupon "value" is therefore slightly conservative).
-      `margin` stays the raw overround. 97/97
-      tests green (power-vs-multiplicative direction test added; the
-      multiplicative-formula assertion in test_cards rewritten to
-      method-agnostic invariants + same-k check).
-
-## Phase R6 — Polish, offline, verification
-- [ ] Live status `● LIVE · HH:MM`; stale/offline indicator when SW serves cache.
-- [ ] Animations (accordion, sheet) ~150–200ms ease; chevron rotation.
-- [ ] Full verification: pytest green, `npm run build` clean, responsive 390/768px,
-      Lighthouse PWA. Deploy (`docker compose up --build -d`) + live smoke test.
-
----
-
-# Puntmore — Rework Plan (v2) — COMPLETE (kept for history)
-
-Decisions locked in (do not re-litigate):
-
-- **Free Odds API tier for now** — 24 h cache stays; make TTL a config value so a paid
-  upgrade later is a one-line `.env` change.
-- **4 members, shared data (syndicate), all equal** — logins identify who did what;
-  no roles, no per-user data partitioning.
-- **Auth = in-app sessions, minimal**: `users` table + bcrypt + Starlette
-  `SessionMiddleware` signed cookie. No JWT, no registration, no password reset.
-- **Mobile-friendly UI** is in scope. No other new features.
-- **SPEC.md gets rewritten around reality** (TheOddsApi, unified frontend, 3 tools).
-
-History: phases 1–6 of the original coupon tracker build are complete (see git/SPEC
-for context). The three frontends were merged into `frontend/`; odds fetching was
-unified into `api/app/odds/client.py::TheOddsApiClient`. 83/83 tests green at start.
-
-Rules for the implementing model:
-- Complete and verify one phase before starting the next. Run
-  `api/.venv/bin/python -m pytest api/tests/ -q` and `npm run build` (in `frontend/`)
-  at the end of every phase; both must pass.
-- Never call external APIs from core logic — everything goes through the seams
-  (`OCRProvider`, `OddsProvider`, `TheOddsApiClient`, `NotificationProvider`).
-- Do not shorten the odds cache TTL default (86400). Quota math: free tier is
-  500 credits/month; ~2 credits per sport/odds call.
-- OCR output always passes through the manual-correction step. Never auto-confirm.
-- The 30-day cleanup deletes BOTH DB rows AND image files. Never one without the other.
-
----
-
-## Phase A — Documentation truth pass ✅
-Goal: every doc describes the software that actually exists.
-
-- [x] Rewrite `SPEC.md`: three tools (coupon tracker / AccaBonus arbs / cards & corners),
-      unified React frontend, shared FastAPI backend, `TheOddsApiClient` data layer,
-      de-vig methodology, free-tier quota budget, Caddy → nginx → containers topology.
-      Kept §3 (domain concepts), §7 (OCR correction), §9 (auto-deletion); deleted PS3838.
-- [x] Rewrite `CLAUDE.md` structure section: `frontend/` (single app), `api/`, `nginx/`.
-      Removed the three per-service dirs and "Adding a new service"; replaced with
-      "Adding a new tool page". Provider guide now documents `app/odds/client.py` as the
-      shared HTTP/cache layer; cache-TTL guardrail references `Settings.odds_cache_ttl`.
-- [x] Moved `CACHE_TTL` into `Settings` as `odds_cache_ttl: int = 86400`; wired through
-      `TheOddsApiClient(api_key, cache_ttl=...)` and `main.py`. Added commented
-      `ODDS_CACHE_TTL=` to `.env.example` with the paid-tier note.
-- [x] DoD: docs free of PS3838-as-backend, old per-service dirs, and false 1-hour-cache
-      claims. (Code column `ps3838_event_id` still exists — rename deferred to Phase D.)
-      83/83 tests green.
-
-## Phase B — Auth (4 users, shared data) ✅
-Goal: login page in front of everything; the app knows who acted.
-
-Backend:
-- [x] Added deps `bcrypt`, `itsdangerous`; added to `requirements.txt`.
-- [x] `models.py`: `User` table (id, username unique, password_hash, created_at).
-- [x] `config.py`: `secret_key` + `auth_users`; both in `.env.example`. Empty
-      `secret_key` → random key generated at startup with a logged warning.
-- [x] Startup seeding (`security.seed_users`, called in lifespan): parses
-      `auth_users`, creates missing users (bcrypt), never modifies existing.
-      Documented in CLAUDE.md/SPEC §10.
-- [x] `routers/auth.py`: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`.
-- [x] `SessionMiddleware` added (`same_site="lax"`, `https_only=False`, 30-day).
-- [x] Guard: single `security.require_user` dependency applied to all six data
-      routers via `include_router(..., dependencies=[Depends(require_user)])`.
-      Auth router open; `/auth/me` self-guards.
-- [x] Attribution: nullable `versions.uploaded_by`, set from session in upload.
-      `security.ensure_schema()` adds the column to a pre-existing DB on startup.
-- [x] Tests (`test_auth.py`, 13): hashing roundtrip, parse/seed idempotency +
-      no-modify, login 401/200, `/auth/me`, logout, guard 401-without/200-with.
-      `conftest.py` bypasses `require_user` so the existing 83 tests pass unchanged.
-
-Frontend:
-- [x] `LoginPage` at `/login` (own card module, Puntmore-branded).
-- [x] App boot calls `/auth/me`; gates routes; `api.js` redirects to `/login` on
-      any 401 (and `getMe` returns null on 401 without redirect, for boot).
-- [x] NavTabs shows username + logout button (right-aligned).
-
-Infra:
-- [x] Removed `basic_auth` from the `puntmore.com` Caddy block (lab host untouched).
-- [x] DoD: 96/96 tests green; frontend build green. Manual browser check pending
-      (run `docker compose up --build`, set `AUTH_USERS` in `.env`).
-
-## Phase C — Mobile-friendly UI ✅
-Goal: fully usable at 390 px wide (no body-level horizontal scroll).
-
-- [x] Tables scroll internally: `ValuePage .surface`, `VersionPanel .tableWrap`,
-      and `UploadPage .tableWrap` all `overflow-x: auto`.
-- [x] `TrackerPage` ≤ 768 px: `.body` stacks vertically; coupon list becomes a
-      horizontal scrollable chip row (`CouponList` media query); VersionPanel full width.
-- [x] `NavTabs` ≤ 480 px: brand + username hidden, tabs scroll, logout kept.
-- [x] Value pages: header wraps; page padding drops to 12/8 px; ThresholdControl
-      hint hidden < 480 px.
-- [x] Touch targets ≥ 40 px on touch widths (coupon chips, logout, vTab bumped).
-- [x] UploadPage review table wrapped (overflow-x).
-- [x] DoD: `npm run build` clean. Manual responsive viewport check pending (needs
-      running app).
-
-### Density pass (mid-Phase, per user) ✅
-User directive: "utility, not a marketing product — cut buffer spacing to a minimum."
-Saved to memory ([[feedback-dense-utilitarian-ui]]). Tightened table cells
-(8–9 px → 3 px), nav bar (44 → 36 px), panel headers, page paddings, and card
-paddings across all surfaces. Build green.
-
-## Phase D — Loose ends ✅
-- [x] Phase 4b leftover: `cleanup_old_versions` now notifies (versions + image-file
-      counts) and `start_scheduler` registers an `EVENT_JOB_ERROR` listener that
-      notifies on any job failure. Startup cleanup passes the notifier too.
-      2 new tests in test_phase6.
-- [x] Replaced all `datetime.utcnow()` with a shared `time_utils.utcnow()` (naive UTC,
-      computed the non-deprecated way). Warnings down from 76 → 2 (both third-party).
-- [x] Deleted the dead `TENNIS_SPORT_KEYS` alias in `tennis/arbs.py` (no references).
-- [x] Deleted the PS3838 provider (`providers/ps3838.py`) + its 3 rate-limit tests
-      (per user decision). Renamed `ps3838_event_id` → `external_event_id` in
-      `models.py` + `schemas.py`, with a guarded `ALTER TABLE ... RENAME COLUMN`
-      migration in `security.ensure_schema`.
-
-### Discovered / handled
-- [x] `app/market_map.py` was orphaned by the PS3838 removal (no live consumer).
-  Deleted the module and its 4 tests in test_phase3. PS3838 + market_map now fully
-  gone from live code and tests; only the column-rename migration in security.py
-  still names the old column (required to detect it).
-- [ ] DoD: zero deprecation warnings from our own code in pytest output; tests green.
-
----
-
-Out of scope (explicitly): paid Odds API tier, bet logging/P&L, roles/permissions,
-password reset flows, Postgres, per-user data separation.
+### v5 — Coupon-only focus (July 2026)
+- Config flags `enable_accabonus` / `enable_cards` (default False) gate the
+  routers in `main.py`; `BottomNav.jsx` tabs hidden, `App.jsx` routes redirect.
+  `tests/conftest.py` sets both flags so the kept tests still run.
+- Coupon pricing moved to `TheOddsApiProvider` behind the `OddsProvider` seam,
+  with its own `COUPON_ODDS_CACHE_TTL` independent of the AccaBonus/Cards cache.
+  One full `/odds` response per sport is reused across every leg and the 10-min
+  refresh loop. 98/98 green.
+- **In-house de-vig for coupons** — closed the R10 gap above. 1X2 de-vigs across
+  the full outcome set, totals across both sides; incomplete markets return
+  None. Fair odds rose ~1.7% on a typical market, which is exactly the phantom
+  value that had been inflating every leg. Win-and-Over still multiplies two
+  de-vigged prices (conservative bias — misses value rather than inventing it)
+  until open item 1 lands. 102/102 green.
+- Secret scanning: gitleaks pre-commit hook (`.githooks/`, `.gitleaks.toml`).
+  The default ruleset did **not** catch this repo's real leak — a 32-char
+  lowercase hex API key, too few distinct symbols to clear the entropy
+  threshold — so the custom rules key off the adjacent variable name instead.

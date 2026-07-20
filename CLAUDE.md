@@ -7,13 +7,13 @@ guardrails for the whole repo.
 A self-hosted betting-tools suite: three tools share one FastAPI backend and one
 React frontend, behind a shared nginx layer.
 
-> **Current status (PLAN.md v5, July 2026):** only the **coupon tracker** is
-> surfaced. AccaBonus and Cards/Corners are hidden — their routers are gated on
+> **Current status (July 2026):** only the **coupon tracker** is surfaced.
+> AccaBonus and Cards/Corners are hidden — their routers are gated on
 > `ENABLE_ACCABONUS` / `ENABLE_CARDS` (default False) and their nav tabs/routes
 > are suppressed. Code, tests, and the seams are all kept; this is a visibility
 > gate, not a removal. The disabled routers / coupon-only UI are intentional —
-> do not "fix" them. The coupon tracker currently prices via **TheOddsApi**
-> (`COUPON_ODDS_SOURCE=theoddsapi`); bettingiscool remains the planned switch.
+> do not "fix" them. The coupon tracker prices via **TheOddsApi**
+> (`COUPON_ODDS_SOURCE=theoddsapi`) and de-vigs in-house.
 
 ```
 bettingtools/
@@ -28,11 +28,17 @@ separate builds. The backend serves them all under namespaced routers.
 (`/tennis` is the AccaBonus tool's legacy prefix — kept as redirect/API aliases
 for stale PWA clients; don't add new code under it.)
 
-## Two odds sources (deliberate — do not merge them)
-- **Coupon tracker** → `BettingIsCoolProvider` (Pinnacle-native, exposes team
-  totals + raw prices). This is what makes in-house devig and the derived
-  Win-and-Over model possible; TheOddsApi cannot (no team totals).
+## Odds sources
+- **Coupon tracker** → `TheOddsApiProvider` (`providers/odds_api.py`), pulling
+  `h2h,totals` through the shared client on its own cache TTL. Fair odds are
+  de-vigged in-house from these raw prices.
 - **AccaBonus + Cards** → the shared `TheOddsApiClient` (free tier). Unchanged.
+
+`BettingIsCoolProvider` is **planned but not built** (PLAN open item 6). It is
+Pinnacle-native and exposes team totals, which TheOddsApi does not — that costs
+some accuracy in the derived score grid, but nothing is blocked on it. Adding it
+is one new class plus one `elif` in the `main.py` lifespan; keep the seam able
+to absorb that.
 
 Both live behind their seams. Core logic never calls a vendor API directly.
 
@@ -43,15 +49,17 @@ Both live behind their seams. Core logic never calls a vendor API directly.
 - The provider seams MUST stay behind their interfaces (see Provider guide
   below). Never call external APIs directly from core logic.
 - **Coupon fair odds are computed IN-HOUSE by de-vigging raw Pinnacle prices**
-  (power method, `odds/utils.py`). Vendor-supplied devigged fields
-  (bettingiscool `todds`) are for cross-check tests ONLY — the pricing path must
-  not depend on them, so providers stay swappable. (This reverses the old R10
-  raw-price exception — see PLAN.md.)
+  (power method, `odds/utils.py`) — enforced in `providers/odds_api.py` since
+  July 2026. Any vendor-supplied devigged field is for cross-check tests ONLY;
+  the pricing path must not depend on one, so providers stay swappable.
 - **Win-and-Over markets have NO direct Pinnacle price.** They MUST be derived
   via the calibrated score-grid model (SPEC §8). NEVER price them as
   moneyline × over — result and total goals are correlated and naive
-  multiplication overstates fair odds. (The old `is_approx` h2h×totals path is
-  retired.)
+  multiplication overstates fair odds.
+  ⚠️ **Not yet true in code:** `odds_api.py` still multiplies two *de-vigged*
+  prices for compound legs, flagged `is_approx`. The bias is conservative (it
+  misses value rather than inventing it) and it goes away with PLAN open item 1.
+  Don't extend this path — replace it.
 - Derived-market value thresholds come from MEASURED backtest calibration
   (SPEC §8.4), not assumed. Until measured, use the provisional 8% threshold and
   display the uncertainty band.
@@ -91,17 +99,25 @@ Current model IDs (verify before changing — do not assume from memory):
 - Claude: `claude-haiku-4-5` (set in `providers/claude_ocr.py::MODEL`)
 
 ### Coupon odds provider (`app/providers/base.py::OddsProvider`)
-Interface: `get_market_prices(queries) -> list[RawPrices]` — returns RAW prices
-(1X2, totals ladder, team totals) so core logic devigs (§7) and derives (§8).
+Interface: `get_fair_odds(queries) -> list[OddsResult]`. The provider de-vigs
+internally and returns FAIR odds plus the fixture it fuzzy-matched.
+
 | Class | File | Trigger |
 |---|---|---|
-| `BettingIsCoolProvider` | `providers/bettingiscool.py` | `BETTINGISCOOL_API_KEY` set |
-| `MockOddsProvider` | `providers/mock_odds.py` | no key (dev/test) |
+| `TheOddsApiProvider` | `providers/odds_api.py` | `COUPON_ODDS_SOURCE=theoddsapi` (default) |
+| `MockOddsProvider` | `providers/mock_odds.py` | no `ODDS_API_KEY` (dev/test) |
 
-Auth: `X-API-Key` header. KNOWN RISK (accepted): one-person vendor. The seam is
-the mitigation — a replacement feed is one new class, not a rebuild. To add a
-new coupon odds provider, implement `OddsProvider` and add an `elif` in the
-`main.py` lifespan. Refresh cadence is 10 min (§8) — inside the vendor quota.
+De-vigging happens in `_fair_h2h_price` / `_fair_totals_price` via
+`odds/utils.py`. **Both require the complete outcome set** — all of 1X2, or both
+sides of a total — because the margin is a property of the market, not of one
+selection. Where that isn't available they return `None`. Never "fix" that by
+falling back to the raw price: a vigged price returned as fair odds reads as
+value that isn't there and fires false Discord alerts. That was a live bug until
+July 2026.
+
+Refresh cadence is 10 min, reading through the cache — it never adds vendor
+calls. To add a provider, implement `OddsProvider` and add an `elif` on
+`settings.coupon_odds_source` in the `main.py` lifespan.
 
 ### Odds data layer for value tools (`app/odds/client.py::TheOddsApiClient`)
 AccaBonus + Cards read TheOddsApi through this one shared client (HTTP + cache).
@@ -116,21 +132,21 @@ keyed by `(sport_key, markets, bookmakers)`.
 - Fair odds come from de-vigging Pinnacle via the **power method**
   (`app/odds/utils.py::devigd` / `devigd_multi` — user decision, June 2026;
   don't revert to multiplicative). Pinnacle is the reference everywhere. The
-  coupon tracker devigs the same way, now over bettingiscool prices.
+  coupon tracker devigs the same way, over TheOddsApi prices.
 - TheOddsApi returns the totals line as `"point"` (numeric) on each outcome.
   Do not confuse with `"description"` — that field does not exist in this API.
 
 Consumers:
 | Consumer | File | Source | Markets | Bookmakers |
 |---|---|---|---|---|
-| coupons | `providers/bettingiscool.py` | bettingiscool | 1X2, totals, team totals | Pinnacle |
+| coupons | `providers/odds_api.py` | TheOddsApi | `h2h`, `totals` | Pinnacle (falls back to first listed) |
 | arbs router | `routers/accabonus.py` + `accabonus/arbs.py` | TheOddsApi | `h2h` | bet365 vs Pinnacle |
 | `CardsApiClient` | `cards/client.py` + `cards/value.py` | TheOddsApi | `alternate_totals` | Pinnacle, Paddy Power |
 
-`BettingIsCoolProvider` satisfies the `OddsProvider` interface (used by the
-refresh loop). AccaBonus and cards consume the `TheOddsApiClient` directly via
-`app.state.arbs_client` / `app.state.cards_client` because they query bespoke
-market/bookmaker combos.
+`TheOddsApiProvider` satisfies the `OddsProvider` interface (used by the refresh
+loop) and reads through the client on its own `COUPON_ODDS_CACHE_TTL`. AccaBonus
+and cards consume the `TheOddsApiClient` directly via `app.state.arbs_client` /
+`app.state.cards_client` because they query bespoke market/bookmaker combos.
 
 ### Notification provider (`app/notifications/`)
 `send(message)`. `DiscordNotificationProvider` (`DISCORD_WEBHOOK_URL`) →
@@ -147,12 +163,14 @@ increases API call frequency. Keep it read-only — never add mutating
 operations behind the API key.
 
 ## Workflow
-- Work in phases per `PLAN.md`. Complete and verify one phase before the next.
-- Tests/verification steps are part of each phase, not an afterthought.
-- Decisions locked in PLAN.md's header are settled — do not re-litigate them.
-- **The coupon realignment (PLAN v4) BEGINS with the bettingiscool provider
-  verification calls (SPEC §13.1).** Do not build devig/derived logic until the
-  provider has passed them and `docs/provider-verification.md` is committed.
+- Work the numbered items in `PLAN.md` → **Open work**, in order. Complete and
+  verify one before starting the next.
+- Tests/verification steps are part of each item, not an afterthought.
+- `PLAN.md` → **Decisions** is settled — do not re-litigate.
+- Secrets: a gitleaks pre-commit hook blocks commits containing them. On a fresh
+  clone, enable it with `git config core.hooksPath .githooks` (gitleaks must be
+  on PATH). Rules are in `.gitleaks.toml` — the tool's defaults miss this repo's
+  known leak shape, so don't replace them with a stock config.
 
 ## Stack
 - Backend: FastAPI (Python), one app, routers namespaced per tool.
