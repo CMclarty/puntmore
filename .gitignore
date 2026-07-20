@@ -17,3 +17,6 @@ frontend/dist/
 
 # Editor/OS noise
 .DS_Store
+
+# Claude Code local per-machine settings (may contain local paths/keys)
+.claude/settings.local.json
