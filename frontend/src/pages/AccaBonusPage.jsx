@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { getTennisFeed } from '../api'
+import { getAccaBonusFeed } from '../api'
 import ThresholdControl from '../components/ThresholdControl'
 import styles from './FeedPage.module.css'
 
 const DEBOUNCE_MS = 400
+const DEFAULT_EV = 98  // preset: show everything at or above 98% EV
 
 function valueTier(v) {
   if (v >= 0.06) return 'hi'
@@ -12,24 +13,24 @@ function valueTier(v) {
   return 'neg'
 }
 
+// Edge fraction → %EV (bet odds as % of fair). 0.02 → "102.0%"
 function fmt(v) {
-  const s = (v * 100).toFixed(1)
-  return v > 0 ? `+${s}%` : `${s}%`
+  return `${((1 + v) * 100).toFixed(1)}%`
 }
 
-export default function ArbsPage() {
-  const [threshold, setThreshold] = useState(-0.05)
+export default function AccaBonusPage() {
+  const [threshold, setThreshold] = useState(DEFAULT_EV)
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [fetchedAt, setFetchedAt] = useState(null)
   const debounceRef = useRef(null)
 
-  const fetchFeed = useCallback(async (t) => {
+  const fetchFeed = useCallback(async (ev) => {
     setLoading(true)
     setError(null)
     try {
-      const data = await getTennisFeed(t)
+      const data = await getAccaBonusFeed(ev / 100 - 1)
       setItems(data)
       setFetchedAt(new Date())
     } catch (err) {
@@ -50,7 +51,7 @@ export default function ArbsPage() {
   return (
     <div className={styles.page}>
       <div className={styles.header}>
-        <span className={styles.title}>Tennis</span>
+        <span className={styles.title}>AccaBonus</span>
         <ThresholdControl value={threshold} onChange={handleThresholdChange} />
       </div>
 
@@ -69,6 +70,7 @@ export default function ArbsPage() {
           <div key={i} className={styles.card}>
             <div className={styles.cardRow}>
               <span className={styles.match}>{item.match}</span>
+              {item.sport && <span className={styles.sport}>{item.sport}</span>}
               {item.is_arb && <span className={styles.arbChip}>ARB</span>}
             </div>
             <div className={styles.cardRow}>

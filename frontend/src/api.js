@@ -73,10 +73,10 @@ export async function uploadCoupon(typeCode, matchDay, file, name = null) {
 export const confirmUpload = (couponId, rows) =>
   post(`/upload/${couponId}/confirm`, { rows })
 
-// Tennis arbs
-export const getTennisFeed = (minEdge = -0.05) =>
-  get(`/tennis/feed?min_edge=${minEdge}`)
+// AccaBonus arbs
+export const getAccaBonusFeed = (minEdge = -0.02) =>
+  get(`/accabonus/feed?min_edge=${minEdge}`)
 
 // Cards & corners
-export const getCardsFeed = (minEdge = -0.05) =>
+export const getCardsFeed = (minEdge = -0.02) =>
   get(`/cards/feed?min_edge=${minEdge}`)

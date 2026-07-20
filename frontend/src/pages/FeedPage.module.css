@@ -46,7 +46,7 @@
   overflow-y: auto;
 }
 
-/* Value cards (tennis) */
+/* Value cards (AccaBonus) */
 .card {
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
@@ -85,6 +85,18 @@
 .odds {
   font-size: 12px;
   color: var(--ink);
+}
+
+.sport {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .arbChip {

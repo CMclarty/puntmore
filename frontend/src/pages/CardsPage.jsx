@@ -4,6 +4,7 @@ import ThresholdControl from '../components/ThresholdControl'
 import styles from './FeedPage.module.css'
 
 const DEBOUNCE_MS = 400
+const DEFAULT_EV = 98  // preset: show everything at or above 98% EV
 
 function valueTier(v) {
   if (v >= 0.06) return 'hi'
@@ -12,13 +13,13 @@ function valueTier(v) {
   return 'neg'
 }
 
+// Edge fraction → %EV (bet odds as % of fair). 0.02 → "102.0%"
 function fmt(v) {
-  const s = (v * 100).toFixed(1)
-  return v > 0 ? `+${s}%` : `${s}%`
+  return `${((1 + v) * 100).toFixed(1)}%`
 }
 
 export default function CardsPage() {
-  const [threshold, setThreshold] = useState(-0.05)
+  const [threshold, setThreshold] = useState(DEFAULT_EV)
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -26,11 +27,11 @@ export default function CardsPage() {
   const [openId, setOpenId] = useState(null)
   const debounceRef = useRef(null)
 
-  const fetchFeed = useCallback(async (t) => {
+  const fetchFeed = useCallback(async (ev) => {
     setLoading(true)
     setError(null)
     try {
-      const data = await getCardsFeed(t)
+      const data = await getCardsFeed(ev / 100 - 1)
       setItems(data)
       setFetchedAt(new Date())
     } catch (err) {

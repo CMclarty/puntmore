@@ -105,15 +105,25 @@ def _extract_fair_odds(event: dict, market_str: str) -> float | None:
 
 
 class TheOddsApiProvider(OddsProvider):
-    def __init__(self, client: TheOddsApiClient, sport_keys: list[str] | None = None):
+    def __init__(
+        self,
+        client: TheOddsApiClient,
+        sport_keys: list[str] | None = None,
+        cache_ttl: int | None = None,
+    ):
         self._client = client
         self._sport_keys = sport_keys or SOCCER_SPORT_KEYS
+        # Coupon-specific cache TTL: one full /odds response per sport is pulled
+        # and reused for this long. None = fall back to the client-wide TTL.
+        self._cache_ttl = cache_ttl
 
     def _all_events(self) -> list[dict]:
         events = []
         for sport_key in self._sport_keys:
             try:
-                events.extend(self._client.fetch(sport_key, "h2h,totals"))
+                events.extend(
+                    self._client.fetch(sport_key, "h2h,totals", ttl=self._cache_ttl)
+                )
             except Exception:
                 continue
         return events

@@ -55,9 +55,10 @@ class ConfirmRequest(BaseModel):
     rows: list[ConfirmLeg]
 
 
-# Tennis feed (simplified card shape)
-class TennisFeedItem(BaseModel):
+# AccaBonus feed (simplified card shape)
+class AccaBonusFeedItem(BaseModel):
     match: str
+    sport: str  # league/tour label, e.g. "EPL", "ATP French Open"
     pick: str
     odds: float
     value: float
@@ -79,9 +80,10 @@ class CardFeedItem(BaseModel):
     bets: list[CardFeedBet]
 
 
-# Tennis arbs (legacy endpoint — full detail)
+# AccaBonus arbs (full detail)
 class ArbOut(BaseModel):
     event_id: str
+    sport_title: str
     home_team: str
     away_team: str
     commence_time: str
@@ -96,6 +98,23 @@ class ArbOut(BaseModel):
     edge_away: float
     best_edge: float
     is_arb: bool
+    # Only when both books price a draw (e.g. MMA) — null on 2-way markets:
+    bet365_draw: float | None = None
+    pinnacle_draw: float | None = None
+    fair_draw: float | None = None
+    edge_draw: float | None = None
+
+
+# Whole-app state snapshot (GET /state — machine consumers, API-key auth)
+class CouponStateOut(CouponOut):
+    legs: list[LegOut]
+
+
+class StateOut(BaseModel):
+    generated_at: datetime
+    coupons: list[CouponStateOut]
+    accabonus: list[AccaBonusFeedItem]
+    cards: list[CardFeedItem]
 
 
 # Cards & corners value bets

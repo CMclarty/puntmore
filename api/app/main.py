@@ -19,9 +19,10 @@ from .notifications.discord import DiscordNotificationProvider, NullNotification
 from .scheduler import cleanup_old_coupons, start_scheduler
 from .routers import coupons
 from .routers.upload import router as upload_router
-from .routers import tennis
+from .routers import accabonus
 from .routers import cards as cards_router
 from .routers import auth as auth_router
+from .routers import state as state_router
 from .cards.client import CardsApiClient
 
 logger = logging.getLogger("uvicorn.error")
@@ -44,13 +45,24 @@ async def lifespan(app: FastAPI):
         odds_client = TheOddsApiClient(
             settings.odds_api_key, cache_ttl=settings.odds_cache_ttl
         )
-        app.state.odds_provider = TheOddsApiProvider(odds_client)
         app.state.arbs_client = odds_client
         app.state.cards_client = CardsApiClient(odds_client)
     else:
-        app.state.odds_provider = MockOddsProvider()
+        odds_client = None
         app.state.arbs_client = None
         app.state.cards_client = None
+
+    # Coupon odds provider (behind the OddsProvider seam). TheOddsApi pulls one
+    # full /v4/sports/{sport}/odds response per sport and reuses it for
+    # coupon_odds_cache_ttl (30 min default) across every leg and the 10-min
+    # refresh loop. "bettingiscool" is the planned alternative (PLAN v4 §V2);
+    # until it exists, any non-theoddsapi source falls back to the mock.
+    if odds_client is not None and settings.coupon_odds_source == "theoddsapi":
+        app.state.odds_provider = TheOddsApiProvider(
+            odds_client, cache_ttl=settings.coupon_odds_cache_ttl
+        )
+    else:
+        app.state.odds_provider = MockOddsProvider()
 
     if settings.google_api_key:
         app.state.ocr_provider = GeminiOCRProvider(settings.google_api_key)
@@ -112,5 +124,13 @@ app.include_router(auth_router.router)
 _guard = [Depends(require_user)]
 app.include_router(coupons.router, dependencies=_guard)
 app.include_router(upload_router, dependencies=_guard)
-app.include_router(tennis.router, dependencies=_guard)
-app.include_router(cards_router.router, dependencies=_guard)
+# AccaBonus and Cards/Corners are hidden for now (coupon-tracker-only mode,
+# PLAN.md v5). Code is kept; the routers are only mounted when re-enabled via
+# the ENABLE_ACCABONUS / ENABLE_CARDS flags in .env.
+if settings.enable_accabonus:
+    app.include_router(accabonus.router, dependencies=_guard)
+if settings.enable_cards:
+    app.include_router(cards_router.router, dependencies=_guard)
+
+# /state self-guards with a static API key (machine consumers, no session).
+app.include_router(state_router.router)

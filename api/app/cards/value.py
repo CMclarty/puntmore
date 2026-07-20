@@ -1,10 +1,11 @@
 """De-vig + value computation for cards/corners O/U markets.
 
-De-vig formula (same as tennis/arbs.py::_devigd):
-    total_impl = 1/pin_over + 1/pin_under
-    fair_over  = pin_over  * total_impl
-    fair_under = pin_under * total_impl
-    margin     = total_impl - 1
+De-vig (same shared power-method de-vig as accabonus/arbs.py — see
+odds/utils.py::devigd):
+    find k so that (1/pin_over)^k + (1/pin_under)^k = 1
+    fair_over  = pin_over  ** k
+    fair_under = pin_under ** k
+    margin     = (1/pin_over + 1/pin_under) - 1   (raw overround)
     edge       = paddy_price / fair_price - 1
 """
 from dataclasses import dataclass

@@ -1,4 +1,4 @@
-"""Tests for the v3 feed endpoints: /tennis/feed and /cards/feed."""
+"""Tests for the v3 feed endpoints: /accabonus/feed and /cards/feed."""
 import pytest
 from fastapi.testclient import TestClient
 
@@ -69,42 +69,43 @@ def _totals_event(event_id, home, away, pin_over, pin_under, paddy_over, paddy_u
     }
 
 
-# --- /tennis/feed ---
+# --- /accabonus/feed ---
 
-def test_tennis_feed_empty_without_client():
+def test_accabonus_feed_empty_without_client():
     app.state.arbs_client = None
-    assert client.get("/tennis/feed").json() == []
+    assert client.get("/accabonus/feed").json() == []
 
 
-def test_tennis_feed_picks_best_side():
+def test_accabonus_feed_picks_best_side():
     # Bet365 home 2.10 vs fair ~2.05 → home is the value side
     app.state.arbs_client = StubArbsClient([
         _h2h_event("e1", "Alcaraz", "Sinner", 2.10, 1.80, 2.00, 1.90),
     ])
-    rows = client.get("/tennis/feed?min_edge=-0.5").json()
+    rows = client.get("/accabonus/feed?min_edge=-0.5").json()
     assert len(rows) == 1
     row = rows[0]
     assert row["match"] == "Alcaraz vs Sinner"
     assert row["pick"] == "Alcaraz"
     assert row["odds"] == 2.10
     assert row["value"] > 0
+    assert "sport" in row
 
 
-def test_tennis_feed_respects_min_edge():
+def test_accabonus_feed_respects_min_edge():
     app.state.arbs_client = StubArbsClient([
         # Bet365 well below fair on both sides → big negative edge
         _h2h_event("e1", "A", "B", 1.50, 1.50, 2.00, 2.00),
     ])
-    rows = client.get("/tennis/feed?min_edge=0.0").json()
+    rows = client.get("/accabonus/feed?min_edge=0.0").json()
     assert rows == []
 
 
-def test_tennis_feed_flags_arb():
+def test_accabonus_feed_flags_arb():
     # 1/2.30 + 1/1.90 = 0.961 < 1 → guaranteed cross-book arb
     app.state.arbs_client = StubArbsClient([
         _h2h_event("e1", "A", "B", 2.30, 1.60, 2.10, 1.90),
     ])
-    rows = client.get("/tennis/feed?min_edge=-0.5").json()
+    rows = client.get("/accabonus/feed?min_edge=-0.5").json()
     assert len(rows) == 1
     assert rows[0]["is_arb"] is True
 
@@ -148,7 +149,8 @@ def test_feeds_require_auth():
     from app.security import require_user
     app.dependency_overrides.pop(require_user, None)
     try:
-        assert client.get("/tennis/feed").status_code == 401
+        assert client.get("/accabonus/feed").status_code == 401
+        assert client.get("/tennis/feed").status_code == 401  # legacy alias guarded too
         assert client.get("/cards/feed").status_code == 401
     finally:
         app.dependency_overrides[require_user] = lambda: "testuser"

@@ -33,13 +33,21 @@ def test_devigd_typical():
 
 
 def test_devigd_asymmetric():
-    """Asymmetric lines de-vig correctly."""
+    """Asymmetric lines de-vig correctly (power method)."""
+    import math
+
     pin_over, pin_under = 1.87, 2.05
     fair_over, fair_under, margin = _devigd(pin_over, pin_under)
     total_impl = 1 / pin_over + 1 / pin_under
-    assert abs(fair_over - pin_over * total_impl) < 1e-9
-    assert abs(fair_under - pin_under * total_impl) < 1e-9
+    # Margin is the raw overround, independent of de-vig method
     assert abs(margin - (total_impl - 1)) < 1e-9
+    # Fair probabilities sum to exactly 1
+    assert abs(1 / fair_over + 1 / fair_under - 1.0) < 1e-9
+    # Power method: both fair prices are price**k for the SAME exponent k
+    k_over = math.log(fair_over) / math.log(pin_over)
+    k_under = math.log(fair_under) / math.log(pin_under)
+    assert abs(k_over - k_under) < 1e-6
+    assert k_over > 1  # positive vig → k above 1
 
 
 # ---------------------------------------------------------------------------

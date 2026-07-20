@@ -193,7 +193,7 @@ class StubClient:
         self._events = events
         self._served = False
 
-    def fetch(self, sport_key, markets, bookmakers=None):
+    def fetch(self, sport_key, markets, bookmakers=None, ttl=None):
         if self._served:
             return []
         self._served = True
@@ -222,6 +222,23 @@ def test_provider_returns_matched_fixture():
     results = provider.get_fair_odds([MatchQuery(1, "Man Utd vs Chelsea", "Win")])
     assert results[0].matched_fixture == "Manchester United vs Chelsea"
     assert results[0].fair_odds == 1.85
+
+
+def test_provider_threads_cache_ttl_to_client():
+    # The coupon provider's 30-min TTL must reach the client so its full
+    # per-sport pull refreshes on the coupon cadence, not the 24-h default.
+    class TTLRecordingClient:
+        def __init__(self):
+            self.ttls = []
+
+        def fetch(self, sport_key, markets, bookmakers=None, ttl=None):
+            self.ttls.append(ttl)
+            return []
+
+    client = TTLRecordingClient()
+    provider = TheOddsApiProvider(client, sport_keys=["soccer_epl"], cache_ttl=1800)
+    provider.get_fair_odds([MatchQuery(1, "A vs B", "Win")])
+    assert client.ttls == [1800]
 
 
 def test_provider_no_match_returns_none_fixture():

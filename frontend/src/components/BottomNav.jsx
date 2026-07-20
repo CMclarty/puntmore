@@ -16,17 +16,23 @@ const TABS = [
     ),
   },
   {
-    label: 'Tennis',
-    to: '/tennis',
-    matches: (p) => p.startsWith('/tennis'),
+    // Hidden for now — coupon-tracker-only mode (PLAN.md v5). Definition kept;
+    // remove `hidden` to bring the tab back (also re-enable its API router).
+    hidden: true,
+    label: 'AccaBonus',
+    to: '/accabonus',
+    matches: (p) => p.startsWith('/accabonus') || p.startsWith('/tennis'),
     icon: (
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-        <circle cx="11" cy="11" r="8"/>
-        <path d="M3.5 11c2.5-2.5 2.5-5.5 0-8M18.5 11c-2.5 2.5-2.5 5.5 0 8"/>
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="4,17 11,13 18,17"/>
+        <polyline points="4,12 11,8 18,12"/>
+        <polyline points="4,7 11,3 18,7"/>
       </svg>
     ),
   },
   {
+    // Hidden for now — coupon-tracker-only mode (PLAN.md v5). See above.
+    hidden: true,
     label: 'C/C',
     to: '/cards',
     matches: (p) => p.startsWith('/cards'),
@@ -43,7 +49,7 @@ export default function BottomNav() {
   const { pathname } = useLocation()
   return (
     <nav className={styles.nav}>
-      {TABS.map(tab => {
+      {TABS.filter(tab => !tab.hidden).map(tab => {
         const active = tab.matches(pathname)
         return (
           <Link

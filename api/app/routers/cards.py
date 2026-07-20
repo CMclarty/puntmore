@@ -20,15 +20,8 @@ def get_card_value_bets(
     return compute_value_bets(client.get_events(), min_edge)
 
 
-@router.get("/cards/feed", response_model=list[CardFeedItem])
-def get_cards_feed(
-    request: Request,
-    min_edge: float = Query(default=None, ge=-0.50, le=0.50),
-):
-    """Cards/corners feed grouped by match, sorted by best value."""
-    if min_edge is None:
-        min_edge = settings.cards_min_edge
-    client = request.app.state.cards_client
+def build_feed(client, min_edge: float) -> list[CardFeedItem]:
+    """Cards/corners feed grouped by match, sorted by best value. Shared with /state."""
     if client is None:
         return []
 
@@ -62,3 +55,13 @@ def get_cards_feed(
 
     result.sort(key=lambda x: -x.best_value)
     return result
+
+
+@router.get("/cards/feed", response_model=list[CardFeedItem])
+def get_cards_feed(
+    request: Request,
+    min_edge: float = Query(default=None, ge=-0.50, le=0.50),
+):
+    if min_edge is None:
+        min_edge = settings.cards_min_edge
+    return build_feed(request.app.state.cards_client, min_edge)

@@ -29,19 +29,25 @@ class TheOddsApiClient:
         sport_key: str,
         markets: str,
         bookmakers: str | None = None,
+        ttl: int | None = None,
     ) -> list[dict]:
-        """Return events for a sport/market combo, cached for 24 h.
+        """Return events for a sport/market combo, cached for `ttl` seconds.
 
         sport_key:  e.g. "soccer_epl", "tennis_atp"
         markets:    comma-separated, e.g. "h2h,totals" or "alternate_totals"
         bookmakers: optional comma-separated filter, e.g. "pinnacle,paddypower"
+        ttl:        override the client-wide cache TTL for THIS read (seconds).
+                    The coupon tracker passes its own 30-min TTL so its full
+                    per-sport pull refreshes on a tighter cadence than the
+                    24-h default the other tools rely on.
         """
         cache_key = (sport_key, markets, bookmakers or "")
+        effective_ttl = self._cache_ttl if ttl is None else ttl
         now = time.monotonic()
 
         if cache_key in self._cache:
             fetched_at, events = self._cache[cache_key]
-            if now - fetched_at < self._cache_ttl:
+            if now - fetched_at < effective_ttl:
                 return events
 
         params: dict = {
@@ -72,3 +78,27 @@ class TheOddsApiClient:
         events = resp.json()
         self._cache[cache_key] = (now, events)
         return events
+
+    def list_sports(self) -> list[dict]:
+        """All sport keys from /v4/sports, cached like odds responses.
+
+        This endpoint is free — it does not count against the monthly quota —
+        but is cached anyway to keep latency down.
+        """
+        cache_key = ("__sports__", "", "")
+        now = time.monotonic()
+
+        if cache_key in self._cache:
+            fetched_at, sports = self._cache[cache_key]
+            if now - fetched_at < self._cache_ttl:
+                return sports
+
+        resp = httpx.get(
+            f"{BASE_URL}/v4/sports",
+            params={"apiKey": self._api_key},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        sports = resp.json()
+        self._cache[cache_key] = (now, sports)
+        return sports
