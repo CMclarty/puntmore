@@ -6,8 +6,18 @@ TheOddsApiClient (HTTP, caching, quota management all live there).
 To add a new sport or league: append its key to SOCCER_SPORT_KEYS below.
 To swap the preferred bookmaker: change PREFERRED_BOOKMAKER.
 
+Fair odds are computed IN-HOUSE: raw bookmaker prices are de-vigged with the
+power method (`odds/utils.py`) before anything is returned. Vendor prices are
+never passed through as fair odds — the overround would show up as phantom
+value and fire false Discord alerts.
+
+De-vigging needs the complete outcome set (both sides of a total, all of 1X2).
+Where that isn't available the provider returns None: an unpriced leg is
+correct, a vigged one is not.
+
 Market support: "win", "over X.X", "under X.X", "win and over X.X" (compound).
-Compound fair odds = h2h_price × totals_price (independence approximation).
+Compound legs are still an independence approximation — see the note at the
+call site; PLAN V3 replaces them with the score-grid model.
 """
 import re
 import difflib
@@ -16,6 +26,7 @@ import logging
 from .base import OddsProvider, MatchQuery, OddsResult
 from ..normalise import normalise_match
 from ..odds.client import TheOddsApiClient
+from ..odds.utils import devigd, devigd_multi
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -49,27 +60,67 @@ def _pick_bookmaker(bookmakers: list[dict]) -> dict | None:
     return bookmakers[0] if bookmakers else None
 
 
-def _h2h_price(bm: dict, team_name: str) -> float | None:
+def _valid_price(price) -> float | None:
+    """Decimal odds must be a number > 1.0 — anything else is unusable."""
+    if isinstance(price, bool) or not isinstance(price, (int, float)):
+        return None
+    return float(price) if price > 1.0 else None
+
+
+def _fair_h2h_price(bm: dict, team_name: str) -> float | None:
+    """De-vigged price for one 1X2 outcome (power method, over the whole market).
+
+    The FULL outcome set must be priced to de-vig it — the margin is a property
+    of the market, not of a single selection. A partial or malformed market
+    yields None rather than a vigged price masquerading as fair odds.
+    """
     for market in bm.get("markets", []):
-        if market["key"] != "h2h":
+        if market.get("key") != "h2h":
             continue
-        for outcome in market["outcomes"]:
-            if outcome["name"] == team_name:
-                return outcome["price"]
+        prices: list[float] = []
+        target_idx: int | None = None
+        for outcome in market.get("outcomes", []):
+            price = _valid_price(outcome.get("price"))
+            if price is None:
+                return None
+            if outcome.get("name") == team_name:
+                target_idx = len(prices)
+            prices.append(price)
+        if target_idx is None or len(prices) < 2:
+            return None
+        fair_prices, _margin = devigd_multi(prices)
+        return round(fair_prices[target_idx], 4)
     return None
 
 
-def _totals_price(bm: dict, side: str, points: float) -> float | None:
+def _fair_totals_price(bm: dict, side: str, points: float) -> float | None:
+    """De-vigged price for Over or Under at `points`.
+
+    Both sides of the line are required: de-vigging a two-outcome market needs
+    both prices. A one-sided line yields None.
+    """
     for market in bm.get("markets", []):
-        if market["key"] != "totals":
+        if market.get("key") != "totals":
             continue
-        for outcome in market["outcomes"]:
-            if outcome["name"].lower() == side.lower():
-                try:
-                    if abs(float(outcome.get("point", 0)) - points) < 0.05:
-                        return outcome["price"]
-                except (ValueError, TypeError):
+        over = under = None
+        for outcome in market.get("outcomes", []):
+            try:
+                if abs(float(outcome.get("point")) - points) >= 0.05:
                     continue
+            except (ValueError, TypeError):
+                continue
+            price = _valid_price(outcome.get("price"))
+            if price is None:
+                continue
+            name = str(outcome.get("name", "")).lower()
+            if name == "over":
+                over = price
+            elif name == "under":
+                under = price
+        if over is None or under is None:
+            return None
+        fair_over, fair_under, _margin = devigd(over, under)
+        return round(fair_over if side.lower() == "over" else fair_under, 4)
     return None
 
 
@@ -86,20 +137,26 @@ def _extract_fair_odds(event: dict, market_str: str) -> float | None:
     under_m = _UNDER_RE.search(key)
 
     if has_win and over_m:
-        win_price = _h2h_price(bm, home)
-        over_price = _totals_price(bm, "Over", float(over_m.group(1)))
+        # INTERIM (PLAN V3 replaces this): the product of two de-vigged prices
+        # assumes the result and the total are independent. They are not —
+        # a winning team scores more — so this OVERSTATES fair odds and hence
+        # UNDERSTATES value. That bias is conservative (it misses value bets
+        # rather than inventing them), which is why it stands in until the
+        # score-grid model lands. Legs priced here stay flagged is_approx.
+        win_price = _fair_h2h_price(bm, home)
+        over_price = _fair_totals_price(bm, "Over", float(over_m.group(1)))
         if win_price is not None and over_price is not None:
             return round(win_price * over_price, 4)
         return None
 
     if has_win and not over_m and not under_m:
-        return _h2h_price(bm, home)
+        return _fair_h2h_price(bm, home)
 
     if over_m:
-        return _totals_price(bm, "Over", float(over_m.group(1)))
+        return _fair_totals_price(bm, "Over", float(over_m.group(1)))
 
     if under_m:
-        return _totals_price(bm, "Under", float(under_m.group(1)))
+        return _fair_totals_price(bm, "Under", float(under_m.group(1)))
 
     return None
 

@@ -217,11 +217,66 @@ def _event(home, away, home_price=1.85):
     }
 
 
+def _totals_event(home, away, over=1.90, under=1.95, point=2.5, with_under=True):
+    outcomes = [{"name": "Over", "price": over, "point": point}]
+    if with_under:
+        outcomes.append({"name": "Under", "price": under, "point": point})
+    return {
+        "home_team": home,
+        "away_team": away,
+        "bookmakers": [{
+            "key": "pinnacle",
+            "markets": [{"key": "totals", "outcomes": outcomes}],
+        }],
+    }
+
+
 def test_provider_returns_matched_fixture():
     provider = TheOddsApiProvider(StubClient([_event("Manchester United", "Chelsea")]))
     results = provider.get_fair_odds([MatchQuery(1, "Man Utd vs Chelsea", "Win")])
     assert results[0].matched_fixture == "Manchester United vs Chelsea"
-    assert results[0].fair_odds == 1.85
+    # De-vigged, NOT the raw 1.85 book price: 1/1.85 + 1/2.10 = 1.0167, so the
+    # fair price is higher once the 1.67% overround is removed.
+    assert results[0].fair_odds == 1.8782
+
+
+# --- In-house de-vig (PLAN V2') ---
+# Returning a vigged price as "fair odds" understates fair odds, which inflates
+# computed value and fires Discord alerts on legs that hold no value.
+
+def test_h2h_fair_odds_are_devigged_not_raw():
+    provider = TheOddsApiProvider(StubClient([_event("Arsenal", "Spurs")]))
+    fair = provider.get_fair_odds([MatchQuery(1, "Arsenal vs Spurs", "Win")])[0].fair_odds
+    assert fair > 1.85, "fair odds must exceed the vigged book price"
+    # The de-vigged book is fair: implied probabilities sum to 1 (the away
+    # side de-vigs to 2.1386 from a raw 2.10).
+    assert abs(1 / fair + 1 / 2.1386 - 1.0) < 1e-3
+
+
+def test_totals_fair_odds_are_devigged():
+    provider = TheOddsApiProvider(StubClient([_totals_event("Arsenal", "Spurs")]))
+    fair = provider.get_fair_odds([MatchQuery(1, "Arsenal vs Spurs", "Over 2.5")])[0].fair_odds
+    assert fair > 1.90, "fair odds must exceed the vigged book price"
+
+
+def test_one_sided_total_is_unpriced_not_vigged():
+    # Only an Over quote: the margin can't be determined, so the honest answer
+    # is no price. Returning the raw 1.90 would be a vigged price mislabelled.
+    provider = TheOddsApiProvider(
+        StubClient([_totals_event("Arsenal", "Spurs", with_under=False)])
+    )
+    result = provider.get_fair_odds([MatchQuery(1, "Arsenal vs Spurs", "Over 2.5")])[0]
+    assert result.fair_odds is None
+    assert result.matched_fixture == "Arsenal vs Spurs"
+
+
+def test_malformed_price_is_unpriced():
+    event = _event("Arsenal", "Spurs")
+    event["bookmakers"][0]["markets"][0]["outcomes"][1]["price"] = None
+    provider = TheOddsApiProvider(StubClient([event]))
+    assert provider.get_fair_odds(
+        [MatchQuery(1, "Arsenal vs Spurs", "Win")]
+    )[0].fair_odds is None
 
 
 def test_provider_threads_cache_ttl_to_client():
