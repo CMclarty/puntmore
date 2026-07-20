@@ -110,6 +110,21 @@
   font-weight: 500;
 }
 
+.subActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.error {
+  margin: 6px 12px;
+  padding: 6px 10px;
+  border-radius: 5px;
+  background: #FBEAE7;
+  color: #8C2F1E;
+  font-size: 12px;
+}
+
 /* Leg cards */
 .legCard {
   padding: 8px 12px;
@@ -117,9 +132,84 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+  cursor: pointer;
 }
 
 .legCard:last-child { border-bottom: none; }
+
+/* A flagged row is tinted, not hidden — the syndicate should be able to scan
+   the list and see which rows want a second look. */
+.flagged { background: #FDF6E9; }
+
+.warnBadge {
+  margin-right: 5px;
+  color: #B8860B;
+  cursor: help;
+}
+
+.editedMark {
+  margin-left: 5px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+/* Inline edit */
+.editing {
+  cursor: default;
+  background: var(--zebra);
+  gap: 6px;
+}
+
+.editRow {
+  display: flex;
+  gap: 6px;
+}
+
+.editInput {
+  flex: 1;
+  min-width: 0;
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--ink);
+  outline: none;
+}
+
+.editInput:focus { border-color: var(--accent); }
+
+.editOdds { flex: 0 0 88px; }
+
+.editActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.editCancel,
+.editSave {
+  border-radius: 5px;
+  padding: 7px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  min-height: 34px;
+}
+
+.editCancel {
+  background: none;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+}
+
+.editSave {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.editSave:disabled { opacity: 0.5; cursor: default; }
 
 .legTop {
   display: flex;

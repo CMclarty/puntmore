@@ -1,7 +1,16 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getCoupons, getCouponLegs, refreshCoupon } from '../api'
+import { getCoupons, getCouponLegs, refreshCoupon, rescanCoupon, editLeg } from '../api'
 import styles from './TrackerPage.module.css'
+
+// Flag codes from api/app/checks.py. Keep in sync — an unknown code falls back
+// to the raw code rather than rendering nothing, so a missed mapping is visible.
+const FLAG_LABELS = {
+  odds_range: 'Odds look out of range for this market — check the OCR read',
+  no_match: 'No fixture matched — this leg is unpriced',
+  low_confidence: 'Fixture matched loosely — check it is the right game',
+  value_implausible: 'Value is implausibly large — likely a bad read or wrong match',
+}
 
 function valueTier(v) {
   if (v == null) return 'none'
@@ -35,6 +44,11 @@ export default function TrackerPage() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [rescanning, setRescanning] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [draft, setDraft] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     getCoupons().then(cs => {
@@ -65,6 +79,55 @@ export default function TrackerPage() {
     }
   }
 
+  async function handleRescan() {
+    if (!activeCouponId || rescanning) return
+    setError(null)
+    setRescanning(true)
+    try {
+      const res = await rescanCoupon(activeCouponId)
+      setLegs(res.legs)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setRescanning(false)
+    }
+  }
+
+  function startEdit(leg) {
+    setEditingId(leg.id)
+    setDraft({ match_name: leg.match_name, pick: leg.pick, odds: String(leg.odds) })
+    setError(null)
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setDraft(null)
+  }
+
+  async function saveEdit(legId) {
+    if (saving) return
+    const odds = Number(draft.odds)
+    if (!Number.isFinite(odds) || odds <= 1) {
+      setError('Odds must be greater than 1.00')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      const updated = await editLeg(activeCouponId, legId, {
+        match_name: draft.match_name,
+        pick: draft.pick,
+        odds,
+      })
+      setLegs(prev => prev.map(l => (l.id === legId ? updated : l)))
+      cancelEdit()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -74,8 +137,8 @@ export default function TrackerPage() {
           <span className={styles.chevron}>▾</span>
         </button>
         {activeCoupon && (
-          <span className={`${styles.statusChip} ${activeCoupon.status === 'live' ? styles.live : styles.pending}`}>
-            {activeCoupon.status === 'live' ? '● LIVE' : '⏳ PENDING'}
+          <span className={`${styles.statusChip} ${activeCoupon.status === 'confirmed' ? styles.live : styles.pending}`}>
+            {activeCoupon.status === 'confirmed' ? '● LIVE' : '⏳ PROCESSING'}
           </span>
         )}
       </div>
@@ -87,15 +150,27 @@ export default function TrackerPage() {
             {' · '}
             {legs.length} leg{legs.length !== 1 ? 's' : ''}
           </span>
-          <button
-            className={styles.refreshBtn}
-            onClick={handleRefresh}
-            disabled={refreshing}
-          >
-            {refreshing ? 'Refreshing…' : '↻ Refresh odds'}
-          </button>
+          <div className={styles.subActions}>
+            <button
+              className={styles.refreshBtn}
+              onClick={handleRescan}
+              disabled={rescanning}
+              title="Re-read the coupon image. Rows you have edited are kept."
+            >
+              {rescanning ? 'Re-scanning…' : '⟳ Re-scan'}
+            </button>
+            <button
+              className={styles.refreshBtn}
+              onClick={handleRefresh}
+              disabled={refreshing}
+            >
+              {refreshing ? 'Refreshing…' : '↻ Refresh odds'}
+            </button>
+          </div>
         </div>
       )}
+
+      {error && <p className={styles.error}>{error}</p>}
 
       <div className={styles.legs}>
         {!loading && coupons.length === 0 && (
@@ -105,31 +180,83 @@ export default function TrackerPage() {
           </div>
         )}
         {legs.map(leg => (
-          <div key={leg.id} className={styles.legCard}>
-            <div className={styles.legTop}>
-              <span className={styles.legMatch}>{leg.match_name}</span>
-              <span className={`${styles.valueBadge} ${styles[valueTier(leg.value)]}`}>
-                {fmtValue(leg.value)}
-              </span>
-            </div>
-            <div className={styles.legBottom}>
-              <span className={styles.legPick}>{leg.pick}</span>
-              <span className={`${styles.legOdds} ${styles.mono}`}>{leg.odds.toFixed(2)}</span>
-              {leg.fair_odds != null && (
-                <span
-                  className={`${styles.legFair} ${styles.mono}`}
-                  title={leg.is_approx ? 'Compound pick — fair odds assume win and total are independent' : undefined}
+          editingId === leg.id ? (
+            <div key={leg.id} className={`${styles.legCard} ${styles.editing}`}>
+              <input
+                className={styles.editInput}
+                value={draft.match_name}
+                onChange={e => setDraft({ ...draft, match_name: e.target.value })}
+                placeholder="Match"
+                autoFocus
+              />
+              <div className={styles.editRow}>
+                <input
+                  className={styles.editInput}
+                  value={draft.pick}
+                  onChange={e => setDraft({ ...draft, pick: e.target.value })}
+                  placeholder="Pick"
+                />
+                <input
+                  className={`${styles.editInput} ${styles.editOdds} ${styles.mono}`}
+                  value={draft.odds}
+                  onChange={e => setDraft({ ...draft, odds: e.target.value })}
+                  placeholder="1.85"
+                  type="number"
+                  step="0.01"
+                  min="1.01"
+                  inputMode="decimal"
+                />
+              </div>
+              <div className={styles.editActions}>
+                <button className={styles.editCancel} onClick={cancelEdit}>Cancel</button>
+                <button
+                  className={styles.editSave}
+                  onClick={() => saveEdit(leg.id)}
+                  disabled={saving}
                 >
-                  fair {leg.is_approx ? '≈' : ''}{leg.fair_odds.toFixed(2)}
+                  {saving ? 'Saving…' : 'Save & reprice'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div
+              key={leg.id}
+              className={`${styles.legCard} ${leg.flags?.length ? styles.flagged : ''}`}
+              onClick={() => startEdit(leg)}
+            >
+              <div className={styles.legTop}>
+                <span className={styles.legMatch}>
+                  {leg.flags?.length > 0 && (
+                    <span
+                      className={styles.warnBadge}
+                      title={leg.flags.map(f => FLAG_LABELS[f] ?? f).join('\n')}
+                    >
+                      ⚠
+                    </span>
+                  )}
+                  {leg.match_name}
+                  {leg.edited && <span className={styles.editedMark} title="Edited by hand — a re-scan will not overwrite this row">✎</span>}
                 </span>
+                <span className={`${styles.valueBadge} ${styles[valueTier(leg.value)]}`}>
+                  {fmtValue(leg.value)}
+                </span>
+              </div>
+              <div className={styles.legBottom}>
+                <span className={styles.legPick}>{leg.pick}</span>
+                <span className={`${styles.legOdds} ${styles.mono}`}>{leg.odds.toFixed(2)}</span>
+                {leg.fair_odds != null && (
+                  <span className={`${styles.legFair} ${styles.mono}`}>
+                    fair {leg.fair_odds.toFixed(2)}
+                  </span>
+                )}
+              </div>
+              {fixtureDiffers(leg) && (
+                <div className={styles.legFixture} title="Fixture the odds provider matched — check it's the right game">
+                  → {leg.matched_fixture}
+                </div>
               )}
             </div>
-            {fixtureDiffers(leg) && (
-              <div className={styles.legFixture} title="Fixture matched on TheOddsApi — check it's the right game">
-                → {leg.matched_fixture}
-              </div>
-            )}
-          </div>
+          )
         ))}
       </div>
 

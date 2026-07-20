@@ -12,8 +12,10 @@ React frontend, behind a shared nginx layer.
 > `ENABLE_ACCABONUS` / `ENABLE_CARDS` (default False) and their nav tabs/routes
 > are suppressed. Code, tests, and the seams are all kept; this is a visibility
 > gate, not a removal. The disabled routers / coupon-only UI are intentional —
-> do not "fix" them. The coupon tracker prices via **TheOddsApi**
-> (`COUPON_ODDS_SOURCE=theoddsapi`) and de-vigs in-house.
+> do not "fix" them. The coupon tracker prices via **bettingiscool**
+> (`COUPON_ODDS_SOURCE=bettingiscool`), de-vigs in-house, and derives
+> Win-and-Over off the fitted score grid. OCR **auto-confirms**: rows save and
+> price on upload, with per-leg ⚠ flags, inline edit and re-scan.
 
 ```
 bettingtools/
@@ -29,16 +31,15 @@ separate builds. The backend serves them all under namespaced routers.
 for stale PWA clients; don't add new code under it.)
 
 ## Odds sources
-- **Coupon tracker** → `TheOddsApiProvider` (`providers/odds_api.py`), pulling
-  `h2h,totals` through the shared client on its own cache TTL. Fair odds are
-  de-vigged in-house from these raw prices.
+- **Coupon tracker** → `BettingIsCoolProvider` (`providers/bettingiscool.py`).
+  Pinnacle-native and exposes team totals, which feed the derived score grid.
+  Fair odds are de-vigged in-house from its raw prices.
 - **AccaBonus + Cards** → the shared `TheOddsApiClient` (free tier). Unchanged.
 
-`BettingIsCoolProvider` is **planned but not built** (PLAN open item 6). It is
-Pinnacle-native and exposes team totals, which TheOddsApi does not — that costs
-some accuracy in the derived score grid, but nothing is blocked on it. Adding it
-is one new class plus one `elif` in the `main.py` lifespan; keep the seam able
-to absorb that.
+`TheOddsApiProvider` (`providers/odds_api.py`) is the fallback and is **no
+longer the live path**. It has no score grid of its own, so its compound-leg
+pricing is still a naive product — if it is ever made live again, wire it to
+`pricing.grid` first rather than shipping that path.
 
 Both live behind their seams. Core logic never calls a vendor API directly.
 
@@ -49,17 +50,15 @@ Both live behind their seams. Core logic never calls a vendor API directly.
 - The provider seams MUST stay behind their interfaces (see Provider guide
   below). Never call external APIs directly from core logic.
 - **Coupon fair odds are computed IN-HOUSE by de-vigging raw Pinnacle prices**
-  (power method, `odds/utils.py`) — enforced in `providers/odds_api.py` since
-  July 2026. Any vendor-supplied devigged field is for cross-check tests ONLY;
-  the pricing path must not depend on one, so providers stay swappable.
+  (power method, `odds/utils.py`) — enforced in every provider since July 2026.
+  Any vendor-supplied devigged field is for cross-check tests ONLY; the pricing
+  path must not depend on one, so providers stay swappable.
 - **Win-and-Over markets have NO direct Pinnacle price.** They MUST be derived
-  via the calibrated score-grid model (SPEC §8). NEVER price them as
-  moneyline × over — result and total goals are correlated and naive
-  multiplication overstates fair odds.
-  ⚠️ **Not yet true in code:** `odds_api.py` still multiplies two *de-vigged*
-  prices for compound legs, flagged `is_approx`. The bias is conservative (it
-  misses value rather than inventing it) and it goes away with PLAN open item 1.
-  Don't extend this path — replace it.
+  via the calibrated score-grid model (SPEC §8, `pricing/grid.py`). NEVER price
+  them as moneyline × over — result and total goals are correlated and naive
+  multiplication overstates fair odds. The live provider derives them off the
+  grid and refuses to price when the fit is too poor or under-constrained;
+  keep that refusal, an unpriced leg beats a confidently wrong one.
 - Derived-market value thresholds come from MEASURED backtest calibration
   (SPEC §8.4), not assumed. Until measured, use the provisional 8% threshold and
   display the uncertainty band.
@@ -104,8 +103,14 @@ internally and returns FAIR odds plus the fixture it fuzzy-matched.
 
 | Class | File | Trigger |
 |---|---|---|
-| `TheOddsApiProvider` | `providers/odds_api.py` | `COUPON_ODDS_SOURCE=theoddsapi` (default) |
-| `MockOddsProvider` | `providers/mock_odds.py` | no `ODDS_API_KEY` (dev/test) |
+| `BettingIsCoolProvider` | `providers/bettingiscool.py` | `COUPON_ODDS_SOURCE=bettingiscool` (default) |
+| `TheOddsApiProvider` | `providers/odds_api.py` | `COUPON_ODDS_SOURCE=theoddsapi` (fallback) |
+| `MockOddsProvider` | `providers/mock_odds.py` | no provider key (dev/test) |
+
+Legs are priced through `pricing/legs.py::price_legs` — one implementation
+shared by upload, the on-demand refresh and the scheduler, which also
+recomputes each leg's ⚠ flags (`checks.py`). Don't reintroduce a second
+pricing path; that duplication caused drift before.
 
 De-vigging happens in `_fair_h2h_price` / `_fair_totals_price` via
 `odds/utils.py`. **Both require the complete outcome set** — all of 1X2, or both
@@ -141,7 +146,13 @@ Consumers:
 |---|---|---|---|---|
 | coupons | `providers/odds_api.py` | TheOddsApi | `h2h`, `totals` | Pinnacle (falls back to first listed) |
 | arbs router | `routers/accabonus.py` + `accabonus/arbs.py` | TheOddsApi | `h2h` | bet365 vs Pinnacle |
-| `CardsApiClient` | `cards/client.py` + `cards/value.py` | TheOddsApi | `alternate_totals` | Pinnacle, Paddy Power |
+| `CardsApiClient` | `cards/client.py` + `cards/value.py` | TheOddsApi | `alternate_totals` ⚠️ **broken, see below** | Pinnacle, Paddy Power |
+
+⚠️ `CardsApiClient` asks the **bulk** endpoint for `alternate_totals`, which
+that endpoint rejects (`INVALID_MARKET`) — so it has never returned a row. The
+tool is gated off, so nothing is affected, but re-enabling it means rebuilding
+against the per-event endpoint with the real corners/cards market keys. See
+`docs/provider-verification.md` and PLAN item 7 before touching it.
 
 `TheOddsApiProvider` satisfies the `OddsProvider` interface (used by the refresh
 loop) and reads through the client on its own `COUPON_ODDS_CACHE_TTL`. AccaBonus

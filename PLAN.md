@@ -18,8 +18,13 @@ reasoning behind some of them is expensive to reconstruct.
 Only the **coupon tracker** is surfaced. AccaBonus and Cards/Corners are gated
 off (`ENABLE_ACCABONUS` / `ENABLE_CARDS`, default False) — hidden, not removed.
 
-The coupon tracker prices via **TheOddsApi** and de-vigs in-house. Win-and-Over
-legs are still an independence approximation — that's open work item 1.
+The coupon tracker prices via **bettingiscool** (item 6, landed) and de-vigs
+in-house. Win-and-Over legs are **derived off the fitted score grid** (item 1,
+landed) — no longer an independence approximation. OCR **auto-confirms** with
+per-leg anomaly flags, inline edit and re-scan (item 2, landed).
+
+Remaining: the derived uncertainty band is computed but not displayed, and it
+stays provisional until the calibration backtest (item 3) measures it.
 
 ---
 
@@ -97,17 +102,22 @@ legs are still an independence approximation — that's open work item 1.
 
 Ordered by dependency, then value. Each item ends with its Definition of Done.
 
-### 1. Derived Win-and-Over score grid  *(was Phase V3)*
+### 1. Derived Win-and-Over score grid  *(was Phase V3)* — MOSTLY DONE
 Retires the last naive-independence path in pricing.
-- [ ] `pricing/grid.py`: fit λ_home/λ_away + dependence (independent Poisson +
+- [x] `pricing/grid.py`: fit λ_home/λ_away + dependence (independent Poisson +
       Dixon–Coles, or bivariate Poisson) to de-vigged 1X2 + totals by least
       squares; grid truncated at 10 goals/team.
-- [ ] Derive P(win ∧ over X) off the grid → fair odds = 1/p. Wire Win-and-Over
-      legs to it; set `fair_odds_source = "derived_model"` and
-      `uncertainty_band`.
-- [ ] Hold-one-out test: refit dropping a totals line, reproduce it within tol.
-- [ ] Provisional 8% derived threshold; UI shows the derived marker + band
-      ("+9% (±3%)"). Retire `Leg.is_approx` and its `≈` badge.
+- [x] Derive P(win ∧ over X) off the grid → fair odds = 1/p. Wire Win-and-Over
+      legs to it.
+- [x] Hold-one-out test: refit dropping a totals line, reproduce it within tol.
+- [x] Retire `Leg.is_approx` and its `≈` badge (July 2026 — the badge described
+      pricing that no longer happens).
+- [ ] **Still open:** surface the derived marker + band in the UI
+      ("+9% (±3%)"), and set `fair_odds_source = "derived_model"` /
+      `uncertainty_band` on the leg. Deliberately deferred into item 3 — the
+      band's number comes from the backtest, and shipping a provisional ±band
+      as if it were measured is the kind of false precision the 8% threshold
+      rule exists to prevent.
 - **Scope note:** TheOddsApi exposes no team totals, so the fit uses 1X2 + the
   single totals line — 3 constraints for 2 parameters. Identifiable, but the
   dependence parameter is less well pinned than team totals would allow. A
@@ -117,18 +127,24 @@ Retires the last naive-independence path in pricing.
 - DoD: pytest incl. hold-one-out; derived legs price and display their band;
   `npm run build` clean.
 
-### 2. OCR auto-confirm, anomaly flags, inline edit, re-scan  *(was Phase V5)*
-- [ ] Remove the blocking review gate: upload → rows persist + price; status
+### 2. OCR auto-confirm, anomaly flags, inline edit, re-scan  *(was Phase V5)* — DONE
+- [x] Remove the blocking review gate: upload → rows persist + price; status
       `processing`→`confirmed`. Schema: `flags`, `edited`, status remap (guarded
       DDL in `ensure_schema`, no Alembic).
-- [ ] Sanity checks → `legs.flags`: odds-range per market, fuzzy-match
-      confidence, value plausibility cap (±15%). ⚠ badge rendering.
-- [ ] Inline edit (match/pick/odds) reprices and sets `edited=true`. Unmatched
+- [x] Sanity checks → `legs.flags` (`checks.py`): odds-range per market,
+      fuzzy-match confidence, value plausibility cap (±15%). ⚠ badge rendering.
+- [x] Inline edit (match/pick/odds) reprices and sets `edited=true`. Unmatched
       rows persist with blank fair odds.
-- [ ] Re-scan endpoint + button: re-run OCR, replace UNEDITED rows only, re-run
+- [x] Re-scan endpoint + button: re-run OCR, replace UNEDITED rows only, re-run
       checks. **Never overwrite a human correction with a machine re-read.**
-- DoD: OCR round-trip on a real coupon image (auto-saves, flags, re-scan keeps
-      edits); pytest green; build clean.
+- **Note:** re-scan skips *ranks* held by edited rows rather than appending
+  fresh rows beside them — OCR rows are positional, so appending duplicates the
+  leg instead of replacing it.
+- **Still to verify manually:** the round-trip on a real coupon photo. Tests
+  cover it with `MockOCRProvider`; nobody has run a real phone image through
+  `ClaudeOCRProvider` since auto-confirm landed.
+- DoD: pytest green (149); `npm run build` clean; V5 migration exercised
+      against a pre-V5 database.
 
 ### 3. Calibration backtest  *(was Phase V4 — depends on 1)*
 - [ ] `api/tools/backtest_calibration.py`: over a season+ of historical fixtures
@@ -152,16 +168,28 @@ Retires the last naive-independence path in pricing.
 - [ ] Animations (accordion, sheet) ~150–200 ms ease; chevron rotation.
 - [ ] Lighthouse PWA pass.
 
-### 6. bettingiscool provider  *(deferred — was Phases V1–V2, no longer gating)*
-Only worth doing if team totals prove necessary for grid accuracy (see item 1),
-or if TheOddsApi's quota becomes the binding constraint.
-- [ ] Verification first: for a real fixture in each coupon league, confirm the
-      match resolves, the payload carries 1X2 + ≥2 totals lines + team totals
-      for both teams, and raw prices are exposed. Record latency and request
-      cost at 10-min cadence. Results → `docs/provider-verification.md`.
-- [ ] Then `providers/bettingiscool.py` + the `main.py` branch. No caller
-      changes — the seam already fits.
+### 6. bettingiscool provider — DONE
+Landed July 2026 and is now the live coupon odds source (`COUPON_ODDS_SOURCE`
+defaults to `bettingiscool`); it feeds the score grid in item 1.
+- [x] `providers/bettingiscool.py` + the `main.py` branch. No caller changes —
+      the seam absorbed it as designed.
 - **Known risk (accepted):** one-person vendor. The seam is the mitigation.
+
+### 7. If Cards/Corners is ever re-enabled, it needs rebuilding
+Not scheduled — the tool is gated off (`ENABLE_CARDS=False`) and nothing
+depends on it. Logged so the breakage isn't rediscovered by surprise.
+
+`cards/client.py` requests `alternate_totals` from TheOddsApi's **bulk**
+endpoint. That endpoint serves featured markets only and rejects the request
+with `INVALID_MARKET`, so the tool has never returned a row — and
+`alternate_totals` is *goal* totals anyway, not cards or corners. Real corners
+and cards markets exist (`alternate_totals_corners`, `alternate_totals_cards`)
+but only on the **per-event** endpoint, at `events × markets × regions` credits
+per sweep, and Paddy Power did not price them on any fixture sampled.
+
+Full evidence, including the caveats on that sampling, is in
+`docs/provider-verification.md` — read it before spending credits re-deriving
+this.
 
 ---
 

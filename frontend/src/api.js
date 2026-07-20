@@ -70,8 +70,21 @@ export async function uploadCoupon(typeCode, matchDay, file, name = null) {
   return res.json()
 }
 
-export const confirmUpload = (couponId, rows) =>
-  post(`/upload/${couponId}/confirm`, { rows })
+export const rescanCoupon = (couponId) => post(`/upload/${couponId}/rescan`, {})
+
+export async function editLeg(couponId, legId, fields) {
+  const res = await fetch(`${BASE}/coupons/${couponId}/legs/${legId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  })
+  if (res.status === 401) { redirectToLogin(); throw new Error('Not authenticated') }
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}))
+    throw new Error(detail.detail ?? `Edit failed (${res.status})`)
+  }
+  return res.json()
+}
 
 // AccaBonus arbs
 export const getAccaBonusFeed = (minEdge = -0.02) =>
