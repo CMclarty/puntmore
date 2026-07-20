@@ -94,9 +94,21 @@ async def lifespan(app: FastAPI):
 
     app.state.odds_provider = provider or MockOddsProvider()
     logger.info(
-        "Coupon odds provider: %s (source=%s)",
+        "Coupon odds provider: %s (source=%s, cache_ttl=%ss)",
         type(app.state.odds_provider).__name__, source,
+        settings.coupon_odds_cache_ttl,
     )
+    # The default TTL suits bettingiscool (500k tokens/DAY). TheOddsApi bills
+    # 500 credits/MONTH, where a short cache burns the whole allowance in hours.
+    if (
+        isinstance(app.state.odds_provider, TheOddsApiProvider)
+        and settings.coupon_odds_cache_ttl < 72000
+    ):
+        logger.warning(
+            "COUPON_ODDS_CACHE_TTL=%ss with TheOddsApi: the free tier is 500 "
+            "credits/MONTH and this will exhaust it. Raise to 86400.",
+            settings.coupon_odds_cache_ttl,
+        )
 
     if settings.google_api_key:
         app.state.ocr_provider = GeminiOCRProvider(settings.google_api_key)

@@ -41,6 +41,7 @@ import httpx
 from .base import OddsProvider, MatchQuery, OddsResult
 from ..normalise import normalise_match
 from ..odds.utils import devigd_multi
+from ..pricing.grid import fit_grid, score_grid, p_win_and_over
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -61,6 +62,10 @@ CONFIDENT_THRESHOLD = 0.82
 # The board carries derived-market fixtures ("X (Corners) vs Y (Corners)") whose
 # names are near-identical to the real fixture. Never price a coupon leg off one.
 EXCLUDED_LEAGUE_RE = re.compile(r"\b(corners|bookings|cards)\b", re.IGNORECASE)
+# Above this fit residual the parametric form is not describing the market;
+# derive nothing rather than emit a confident wrong price. Measured RMSE on a
+# real fixture with 12 constraints was 0.0117.
+MAX_GRID_RMSE = 0.05
 
 _OVER_RE = re.compile(r"over\s+([\d.]+)", re.IGNORECASE)
 _UNDER_RE = re.compile(r"under\s+([\d.]+)", re.IGNORECASE)
@@ -101,6 +106,7 @@ class BettingIsCoolProvider(OddsProvider):
         self._sport_id = sport_id
         self._fixtures_cache: tuple[float, list[dict]] | None = None
         self._odds_cache: dict[int, tuple[float, list[dict]]] = {}
+        self._grid_cache: dict[int, tuple[float, dict | None]] = {}
 
     # --- transport ---
 
@@ -176,7 +182,79 @@ class BettingIsCoolProvider(OddsProvider):
             }
         return {}
 
-    def _fair_odds_for(self, rows: list[dict], market_str: str) -> float | None:
+    @staticmethod
+    def _grid_constraints(rows: list[dict]) -> list[tuple[str, float | None, float]]:
+        """De-vigged market probabilities as score-grid fit constraints."""
+        cons: list[tuple[str, float | None, float]] = []
+        for r in rows:
+            if r.get("period") != FULL_MATCH_PERIOD:
+                continue
+            prices = {
+                i: float(r[f"odds{i}"])
+                for i in (0, 1, 2)
+                if isinstance(r.get(f"odds{i}"), (int, float)) and r[f"odds{i}"] > 1.0
+            }
+            if len(prices) < 2:
+                continue
+            idx = sorted(prices)
+            fair_prices, _ = devigd_multi([prices[i] for i in idx])
+            prob = {i: 1.0 / p for i, p in zip(idx, fair_prices)}
+            market, line = r.get("market"), r.get("line")
+            if market == "moneyline" and set(prob) == {0, 1, 2}:
+                cons += [
+                    ("home_win", None, prob[1]),
+                    ("draw", None, prob[0]),
+                    ("away_win", None, prob[2]),
+                ]
+            elif line is None:
+                continue
+            elif market == "totals":
+                cons.append(("over", float(line), prob[1]))
+            elif market == "home_totals":
+                cons.append(("home_over", float(line), prob[1]))
+            elif market == "away_totals":
+                cons.append(("away_over", float(line), prob[1]))
+        return cons
+
+    def _grid_for(self, event_id: int, rows: list[dict]):
+        """Fitted grid for an event, cached — several legs share one fixture."""
+        now = time.time()
+        cached = self._grid_cache.get(event_id)
+        if cached and now - cached[0] < self._cache_ttl:
+            return cached[1]
+        cons = self._grid_constraints(rows)
+        # 3 parameters. Demand headroom so the fit is over-determined and the
+        # residual actually means something.
+        if len(cons) < 5:
+            logger.warning(
+                "event %s: only %d grid constraints — not fitting", event_id, len(cons)
+            )
+            self._grid_cache[event_id] = (now, None)
+            return None
+        try:
+            lh, la, rho, rmse = fit_grid(cons)
+            grid = score_grid(lh, la, rho)
+        except Exception as exc:
+            logger.error("grid fit failed for event %s: %s", event_id, exc)
+            self._grid_cache[event_id] = (now, None)
+            return None
+        if rmse > MAX_GRID_RMSE:
+            logger.warning(
+                "event %s: grid rmse %.4f exceeds %.4f — refusing to derive",
+                event_id, rmse, MAX_GRID_RMSE,
+            )
+            self._grid_cache[event_id] = (now, None)
+            return None
+        logger.info(
+            "event %s grid: lh=%.2f la=%.2f rho=%+.3f rmse=%.4f (%d constraints)",
+            event_id, lh, la, rho, rmse, len(cons),
+        )
+        self._grid_cache[event_id] = (now, grid)
+        return grid
+
+    def _fair_odds_for(
+        self, rows: list[dict], market_str: str, event_id: int | None = None
+    ) -> float | None:
         key = market_str.strip().lower()
         has_win = bool(_WIN_RE.search(key))
         over_m = _OVER_RE.search(key)
@@ -186,16 +264,18 @@ class BettingIsCoolProvider(OddsProvider):
             return _fair(self._market_prices(rows, "totals", points), side)
 
         if has_win and over_m:
-            # INTERIM — same independence approximation as the TheOddsApi path,
-            # and equally wrong: it overstates fair odds and so understates
-            # value. Kept only until the score grid lands (PLAN open item 1),
-            # which this provider now makes properly identifiable — home_totals
-            # and away_totals give the grid more constraints than parameters.
-            win = _fair(self._market_prices(rows, "moneyline", None), 1)
-            over = total(1, float(over_m.group(1)))
-            if win is not None and over is not None:
-                return round(win * over, 4)
-            return None
+            # DERIVED off the fitted score grid (SPEC §8). Never moneyline ×
+            # over: the result and the total are correlated through the shared
+            # grid, so the product overstates fair odds. If the grid can't be
+            # fitted the leg goes UNPRICED — falling back to the product would
+            # reintroduce exactly the bias this replaces.
+            if event_id is None:
+                return None
+            grid = self._grid_for(event_id, rows)
+            if grid is None:
+                return None
+            p = p_win_and_over(grid, float(over_m.group(1)), home=True)
+            return round(1.0 / p, 4) if p > 0 else None
 
         if has_win:
             return _fair(self._market_prices(rows, "moneyline", None), 1)
@@ -242,7 +322,9 @@ class BettingIsCoolProvider(OddsProvider):
                     )
                 event_id = by_name[fixture].get("event_id")
                 if event_id is not None:
-                    fair = self._fair_odds_for(self._odds(event_id), q.market)
+                    fair = self._fair_odds_for(
+                        self._odds(event_id), q.market, event_id=event_id
+                    )
             results.append(
                 OddsResult(match_id=q.match_id, fair_odds=fair, matched_fixture=fixture)
             )

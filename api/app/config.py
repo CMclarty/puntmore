@@ -37,14 +37,19 @@ class Settings(BaseSettings):
     # instead of silently serving mock data.
     coupon_odds_source: str = "bettingiscool"
     bettingiscool_api_key: str = ""
-    # Cache TTL (seconds) for the coupon tracker's TheOddsApi pulls. One FULL
-    # /v4/sports/{sport}/odds response per sport is fetched and reused across
-    # every coupon leg and the 10-min refresh loop for this long. Independent of
-    # odds_cache_ttl (which the hidden AccaBonus/Cards tools use).
-    # Default 86400 = 24 h — the FREE-TIER-SAFE value for the 7 default soccer
-    # keys (~420 credits/month; the ~20 h floor plus margin, see PLAN.md v5).
-    # On a PAID tier, drop to 1800 (30 min) for a fresher refresh — .env only.
-    coupon_odds_cache_ttl: int = 86400
+    # Cache TTL (seconds) for the coupon tracker's odds pulls, reused across
+    # every leg and the 10-min refresh loop. Independent of odds_cache_ttl
+    # (which the hidden AccaBonus/Cards tools use).
+    #
+    # Default 600 = 10 min, matching the refresh cadence, which is what
+    # bettingiscool's quota supports: 500,000 tokens per UTC DAY, and a full
+    # refresh of a 10-leg coupon costs ~250. Prices stay fresh.
+    #
+    # ⚠️ If you set COUPON_ODDS_SOURCE=theoddsapi, RAISE this to 86400. That
+    # source is billed 500 credits per MONTH and a 10-min cache would exhaust
+    # the month in well under a day. main.py warns loudly if it sees that
+    # combination.
+    coupon_odds_cache_ttl: int = 600
     # Tool visibility flags. The suite currently surfaces ONLY the coupon
     # tracker; AccaBonus and Cards/Corners are hidden. Their code stays in the
     # repo — these flags gate whether their API routers are mounted (main.py)
