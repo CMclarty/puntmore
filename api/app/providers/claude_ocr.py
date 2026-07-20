@@ -5,7 +5,11 @@ import anthropic
 
 from .base import OCRProvider, ExtractedRow
 
-MODEL = "claude-haiku-4-5"
+# Sonnet 5 (not Haiku 4.5) for the resolution: Haiku caps images at 1568px on
+# the long edge, Sonnet 5 accepts 2576px. Coupon photos are dense small print —
+# downscaling is where misread odds come from. ~150 images/month is ~£1.50.
+# Do NOT send resized/compressed images; the fidelity is the whole point.
+MODEL = "claude-sonnet-5"
 
 SYSTEM_PROMPT = """You are an OCR assistant that extracts betting data from coupon images.
 Return ONLY valid JSON — no markdown, no prose, no explanation.

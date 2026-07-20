@@ -10,6 +10,7 @@ from ..database import get_db
 from ..models import Coupon, Leg
 from ..schemas import UploadInitResponse, ExtractedRowOut, ConfirmRequest
 from ..config import settings
+from ..images import normalise_orientation
 from ..security import require_user
 
 router = APIRouter(prefix="/upload", tags=["upload"])
@@ -36,7 +37,12 @@ async def upload_coupon(
     if media_type not in ALLOWED_MEDIA_TYPES:
         raise HTTPException(status_code=400, detail=f"Unsupported image type: {media_type}")
 
-    image_bytes = await file.read()
+    # Apply the EXIF orientation tag to the pixels before anything else — phone
+    # cameras record rotation as metadata, so a portrait shot otherwise reaches
+    # the OCR provider sideways. The stored image is normalised too, so a later
+    # re-scan reads the same orientation. Never resize or recompress here: OCR
+    # accuracy on small print depends on the full resolution.
+    image_bytes = normalise_orientation(await file.read(), media_type)
 
     upload_dir = Path(settings.upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)

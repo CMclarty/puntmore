@@ -11,3 +11,4 @@ google-genai
 apscheduler
 bcrypt
 itsdangerous
+pillow
