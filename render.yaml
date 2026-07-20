@@ -1,0 +1,48 @@
+# Render blueprint. Connect the repo once in the dashboard (New > Blueprint) and
+# every push to main deploys.
+#
+# ONE service, not a static site plus an API. The frontend calls relative
+# /api/... paths and the session cookie is same_site="lax", so both must come
+# from one origin — api/Dockerfile builds the frontend into the API image and
+# app/asgi.py serves it. Two services on two hostnames would break login
+# silently rather than loudly.
+#
+# The disk pins this to a single instance. That is not a limitation to work
+# around: SQLite has one writer, so a second instance would corrupt it.
+
+services:
+  - type: web
+    name: puntmore
+    runtime: docker
+    region: frankfurt          # closest to UK — change if you are elsewhere
+    plan: starter              # free has no persistent disk; the DB needs one
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: .           # repo root: the build needs api/ AND frontend/
+    healthCheckPath: /api/health
+    autoDeploy: true
+
+    disk:
+      name: puntmore-data
+      mountPath: /data         # SQLite file and uploaded coupon images
+      sizeGB: 1                # must be 1 or a multiple of 5
+
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:////data/coupontracker.db
+      - key: UPLOAD_DIR
+        value: /data/uploads   # on the disk, or images vanish on redeploy
+
+      # Secrets: sync:false means Render prompts once at first deploy and stores
+      # the value itself. Never commit these.
+      - key: SECRET_KEY
+        generateValue: true    # random, then stable — sessions survive deploys
+      - key: AUTH_USERS
+        sync: false
+      - key: BETTINGISCOOL_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: STATE_API_KEY
+        generateValue: true
+      - key: DISCORD_WEBHOOK_URL
+        sync: false

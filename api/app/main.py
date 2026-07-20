@@ -202,3 +202,14 @@ if settings.enable_cards:
 
 # /state self-guards with a static API key (machine consumers, no session).
 app.include_router(state_router.router)
+
+
+@app.get("/health", include_in_schema=False)
+def health():
+    """Liveness probe for the host's health check.
+
+    Deliberately does NOT touch the database or any vendor API: this answers
+    "is the process up", and a slow upstream must not cause the host to kill an
+    otherwise healthy container. Unauthenticated by design — it leaks nothing.
+    """
+    return {"status": "ok"}

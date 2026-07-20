@@ -1,0 +1,22 @@
+# Direct runtime dependencies. Edit this file, then regenerate the pinned
+# lockfile:
+#     uv pip compile requirements.in --python .venv/bin/python3 -o requirements.txt
+#
+# requirements.txt is fully pinned so two builds of the same commit produce the
+# same running software. Without it, every rebuild resolves to whatever is
+# newest on PyPI — which matters more once a git push deploys itself.
+# Dev-only tooling lives in requirements-dev.txt and is not installed in the
+# production image.
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+pydantic-settings
+httpx
+python-multipart
+anthropic
+google-genai
+apscheduler
+bcrypt
+itsdangerous
+pillow

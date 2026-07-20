@@ -1,0 +1,3 @@
+# Dev/test only — deliberately NOT installed into the production image.
+-r requirements.txt
+pytest
