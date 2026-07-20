@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class LegOut(BaseModel):
@@ -15,9 +15,11 @@ class LegOut(BaseModel):
     external_event_id: Optional[int]
     rank: int
     matched_fixture: Optional[str] = None
-    is_approx: bool = False
+    match_score: Optional[float] = None
+    edited: bool = False
+    flags: list[str] = Field(default_factory=list, validation_alias="flag_list")
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}
 
 
 class CouponOut(BaseModel):
@@ -33,26 +35,18 @@ class CouponOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# Upload flow schemas
-class ExtractedRowOut(BaseModel):
-    match: str
-    pick: str
-    odds: float
-
-
+# Upload flow schemas. OCR auto-confirms, so an upload returns saved+priced
+# legs rather than candidate rows awaiting a review step.
 class UploadInitResponse(BaseModel):
     coupon_id: int
-    rows: list[ExtractedRowOut]
+    legs: list[LegOut]
 
 
-class ConfirmLeg(BaseModel):
-    match: str
-    pick: str
-    odds: float
-
-
-class ConfirmRequest(BaseModel):
-    rows: list[ConfirmLeg]
+class LegEditRequest(BaseModel):
+    """Inline correction. Omitted fields keep their current value."""
+    match_name: Optional[str] = None
+    pick: Optional[str] = None
+    odds: Optional[float] = Field(default=None, gt=1.0)
 
 
 # AccaBonus feed (simplified card shape)

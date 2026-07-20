@@ -1,5 +1,6 @@
 """Coupon accumulator + legs model tests (R1)."""
 import io
+import os
 from datetime import date, timedelta
 
 import pytest
@@ -61,6 +62,11 @@ def db():
 @pytest.fixture()
 def upload_client(tmp_path):
     app.state.ocr_provider = MockOCRProvider()
+    # Upload now prices inline (auto-confirm), so it needs an odds provider.
+    app.state.odds_provider = MockOddsProvider(
+        {("Arsenal vs Chelsea", "Win and Over 2.5"): 1.80},
+        matched={"Arsenal vs Chelsea": ("Arsenal vs Chelsea FC", 0.95)},
+    )
     from app import config as cfg
     original = cfg.settings.upload_dir
     cfg.settings.upload_dir = str(tmp_path)
@@ -71,7 +77,7 @@ def upload_client(tmp_path):
 api = TestClient(app)
 
 
-def _make_coupon(db, type_code="WO25", status="live", match_day=None):
+def _make_coupon(db, type_code="WO25", status="confirmed", match_day=None):
     c = Coupon(
         name="Test Acca",
         type_code=type_code,
@@ -156,7 +162,7 @@ def test_list_coupons_includes_leg_count(db):
     assert len(body) == 1
     assert body[0]["leg_count"] == 1
     assert body[0]["type_code"] == "WO25"
-    assert body[0]["status"] == "live"
+    assert body[0]["status"] == "confirmed"
 
 def test_list_coupons_ordered_by_match_day_desc(db):
     c1 = _make_coupon(db, match_day=date.today() - timedelta(days=3))
@@ -195,7 +201,7 @@ def test_get_legs_404_missing():
 
 # --- POST /upload ---
 
-def test_upload_creates_pending_coupon(upload_client):
+def test_upload_returns_saved_legs(upload_client):
     resp = upload_client.post(
         "/upload",
         data={"type_code": "WO25", "match_day": date.today().isoformat()},
@@ -204,8 +210,8 @@ def test_upload_creates_pending_coupon(upload_client):
     assert resp.status_code == 200
     body = resp.json()
     assert "coupon_id" in body
-    assert len(body["rows"]) == 3
-    assert body["rows"][0]["pick"] == "Win and Over 2.5"
+    assert len(body["legs"]) == 3
+    assert body["legs"][0]["pick"] == "Win and Over 2.5"
 
 def test_upload_rejects_bad_mime(upload_client):
     resp = upload_client.post(
@@ -226,38 +232,133 @@ def test_upload_auto_names_coupon(upload_client, db):
     assert c.name == "WO25 · Sun 14 Jun"
 
 
-# --- POST /upload/{id}/confirm ---
+# --- Auto-confirm upload (no review gate) ---
 
-def test_confirm_creates_legs_and_sets_live(upload_client, db):
+def test_upload_saves_and_prices_legs_immediately(upload_client, db):
     up = upload_client.post(
         "/upload",
         data={"type_code": "WO25", "match_day": date.today().isoformat()},
         files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
     )
-    coupon_id = up.json()["coupon_id"]
+    assert up.status_code == 200
+    body = up.json()
+    coupon_id = body["coupon_id"]
 
-    confirm = upload_client.post(
-        f"/upload/{coupon_id}/confirm",
-        json={"rows": [
-            {"match": "Arsenal vs Chelsea", "pick": "Win and Over 2.5", "odds": 1.85},
-            {"match": "PSG vs Lyon", "pick": "HT/FT PSG/PSG", "odds": 2.20},
-        ]},
-    )
-    assert confirm.status_code == 200
-    assert confirm.json()["legs_saved"] == 2
+    # Rows persist without a confirm step, and come back priced.
+    assert len(body["legs"]) == 3
+    arsenal = next(l for l in body["legs"] if l["match_name"] == "Arsenal vs Chelsea")
+    assert arsenal["fair_odds"] == 1.80
+    assert abs(arsenal["value"] - compute_value(1.85, 1.80)) < 1e-6
 
     db.expire_all()
     coupon = db.get(Coupon, coupon_id)
-    assert coupon.status == "live"
-    legs = db.query(Leg).filter(Leg.coupon_id == coupon_id).all()
-    assert len(legs) == 2
+    assert coupon.status == "confirmed"
+    assert db.query(Leg).filter(Leg.coupon_id == coupon_id).count() == 3
 
-def test_confirm_404_missing(upload_client):
-    resp = upload_client.post(
-        "/upload/9999/confirm",
-        json={"rows": [{"match": "X", "pick": "Win", "odds": 1.5}]},
+
+def test_upload_flags_unmatched_rows(upload_client):
+    body = upload_client.post(
+        "/upload",
+        data={"type_code": "WO25", "match_day": date.today().isoformat()},
+        files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
+    ).json()
+
+    # Only Arsenal is matched by the fixture provider; the rest carry no_match
+    # but still persist with blank fair odds.
+    unmatched = [l for l in body["legs"] if l["match_name"] != "Arsenal vs Chelsea"]
+    assert unmatched
+    for leg in unmatched:
+        assert "no_match" in leg["flags"]
+        assert leg["fair_odds"] is None
+
+    arsenal = next(l for l in body["legs"] if l["match_name"] == "Arsenal vs Chelsea")
+    assert arsenal["flags"] == []
+
+
+# --- PATCH /coupons/{id}/legs/{leg_id} (inline edit) ---
+
+def test_edit_leg_reprices_and_marks_edited(db):
+    c = _make_coupon(db)
+    leg = Leg(coupon_id=c.id, match_name="Arsnl vs Chelsea", pick="Over 2.5", odds=2.0, rank=0)
+    db.add(leg)
+    db.commit()
+    leg_id = leg.id
+
+    app.state.odds_provider = MockOddsProvider(
+        {("Arsenal vs Chelsea", "Over 2.5"): 1.80},
+        matched={"Arsenal vs Chelsea": ("Arsenal vs Chelsea", 0.99)},
     )
-    assert resp.status_code == 404
+    resp = api.patch(
+        f"/coupons/{c.id}/legs/{leg_id}", json={"match_name": "Arsenal vs Chelsea"}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["edited"] is True
+    assert body["fair_odds"] == 1.80
+    assert body["flags"] == []
+
+
+def test_edit_leg_404_wrong_coupon(db):
+    c = _make_coupon(db)
+    other = _make_coupon(db)
+    leg = Leg(coupon_id=other.id, match_name="X vs Y", pick="Win", odds=1.5, rank=0)
+    db.add(leg)
+    db.commit()
+
+    app.state.odds_provider = MockOddsProvider()
+    assert api.patch(f"/coupons/{c.id}/legs/{leg.id}", json={"odds": 1.9}).status_code == 404
+
+
+# --- POST /upload/{id}/rescan ---
+
+def test_rescan_replaces_unedited_rows_but_keeps_edits(upload_client, db):
+    coupon_id = upload_client.post(
+        "/upload",
+        data={"type_code": "WO25", "match_day": date.today().isoformat()},
+        files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
+    ).json()["coupon_id"]
+
+    # Correct one row by hand, then re-scan.
+    target = db.query(Leg).filter(
+        Leg.coupon_id == coupon_id, Leg.match_name == "Tottenham vs Man Utd"
+    ).one()
+    upload_client.patch(
+        f"/coupons/{coupon_id}/legs/{target.id}",
+        json={"match_name": "Spurs vs Manchester United", "odds": 1.70},
+    )
+
+    resp = upload_client.post(f"/upload/{coupon_id}/rescan")
+    assert resp.status_code == 200
+
+    db.expire_all()
+    legs = {l.match_name: l for l in db.query(Leg).filter(Leg.coupon_id == coupon_id)}
+    # The human correction survived the machine re-read...
+    assert "Spurs vs Manchester United" in legs
+    assert legs["Spurs vs Manchester United"].odds == 1.70
+    assert legs["Spurs vs Manchester United"].edited is True
+    # ...and the OCR row it replaced did not come back.
+    assert "Tottenham vs Man Utd" not in legs
+    # Unedited rows were re-read fresh.
+    assert "Arsenal vs Chelsea" in legs
+    assert len(legs) == 3
+
+
+def test_rescan_409_when_image_gone(upload_client, db):
+    coupon_id = upload_client.post(
+        "/upload",
+        data={"type_code": "WO25", "match_day": date.today().isoformat()},
+        files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
+    ).json()["coupon_id"]
+
+    db.expire_all()
+    coupon = db.get(Coupon, coupon_id)
+    os.remove(coupon.image_path)
+
+    assert upload_client.post(f"/upload/{coupon_id}/rescan").status_code == 409
+
+
+def test_rescan_404_missing(upload_client):
+    assert upload_client.post("/upload/9999/rescan").status_code == 404
 
 
 # --- POST /coupons/{id}/refresh ---

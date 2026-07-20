@@ -7,8 +7,8 @@ from apscheduler.events import EVENT_JOB_ERROR
 
 from .database import SessionLocal
 from .models import Coupon, Leg
-from .comparison import compute_value, value_tier
-from .providers.base import MatchQuery
+from .comparison import value_tier
+from .pricing.legs import price_legs
 from .time_utils import utcnow
 
 
@@ -60,37 +60,24 @@ def refresh_all_live_coupons(odds_provider, notifier=None, db=None) -> int:
         close = True
     total_updated = 0
     try:
-        coupons = db.query(Coupon).filter(Coupon.status == "live").all()
+        coupons = db.query(Coupon).filter(Coupon.status == "confirmed").all()
         for coupon in coupons:
             legs = db.query(Leg).filter(Leg.coupon_id == coupon.id).all()
             if not legs:
                 continue
 
-            queries = [
-                MatchQuery(match_id=leg.id, match_name=leg.match_name, market=leg.pick)
-                for leg in legs
-            ]
             try:
-                results = odds_provider.get_fair_odds(queries)
+                priced = price_legs(legs, odds_provider)
             except Exception:
                 continue
 
-            result_map = {r.match_id: r for r in results}
-            now = utcnow()
+            total_updated += len(priced)
             value_legs = []
-            for leg in legs:
-                result = result_map.get(leg.id)
-                if result and result.fair_odds is not None:
-                    leg.fair_odds = result.fair_odds
-                    leg.value = compute_value(leg.odds, result.fair_odds)
-                    leg.fair_odds_updated_at = now
-                    leg.matched_fixture = result.matched_fixture
-                    total_updated += 1
-
-                    tier = value_tier(leg.value)
-                    if tier and tier != leg.notified_tier:
-                        value_legs.append(leg)
-                    leg.notified_tier = tier
+            for leg in priced:
+                tier = value_tier(leg.value)
+                if tier and tier != leg.notified_tier:
+                    value_legs.append(leg)
+                leg.notified_tier = tier
 
             db.commit()
 

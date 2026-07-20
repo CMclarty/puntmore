@@ -328,6 +328,7 @@ class BettingIsCoolProvider(OddsProvider):
         for q in queries:
             fair = None
             fixture = None
+            score = None
             match = self._best_match(q.match_name, list(by_name))
             if match:
                 fixture, score = match
@@ -342,6 +343,11 @@ class BettingIsCoolProvider(OddsProvider):
                         self._odds(event_id), q.market, event_id=event_id
                     )
             results.append(
-                OddsResult(match_id=q.match_id, fair_odds=fair, matched_fixture=fixture)
+                OddsResult(
+                    match_id=q.match_id,
+                    fair_odds=fair,
+                    matched_fixture=fixture,
+                    match_score=score,
+                )
             )
         return results

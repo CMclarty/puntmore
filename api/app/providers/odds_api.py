@@ -137,12 +137,14 @@ def _extract_fair_odds(event: dict, market_str: str) -> float | None:
     under_m = _UNDER_RE.search(key)
 
     if has_win and over_m:
-        # INTERIM (PLAN V3 replaces this): the product of two de-vigged prices
-        # assumes the result and the total are independent. They are not —
-        # a winning team scores more — so this OVERSTATES fair odds and hence
-        # UNDERSTATES value. That bias is conservative (it misses value bets
-        # rather than inventing them), which is why it stands in until the
-        # score-grid model lands. Legs priced here stay flagged is_approx.
+        # LEGACY, and NOT the live path — COUPON_ODDS_SOURCE is bettingiscool,
+        # which derives this market off the fitted score grid (pricing/grid.py).
+        # The product of two de-vigged prices assumes result and total are
+        # independent. They are not — a winning team scores more — so this
+        # OVERSTATES fair odds and UNDERSTATES value. The bias is conservative
+        # (misses value rather than inventing it). This provider now has no
+        # grid of its own, so if it is ever made live again, wire it to
+        # pricing.grid the way bettingiscool is rather than shipping this.
         win_price = _fair_h2h_price(bm, home)
         over_price = _fair_totals_price(bm, "Over", float(over_m.group(1)))
         if win_price is not None and over_price is not None:

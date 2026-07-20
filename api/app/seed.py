@@ -17,7 +17,7 @@ SAMPLE_COUPONS = [
         "name": "Saturday Acca",
         "type_code": "TTS2",
         "match_day": _next_weekday(5),   # Saturday
-        "status": "live",
+        "status": "confirmed",
         "legs": [
             ("PSG vs Lyon",             "HT/FT PSG/PSG",       2.20, 0.12),
             ("Arsenal vs Chelsea",      "Win and Over 2.5",    1.85, 0.07),
@@ -29,7 +29,7 @@ SAMPLE_COUPONS = [
         "name": "Tuesday Picks",
         "type_code": "WO25",
         "match_day": _today - timedelta(days=2),
-        "status": "live",
+        "status": "confirmed",
         "legs": [
             ("Bayern vs Dortmund",  "Win and Over 3.5", 2.40, 0.08),
             ("Juventus vs Inter",   "Over 2.5 Goals",  1.90, 0.03),

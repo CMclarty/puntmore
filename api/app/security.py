@@ -179,3 +179,26 @@ def ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN matched_fixture VARCHAR"))
             if "notified_tier" not in cols:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN notified_tier VARCHAR"))
+            # V5 migration: auto-confirm OCR — anomaly flags, edit protection,
+            # and the match score behind the low-confidence flag.
+            if "match_score" not in cols:
+                conn.execute(text("ALTER TABLE legs ADD COLUMN match_score FLOAT"))
+            if "flags" not in cols:
+                conn.execute(text("ALTER TABLE legs ADD COLUMN flags VARCHAR"))
+            if "edited" not in cols:
+                conn.execute(text(
+                    "ALTER TABLE legs ADD COLUMN edited BOOLEAN NOT NULL DEFAULT 0"
+                ))
+
+    # V5 status remap: pending|live -> processing|confirmed. Existing coupons
+    # were all past the old review gate, so 'pending' rows are stale uploads
+    # that never got confirmed; they map to 'processing' and re-price on the
+    # next refresh.
+    if "coupons" in tables:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE coupons SET status = 'confirmed' WHERE status = 'live'"
+            ))
+            conn.execute(text(
+                "UPDATE coupons SET status = 'processing' WHERE status = 'pending'"
+            ))

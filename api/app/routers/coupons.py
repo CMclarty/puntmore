@@ -1,11 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session, selectinload
 from ..database import get_db
-from ..models import Coupon
-from ..schemas import CouponOut, LegOut
-from ..providers.base import MatchQuery
-from ..comparison import compute_value
-from ..time_utils import utcnow
+from ..models import Coupon, Leg
+from ..schemas import CouponOut, LegOut, LegEditRequest
+from ..pricing.legs import price_legs
+from ..security import require_user
 
 router = APIRouter(prefix="/coupons", tags=["coupons"])
 
@@ -50,23 +49,43 @@ def refresh_coupon(coupon_id: int, request: Request, db: Session = Depends(get_d
     if not coupon:
         raise HTTPException(status_code=404, detail="Coupon not found")
 
-    queries = [
-        MatchQuery(match_id=leg.id, match_name=leg.match_name, market=leg.pick)
-        for leg in coupon.legs
-    ]
-    odds_provider = request.app.state.odds_provider
-    results = odds_provider.get_fair_odds(queries)
-    result_map = {r.match_id: r for r in results}
-    now = utcnow()
-
-    for leg in coupon.legs:
-        result = result_map.get(leg.id)
-        if result and result.fair_odds is not None:
-            leg.fair_odds = result.fair_odds
-            leg.value = compute_value(leg.odds, result.fair_odds)
-            leg.fair_odds_updated_at = now
-            leg.matched_fixture = result.matched_fixture
-
+    price_legs(list(coupon.legs), request.app.state.odds_provider)
     db.commit()
     db.refresh(coupon)
     return sorted(coupon.legs, key=lambda l: (l.value is None, -(l.value or 0)))
+
+
+@router.patch("/{coupon_id}/legs/{leg_id}", response_model=LegOut)
+def edit_leg(
+    coupon_id: int,
+    leg_id: int,
+    body: LegEditRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: str = Depends(require_user),
+):
+    """Correct a leg inline. Reprices it and marks it human-edited.
+
+    `edited` is what protects the correction from the next re-scan, so it is
+    set even if the correction doesn't change the price.
+    """
+    leg = db.get(Leg, leg_id)
+    if not leg or leg.coupon_id != coupon_id:
+        raise HTTPException(status_code=404, detail="Leg not found")
+
+    fields = body.model_dump(exclude_unset=True, exclude_none=True)
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    for field, value in fields.items():
+        setattr(leg, field, value)
+    leg.edited = True
+
+    # A corrected row may no longer be a value bet at the tier already alerted;
+    # clearing lets the loop re-notify on its new merit rather than staying
+    # silent because the pre-correction tier is still recorded.
+    leg.notified_tier = None
+
+    price_legs([leg], request.app.state.odds_provider)
+    db.commit()
+    db.refresh(leg)
+    return leg

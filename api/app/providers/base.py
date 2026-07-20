@@ -17,6 +17,9 @@ class OddsResult:
     # match). Surfaced so a wrong match is visible instead of silently
     # producing a wrong fair price.
     matched_fixture: str | None = None
+    # Similarity score behind that match (0–1). Feeds the low-confidence leg
+    # flag, so a loose match is badged in the UI rather than only logged.
+    match_score: float | None = None
 
 
 class OddsProvider(ABC):

@@ -92,7 +92,7 @@ def test_state_shape_when_empty(api_key):
 
 def test_state_includes_coupons_with_legs_sorted_by_value(api_key):
     db = TestSession()
-    coupon = Coupon(name="Saturday Acca", type_code="TTS2", match_day=date(2026, 6, 13), status="live")
+    coupon = Coupon(name="Saturday Acca", type_code="TTS2", match_day=date(2026, 6, 13), status="confirmed")
     coupon.legs = [
         Leg(match_name="PSG v Lyon", pick="PSG HT/FT", odds=2.30, value=0.02, rank=0),
         Leg(match_name="Bayern v Leipzig", pick="BTTS — Yes", odds=1.72, value=0.055, rank=1),

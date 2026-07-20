@@ -71,7 +71,7 @@ class FixtureOddsProvider(OddsProvider):
 
 
 def _live_coupon_with_leg(db, match_name="Arsenal vs Chelsea", odds=2.0):
-    c = Coupon(name="Test Acca", type_code="WO25", match_day=date.today(), status="live")
+    c = Coupon(name="Test Acca", type_code="WO25", match_day=date.today(), status="confirmed")
     db.add(c)
     db.flush()
     leg = Leg(coupon_id=c.id, match_name=match_name, pick="Win", odds=odds, rank=0)
@@ -93,7 +93,7 @@ def test_value_tier_thresholds():
     assert value_tier(None) is None
 
 
-# --- is_compound_pick / Leg.is_approx ---
+# --- is_compound_pick / Leg.flag_list ---
 
 def test_compound_pick_detection():
     assert is_compound_pick("Win and Over 2.5")
@@ -102,9 +102,11 @@ def test_compound_pick_detection():
     assert not is_compound_pick("Win")
 
 
-def test_leg_is_approx_property():
-    assert Leg(match_name="x", pick="Win and Over 2.5", odds=3.0).is_approx
-    assert not Leg(match_name="x", pick="Win", odds=1.8).is_approx
+def test_leg_flag_list_round_trips():
+    assert Leg(match_name="x", pick="Win", odds=1.8, flags=None).flag_list == []
+    assert Leg(
+        match_name="x", pick="Win", odds=1.8, flags="odds_range,no_match"
+    ).flag_list == ["odds_range", "no_match"]
 
 
 # --- notification dedupe ---

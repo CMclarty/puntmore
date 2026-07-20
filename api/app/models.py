@@ -1,6 +1,8 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Date, ForeignKey, Text
+from sqlalchemy import (
+    Boolean, Column, Integer, String, Float, DateTime, Date, ForeignKey, Text,
+)
 from sqlalchemy.orm import relationship
-from .comparison import is_compound_pick
+from .checks import decode_flags
 from .database import Base
 from .time_utils import utcnow
 
@@ -12,7 +14,9 @@ class Coupon(Base):
     name = Column(String, nullable=True)            # e.g. "Saturday Acca" (optional)
     type_code = Column(String, nullable=False)       # e.g. "TTS2", "WO25"
     match_day = Column(Date, nullable=False)         # date the legs play
-    status = Column(String, nullable=False, default="pending")  # pending|live
+    # processing = OCR still running; confirmed = rows saved and priced. There
+    # is no review state: OCR auto-confirms (SPEC §7).
+    status = Column(String, nullable=False, default="processing")
     image_path = Column(Text, nullable=True)         # OCR source image
     uploaded_by = Column(String, nullable=True)
     created_at = Column(DateTime, default=utcnow)
@@ -41,15 +45,19 @@ class Leg(Base):
     fair_odds_updated_at = Column(DateTime, nullable=True)
     external_event_id = Column(Integer, nullable=True)
     rank = Column(Integer, nullable=False, default=0)
-    matched_fixture = Column(String, nullable=True)  # TheOddsApi fixture the fuzzy match linked
+    matched_fixture = Column(String, nullable=True)  # fixture the fuzzy match linked
+    match_score = Column(Float, nullable=True)       # similarity behind that match
     notified_tier = Column(String, nullable=True)    # last value tier sent to Discord (dedupe)
+    flags = Column(String, nullable=True)            # comma-separated codes (checks.py)
+    # True once a human has corrected this row. A re-scan must never overwrite
+    # an edited row with a fresh machine read.
+    edited = Column(Boolean, nullable=False, default=False)
 
     coupon = relationship("Coupon", back_populates="legs")
 
     @property
-    def is_approx(self) -> bool:
-        """Fair odds for compound picks are an independence approximation."""
-        return is_compound_pick(self.pick)
+    def flag_list(self) -> list[str]:
+        return decode_flags(self.flags)
 
 
 class User(Base):
