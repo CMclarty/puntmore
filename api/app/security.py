@@ -227,6 +227,8 @@ def ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE coupons ADD COLUMN period VARCHAR"))
             if "period_ends" not in ccols:
                 conn.execute(text("ALTER TABLE coupons ADD COLUMN period_ends DATE"))
+            if "payout_ladder" not in ccols:
+                conn.execute(text("ALTER TABLE coupons ADD COLUMN payout_ladder TEXT"))
 
     # V5 status remap: pending|live -> processing|confirmed. Existing coupons
     # were all past the old review gate, so 'pending' rows are stale uploads

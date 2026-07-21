@@ -116,10 +116,14 @@ def test_mock_provider_null_for_unknown():
 
 # --- OCR provider ---
 
-def test_mock_ocr_returns_rows():
-    rows = MockOCRProvider().extract(b"fake", "image/png")
-    assert len(rows) == 3
-    assert all(isinstance(r, ExtractedRow) for r in rows)
+def test_mock_ocr_returns_a_coupon_not_bare_rows():
+    """OCR returns the whole coupon: rows plus what is printed on it."""
+    coupon = MockOCRProvider().extract(b"fake", "image/png")
+    assert len(coupon.rows) == 3
+    assert all(isinstance(r, ExtractedRow) for r in coupon.rows)
+    # Kickoffs and the payout ladder are part of the contract, not extras.
+    assert all(r.kickoff_text for r in coupon.rows)
+    assert coupon.payout_ladder == {3: 5.5, 4: 10.0}
 
 def test_ocr_provider_is_abstract():
     with pytest.raises(TypeError):
@@ -231,7 +235,7 @@ def test_upload_auto_names_coupon(upload_client, db):
     )
     coupon_id = resp.json()["coupon_id"]
     c = db.get(Coupon, coupon_id)
-    assert c.name == "WO25 · Saturday 25 Jul"
+    assert c.name == "Win and Over 2.5 · Saturday 25 Jul"
     assert c.period == "SAT"
     assert c.match_day == date(2026, 7, 25)
     assert c.period_ends == date(2026, 7, 25)
@@ -507,3 +511,114 @@ def test_upload_rejects_a_type_outside_the_seven(upload_client):
         files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
     )
     assert resp.status_code == 400
+
+
+# --- ladder coupons end to end (GG Bonus / GG No Draw) ---
+
+@pytest.fixture()
+def gg_client(tmp_path):
+    """Upload client whose OCR returns a LADDER coupon: no odds, has a ladder."""
+    from app.providers.base import ExtractedCoupon, ExtractedRow
+
+    class _LadderOCR(OCRProvider):
+        def extract(self, image_bytes, media_type):
+            return ExtractedCoupon(
+                rows=[
+                    ExtractedRow("Inverness v St Johnstone", None, None, "MON 19:45"),
+                    ExtractedRow("Gais v Nordsjaelland", None, None, "TUE 18:00"),
+                    ExtractedRow("Atl Mineiro v Bahia", None, None, "WED 23:30"),
+                    ExtractedRow("Botafogo v Vitoria", None, None, "THU 01:30"),
+                ],
+                title="GG BONUS",
+                period_text="Monday 20th - Thursday 23rd July",
+                payout_ladder={3: 5.5, 4: 10.0},
+            )
+
+    app.state.ocr_provider = _LadderOCR()
+    app.state.odds_provider = MockOddsProvider(
+        {
+            ("Inverness v St Johnstone", "GG Bonus"): 1.60,
+            ("Gais v Nordsjaelland", "GG Bonus"): 1.70,
+            ("Atl Mineiro v Bahia", "GG Bonus"): 1.75,
+            ("Botafogo v Vitoria", "GG Bonus"): 1.90,
+        },
+        matched={n: (n, 0.99) for n in (
+            "Inverness v St Johnstone", "Gais v Nordsjaelland",
+            "Atl Mineiro v Bahia", "Botafogo v Vitoria")},
+    )
+    from app import config as cfg
+    original = cfg.settings.upload_dir
+    cfg.settings.upload_dir = str(tmp_path)
+    yield TestClient(app)
+    cfg.settings.upload_dir = original
+
+
+def _upload_gg(client):
+    return client.post(
+        "/upload",
+        data={"type_code": "GGB", "period": "MIDWEEK",
+              "uploaded_on": date(2026, 7, 20).isoformat()},
+        files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
+    )
+
+
+def test_ladder_coupon_saves_without_odds(gg_client, db):
+    """A GG coupon prints no price; rows must persist anyway."""
+    resp = _upload_gg(gg_client)
+    assert resp.status_code == 200
+    legs = resp.json()["legs"]
+    assert len(legs) == 4
+    assert all(l["odds"] is None for l in legs)
+    # The market comes from WHICH coupon it is, not from OCR.
+    assert all(l["pick"] == "GG Bonus" for l in legs)
+    assert all(l["value"] is None for l in legs)   # no price, no per-row edge
+
+
+def test_ladder_coupon_window_comes_from_its_fixtures(gg_client, db):
+    """MIDWEEK has no schedule — the dates are the coupon's own kickoffs."""
+    coupon_id = _upload_gg(gg_client).json()["coupon_id"]
+    db.expire_all()
+    c = db.get(Coupon, coupon_id)
+    assert (c.match_day, c.period_ends) == (date(2026, 7, 20), date(2026, 7, 23))
+    assert c.ladder == {3: 5.5, 4: 10.0}
+
+
+def test_ladder_coupon_reports_its_best_combination(gg_client, db):
+    _upload_gg(gg_client)
+    body = gg_client.get("/coupons/types").json()
+    ggb = next(t for t in body if t["code"] == "GGB")
+    assert ggb["prices_each_selection"] is False
+    best = ggb["best_combination"]
+    # 3 shortest: 1.60*1.70*1.75 = 4.76 fair against 5.5 -> +15.6%.
+    # The 4-fold adds 1.90 -> 9.04 against 10.0 -> +10.6%, so 3 wins here.
+    # Which rung wins depends on the spread, which is why every rung is scored
+    # rather than one being assumed.
+    assert best["picks"] == 3
+    assert best["fair"] == pytest.approx(4.76, abs=0.01)
+    assert best["payout"] == 5.5
+    assert best["value"] == pytest.approx(0.1555, abs=1e-3)
+
+
+def test_gg_period_must_be_midweek_or_weekend(gg_client):
+    resp = gg_client.post(
+        "/upload",
+        data={"type_code": "GGB", "period": "SAT"},
+        files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
+    )
+    assert resp.status_code == 400
+
+
+def test_periods_are_filtered_by_type():
+    assert [p["code"] for p in api.get("/coupons/periods?type_code=GGB").json()] == [
+        "MIDWEEK", "WEEKEND",
+    ]
+    assert [p["code"] for p in api.get("/coupons/periods?type_code=TTS2").json()] == [
+        "MON_WED", "WED_FRI", "SAT", "SUN",
+    ]
+
+
+def test_variable_periods_expose_no_dates():
+    """Their dates are printed on the coupon, so the UI must not invent any."""
+    for p in api.get("/coupons/periods?type_code=GGB").json():
+        assert p["variable"] is True
+        assert p["starts_on"] is None

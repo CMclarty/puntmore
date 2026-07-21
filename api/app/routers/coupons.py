@@ -20,20 +20,88 @@ router = APIRouter(prefix="/coupons", tags=["coupons"])
 
 
 @router.get("/periods", response_model=list[CouponPeriodOut])
-def list_coupon_periods():
-    """The four windows, with the dates they resolve to from today.
+def list_coupon_periods(type_code: str | None = None):
+    """The windows a coupon type runs, with the dates they resolve to.
 
-    Served rather than hardcoded in the UI so the schedule lives in one place.
+    Filtered by type because the two shapes differ: the priced coupons run a
+    fixed weekly schedule, while GG issues are midweek/weekend on dates that
+    move and are only known once the coupon has been read.
     """
     today = date.today()
-    suggested = coupon_periods.suggest(today)
+    if type_code is not None:
+        ctype = coupon_types.get(type_code)
+        if ctype is None:
+            raise HTTPException(
+                status_code=404, detail=f"Unknown coupon type: {type_code}"
+            )
+        codes = ctype.period_codes
+    else:
+        codes = tuple(p.code for p in COUPON_PERIODS)
+
+    variable = any(coupon_periods.get(c).variable for c in codes)
+    suggested = (
+        coupon_periods.suggest_variable(today) if variable
+        else coupon_periods.suggest(today)
+    )
+
     out = []
-    for p in COUPON_PERIODS:
-        starts, ends = coupon_periods.date_range(p.code, today)
+    for code in codes:
+        p = coupon_periods.get(code)
+        window = coupon_periods.date_range(code, today)
         out.append(CouponPeriodOut(
             code=p.code, label=p.label,
-            starts_on=starts, ends_on=ends,
+            starts_on=window[0] if window else None,
+            ends_on=window[1] if window else None,
+            variable=p.variable,
             suggested=(p.code == suggested),
+        ))
+    return out
+
+
+@router.get("/types", response_model=list[CouponTypeOut])
+def list_coupon_types(db: Session = Depends(get_db)):
+    """The seven coupon types — the app's top-level entities.
+
+    Each is its own filtered list of fixtures, not an accumulator. Served from
+    one place so the tracker dropdown and the upload form cannot drift.
+    """
+    counts = dict(
+        db.query(Coupon.type_code, func.count(Leg.id))
+        .join(Leg, Leg.coupon_id == Coupon.id)
+        .group_by(Coupon.type_code)
+        .all()
+    )
+    out = []
+    for t in COUPON_TYPES:
+        best = None
+        if not t.prices_each_selection:
+            # Ladder coupons have no per-row value, so the useful number is the
+            # best combination available. Read off the MOST RECENT coupon of
+            # this type: the ladder and the fixture list both belong to an
+            # issue, not to the type.
+            latest = (
+                db.query(Coupon)
+                .filter(Coupon.type_code == t.code)
+                .order_by(Coupon.match_day.desc(), Coupon.created_at.desc())
+                .first()
+            )
+            if latest is not None:
+                fairs = [
+                    row[0] for row in db.query(Leg.fair_odds)
+                    .filter(Leg.coupon_id == latest.id, Leg.fair_odds.isnot(None))
+                    .all()
+                ]
+                best = coupon_types.best_combination(
+                    fairs, latest.ladder or t.default_ladder
+                )
+        out.append(CouponTypeOut(
+            code=t.code,
+            label=t.label,
+            max_fair_odds=t.max_fair_odds,
+            selection_count=counts.get(t.code, 0),
+            prices_each_selection=t.prices_each_selection,
+            period_codes=list(t.period_codes),
+            best_combination=best,
         ))
     return out
 

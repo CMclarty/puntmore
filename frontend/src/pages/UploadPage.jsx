@@ -4,8 +4,10 @@ import { getCoupons, uploadCoupon, getCouponTypes, getCouponPeriods } from '../a
 import styles from './UploadPage.module.css'
 
 
-/** "Sat 25 Jul" or "Mon 20 – Wed 22 Jul" for a multi-day window. */
+/** "Sat 25 Jul" or "Mon 20 – Wed 22 Jul". Variable windows show no dates —
+ *  they are printed on the coupon and read from it. */
 function fmtRange(startsOn, endsOn) {
+  if (!startsOn || !endsOn) return 
   const opts = { weekday: 'short', day: 'numeric', month: 'short' }
   const a = new Date(startsOn)
   const b = new Date(endsOn)
@@ -51,12 +53,17 @@ export default function UploadPage() {
       setTypes(ts)
       if (ts.length > 0) setTypeCode(prev => prev || ts[0].code)
     }).catch(() => {})
-    getCouponPeriods().then(ps => {
-      setPeriods(ps)
-      const suggested = ps.find(p => p.suggested) ?? ps[0]
-      if (suggested) setPeriod(prev => prev || suggested.code)
-    }).catch(() => {})
   }, [])
+
+  // Periods are per type — GG coupons run midweek/weekend on moving dates,
+  // the priced coupons run the fixed weekly schedule.
+  useEffect(() => {
+    if (!typeCode) return
+    getCouponPeriods(typeCode).then(ps => {
+      setPeriods(ps)
+      setPeriod((ps.find(p => p.suggested) ?? ps[0])?.code ?? '')
+    }).catch(() => {})
+  }, [typeCode])
 
   async function handleProcess() {
     if (!file) return
@@ -130,7 +137,7 @@ export default function UploadPage() {
         <select className={styles.select} value={period} onChange={e => setPeriod(e.target.value)}>
           {periods.map(p => (
             <option key={p.code} value={p.code}>
-              {p.label} — {fmtRange(p.starts_on, p.ends_on)}
+              {p.label}{p.starts_on ? ` — ${fmtRange(p.starts_on, p.ends_on)}` : ''}
             </option>
           ))}
         </select>

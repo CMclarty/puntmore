@@ -1,3 +1,5 @@
+import json
+
 from sqlalchemy import (
     Boolean, Column, Integer, String, Float, DateTime, Date, ForeignKey, Text,
 )
@@ -19,6 +21,10 @@ class Coupon(Base):
     period = Column(String, nullable=True)
     match_day = Column(Date, nullable=False)         # first fixture date of the period
     period_ends = Column(Date, nullable=True)        # last fixture date of the period
+    # Payout ladder READ OFF THIS COUPON as JSON {"3": 5.5, ...}. Printed on
+    # each issue and can change between them, so it is stored per coupon rather
+    # than assumed from config.
+    payout_ladder = Column(Text, nullable=True)
     # processing = OCR still running; confirmed = rows saved and priced. There
     # is no review state: OCR auto-confirms (SPEC §7).
     status = Column(String, nullable=False, default="processing")
@@ -35,6 +41,16 @@ class Coupon(Base):
     @property
     def leg_count(self) -> int:
         return len(self.legs)
+
+    @property
+    def ladder(self) -> dict[int, float]:
+        """Payout ladder as {picks: decimal}. Empty when the coupon prices rows."""
+        if not self.payout_ladder:
+            return {}
+        try:
+            return {int(k): float(v) for k, v in json.loads(self.payout_ladder).items()}
+        except (ValueError, TypeError, AttributeError):
+            return {}
 
 
 class Leg(Base):

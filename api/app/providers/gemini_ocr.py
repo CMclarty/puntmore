@@ -4,25 +4,21 @@ import base64
 import google.genai as genai
 import google.genai.types as gtypes
 
-from .base import OCRProvider, ExtractedRow
+from .base import OCRProvider, ExtractedRow, ExtractedCoupon
+from .claude_ocr import SYSTEM_PROMPT, USER_PROMPT, _parse_ladder
 
 MODEL = "gemini-2.0-flash"
 
-_PROMPT = """Extract all betting rows from this coupon image.
-Return ONLY valid JSON — no markdown, no prose, no explanation.
-Output a JSON array of objects. Each object must have exactly these keys:
-  "match"     : string  — the fixture, e.g. "Arsenal vs Chelsea"
-  "market"    : string  — the bet type, e.g. "Win and Over 2.5"
-  "your_odds" : number  — the decimal odds offered, e.g. 1.85
-If you cannot read a field clearly, use null for that field.
-Output format: [{"match": "...", "market": "...", "your_odds": 1.85}, ...]"""
+# One contract across providers: a second prompt meant a second set of
+# bugs to find.
+_PROMPT = SYSTEM_PROMPT + "\n\n" + USER_PROMPT
 
 
 class GeminiOCRProvider(OCRProvider):
     def __init__(self, api_key: str):
         self._client = genai.Client(api_key=api_key)
 
-    def extract(self, image_bytes: bytes, media_type: str) -> list[ExtractedRow]:
+    def extract(self, image_bytes: bytes, media_type: str) -> ExtractedCoupon:
         part = gtypes.Part.from_bytes(data=image_bytes, mime_type=media_type)
         response = self._client.models.generate_content(
             model=MODEL,
@@ -37,17 +33,29 @@ class GeminiOCRProvider(OCRProvider):
                 raw = raw[4:]
             raw = raw.strip()
 
-        rows = json.loads(raw)
-        results = []
-        for row in rows:
-            odds = row.get("your_odds")
-            if odds is None:
+        data = json.loads(raw)
+        if isinstance(data, list):
+            data = {"selections": data}
+
+        rows = []
+        for row in data.get("selections") or []:
+            match = (row.get("match") or "").strip()
+            if not match:
                 continue
-            results.append(
+            odds = row.get("your_odds")
+            # Rows without odds are KEPT: list coupons print none, and dropping
+            # them discards the entire coupon.
+            rows.append(
                 ExtractedRow(
-                    match=row.get("match") or "",
-                    market=row.get("market") or "",
-                    your_odds=float(odds),
+                    match=match,
+                    market=(row.get("market") or None),
+                    your_odds=float(odds) if odds is not None else None,
+                    kickoff_text=(row.get("kickoff") or None),
                 )
             )
-        return results
+        return ExtractedCoupon(
+            rows=rows,
+            title=data.get("title") or None,
+            period_text=data.get("period_text") or None,
+            payout_ladder=_parse_ladder(data.get("payout_ladder")),
+        )

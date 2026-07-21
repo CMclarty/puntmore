@@ -59,7 +59,8 @@ export const getCouponLegs = (id) => get(`/coupons/${id}/legs`)
 // upload form cannot drift out of sync.
 export const getCouponTypes = () => get('/coupons/types')
 // Coupons cover a fixed window (Mon–Wed / Wed–Fri / Sat / Sun), not one day.
-export const getCouponPeriods = () => get('/coupons/periods')
+export const getCouponPeriods = (typeCode) =>
+  get(`/coupons/periods${typeCode ? `?type_code=${typeCode}` : ''}`)
 export const getTypeSelections = (code) => get(`/coupons/types/${code}/selections`)
 export const refreshCoupon = (id) => post(`/coupons/${id}/refresh`, {})
 

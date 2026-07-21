@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import uuid
@@ -17,6 +18,67 @@ from ..pricing.legs import price_legs
 from ..security import require_user
 
 logger = logging.getLogger("uvicorn.error")
+
+
+def _build_legs(coupon_id, extracted, ctype, reference: date) -> list[Leg]:
+    """Turn a read coupon into legs.
+
+    Two things OCR is deliberately NOT asked to supply are filled in here:
+    the market (known from WHICH coupon was photographed, so it is never
+    guessed from the header) and the kickoff date (coupons print a weekday
+    only, resolved forward from the upload).
+    """
+    legs = []
+    for rank, row in enumerate(extracted.rows):
+        kickoff = coupon_periods.parse_kickoff(row.kickoff_text, reference)
+        legs.append(Leg(
+            coupon_id=coupon_id,
+            match_name=row.match,
+            pick=row.market or ctype.selection,
+            # Only priced coupons carry a per-fixture price; a ladder coupon
+            # prints none and any number here would be invented.
+            odds=row.your_odds if ctype.prices_each_selection else None,
+            kickoff=kickoff,
+            rank=rank,
+        ))
+    return legs
+
+
+def _apply_coupon_window(coupon, extracted, ctype, period, reference, legs) -> None:
+    """Set the coupon's date window and payout ladder.
+
+    A variable window (GG midweek/weekend) has no schedule to derive from, so
+    it is taken from the fixtures the coupon actually lists. A fixed window
+    resolves from the calendar as before.
+    """
+    window = coupon_periods.date_range(period, reference)
+    if window is None:
+        kickoffs = [leg.kickoff.date() for leg in legs if leg.kickoff]
+        window = coupon_periods.range_from_kickoffs(kickoffs)
+    if window:
+        coupon.match_day, coupon.period_ends = window
+
+    # The coupon's OWN ladder wins: it is printed on each issue and can change.
+    # Config is only a floor so a bad scan does not leave it unvaluable.
+    ladder = extracted.payout_ladder or ctype.default_ladder
+    if ladder and not ctype.prices_each_selection:
+        coupon.payout_ladder = json.dumps({str(k): v for k, v in ladder.items()})
+        if not extracted.payout_ladder:
+            logger.warning(
+                "Coupon %s: payout ladder unreadable, using the configured "
+                "default. Verify it against the printed coupon.", coupon.id,
+            )
+
+
+def _coupon_name(ctype, period, coupon) -> str:
+    label = coupon_periods.get(period).label
+    if coupon.match_day and coupon.period_ends and coupon.match_day != coupon.period_ends:
+        span = f"{coupon.match_day:%d %b}–{coupon.period_ends:%d %b}"
+    elif coupon.match_day:
+        span = f"{coupon.match_day:%d %b}"
+    else:
+        span = ""
+    return f"{ctype.label} · {label} {span}".strip()
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
@@ -43,16 +105,12 @@ async def upload_coupon(
         raise HTTPException(
             status_code=400, detail=f"Unknown coupon type: {type_code}"
         )
-    if not coupon_periods.is_valid(period):
+    ctype = coupon_types.get(type_code)
+    if period not in ctype.period_codes:
         raise HTTPException(
-            status_code=400, detail=f"Unknown coupon period: {period}"
+            status_code=400,
+            detail=f"{ctype.label} does not run a {period} period",
         )
-
-    # The window's dates are derived from the period and the day it was
-    # uploaded, so nobody has to type a date that the schedule already implies.
-    match_day, period_ends = coupon_periods.date_range(
-        period, uploaded_on or date.today()
-    )
 
     media_type = file.content_type
     if media_type not in ALLOWED_MEDIA_TYPES:
@@ -73,14 +131,16 @@ async def upload_coupon(
     with open(image_path, "wb") as f:
         f.write(image_bytes)
 
-    period_label = coupon_periods.get(period).label
-    coupon_name = name or f"{type_code} · {period_label} {match_day.strftime('%d %b')}"
+    # Weekdays printed on the coupon ("MON 17:00") resolve forward from here.
+    reference = uploaded_on or date.today()
+
     coupon = Coupon(
-        name=coupon_name,
         type_code=type_code,
         period=period,
-        match_day=match_day,
-        period_ends=period_ends,
+        # Provisional: replaced below once the fixtures are known. Fixed
+        # windows resolve from the schedule; variable ones cannot be known
+        # until the coupon has been read.
+        match_day=reference,
         status="processing",
         image_path=image_path,
         uploaded_by=user,
@@ -99,21 +159,12 @@ async def upload_coupon(
             os.remove(image_path)
         raise HTTPException(status_code=502, detail="OCR extraction failed")
 
-    # Auto-confirm: rows persist and price immediately (SPEC §7). There is no
-    # blocking review step — anomalies surface as per-leg ⚠ flags that the
-    # syndicate can correct inline afterwards.
-    legs = [
-        Leg(
-            coupon_id=coupon.id,
-            match_name=row.match,
-            pick=row.market,
-            odds=row.your_odds,
-            rank=rank,
-        )
-        for rank, row in enumerate(extracted)
-    ]
+    legs = _build_legs(coupon.id, extracted, ctype, reference)
     db.add_all(legs)
     db.flush()
+
+    _apply_coupon_window(coupon, extracted, ctype, period, reference, legs)
+    coupon.name = name or _coupon_name(ctype, period, coupon)
 
     price_legs(legs, request.app.state.odds_provider)
     coupon.status = "confirmed"
@@ -124,8 +175,8 @@ async def upload_coupon(
     if notifier:
         suffix = f", {flagged} flagged for review" if flagged else ""
         notifier.send(
-            f":inbox_tray: New upload: **{coupon_name}** — "
-            f"{len(legs)} legs saved and priced{suffix}."
+            f":inbox_tray: New upload: **{coupon.name}** — "
+            f"{len(legs)} selections saved and priced{suffix}."
         )
 
     return UploadInitResponse(
@@ -179,15 +230,12 @@ def rescan_coupon(
     # OCR rows are positional — row i is the i-th line of the coupon. A rank a
     # human has already corrected is skipped outright rather than re-added
     # alongside the edit, which would duplicate that leg.
+    ctype = coupon_types.get(coupon.type_code)
+    reference = coupon.match_day or date.today()
     fresh = [
-        Leg(
-            coupon_id=coupon_id,
-            match_name=row.match,
-            pick=row.market,
-            odds=row.your_odds,
-            rank=rank,
+        leg for rank, leg in enumerate(
+            _build_legs(coupon_id, extracted, ctype, reference)
         )
-        for rank, row in enumerate(extracted)
         if rank not in kept_ranks
     ]
     db.add_all(fresh)

@@ -97,20 +97,46 @@ bettingtools/
   (≤ 1.80, §8.5). Screens rank **shortest price first** — likeliest, which is
   the point — where every other type ranks by value. Unpriced rows survive the
   filter either way: an unpriced row is something to look at, not to hide.
-- **Flat-payout coupon**: GG Bonus and GG No Draw print **no per-selection
-  odds**. ANY 3 selections pay a flat **5.5** combined. Consequences, all of
-  which the code depends on:
-  - `legs.odds` is NULL on these rows, and per-row EV is meaningless. Do not
+- **Ladder coupon**: GG Bonus and GG No Draw print **no per-selection odds**.
+  Getting N selections correct pays a fixed return read off a printed ladder.
+  Observed on the Betfred midweek issue (20–23 Jul 2026): 3→9/2, 4→9/1, 5→16/1,
+  6→28/1, 7→50/1, 8→100/1, 9→175/1, 10→300/1, 11→500/1, 12→800/1, 13→1500/1
+  (14 and 15 existed but were cut off by the photo edge). Consequences the code
+  depends on:
+  - `legs.odds` is NULL on these rows and per-row EV is meaningless. Do not
     reintroduce a per-row price or a NOT NULL constraint.
-  - Value is a property of the COMBINATION: the flat 5.5 against the product of
-    the picks' fair odds (`coupon_types.combination_value`). Shorter selections
-    shrink that product, which is exactly WHY these rank shortest-first — the
-    ranking is not a stylistic choice.
-  - Break-even on an even three-way split is 5.5^(1/3) = 1.765. Recorded as
-    arithmetic only: the screen is a **shortlist of candidates**, not a set
-    meant to be combined with itself. A selection near the threshold can be a
-    filler alongside two shorter, positive-EV legs, so do NOT treat 1.80 as
-    mispecified or propose tuning it. Betting parameters are Callum's call.
+  - **The ladder is DATA, not config.** It is printed on each issue and can
+    change, so it is read off the photo and stored on the coupon
+    (`coupons.payout_ladder`). `CouponType.default_ladder` is only a fallback
+    for an unreadable scan, and using it logs a warning.
+  - Value belongs to the COMBINATION: a rung's fixed return against the product
+    of that many fair odds (`coupon_types.combination_value`). The best N-fold
+    is always the N SHORTEST prices, since that minimises the product.
+  - **Every rung is scored, never just the 3-fold** (`best_combination`).
+    Which rung wins depends on the spread of prices and is not predictable from
+    either direction — on one real board the 8-fold beat the 3-fold; on another
+    the 3-fold won.
+  - Break-even on an even N-way split is `payout^(1/N)`. Recorded as arithmetic
+    only: the screen is a **shortlist of candidates**, not a set meant to be
+    combined with itself. A selection near the threshold can be a filler
+    alongside shorter ones, so do NOT treat 1.80 as mispecified or propose
+    tuning it. Betting parameters are Callum's call.
+- **Coupon periods**: the five priced types run a fixed weekly schedule
+  (Mon–Wed, Wed–Fri, Sat, Sun). The two GG types are issued **Midweek** and
+  **Weekend** on dates that MOVE — the observed midweek issue ran Mon–Thu,
+  which is not any fixed window. Their real range is taken from the kickoffs
+  OCR reads off the coupon (`coupon_periods.range_from_kickoffs`), never
+  derived from the calendar.
+
+### What OCR is and is not asked for (§7)
+OCR returns a whole coupon — fixtures, kickoffs, the printed payout ladder and
+date range — NOT a market per row. The market is known from WHICH coupon was
+photographed, so it is filled in server-side from the coupon type. Asking the
+model to infer it from the page header was how a GG coupon came back with zero
+rows: the prompt demanded a `market` and `your_odds` the page never printed.
+
+Coupons print a weekday and time ("MON 17:00"), never a date; kickoffs resolve
+forward from the upload date.
 
 ### Coupon → market mapping (§8.2)
 

@@ -43,13 +43,34 @@ class OddsProvider(ABC):
 @dataclass
 class ExtractedRow:
     match: str
-    market: str
-    # None on flat-payout coupons (GG Bonus / GG No Draw), which print no
-    # per-selection price.
-    your_odds: float | None
+    # None when the coupon prints no per-fixture selection. The market is known
+    # from WHICH coupon was photographed, so OCR is not asked to guess it.
+    market: str | None = None
+    # None on list coupons (GG Bonus / GG No Draw), which print no price per
+    # fixture and pay off a ladder instead.
+    your_odds: float | None = None
+    # Kickoff exactly as printed, e.g. "MON 17:00". Resolved to a date against
+    # the coupon's window, since the coupon only prints a weekday.
+    kickoff_text: str | None = None
+
+
+@dataclass
+class ExtractedCoupon:
+    """A whole coupon: its fixtures plus the metadata printed on it.
+
+    Coupons carry more than rows — the payout ladder and date range are printed
+    and vary between issues, so they are read from the image rather than
+    configured and assumed.
+    """
+    rows: list[ExtractedRow]
+    title: str | None = None
+    period_text: str | None = None
+    # picks -> decimal return, e.g. {3: 5.5, 4: 10.0}. Empty when the coupon
+    # prices each fixture individually instead.
+    payout_ladder: dict[int, float] | None = None
 
 
 class OCRProvider(ABC):
     @abstractmethod
-    def extract(self, image_bytes: bytes, media_type: str) -> list[ExtractedRow]:
+    def extract(self, image_bytes: bytes, media_type: str) -> ExtractedCoupon:
         ...

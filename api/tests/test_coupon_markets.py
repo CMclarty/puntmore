@@ -143,13 +143,57 @@ def test_unknown_type_is_rejected():
 
 # --- flat-payout coupons (GG Bonus / GG No Draw) ---
 
-def test_gg_coupons_pay_a_flat_price_over_three_picks():
+def test_gg_coupons_pay_off_a_ladder_not_a_single_price():
+    """Any N correct pays a printed rung — 3 is just the first of them."""
     from app.coupon_types import get
     for code in ("GGB", "GGND"):
-        assert get(code).flat_payout == 5.5
-        assert get(code).payout_picks == 3
-    # The other five are priced per selection, not flat.
-    assert get("TTS2").flat_payout is None
+        t = get(code)
+        assert t.prices_each_selection is False
+        # Observed on the Betfred midweek issue: 9/2, 9/1, 16/1 ...
+        assert t.default_ladder[3] == 5.5
+        assert t.default_ladder[4] == 10.0
+        assert t.default_ladder[8] == 101.0
+        assert len(t.default_ladder) >= 10
+    # The other five print a price on every fixture instead.
+    assert get("TTS2").prices_each_selection is True
+    assert get("TTS2").default_ladder == {}
+
+
+def test_gg_coupons_run_variable_windows():
+    """GG issues move; the priced coupons run the fixed weekly schedule."""
+    from app.coupon_types import get
+    assert get("GGB").period_codes == ("MIDWEEK", "WEEKEND")
+    assert get("TTS2").period_codes == ("MON_WED", "WED_FRI", "SAT", "SUN")
+
+
+def test_best_combination_searches_every_rung():
+    """The 3-fold is not assumed — longer folds often pay better."""
+    from app.coupon_types import best_combination, get
+    fairs = [1.55, 1.60, 1.62, 1.68, 1.72, 1.75, 1.80, 1.85, 1.90, 1.95]
+    best = best_combination(fairs, get("GGB").default_ladder)
+    assert best["picks"] > 3          # a longer fold wins on this spread
+    assert best["value"] > 0
+    assert best["fair"] < best["payout"]
+
+
+def test_best_combination_uses_the_shortest_prices():
+    """An N-fold is best built from the N likeliest, minimising the product."""
+    from app.coupon_types import best_combination, combination_value
+    ladder = {3: 5.5}
+    fairs = [1.5, 1.6, 1.7, 4.0, 8.0]
+    best = best_combination(fairs, ladder)
+    assert best["fair"] == pytest.approx(1.5 * 1.6 * 1.7, abs=1e-3)
+
+
+def test_best_combination_skips_rungs_the_coupon_cannot_fill():
+    from app.coupon_types import best_combination
+    # Only two priced fixtures — a 3-fold is impossible.
+    assert best_combination([1.6, 1.7], {3: 5.5}) is None
+
+
+def test_best_combination_none_without_a_ladder():
+    from app.coupon_types import best_combination
+    assert best_combination([1.6, 1.7, 1.8], {}) is None
 
 
 def test_combination_value_beats_flat_price_when_picks_are_short():
@@ -193,12 +237,19 @@ def test_flat_payout_rows_carry_no_odds_and_no_row_value():
 
 # --- coupon periods (the fixed weekly schedule) ---
 
-def test_four_periods_on_the_issued_schedule():
-    from app.coupon_periods import COUPON_PERIODS
-    assert [(p.code, p.label) for p in COUPON_PERIODS] == [
-        ("MON_WED", "Mon–Wed"), ("WED_FRI", "Wed–Fri"),
-        ("SAT", "Saturday"), ("SUN", "Sunday"),
-    ]
+def test_fixed_and_variable_periods():
+    from app.coupon_periods import FIXED_PERIODS, VARIABLE_PERIODS
+    assert [p.code for p in FIXED_PERIODS] == ["MON_WED", "WED_FRI", "SAT", "SUN"]
+    # GG issues print their own dates, so these carry no weekday schedule.
+    assert [p.code for p in VARIABLE_PERIODS] == ["MIDWEEK", "WEEKEND"]
+    assert all(p.variable and not p.weekdays for p in VARIABLE_PERIODS)
+
+
+def test_variable_periods_have_no_derivable_dates():
+    """They must come from the coupon's fixtures, never from the calendar."""
+    from app.coupon_periods import date_range
+    assert date_range("MIDWEEK", date(2026, 7, 20)) is None
+    assert date_range("WEEKEND", date(2026, 7, 20)) is None
 
 
 def test_wednesday_belongs_to_two_windows():
@@ -240,3 +291,57 @@ def test_upload_day_preselects_its_period():
     assert suggest(date(2026, 7, 20)) == "MON_WED"   # Monday
     assert suggest(date(2026, 7, 22)) == "WED_FRI"   # Wednesday
     assert suggest(date(2026, 7, 24)) == "SAT"       # Friday -> Saturday first
+
+
+# --- kickoffs: coupons print a weekday, never a date ---
+
+@pytest.mark.parametrize("text,expected", [
+    ("MON 17:00", (2026, 7, 20, 17, 0)),
+    ("TUE 19:45", (2026, 7, 21, 19, 45)),
+    ("THU 01:30", (2026, 7, 23, 1, 30)),
+    ("SAT 15:00", (2026, 7, 25, 15, 0)),
+])
+def test_kickoff_resolves_forward_from_the_upload(text, expected):
+    from app.coupon_periods import parse_kickoff
+    got = parse_kickoff(text, date(2026, 7, 20))   # a Monday
+    assert (got.year, got.month, got.day, got.hour, got.minute) == expected
+
+
+@pytest.mark.parametrize("bad", [None, "", "garbage", "MON 99:00", "XYZ 10:00", "17:00"])
+def test_unparseable_kickoff_is_none_not_a_guess(bad):
+    """A wrong kickoff would misorder the list and mislabel urgency."""
+    from app.coupon_periods import parse_kickoff
+    assert parse_kickoff(bad, date(2026, 7, 20)) is None
+
+
+def test_variable_window_comes_from_the_fixtures():
+    """The observed coupon printed Mon 20 – Thu 23; the fixtures agree."""
+    from app.coupon_periods import parse_kickoff, range_from_kickoffs
+    ref = date(2026, 7, 20)
+    kickoffs = [parse_kickoff(t, ref) for t in
+                ("MON 17:00", "WED 20:00", "THU 01:30", "TUE 19:45")]
+    assert range_from_kickoffs([k.date() for k in kickoffs]) == (
+        date(2026, 7, 20), date(2026, 7, 23)
+    )
+
+
+# --- the payout ladder is read off the coupon, not configured ---
+
+def test_ladder_parses_printed_fractions():
+    from app.providers.claude_ocr import _parse_ladder
+    assert _parse_ladder([
+        {"picks": 3, "fractional": "9/2"},
+        {"picks": 13, "fractional": "1,500/1"},   # thousands separator
+    ]) == {3: 5.5, 13: 1501.0}
+
+
+def test_unreadable_ladder_rungs_are_dropped_not_guessed():
+    """A wrong rung misvalues every combination that uses it."""
+    from app.providers.claude_ocr import _parse_ladder
+    assert _parse_ladder([
+        {"picks": 3, "fractional": "9/2"},
+        {"picks": 4, "fractional": "??"},
+        {"picks": "x", "fractional": "9/1"},
+        {"picks": 5, "fractional": "1/0"},
+    ]) == {3: 5.5}
+    assert _parse_ladder(None) == {}

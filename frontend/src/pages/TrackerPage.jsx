@@ -155,12 +155,14 @@ export default function TrackerPage() {
           <span className={styles.subMeta}>
             {legs.length} fixture{legs.length !== 1 ? 's' : ''}
             {activeType.max_fair_odds != null && ' · shortest first'}
-            {activeType.flat_payout != null && activeType.best_combination_value != null && (
+            {activeType.best_combination && (
               <>
-                {' · best '}{activeType.payout_picks}{': '}
-                <span className={activeType.best_combination_value > 0 ? styles.comboGood : styles.comboBad}>
-                  {activeType.best_combination_fair?.toFixed(2)} fair vs {activeType.flat_payout} flat
-                  {' ('}{(activeType.best_combination_value * 100).toFixed(1)}%{')'}
+                {' · best '}
+                <span className={activeType.best_combination.value > 0 ? styles.comboGood : styles.comboBad}>
+                  {activeType.best_combination.picks}-fold pays{' '}
+                  {activeType.best_combination.payout} vs{' '}
+                  {activeType.best_combination.fair.toFixed(2)} fair
+                  {' ('}{(activeType.best_combination.value * 100).toFixed(1)}%{')'}
                 </span>
               </>
             )}
@@ -192,7 +194,9 @@ export default function TrackerPage() {
           <div className={styles.legsHead}>
             <span className={styles.hRank}>R</span>
             <span className={styles.hName}>NAME</span>
-            <span className={styles.hEv}>EV</span>
+            <span className={styles.hEv}>
+              {activeType?.prices_each_selection === false ? 'FAIR' : 'EV'}
+            </span>
           </div>
 
           {legs.map((leg, i) => (
@@ -250,8 +254,12 @@ export default function TrackerPage() {
                         </span>
                       )}
                     </button>
-                    <span className={`${styles.evCell} ${styles[valueTier(leg.value)]} ${styles.mono}`}>
-                      {leg.odds == null ? '·' : fmtEv(leg.value)}
+                    {/* A ladder coupon has no per-row EV — value belongs to
+                        the combination — so the row shows its fair price. */}
+                    <span className={`${styles.evCell} ${leg.odds == null ? styles.none : styles[valueTier(leg.value)]} ${styles.mono}`}>
+                      {leg.odds == null
+                        ? (leg.fair_odds != null ? leg.fair_odds.toFixed(2) : '—')
+                        : fmtEv(leg.value)}
                     </span>
                   </div>
 
@@ -282,12 +290,14 @@ export default function TrackerPage() {
                         </span>
                       </>
                     )}
-                    <span className={styles.oddsPair}>
-                      <span className={styles.oddsLabel}>fair</span>
-                      <span className={`${styles.fairOdds} ${styles.mono}`}>
-                        {leg.fair_odds != null ? leg.fair_odds.toFixed(2) : '—'}
+                    {leg.odds != null && (
+                      <span className={styles.oddsPair}>
+                        <span className={styles.oddsLabel}>fair</span>
+                        <span className={`${styles.fairOdds} ${styles.mono}`}>
+                          {leg.fair_odds != null ? leg.fair_odds.toFixed(2) : '—'}
+                        </span>
                       </span>
-                    </span>
+                    )}
                   </div>
                 </>
               )}

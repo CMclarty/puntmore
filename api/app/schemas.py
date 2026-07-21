@@ -47,22 +47,23 @@ class CouponTypeOut(BaseModel):
     label: str
     max_fair_odds: Optional[float] = None
     selection_count: int = 0
-    # Flat-payout coupons: any `payout_picks` selections return `flat_payout`
-    # combined, and print no per-selection price.
-    flat_payout: Optional[float] = None
-    payout_picks: int = 3
-    # Edge on the best `payout_picks` selections taken together, at the flat
-    # price. The only value that means anything on these coupons.
-    best_combination_value: Optional[float] = None
-    best_combination_fair: Optional[float] = None
+    # False when the coupon prints no odds per fixture and pays off a ladder.
+    prices_each_selection: bool = True
+    period_codes: list[str] = Field(default_factory=list)
+    # Best rung of the ladder for the latest issue: {"picks", "payout", "fair",
+    # "value"}. The only value that means anything on a ladder coupon.
+    best_combination: Optional[dict] = None
 
 
 class CouponPeriodOut(BaseModel):
-    """One of the four windows coupons are issued on."""
+    """A window a coupon type is issued on."""
     code: str
     label: str
-    starts_on: date
-    ends_on: date
+    # Null on variable windows (GG midweek/weekend): their dates are printed on
+    # the coupon and only known once it has been read.
+    starts_on: Optional[date] = None
+    ends_on: Optional[date] = None
+    variable: bool = False
     suggested: bool = False
 
 

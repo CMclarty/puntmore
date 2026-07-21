@@ -3,7 +3,7 @@ import json
 
 import anthropic
 
-from .base import OCRProvider, ExtractedRow
+from .base import OCRProvider, ExtractedRow, ExtractedCoupon
 
 # Sonnet 5 (not Haiku 4.5) for the resolution: Haiku caps images at 1568px on
 # the long edge, Sonnet 5 accepts 2576px. Coupon photos are dense small print —
@@ -11,20 +11,72 @@ from .base import OCRProvider, ExtractedRow
 # Do NOT send resized/compressed images; the fidelity is the whole point.
 MODEL = "claude-sonnet-5"
 
-SYSTEM_PROMPT = """You are an OCR assistant that extracts betting data from coupon images.
+SYSTEM_PROMPT = """You read printed bookmaker football coupons.
 Return ONLY valid JSON — no markdown, no prose, no explanation.
-Output a JSON array of objects. Each object must have exactly these keys:
-  "match"     : string  — the fixture, e.g. "Arsenal vs Chelsea"
-  "market"    : string  — the SELECTION, starting with the selected team where
-                the bet names one, e.g. "Arsenal Win and Over 2.5" or
-                "Arsenal to Score 2". For bets that name no team, give the bet
-                alone, e.g. "Over 2.5", "GG No Draw".
-  "your_odds" : number  — the decimal odds offered, e.g. 1.85
-The selected team MUST appear in "market" when the bet is on one team. Pricing
-resolves which side was backed from this field alone — "Win and Over 2.5"
-without a team cannot be priced, because it does not say who is expected to win.
-If you cannot read a field clearly, use null for that field.
-Output format: [{"match": "...", "market": "...", "your_odds": 1.85}, ...]"""
+
+A coupon is a printed LIST OF FIXTURES for ONE market (e.g. "GG BONUS" = both
+teams to score). Most list coupons print NO odds beside each fixture. Instead
+they pay a fixed price for getting N selections correct, printed as a ladder
+("All 3 correct 9/2", "All 4 correct 9/1", ...).
+
+Return exactly this shape:
+{
+  "title": string or null,
+  "period_text": string or null,
+  "payout_ladder": [ {"picks": 3, "fractional": "9/2"}, ... ],
+  "selections": [
+    {"match": "...", "kickoff": "...", "market": null, "your_odds": null}, ...
+  ]
+}
+
+Rules:
+- Extract EVERY fixture row, in reading order. Coupons are usually laid out in
+  TWO COLUMNS — read the left column fully, then the right. Do not stop early
+  and do not summarise; a partial list is worse than none.
+- "match": the fixture exactly as printed, e.g. "Mariehamn v Lahti".
+- "kickoff": day and time exactly as printed, e.g. "MON 17:00". Null if absent.
+- "your_odds": the decimal odds printed beside THAT fixture, or null. Most list
+  coupons have none — return null rather than inventing a price or copying one
+  from the payout ladder.
+- "market": only when a per-fixture selection is printed beside the fixture
+  (e.g. a named team). Null otherwise — the market is known from which coupon
+  this is, so do not guess it from the header.
+- "payout_ladder": every rung you can read, as printed fractions. Return [] if
+  the coupon shows none. Omit rungs cut off or illegible rather than guessing.
+- "period_text": the date range printed on the coupon, e.g.
+  "Monday 20th - Thursday 23rd July"."""
+
+USER_PROMPT = (
+    "Read this coupon. Return every fixture, both columns, plus the payout "
+    "ladder and date range."
+)
+
+
+def _fractional_to_decimal(fraction: str) -> float | None:
+    """"9/2" -> 5.5. Ladders are printed as fractions, priced as decimals."""
+    try:
+        num, den = fraction.replace(",", "").split("/")
+        return float(num) / float(den) + 1.0
+    except (ValueError, ZeroDivisionError, AttributeError):
+        return None
+
+
+def _parse_ladder(raw) -> dict[int, float]:
+    """Payout ladder as {picks: decimal}, skipping anything unreadable.
+
+    A rung we cannot parse is dropped rather than guessed — the ladder decides
+    what a combination pays, so a wrong rung is worse than a missing one.
+    """
+    ladder: dict[int, float] = {}
+    for rung in raw or []:
+        try:
+            picks = int(rung.get("picks"))
+        except (TypeError, ValueError):
+            continue
+        decimal = _fractional_to_decimal(rung.get("fractional", ""))
+        if decimal is not None and picks > 0:
+            ladder[picks] = round(decimal, 4)
+    return ladder
 
 
 def _strip_code_fence(text: str) -> str:
@@ -43,12 +95,13 @@ class ClaudeOCRProvider(OCRProvider):
     def __init__(self, api_key: str):
         self._client = anthropic.Anthropic(api_key=api_key)
 
-    def extract(self, image_bytes: bytes, media_type: str) -> list[ExtractedRow]:
+    def extract(self, image_bytes: bytes, media_type: str) -> ExtractedCoupon:
         encoded = base64.standard_b64encode(image_bytes).decode("utf-8")
 
         message = self._client.messages.create(
             model=MODEL,
-            max_tokens=2048,
+            # A long list runs to ~75 fixtures; 2048 truncated it mid-array.
+            max_tokens=8192,
             system=SYSTEM_PROMPT,
             messages=[
                 {
@@ -62,10 +115,7 @@ class ClaudeOCRProvider(OCRProvider):
                                 "data": encoded,
                             },
                         },
-                        {
-                            "type": "text",
-                            "text": "Extract all betting rows from this coupon image.",
-                        },
+                        {"type": "text", "text": USER_PROMPT},
                     ],
                 }
             ],
@@ -81,18 +131,31 @@ class ClaudeOCRProvider(OCRProvider):
         if raw is None:
             raise ValueError("OCR response contained no text block")
 
-        rows = json.loads(_strip_code_fence(raw.strip()))
-        results = []
-        for row in rows:
+        data = json.loads(_strip_code_fence(raw.strip()))
+        # Tolerate a bare array as well as the documented object: an older
+        # prompt returned one, and a stray format change should not lose a
+        # coupon the user has already photographed.
+        if isinstance(data, list):
+            data = {"selections": data}
+
+        rows = []
+        for row in data.get("selections") or []:
+            match = (row.get("match") or "").strip()
+            if not match:
+                continue  # a row with no fixture cannot be matched or priced
             odds = row.get("your_odds")
-            # Odds are OPTIONAL: flat-payout coupons (GG Bonus / GG No Draw)
-            # print no per-selection price. A row with no odds is still a real
-            # selection — dropping it would silently lose the whole coupon.
-            results.append(
+            rows.append(
                 ExtractedRow(
-                    match=row.get("match") or "",
-                    market=row.get("market") or "",
+                    match=match,
+                    market=(row.get("market") or None),
                     your_odds=float(odds) if odds is not None else None,
+                    kickoff_text=(row.get("kickoff") or None),
                 )
             )
-        return results
+
+        return ExtractedCoupon(
+            rows=rows,
+            title=data.get("title") or None,
+            period_text=data.get("period_text") or None,
+            payout_ladder=_parse_ladder(data.get("payout_ladder")),
+        )

@@ -7,8 +7,9 @@ in-house de-vig (§7) and the derived score-grid model (§8) need.
 Vendor API (https://api.bettingiscool.com, `X-API-Key` header, OpenAPI at
 /openapi.json). Verified against the live API, July 2026:
 
-  GET /api/fixtures?sport_id=29&starts_from=&limit=
+  GET /api/fixtures?sport_id=29&starts_from=&starts_to=&limit=
       → [{event_id, league_name, runner_home, runner_away, starts, ...}]
+        `limit` maxes at 1000 (422 above). `starts_to` bounds the window.
   GET /api/odds?event_id=
       → one row per (period, market, line). `main_lines_only=1` collapses this
         to the single main line and is deliberately NOT used — see _odds().
@@ -51,7 +52,14 @@ logger = logging.getLogger("uvicorn.error")
 BASE_URL = "https://api.bettingiscool.com"
 SOCCER_SPORT_ID = 29
 FULL_MATCH_PERIOD = 0
-FIXTURE_LIMIT = 500
+# The board must cover a whole coupon window, not just today. At 500 the API
+# truncated mid-week — a Mon–Thu coupon lost most of its Thursday fixtures and
+# they came back as "no match", indistinguishable from a bad name. 1500 covers
+# ~5 days of soccer. Cost is 1 token per row against a 500k/DAY quota, cached
+# for cache_ttl, so this is immaterial. 1000 is the API's hard maximum (it 422s
+# above it); if a window ever needs more, /api/fixtures also takes `starts_to`
+# so it can be fetched in date slices.
+FIXTURE_LIMIT = 1000
 
 # Fuzzy-match thresholds. HIGHER than the TheOddsApi provider's 0.6 on purpose:
 # that one scores against ~10 fixtures per league, this one against the whole

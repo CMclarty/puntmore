@@ -146,7 +146,28 @@ Retires the last naive-independence path in pricing.
 - DoD: pytest green (149); `npm run build` clean; V5 migration exercised
       against a pre-V5 database.
 
-### 2a. Price the seven coupon types  *(next — market definitions in SPEC §3, §8.5, §8.6)*
+### 2b. Coupon processing rebuilt around what coupons actually are  — DONE
+Driven by the first real coupon photo (Betfred GG Bonus, 20–23 Jul 2026), which
+invalidated several assumptions at once.
+
+- [x] OCR returns a whole coupon (fixtures + kickoffs + printed payout ladder +
+      date range), not bare rows. It is no longer asked for a per-row market —
+      that is known from which coupon was photographed.
+- [x] Ladder coupons: the printed ladder is stored per coupon and every rung is
+      scored to find the best combination. `flat_payout=5.5` was only the
+      3-fold rung of a ladder running to 13+.
+- [x] Variable periods (GG Midweek/Weekend) with dates taken from the coupon's
+      own kickoffs. The observed issue ran Mon–Thu, which no fixed window
+      covers.
+- [x] `FIXTURE_LIMIT` 500 → 1000 (the API's max). At 500 the board truncated
+      mid-week and match rate on a real coupon was 32/74; at 1000 it is 67/74.
+- **Verified end to end on the real photo:** 74 fixtures read, ladder read,
+  window Mon 20 – Thu 23 derived from fixtures and matching the printed text,
+  67 priced against live bettingiscool.
+- **Still open:** 6 fixtures unmatched (the coupon's Monday games had already
+  played and were off the board) and 1 matched-but-unpriced.
+
+### 2a. Price the seven coupon types  *(market definitions in SPEC §3, §8.5, §8.6)*
 Only 2 of the 7 coupon types price today, and both of those have a team bug.
 Ordered so the shared prerequisite lands first.
 
