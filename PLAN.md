@@ -146,6 +146,27 @@ Retires the last naive-independence path in pricing.
 - DoD: pytest green (149); `npm run build` clean; V5 migration exercised
       against a pre-V5 database.
 
+### 2a. Price the seven coupon types  *(next — market definitions in SPEC §3, §8.5, §8.6)*
+Only 2 of the 7 coupon types price today, and both of those have a team bug.
+Ordered so the shared prerequisite lands first.
+
+- [ ] **Resolve the picked team** (SPEC §8.6). The pick matcher reads only
+      `win` / `over N` / `under N` and resolves no team, so moneyline always
+      takes index 1 (home) and `p_win_and_over(..., home=True)` is hardcoded —
+      an away-side Win-and-Over leg is priced as the home side. Match the pick
+      against `runner_home` / `runner_away`; unresolved ⇒ UNPRICED + flag, never
+      default to home. **This is a live mispricing, not just a gap — do it
+      first.**
+- [ ] **TTS1/2/3** → DIRECT off `home_totals` / `away_totals` at line N−0.5.
+      Note the off-by-one: "Team to Score 2" is over **1.5**.
+- [ ] **GG No Draw** → derive off the grid: Σ g[h][a] for h≥1, a≥1, h≠a.
+      Never BTTS × (1 − P(draw)) — same correlation trap as Win-and-Over.
+- [ ] **GG Bonus** → a fixture SCREEN, not a priced leg: P(BTTS) per fixture,
+      include when fair odds ≤ 1.80, sort ascending (shortest first). Needs a
+      UI surface of its own; it does not fit the leg table.
+- DoD: each type prices on a real fixture or refuses cleanly; away-side legs
+      verified against home-side; pytest green; build clean.
+
 ### 3. Calibration backtest  *(was Phase V4 — depends on 1)*
 - [ ] `api/tools/backtest_calibration.py`: over a season+ of historical fixtures
       with settlements, fit grids, compute derived P(win ∧ over X), score

@@ -3,16 +3,18 @@ import { useNavigate } from 'react-router-dom'
 import { getCoupons, uploadCoupon } from '../api'
 import styles from './UploadPage.module.css'
 
+// The seven coupon types the syndicate actually plays. Codes follow the
+// existing convention (market + line, no decimal point) and are stored on
+// Coupon.type_code as a label — pricing keys off each leg's pick text, not
+// this, so adding a type here needs no backend change.
 const TYPE_CODES = [
-  { value: 'TTS2', label: 'Team to Score 2+' },
-  { value: 'TTS3', label: 'Team to Score 3+' },
+  { value: 'TTS1', label: 'Team to Score 1' },
+  { value: 'TTS2', label: 'Team to Score 2' },
+  { value: 'TTS3', label: 'Team to Score 3' },
+  { value: 'WO15', label: 'Win and Over 1.5' },
   { value: 'WO25', label: 'Win and Over 2.5' },
-  { value: 'WO35', label: 'Win and Over 3.5' },
-  { value: 'BTTS', label: 'Both Teams to Score' },
-  { value: 'O25',  label: 'Over 2.5 Goals' },
-  { value: 'O35',  label: 'Over 3.5 Goals' },
-  { value: 'AH05', label: 'Asian Handicap -0.5' },
-  { value: 'DNB',  label: 'Draw No Bet' },
+  { value: 'GGB',  label: 'GG Bonus' },
+  { value: 'GGND', label: 'GG No Draw' },
 ]
 
 function fmtDate(d) {

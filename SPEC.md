@@ -92,11 +92,32 @@ bettingtools/
   `"{type_code} · {match_day}"`.
 
 ### Coupon → market mapping (§8.2)
-- `Team to Score 2+`  → DIRECT: team total over 1.5 (devigged).
-- `Team to Score 3+`  → DIRECT: team total over 2.5 (devigged).
-- `Win and Over 2` / `Win and Over 3` → DERIVED via the §8 grid.
-  (Confirm exact line semantics from real coupons — "over 2" vs "over 2.5":
-  whole-number lines imply push handling; the grid supports both.)
+
+The seven coupon types the syndicate plays (confirmed July 2026). `type_code`
+is a label only — the pricing path is chosen from each leg's **pick text**.
+
+| Code | Coupon | Market | Path |
+|---|---|---|---|
+| `TTS1` | Team to Score 1 | picked team's total **over 0.5** | DIRECT |
+| `TTS2` | Team to Score 2 | picked team's total **over 1.5** | DIRECT |
+| `TTS3` | Team to Score 3 | picked team's total **over 2.5** | DIRECT |
+| `WO15` | Win and Over 1.5 | picked team wins ∧ match total > 1.5 | DERIVED (§8) |
+| `WO25` | Win and Over 2.5 | picked team wins ∧ match total > 2.5 | DERIVED (§8) |
+| `GGB` | GG Bonus | both teams score — **a fixture screen, not a priced leg** (§8.5) | DERIVED (§8) |
+| `GGND` | GG No Draw | both teams score ∧ result is not a draw | DERIVED (§8) |
+
+**"Team to Score N" means N or more**, so the line is N−0.5 — `TTS2` is team
+total over **1.5**, not 2.5. Getting this off by one misprices every TTS leg,
+so it is stated explicitly rather than left to inference.
+
+**Every one of these is team-specific**, including the GG pair via the fixture
+they attach to. Resolving WHICH team the pick names is therefore a shared
+prerequisite for all seven, not a per-market detail — see §8.6.
+
+TTS uses bettingiscool's native `home_totals` / `away_totals` markets, so it is
+direct rather than derived. GG has no vendor market at all (the API serves
+`moneyline | totals | home_totals | away_totals | spread`), so both GG types
+come off the grid.
 
 ## 4. Data model (SQLite)
 - `coupons`: id, name, type_code, match_day, status (processing | confirmed),
@@ -244,6 +265,50 @@ See §3 mapping. `coupons.type_code`/leg pick text select the path;
   it was NOT fitted on (hold-one-out on totals lines) to sanity-check
   interpolation error.
 - The script is committed and re-runnable when leagues/season change.
+
+### 8.5 GG derivations (both-teams-to-score)
+bettingiscool exposes no BTTS market, so both GG types are read off the same
+fitted grid as Win-and-Over. Let `g[h][a]` be the fitted probability of the
+scoreline h–a.
+
+- **P(BTTS)** = Σ `g[h][a]` for h ≥ 1, a ≥ 1.
+- **P(GG No Draw)** = Σ `g[h][a]` for h ≥ 1, a ≥ 1, **h ≠ a**.
+  Fair odds = 1/p. This is BTTS minus the score draws (1-1, 2-2, …) — NEVER
+  BTTS × (1 − P(draw)). Both-teams-scoring and the result are correlated
+  through the same grid, exactly as with Win-and-Over, so the product is wrong
+  for the same reason.
+- Both go UNPRICED when the grid cannot be fitted or its RMSE exceeds the
+  refusal threshold. An unpriced leg beats a confidently wrong one.
+
+**GG Bonus is not a priced leg — it is a fixture screen.** Rather than valuing
+a selection the syndicate already made, it surfaces candidates:
+
+- Compute P(BTTS) per fixture, fair odds = 1/p.
+- **Include the fixture when fair odds ≤ 1.80** (i.e. P(BTTS) ≥ 0.5556).
+- **Sort ascending by odds — shortest first**, since lower odds mean more
+  likely both teams score, which is what the screen is looking for.
+
+Note these are OUR derived fair odds, not a book price: there is no vendor BTTS
+market to compare against, so the 1.80 cut is a threshold on the model's own
+estimate. It therefore carries the §8.3 derived-market uncertainty and will
+move if the §8.4 backtest recalibrates the grid. Treat 1.80 as a selection
+filter, not a value claim — nothing here asserts an edge over a bookmaker.
+
+### 8.6 Resolving the picked team (prerequisite for all seven)
+Every coupon type above is team-specific, but the pick matcher currently reads
+only `win` / `over N` / `under N` and resolves no team at all. Consequences to
+fix together, not piecemeal:
+
+- Moneyline takes outcome index 1 (home) unconditionally, and
+  `p_win_and_over(..., home=True)` is hardcoded — so an **away**-team
+  Win-and-Over leg is priced as though it were the home side. `pricing/grid.py`
+  supports the away case and is tested for it; the provider never passes it.
+- TTS cannot choose between `home_totals` and `away_totals` without it.
+
+Resolve the picked team by matching the pick text against the fixture's
+`runner_home` / `runner_away` (the same normalise + fuzzy path used for fixture
+matching), and treat an unresolved team as UNPRICED with a leg flag rather than
+defaulting to home.
 
 ## 9. Refresh loop (coupons)
 - Every 10 minutes APScheduler refreshes fair odds for all legs in confirmed
