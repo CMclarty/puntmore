@@ -219,6 +219,15 @@ def ensure_schema() -> None:
                     "ALTER TABLE legs ADD COLUMN edited BOOLEAN NOT NULL DEFAULT 0"
                 ))
 
+    # Coupons cover a window (Mon–Wed / Wed–Fri / Sat / Sun), not one day.
+    if "coupons" in tables:
+        ccols = {c["name"] for c in inspector.get_columns("coupons")}
+        with engine.begin() as conn:
+            if "period" not in ccols:
+                conn.execute(text("ALTER TABLE coupons ADD COLUMN period VARCHAR"))
+            if "period_ends" not in ccols:
+                conn.execute(text("ALTER TABLE coupons ADD COLUMN period_ends DATE"))
+
     # V5 status remap: pending|live -> processing|confirmed. Existing coupons
     # were all past the old review gate, so 'pending' rows are stale uploads
     # that never got confirmed; they map to 'processing' and re-price on the

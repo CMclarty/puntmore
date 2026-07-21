@@ -13,7 +13,12 @@ class Coupon(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=True)            # e.g. "Saturday Acca" (optional)
     type_code = Column(String, nullable=False)       # e.g. "TTS2", "WO25"
-    match_day = Column(Date, nullable=False)         # date the legs play
+    # Coupons run on fixed windows (Mon–Wed / Wed–Fri / Sat / Sun), not single
+    # days — see coupon_periods.py. match_day holds the window's FIRST fixture
+    # date so existing ordering keeps working.
+    period = Column(String, nullable=True)
+    match_day = Column(Date, nullable=False)         # first fixture date of the period
+    period_ends = Column(Date, nullable=True)        # last fixture date of the period
     # processing = OCR still running; confirmed = rows saved and priced. There
     # is no review state: OCR auto-confirms (SPEC §7).
     status = Column(String, nullable=False, default="processing")

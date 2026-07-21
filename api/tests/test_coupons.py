@@ -204,7 +204,7 @@ def test_get_legs_404_missing():
 def test_upload_returns_saved_legs(upload_client):
     resp = upload_client.post(
         "/upload",
-        data={"type_code": "WO25", "match_day": date.today().isoformat()},
+        data={"type_code": "WO25", "period": "SAT"},
         files={"file": ("test.png", io.BytesIO(b"img"), "image/png")},
     )
     assert resp.status_code == 200
@@ -216,20 +216,45 @@ def test_upload_returns_saved_legs(upload_client):
 def test_upload_rejects_bad_mime(upload_client):
     resp = upload_client.post(
         "/upload",
-        data={"type_code": "WO25", "match_day": date.today().isoformat()},
+        data={"type_code": "WO25", "period": "SAT"},
         files={"file": ("doc.pdf", io.BytesIO(b"data"), "application/pdf")},
     )
     assert resp.status_code == 400
 
 def test_upload_auto_names_coupon(upload_client, db):
+    """Name carries the period, since a coupon covers a window not a day."""
     resp = upload_client.post(
         "/upload",
-        data={"type_code": "WO25", "match_day": date(2026, 6, 14).isoformat()},
+        data={"type_code": "WO25", "period": "SAT",
+              "uploaded_on": date(2026, 7, 24).isoformat()},   # a Friday
         files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
     )
     coupon_id = resp.json()["coupon_id"]
     c = db.get(Coupon, coupon_id)
-    assert c.name == "WO25 · Sun 14 Jun"
+    assert c.name == "WO25 · Saturday 25 Jul"
+    assert c.period == "SAT"
+    assert c.match_day == date(2026, 7, 25)
+    assert c.period_ends == date(2026, 7, 25)
+
+
+def test_upload_derives_a_multi_day_window(upload_client, db):
+    resp = upload_client.post(
+        "/upload",
+        data={"type_code": "TTS2", "period": "MON_WED",
+              "uploaded_on": date(2026, 7, 20).isoformat()},   # a Monday
+        files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
+    )
+    c = db.get(Coupon, resp.json()["coupon_id"])
+    assert (c.match_day, c.period_ends) == (date(2026, 7, 20), date(2026, 7, 22))
+
+
+def test_upload_rejects_an_unknown_period(upload_client):
+    resp = upload_client.post(
+        "/upload",
+        data={"type_code": "WO25", "period": "TUESDAY"},
+        files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
+    )
+    assert resp.status_code == 400
 
 
 # --- Auto-confirm upload (no review gate) ---
@@ -237,7 +262,7 @@ def test_upload_auto_names_coupon(upload_client, db):
 def test_upload_saves_and_prices_legs_immediately(upload_client, db):
     up = upload_client.post(
         "/upload",
-        data={"type_code": "WO25", "match_day": date.today().isoformat()},
+        data={"type_code": "WO25", "period": "SAT"},
         files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
     )
     assert up.status_code == 200
@@ -259,7 +284,7 @@ def test_upload_saves_and_prices_legs_immediately(upload_client, db):
 def test_upload_flags_unmatched_rows(upload_client):
     body = upload_client.post(
         "/upload",
-        data={"type_code": "WO25", "match_day": date.today().isoformat()},
+        data={"type_code": "WO25", "period": "SAT"},
         files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
     ).json()
 
@@ -314,7 +339,7 @@ def test_edit_leg_404_wrong_coupon(db):
 def test_rescan_replaces_unedited_rows_but_keeps_edits(upload_client, db):
     coupon_id = upload_client.post(
         "/upload",
-        data={"type_code": "WO25", "match_day": date.today().isoformat()},
+        data={"type_code": "WO25", "period": "SAT"},
         files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
     ).json()["coupon_id"]
 
@@ -346,7 +371,7 @@ def test_rescan_replaces_unedited_rows_but_keeps_edits(upload_client, db):
 def test_rescan_409_when_image_gone(upload_client, db):
     coupon_id = upload_client.post(
         "/upload",
-        data={"type_code": "WO25", "match_day": date.today().isoformat()},
+        data={"type_code": "WO25", "period": "SAT"},
         files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
     ).json()["coupon_id"]
 
@@ -403,7 +428,7 @@ def test_upload_requires_auth(upload_client):
     try:
         resp = upload_client.post(
             "/upload",
-            data={"type_code": "WO25", "match_day": date.today().isoformat()},
+            data={"type_code": "WO25", "period": "SAT"},
             files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
         )
         assert resp.status_code == 401
@@ -478,7 +503,7 @@ def test_unknown_type_selections_404():
 def test_upload_rejects_a_type_outside_the_seven(upload_client):
     resp = upload_client.post(
         "/upload",
-        data={"type_code": "WO35", "match_day": date.today().isoformat()},
+        data={"type_code": "WO35", "period": "SAT"},
         files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
     )
     assert resp.status_code == 400

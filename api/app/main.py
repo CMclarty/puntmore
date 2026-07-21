@@ -134,7 +134,16 @@ async def lifespan(app: FastAPI):
     elif settings.anthropic_api_key:
         app.state.ocr_provider = ClaudeOCRProvider(settings.anthropic_api_key)
     else:
+        # Falling back to the mock in a deployment means every upload silently
+        # returns canned rows and the user's photo is never read. That has
+        # happened; make it impossible to miss.
         app.state.ocr_provider = MockOCRProvider()
+        logger.error(
+            "NO OCR KEY SET — using MockOCRProvider. Uploads will return "
+            "hard-coded test rows and your coupon image will NOT be read. "
+            "Set ANTHROPIC_API_KEY (or GOOGLE_API_KEY) and restart."
+        )
+    logger.info("OCR provider: %s", type(app.state.ocr_provider).__name__)
 
     if settings.discord_webhook_url:
         app.state.notifier = DiscordNotificationProvider(settings.discord_webhook_url)
@@ -256,7 +265,22 @@ def ready():
     )
 
     ok = all(checks.values())
+    # Not a readiness failure — the app runs fine on mocks in dev — but it is
+    # reported, because a deployment on mock OCR looks healthy while silently
+    # ignoring every uploaded image.
+    providers = {
+        "ocr": "mock" if isinstance(
+            getattr(app.state, "ocr_provider", None), MockOCRProvider
+        ) else "live",
+        "odds": "mock" if isinstance(
+            getattr(app.state, "odds_provider", None), MockOddsProvider
+        ) else "live",
+    }
     return JSONResponse(
         status_code=200 if ok else 503,
-        content={"status": "ready" if ok else "not ready", "checks": checks},
+        content={
+            "status": "ready" if ok else "not ready",
+            "checks": checks,
+            "providers": providers,
+        },
     )

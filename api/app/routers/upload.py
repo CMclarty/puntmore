@@ -10,7 +10,7 @@ from ..database import get_db
 from ..models import Coupon, Leg
 from ..schemas import UploadInitResponse
 from ..config import settings
-from .. import coupon_types
+from .. import coupon_types, coupon_periods
 from ..images import normalise_orientation
 from ..pricing.legs import price_legs
 from ..security import require_user
@@ -29,7 +29,8 @@ ALLOWED_MEDIA_TYPES = {
 async def upload_coupon(
     request: Request,
     type_code: str = Form(...),
-    match_day: date = Form(...),
+    period: str = Form(...),
+    uploaded_on: date = Form(None),
     name: str = Form(None),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -39,6 +40,16 @@ async def upload_coupon(
         raise HTTPException(
             status_code=400, detail=f"Unknown coupon type: {type_code}"
         )
+    if not coupon_periods.is_valid(period):
+        raise HTTPException(
+            status_code=400, detail=f"Unknown coupon period: {period}"
+        )
+
+    # The window's dates are derived from the period and the day it was
+    # uploaded, so nobody has to type a date that the schedule already implies.
+    match_day, period_ends = coupon_periods.date_range(
+        period, uploaded_on or date.today()
+    )
 
     media_type = file.content_type
     if media_type not in ALLOWED_MEDIA_TYPES:
@@ -59,11 +70,14 @@ async def upload_coupon(
     with open(image_path, "wb") as f:
         f.write(image_bytes)
 
-    coupon_name = name or f"{type_code} · {match_day.strftime('%a %d %b')}"
+    period_label = coupon_periods.get(period).label
+    coupon_name = name or f"{type_code} · {period_label} {match_day.strftime('%d %b')}"
     coupon = Coupon(
         name=coupon_name,
         type_code=type_code,
+        period=period,
         match_day=match_day,
+        period_ends=period_ends,
         status="processing",
         image_path=image_path,
         uploaded_by=user,

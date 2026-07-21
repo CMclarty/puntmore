@@ -1,4 +1,6 @@
 """The seven coupon types price correctly (SPEC §3, §8.5)."""
+from datetime import date
+
 import pytest
 
 from app.pricing.grid import (
@@ -187,3 +189,54 @@ def test_flat_payout_rows_carry_no_odds_and_no_row_value():
     # No odds is normal here, so it must not raise or flag an odds anomaly.
     flags = checks.evaluate_leg("GG Bonus", None, matched_fixture="A vs B", match_score=0.9)
     assert checks.FLAG_ODDS_RANGE not in flags
+
+
+# --- coupon periods (the fixed weekly schedule) ---
+
+def test_four_periods_on_the_issued_schedule():
+    from app.coupon_periods import COUPON_PERIODS
+    assert [(p.code, p.label) for p in COUPON_PERIODS] == [
+        ("MON_WED", "Mon–Wed"), ("WED_FRI", "Wed–Fri"),
+        ("SAT", "Saturday"), ("SUN", "Sunday"),
+    ]
+
+
+def test_wednesday_belongs_to_two_windows():
+    """Mon–Wed and Wed–Fri overlap on Wednesday — how they are issued."""
+    from app.coupon_periods import get
+    assert 2 in get("MON_WED").weekdays
+    assert 2 in get("WED_FRI").weekdays
+
+
+@pytest.mark.parametrize("code,upload,expected", [
+    # Uploaded on its normal day, week of Mon 20 Jul 2026.
+    ("MON_WED", date(2026, 7, 20), (date(2026, 7, 20), date(2026, 7, 22))),
+    ("WED_FRI", date(2026, 7, 22), (date(2026, 7, 22), date(2026, 7, 24))),
+    ("SAT",     date(2026, 7, 24), (date(2026, 7, 25), date(2026, 7, 25))),
+    ("SUN",     date(2026, 7, 24), (date(2026, 7, 26), date(2026, 7, 26))),
+])
+def test_period_resolves_to_the_right_dates(code, upload, expected):
+    from app.coupon_periods import date_range
+    assert date_range(code, upload) == expected
+
+
+def test_uploading_mid_window_keeps_that_window():
+    """A Mon–Wed coupon uploaded on Tuesday still covers Mon–Wed, not next week."""
+    from app.coupon_periods import date_range
+    assert date_range("MON_WED", date(2026, 7, 21)) == (
+        date(2026, 7, 20), date(2026, 7, 22)
+    )
+
+
+def test_saturday_coupon_uploaded_on_the_day_covers_that_day():
+    from app.coupon_periods import date_range
+    assert date_range("SAT", date(2026, 7, 25)) == (
+        date(2026, 7, 25), date(2026, 7, 25)
+    )
+
+
+def test_upload_day_preselects_its_period():
+    from app.coupon_periods import suggest
+    assert suggest(date(2026, 7, 20)) == "MON_WED"   # Monday
+    assert suggest(date(2026, 7, 22)) == "WED_FRI"   # Wednesday
+    assert suggest(date(2026, 7, 24)) == "SAT"       # Friday -> Saturday first

@@ -5,13 +5,37 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 from ..database import get_db
 from ..models import Coupon, Leg
-from .. import coupon_types
+from datetime import date
+
+from .. import coupon_types, coupon_periods
+from ..coupon_periods import COUPON_PERIODS
 from ..coupon_types import COUPON_TYPES
-from ..schemas import CouponOut, CouponTypeOut, LegOut, LegEditRequest
+from ..schemas import (
+    CouponOut, CouponTypeOut, CouponPeriodOut, LegOut, LegEditRequest,
+)
 from ..pricing.legs import price_legs
 from ..security import require_user
 
 router = APIRouter(prefix="/coupons", tags=["coupons"])
+
+
+@router.get("/periods", response_model=list[CouponPeriodOut])
+def list_coupon_periods():
+    """The four windows, with the dates they resolve to from today.
+
+    Served rather than hardcoded in the UI so the schedule lives in one place.
+    """
+    today = date.today()
+    suggested = coupon_periods.suggest(today)
+    out = []
+    for p in COUPON_PERIODS:
+        starts, ends = coupon_periods.date_range(p.code, today)
+        out.append(CouponPeriodOut(
+            code=p.code, label=p.label,
+            starts_on=starts, ends_on=ends,
+            suggested=(p.code == suggested),
+        ))
+    return out
 
 
 @router.get("/types", response_model=list[CouponTypeOut])

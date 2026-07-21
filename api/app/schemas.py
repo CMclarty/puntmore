@@ -30,7 +30,9 @@ class CouponOut(BaseModel):
     id: int
     name: Optional[str]
     type_code: str
+    period: Optional[str] = None
     match_day: date
+    period_ends: Optional[date] = None
     status: str
     leg_count: int
     created_at: datetime
@@ -53,6 +55,15 @@ class CouponTypeOut(BaseModel):
     # price. The only value that means anything on these coupons.
     best_combination_value: Optional[float] = None
     best_combination_fair: Optional[float] = None
+
+
+class CouponPeriodOut(BaseModel):
+    """One of the four windows coupons are issued on."""
+    code: str
+    label: str
+    starts_on: date
+    ends_on: date
+    suggested: bool = False
 
 
 # Upload flow schemas. OCR auto-confirms, so an upload returns saved+priced
