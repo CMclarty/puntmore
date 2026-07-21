@@ -17,6 +17,9 @@ class LegOut(BaseModel):
     matched_fixture: Optional[str] = None
     match_score: Optional[float] = None
     kickoff: Optional[datetime] = None
+    fair_odds_home: Optional[float] = None
+    fair_odds_away: Optional[float] = None
+    side: Optional[str] = None
     edited: bool = False
     flags: list[str] = Field(default_factory=list, validation_alias="flag_list")
 

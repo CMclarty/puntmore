@@ -42,6 +42,11 @@ def price_legs(legs: list[Leg], odds_provider) -> list[Leg]:
             leg.match_score = result.match_score
             if result.kickoff is not None:
                 leg.kickoff = result.kickoff
+            leg.fair_odds_home = result.fair_odds_home
+            leg.fair_odds_away = result.fair_odds_away
+            leg.side = (
+                None if result.side is None else ("home" if result.side else "away")
+            )
 
         leg.flags = checks.encode_flags(checks.evaluate_leg(
             leg.pick,

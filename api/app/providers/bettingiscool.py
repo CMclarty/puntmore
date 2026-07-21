@@ -68,6 +68,13 @@ EXCLUDED_LEAGUE_RE = re.compile(r"\b(corners|bookings|cards)\b", re.IGNORECASE)
 # real fixture with 12 constraints was 0.0117.
 MAX_GRID_RMSE = 0.05
 
+# Resolving which side a pick names. The pick is a fragment ("Lyon Win and
+# Over 2.5") scored against a full runner name, so the bar is lower than
+# fixture matching — but the two sides must be clearly separated, hence the
+# margin. Fail to None; an unresolved side is unpriced, never assumed.
+SIDE_THRESHOLD = 0.25
+SIDE_MARGIN = 0.10
+
 _OVER_RE = re.compile(r"over\s+([\d.]+)", re.IGNORECASE)
 _UNDER_RE = re.compile(r"under\s+([\d.]+)", re.IGNORECASE)
 _WIN_RE = re.compile(r"\bwin\b", re.IGNORECASE)
@@ -85,6 +92,24 @@ def _parse_starts(raw) -> datetime | None:
         return datetime.fromisoformat(raw.replace("Z", ""))
     except ValueError:
         return None
+
+
+def _side_of(pick: str, runner_home, runner_away) -> bool | None:
+    """Which side a pick names: True home, False away, None unresolved.
+
+    Compares the pick against both runner names on the SAME normalise + fuzzy
+    path used for fixture matching, and requires a clear winner — a pick that
+    scores alike against both ("United v United") is ambiguous, and an ambiguous
+    side must go unpriced rather than default to one.
+    """
+    if not isinstance(runner_home, str) or not isinstance(runner_away, str):
+        return None
+    p = normalise_match(pick)
+    h = difflib.SequenceMatcher(None, p, normalise_match(runner_home)).ratio()
+    a = difflib.SequenceMatcher(None, p, normalise_match(runner_away)).ratio()
+    if max(h, a) < SIDE_THRESHOLD or abs(h - a) < SIDE_MARGIN:
+        return None
+    return h > a
 
 
 def _fair(prices: dict[int, float], want: int) -> float | None:
@@ -280,8 +305,17 @@ class BettingIsCoolProvider(OddsProvider):
         return grid
 
     def _fair_odds_for(
-        self, rows: list[dict], market_str: str, event_id: int | None = None
+        self,
+        rows: list[dict],
+        market_str: str,
+        event_id: int | None = None,
+        home: bool = True,
     ) -> float | None:
+        """Fair odds for one side of a market. `home` selects which side.
+
+        Team-specific markets are priced for BOTH sides by the caller — value
+        can sit on either, and which side a pick names must never be assumed.
+        """
         key = market_str.strip().lower()
         has_win = bool(_WIN_RE.search(key))
         over_m = _OVER_RE.search(key)
@@ -301,16 +335,26 @@ class BettingIsCoolProvider(OddsProvider):
             grid = self._grid_for(event_id, rows)
             if grid is None:
                 return None
-            p = p_win_and_over(grid, float(over_m.group(1)), home=True)
+            p = p_win_and_over(grid, float(over_m.group(1)), home=home)
             return round(1.0 / p, 4) if p > 0 else None
 
         if has_win:
-            return _fair(self._market_prices(rows, "moneyline", None), 1)
+            # Index convention: 1 = home, 2 = away (see module docstring).
+            return _fair(self._market_prices(rows, "moneyline", None), 1 if home else 2)
         if over_m:
             return total(1, float(over_m.group(1)))
         if under_m:
             return total(2, float(under_m.group(1)))
         return None
+
+    @staticmethod
+    def _is_team_specific(market_str: str) -> bool:
+        """True when the market has a home and an away version.
+
+        Match totals do not — "Over 2.5" is a property of the game, so both
+        sides would return the same price and the distinction is meaningless.
+        """
+        return bool(_WIN_RE.search(market_str.strip().lower()))
 
     @staticmethod
     def _best_match(query: str, candidates: list[str]) -> tuple[str, float] | None:
@@ -341,6 +385,8 @@ class BettingIsCoolProvider(OddsProvider):
             fixture = None
             score = None
             kickoff = None
+            fair_home = fair_away = None
+            side = None
             match = self._best_match(q.match_name, list(by_name))
             if match:
                 fixture, score = match
@@ -349,12 +395,37 @@ class BettingIsCoolProvider(OddsProvider):
                         "Borderline fixture match (%.2f): %r -> %r — verify in UI",
                         score, q.match_name, fixture,
                     )
-                event_id = by_name[fixture].get("event_id")
+                row = by_name[fixture]
+                event_id = row.get("event_id")
+                kickoff = _parse_starts(row.get("starts"))
                 if event_id is not None:
-                    fair = self._fair_odds_for(
-                        self._odds(event_id), q.market, event_id=event_id
-                    )
-                kickoff = _parse_starts(by_name[fixture].get("starts"))
+                    odds_rows = self._odds(event_id)
+                    if self._is_team_specific(q.market):
+                        # Price BOTH sides. Value can be on either, and the
+                        # side a pick names is never assumed — the home side
+                        # used to be hardcoded, which priced every away
+                        # selection as its opponent.
+                        fair_home = self._fair_odds_for(
+                            odds_rows, q.market, event_id=event_id, home=True
+                        )
+                        fair_away = self._fair_odds_for(
+                            odds_rows, q.market, event_id=event_id, home=False
+                        )
+                        side = _side_of(
+                            q.match_name, row.get("runner_home"), row.get("runner_away")
+                        )
+                        # Unresolved side stays UNPRICED rather than guessing;
+                        # both sides still ride along so the leg can show where
+                        # the value actually is.
+                        fair = (
+                            fair_home if side is True
+                            else fair_away if side is False
+                            else None
+                        )
+                    else:
+                        fair = self._fair_odds_for(
+                            odds_rows, q.market, event_id=event_id
+                        )
             results.append(
                 OddsResult(
                     match_id=q.match_id,
@@ -362,6 +433,9 @@ class BettingIsCoolProvider(OddsProvider):
                     matched_fixture=fixture,
                     match_score=score,
                     kickoff=kickoff,
+                    fair_odds_home=fair_home,
+                    fair_odds_away=fair_away,
+                    side=side,
                 )
             )
         return results

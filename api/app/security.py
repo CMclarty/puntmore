@@ -185,6 +185,12 @@ def ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN match_score FLOAT"))
             if "kickoff" not in cols:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN kickoff DATETIME"))
+            if "fair_odds_home" not in cols:
+                conn.execute(text("ALTER TABLE legs ADD COLUMN fair_odds_home FLOAT"))
+            if "fair_odds_away" not in cols:
+                conn.execute(text("ALTER TABLE legs ADD COLUMN fair_odds_away FLOAT"))
+            if "side" not in cols:
+                conn.execute(text("ALTER TABLE legs ADD COLUMN side VARCHAR"))
             if "flags" not in cols:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN flags VARCHAR"))
             if "edited" not in cols:

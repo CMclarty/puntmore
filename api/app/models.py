@@ -48,6 +48,10 @@ class Leg(Base):
     matched_fixture = Column(String, nullable=True)  # fixture the fuzzy match linked
     match_score = Column(Float, nullable=True)       # similarity behind that match
     kickoff = Column(DateTime, nullable=True)        # fixture start (UTC), drives KO countdown
+    # Both sides of the market, so value on the opposite side stays visible.
+    fair_odds_home = Column(Float, nullable=True)
+    fair_odds_away = Column(Float, nullable=True)
+    side = Column(String, nullable=True)             # 'home' | 'away' | None (unresolved)
     notified_tier = Column(String, nullable=True)    # last value tier sent to Discord (dedupe)
     flags = Column(String, nullable=True)            # comma-separated codes (checks.py)
     # True once a human has corrected this row. A re-scan must never overwrite

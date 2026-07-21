@@ -25,6 +25,13 @@ class OddsResult:
     # the matched fixture rather than the coupon's match_day, which is only a
     # date and cannot order legs within a day.
     kickoff: datetime | None = None
+    # BOTH sides of a team-specific market, always. Value can be on either, so
+    # neither is assumed and both are carried through for comparison.
+    # `side` is which one the pick names: True home, False away, None
+    # unresolved (in which case fair_odds is None rather than a guess).
+    fair_odds_home: float | None = None
+    fair_odds_away: float | None = None
+    side: bool | None = None
 
 
 class OddsProvider(ABC):
