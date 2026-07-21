@@ -1,8 +1,18 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getCoupons, uploadCoupon, getCouponTypes } from '../api'
+import { getCoupons, uploadCoupon, getCouponTypes, getCouponPeriods } from '../api'
 import styles from './UploadPage.module.css'
 
+
+/** "Sat 25 Jul" or "Mon 20 – Wed 22 Jul" for a multi-day window. */
+function fmtRange(startsOn, endsOn) {
+  const opts = { weekday: 'short', day: 'numeric', month: 'short' }
+  const a = new Date(startsOn)
+  const b = new Date(endsOn)
+  if (startsOn === endsOn) return a.toLocaleDateString('en-GB', opts)
+  const short = { weekday: 'short', day: 'numeric' }
+  return `${a.toLocaleDateString('en-GB', short)} – ${b.toLocaleDateString('en-GB', opts)}`
+}
 
 function fmtDate(d) {
   if (!d) return ''
@@ -21,7 +31,10 @@ export default function UploadPage() {
   // Types come from the API so this form and the tracker cannot drift.
   const [types, setTypes] = useState([])
   const [typeCode, setTypeCode] = useState('')
-  const [matchDay, setMatchDay] = useState(new Date().toISOString().slice(0, 10))
+  // Coupons run on fixed windows, so the period is chosen and its dates are
+  // derived — no free date entry.
+  const [periods, setPeriods] = useState([])
+  const [period, setPeriod] = useState('')
   const [file, setFile] = useState(null)
   const [dragOver, setDragOver] = useState(false)
 
@@ -38,6 +51,11 @@ export default function UploadPage() {
       setTypes(ts)
       if (ts.length > 0) setTypeCode(prev => prev || ts[0].code)
     }).catch(() => {})
+    getCouponPeriods().then(ps => {
+      setPeriods(ps)
+      const suggested = ps.find(p => p.suggested) ?? ps[0]
+      if (suggested) setPeriod(prev => prev || suggested.code)
+    }).catch(() => {})
   }, [])
 
   async function handleProcess() {
@@ -45,7 +63,7 @@ export default function UploadPage() {
     setError(null)
     setPhase('loading')
     try {
-      const result = await uploadCoupon(typeCode, matchDay, file)
+      const result = await uploadCoupon(typeCode, period, file)
       setSavedCount(result.legs.length)
       setFlaggedCount(result.legs.filter(l => l.flags?.length).length)
       setPhase('done')
@@ -108,13 +126,14 @@ export default function UploadPage() {
           ))}
         </select>
 
-        <label className={styles.label}>Match day</label>
-        <input
-          className={styles.input}
-          type="date"
-          value={matchDay}
-          onChange={e => setMatchDay(e.target.value)}
-        />
+        <label className={styles.label}>Coupon period</label>
+        <select className={styles.select} value={period} onChange={e => setPeriod(e.target.value)}>
+          {periods.map(p => (
+            <option key={p.code} value={p.code}>
+              {p.label} — {fmtRange(p.starts_on, p.ends_on)}
+            </option>
+          ))}
+        </select>
 
         <label className={styles.label}>Coupon image</label>
         <div
@@ -140,7 +159,7 @@ export default function UploadPage() {
         <button
           className={styles.btnPrimary}
           onClick={handleProcess}
-          disabled={!file || !typeCode || !matchDay}
+          disabled={!file || !typeCode || !period}
         >
           PROCESS IMAGE
         </button>

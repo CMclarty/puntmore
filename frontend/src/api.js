@@ -58,13 +58,15 @@ export const getCouponLegs = (id) => get(`/coupons/${id}/legs`)
 // filtered fixture list. Served by the API so the tracker dropdown and the
 // upload form cannot drift out of sync.
 export const getCouponTypes = () => get('/coupons/types')
+// Coupons cover a fixed window (Mon–Wed / Wed–Fri / Sat / Sun), not one day.
+export const getCouponPeriods = () => get('/coupons/periods')
 export const getTypeSelections = (code) => get(`/coupons/types/${code}/selections`)
 export const refreshCoupon = (id) => post(`/coupons/${id}/refresh`, {})
 
-export async function uploadCoupon(typeCode, matchDay, file, name = null) {
+export async function uploadCoupon(typeCode, period, file, name = null) {
   const form = new FormData()
   form.append('type_code', typeCode)
-  form.append('match_day', matchDay)
+  form.append('period', period)
   if (name) form.append('name', name)
   form.append('file', file)
   const res = await fetch(`${BASE}/upload`, { method: 'POST', body: form })
