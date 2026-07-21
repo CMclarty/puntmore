@@ -47,6 +47,7 @@ class Leg(Base):
     rank = Column(Integer, nullable=False, default=0)
     matched_fixture = Column(String, nullable=True)  # fixture the fuzzy match linked
     match_score = Column(Float, nullable=True)       # similarity behind that match
+    kickoff = Column(DateTime, nullable=True)        # fixture start (UTC), drives KO countdown
     notified_tier = Column(String, nullable=True)    # last value tier sent to Discord (dedupe)
     flags = Column(String, nullable=True)            # comma-separated codes (checks.py)
     # True once a human has corrected this row. A re-scan must never overwrite

@@ -16,6 +16,7 @@ class LegOut(BaseModel):
     rank: int
     matched_fixture: Optional[str] = None
     match_score: Optional[float] = None
+    kickoff: Optional[datetime] = None
     edited: bool = False
     flags: list[str] = Field(default_factory=list, validation_alias="flag_list")
 

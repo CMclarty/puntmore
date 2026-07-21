@@ -32,6 +32,7 @@ independent confirmation that the power method is the right one. The pricing
 path still de-vigs in-house so the provider stays swappable (§7.1).
 """
 import difflib
+from datetime import datetime
 import logging
 import re
 import time
@@ -74,6 +75,16 @@ _WIN_RE = re.compile(r"\bwin\b", re.IGNORECASE)
 
 class BettingIsCoolProviderNotConfigured(RuntimeError):
     """Raised when the provider is constructed without an API key."""
+
+
+def _parse_starts(raw) -> datetime | None:
+    """Fixture kickoff. The vendor sends naive ISO strings that are UTC."""
+    if not isinstance(raw, str):
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", ""))
+    except ValueError:
+        return None
 
 
 def _fair(prices: dict[int, float], want: int) -> float | None:
@@ -329,6 +340,7 @@ class BettingIsCoolProvider(OddsProvider):
             fair = None
             fixture = None
             score = None
+            kickoff = None
             match = self._best_match(q.match_name, list(by_name))
             if match:
                 fixture, score = match
@@ -342,12 +354,14 @@ class BettingIsCoolProvider(OddsProvider):
                     fair = self._fair_odds_for(
                         self._odds(event_id), q.market, event_id=event_id
                     )
+                kickoff = _parse_starts(by_name[fixture].get("starts"))
             results.append(
                 OddsResult(
                     match_id=q.match_id,
                     fair_odds=fair,
                     matched_fixture=fixture,
                     match_score=score,
+                    kickoff=kickoff,
                 )
             )
         return results

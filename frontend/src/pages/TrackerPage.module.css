@@ -125,14 +125,30 @@
   font-size: 12px;
 }
 
-/* Leg cards */
+/* Leg cards — laid out on the reference tracker's columns so rank, EV and
+   odds line up down the list, without a sideways-scrolling table. */
+.legsHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+
+.hRank { width: 16px; flex: none; }
+.hName { flex: 1; }
+.hEv { width: 58px; flex: none; text-align: right; }
+
 .legCard {
-  padding: 8px 12px;
+  padding: 5px 10px;
   border-bottom: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   gap: 3px;
-  cursor: pointer;
 }
 
 .legCard:last-child { border-bottom: none; }
@@ -141,8 +157,44 @@
    the list and see which rows want a second look. */
 .flagged { background: #FDF6E9; }
 
+.legTop {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.rank {
+  width: 16px;
+  flex: none;
+  font-size: 11px;
+  color: var(--faint);
+  padding-top: 1px;
+}
+
+.nameCell {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nameLine {
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--muted);
+}
+
+.pickName { font-weight: 700; color: var(--ink); }
+.fixture { color: var(--muted); }
+
 .warnBadge {
-  margin-right: 5px;
+  margin-right: 4px;
   color: #B8860B;
   cursor: help;
 }
@@ -153,21 +205,84 @@
   color: var(--faint);
 }
 
-/* Inline edit */
-.editing {
-  cursor: default;
-  background: var(--zebra);
-  gap: 6px;
+.matchedTo {
+  font-size: 11px;
+  color: var(--faint);
+  font-family: var(--font-mono);
 }
 
-.editRow {
+/* EV as an index where 100 is break-even, tinted by tier. Deliberately calmer
+   than the reference's saturated fills — the paper theme carries the same
+   ranking information without the neon. */
+.evCell {
+  width: 58px;
+  flex: none;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.evCell.hi   { background: var(--accent-soft); color: var(--accent); }
+.evCell.mid  { background: var(--zebra); color: var(--ink); }
+.evCell.lo   { background: var(--zebra); color: var(--muted); }
+.evCell.neg  { background: #FBEAE7; color: #8C2F1E; }
+.evCell.none { background: none; color: var(--faint); }
+
+.legBottom {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
+  padding-left: 22px;
 }
 
-.editInput {
+.ko {
   flex: 1;
   min-width: 0;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+/* Native select — a scroll wheel on mobile. Prices move during the day, so
+   odds are picked rather than typed. */
+.oddsWheel {
+  flex: none;
+  min-height: 30px;
+  padding: 2px 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.oddsWheel:disabled { opacity: 0.5; }
+
+.oddsPair {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.oddsLabel {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+}
+
+.bookOdds,
+.fairOdds { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.bookOdds { color: var(--ink); font-weight: 600; }
+.fairOdds { color: var(--muted); }
+
+/* Inline edit */
+.editCell { display: flex; flex-direction: column; gap: 6px; }
+
+.editInput {
   background: var(--paper);
   border: 1px solid var(--line-strong);
   border-radius: 4px;
@@ -179,13 +294,7 @@
 
 .editInput:focus { border-color: var(--accent); }
 
-.editOdds { flex: 0 0 88px; }
-
-.editActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
+.editActions { display: flex; justify-content: flex-end; gap: 8px; }
 
 .editCancel,
 .editSave {
@@ -210,67 +319,6 @@
 }
 
 .editSave:disabled { opacity: 0.5; cursor: default; }
-
-.legTop {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.legMatch {
-  flex: 1;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--ink);
-  min-width: 0;
-}
-
-.legBottom {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.legPick {
-  flex: 1;
-  font-size: 12px;
-  color: var(--muted);
-  min-width: 0;
-}
-
-.mono { font-family: var(--font-mono); }
-
-.legOdds {
-  font-size: 12px;
-  color: var(--ink);
-}
-
-.legFair {
-  font-size: 11px;
-  color: var(--faint);
-}
-
-.legFixture {
-  font-size: 11px;
-  color: var(--faint);
-  font-style: italic;
-}
-
-/* Value badges */
-.valueBadge {
-  font-size: 11px;
-  font-weight: 600;
-  font-family: var(--font-mono);
-  padding: 2px 6px;
-  border-radius: 4px;
-  white-space: nowrap;
-}
-
-.hi   { color: var(--accent); background: var(--accent-soft); }
-.mid  { color: var(--ink);    background: var(--zebra); }
-.lo   { color: var(--muted);  background: var(--zebra); }
-.neg  { color: var(--faint);  background: transparent; }
-.none { display: none; }
 
 /* Coupon picker sheet */
 .pickerBackdrop {

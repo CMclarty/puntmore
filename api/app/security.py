@@ -183,6 +183,8 @@ def ensure_schema() -> None:
             # and the match score behind the low-confidence flag.
             if "match_score" not in cols:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN match_score FLOAT"))
+            if "kickoff" not in cols:
+                conn.execute(text("ALTER TABLE legs ADD COLUMN kickoff DATETIME"))
             if "flags" not in cols:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN flags VARCHAR"))
             if "edited" not in cols:

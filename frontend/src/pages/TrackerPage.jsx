@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { getCoupons, getCouponLegs, refreshCoupon, rescanCoupon, editLeg } from '../api'
+import { FRACTIONAL_LADDER, fractionToDecimal, nearestFraction } from '../odds'
 import styles from './TrackerPage.module.css'
 
 // Flag codes from api/app/checks.py. Keep in sync — an unknown code falls back
@@ -20,10 +21,27 @@ function valueTier(v) {
   return 'neg'
 }
 
-function fmtValue(v) {
+/**
+ * EV as an index where 100 is break-even, matching the reference tracker:
+ * 1.85 taken against 1.70 fair reads 108.8 rather than +8.8%. Same number,
+ * but it sorts and scans as a single magnitude with no sign to parse.
+ */
+function fmtEv(v) {
   if (v == null) return '—'
-  const s = (v * 100).toFixed(1)
-  return v > 0 ? `+${s}%` : `${s}%`
+  return (100 + v * 100).toFixed(2)
+}
+
+/** Time until kickoff, coarse on purpose — this is urgency, not a countdown. */
+function fmtKickoff(iso) {
+  if (!iso) return '—'
+  const ms = new Date(iso + (iso.endsWith('Z') ? '' : 'Z')) - Date.now()
+  if (ms <= 0) return 'live'
+  const mins = Math.floor(ms / 60000)
+  if (mins < 60) return `${mins} min`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'}`
+  const days = Math.floor(hours / 24)
+  return `${days}d ${hours % 24}h`
 }
 
 function fixtureDiffers(leg) {
@@ -47,7 +65,7 @@ export default function TrackerPage() {
   const [rescanning, setRescanning] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [draft, setDraft] = useState(null)
-  const [saving, setSaving] = useState(false)
+  const [savingId, setSavingId] = useState(null)
   const [error, setError] = useState(null)
 
   useEffect(() => {
@@ -84,8 +102,7 @@ export default function TrackerPage() {
     setError(null)
     setRescanning(true)
     try {
-      const res = await rescanCoupon(activeCouponId)
-      setLegs(res.legs)
+      setLegs((await rescanCoupon(activeCouponId)).legs)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -93,9 +110,25 @@ export default function TrackerPage() {
     }
   }
 
+  /** Odds picked from the wheel: persist, reprice, and re-sort on the result. */
+  async function handleOddsChange(leg, fraction) {
+    const decimal = fractionToDecimal(fraction)
+    if (decimal == null) return
+    setSavingId(leg.id)
+    setError(null)
+    try {
+      const updated = await editLeg(activeCouponId, leg.id, { odds: Number(decimal.toFixed(4)) })
+      setLegs(prev => prev.map(l => (l.id === leg.id ? updated : l)))
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSavingId(null)
+    }
+  }
+
   function startEdit(leg) {
     setEditingId(leg.id)
-    setDraft({ match_name: leg.match_name, pick: leg.pick, odds: String(leg.odds) })
+    setDraft({ match_name: leg.match_name, pick: leg.pick })
     setError(null)
   }
 
@@ -105,26 +138,16 @@ export default function TrackerPage() {
   }
 
   async function saveEdit(legId) {
-    if (saving) return
-    const odds = Number(draft.odds)
-    if (!Number.isFinite(odds) || odds <= 1) {
-      setError('Odds must be greater than 1.00')
-      return
-    }
-    setSaving(true)
+    setSavingId(legId)
     setError(null)
     try {
-      const updated = await editLeg(activeCouponId, legId, {
-        match_name: draft.match_name,
-        pick: draft.pick,
-        odds,
-      })
+      const updated = await editLeg(activeCouponId, legId, draft)
       setLegs(prev => prev.map(l => (l.id === legId ? updated : l)))
       cancelEdit()
     } catch (e) {
       setError(e.message)
     } finally {
-      setSaving(false)
+      setSavingId(null)
     }
   }
 
@@ -159,11 +182,7 @@ export default function TrackerPage() {
             >
               {rescanning ? 'Re-scanning…' : '⟳ Re-scan'}
             </button>
-            <button
-              className={styles.refreshBtn}
-              onClick={handleRefresh}
-              disabled={refreshing}
-            >
+            <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
               {refreshing ? 'Refreshing…' : '↻ Refresh odds'}
             </button>
           </div>
@@ -172,93 +191,118 @@ export default function TrackerPage() {
 
       {error && <p className={styles.error}>{error}</p>}
 
-      <div className={styles.legs}>
-        {!loading && coupons.length === 0 && (
-          <div className={styles.empty}>
-            <p>No coupons yet.</p>
-            <Link to="/upload" className={styles.uploadLink}>Upload a coupon →</Link>
+      {!loading && coupons.length === 0 && (
+        <div className={styles.empty}>
+          <p>No coupons yet.</p>
+          <Link to="/upload" className={styles.uploadLink}>Upload a coupon →</Link>
+        </div>
+      )}
+
+      {/* Middle ground: cards, not rows — but each card is laid out on the
+          reference table's columns, so rank / EV / odds still line up down the
+          list and stay scannable. Nothing scrolls sideways on a phone. */}
+      {legs.length > 0 && (
+        <div className={styles.legs}>
+          <div className={styles.legsHead}>
+            <span className={styles.hRank}>R</span>
+            <span className={styles.hName}>NAME</span>
+            <span className={styles.hEv}>EV</span>
           </div>
-        )}
-        {legs.map(leg => (
-          editingId === leg.id ? (
-            <div key={leg.id} className={`${styles.legCard} ${styles.editing}`}>
-              <input
-                className={styles.editInput}
-                value={draft.match_name}
-                onChange={e => setDraft({ ...draft, match_name: e.target.value })}
-                placeholder="Match"
-                autoFocus
-              />
-              <div className={styles.editRow}>
-                <input
-                  className={styles.editInput}
-                  value={draft.pick}
-                  onChange={e => setDraft({ ...draft, pick: e.target.value })}
-                  placeholder="Pick"
-                />
-                <input
-                  className={`${styles.editInput} ${styles.editOdds} ${styles.mono}`}
-                  value={draft.odds}
-                  onChange={e => setDraft({ ...draft, odds: e.target.value })}
-                  placeholder="1.85"
-                  type="number"
-                  step="0.01"
-                  min="1.01"
-                  inputMode="decimal"
-                />
-              </div>
-              <div className={styles.editActions}>
-                <button className={styles.editCancel} onClick={cancelEdit}>Cancel</button>
-                <button
-                  className={styles.editSave}
-                  onClick={() => saveEdit(leg.id)}
-                  disabled={saving}
-                >
-                  {saving ? 'Saving…' : 'Save & reprice'}
-                </button>
-              </div>
-            </div>
-          ) : (
+
+          {legs.map((leg, i) => (
             <div
               key={leg.id}
               className={`${styles.legCard} ${leg.flags?.length ? styles.flagged : ''}`}
-              onClick={() => startEdit(leg)}
             >
-              <div className={styles.legTop}>
-                <span className={styles.legMatch}>
-                  {leg.flags?.length > 0 && (
-                    <span
-                      className={styles.warnBadge}
-                      title={leg.flags.map(f => FLAG_LABELS[f] ?? f).join('\n')}
+              {editingId === leg.id ? (
+                <div className={styles.editCell}>
+                  <input
+                    className={styles.editInput}
+                    value={draft.match_name}
+                    onChange={e => setDraft({ ...draft, match_name: e.target.value })}
+                    placeholder="Match"
+                    autoFocus
+                  />
+                  <input
+                    className={styles.editInput}
+                    value={draft.pick}
+                    onChange={e => setDraft({ ...draft, pick: e.target.value })}
+                    placeholder="Pick"
+                  />
+                  <div className={styles.editActions}>
+                    <button className={styles.editCancel} onClick={cancelEdit}>Cancel</button>
+                    <button
+                      className={styles.editSave}
+                      onClick={() => saveEdit(leg.id)}
+                      disabled={savingId === leg.id}
                     >
-                      ⚠
-                    </span>
-                  )}
-                  {leg.match_name}
-                  {leg.edited && <span className={styles.editedMark} title="Edited by hand — a re-scan will not overwrite this row">✎</span>}
-                </span>
-                <span className={`${styles.valueBadge} ${styles[valueTier(leg.value)]}`}>
-                  {fmtValue(leg.value)}
-                </span>
-              </div>
-              <div className={styles.legBottom}>
-                <span className={styles.legPick}>{leg.pick}</span>
-                <span className={`${styles.legOdds} ${styles.mono}`}>{leg.odds.toFixed(2)}</span>
-                {leg.fair_odds != null && (
-                  <span className={`${styles.legFair} ${styles.mono}`}>
-                    fair {leg.fair_odds.toFixed(2)}
-                  </span>
-                )}
-              </div>
-              {fixtureDiffers(leg) && (
-                <div className={styles.legFixture} title="Fixture the odds provider matched — check it's the right game">
-                  → {leg.matched_fixture}
+                      {savingId === leg.id ? 'Saving…' : 'Save & reprice'}
+                    </button>
+                  </div>
                 </div>
+              ) : (
+                <>
+                  <div className={styles.legTop}>
+                    <span className={`${styles.rank} ${styles.mono}`}>{i + 1}</span>
+                    <button className={styles.nameCell} onClick={() => startEdit(leg)}>
+                      <span className={styles.nameLine}>
+                        {leg.flags?.length > 0 && (
+                          <span
+                            className={styles.warnBadge}
+                            title={leg.flags.map(f => FLAG_LABELS[f] ?? f).join('\n')}
+                          >⚠</span>
+                        )}
+                        <span className={styles.pickName}>{leg.pick}</span>
+                        <span className={styles.fixture}> – {leg.match_name}</span>
+                        {leg.edited && (
+                          <span className={styles.editedMark} title="Edited by hand — a re-scan will not overwrite this row">✎</span>
+                        )}
+                      </span>
+                      {fixtureDiffers(leg) && (
+                        <span className={styles.matchedTo} title="Fixture the odds provider matched — check it's the right game">
+                          → {leg.matched_fixture}
+                        </span>
+                      )}
+                    </button>
+                    <span className={`${styles.evCell} ${styles[valueTier(leg.value)]} ${styles.mono}`}>
+                      {fmtEv(leg.value)}
+                    </span>
+                  </div>
+
+                  <div className={styles.legBottom}>
+                    <span className={`${styles.ko} ${styles.mono}`}>{fmtKickoff(leg.kickoff)}</span>
+
+                    {/* Native select = scroll wheel on mobile. Coupon prices
+                        move during the day, so this is picked, not typed. */}
+                    <select
+                      className={`${styles.oddsWheel} ${styles.mono}`}
+                      value={nearestFraction(leg.odds) ?? ''}
+                      onChange={e => handleOddsChange(leg, e.target.value)}
+                      disabled={savingId === leg.id}
+                      aria-label={`Odds for ${leg.pick}`}
+                    >
+                      {FRACTIONAL_LADDER.map(f => (
+                        <option key={f} value={f}>{f}</option>
+                      ))}
+                    </select>
+
+                    <span className={styles.oddsPair}>
+                      <span className={styles.oddsLabel}>book</span>
+                      <span className={`${styles.bookOdds} ${styles.mono}`}>{leg.odds.toFixed(2)}</span>
+                    </span>
+                    <span className={styles.oddsPair}>
+                      <span className={styles.oddsLabel}>fair</span>
+                      <span className={`${styles.fairOdds} ${styles.mono}`}>
+                        {leg.fair_odds != null ? leg.fair_odds.toFixed(2) : '—'}
+                      </span>
+                    </span>
+                  </div>
+                </>
               )}
             </div>
-          )
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {pickerOpen && (
         <div className={styles.pickerBackdrop} onClick={() => setPickerOpen(false)}>
@@ -268,18 +312,15 @@ export default function TrackerPage() {
               {coupons.map(c => (
                 <button
                   key={c.id}
-                  className={`${styles.pickerRow} ${c.id === activeCouponId ? styles.pickerRowActive : ''}`}
+                  className={`${styles.pickerRow} ${c.id === activeCouponId ? styles.pickerActive : ''}`}
                   onClick={() => selectCoupon(c.id)}
                 >
                   <span className={styles.pickerName}>{c.name}</span>
-                  <span className={styles.pickerMeta}>{c.leg_count} legs · {fmtDate(c.match_day)}</span>
-                  {c.id === activeCouponId && <span className={styles.tick}>✓</span>}
+                  <span className={styles.pickerMeta}>{c.leg_count} legs</span>
                 </button>
               ))}
             </div>
-            <Link to="/upload" className={styles.pickerUploadBtn} onClick={() => setPickerOpen(false)}>
-              ↑ UPLOAD COUPONS
-            </Link>
+            <Link to="/upload" className={styles.pickerUpload}>↑ UPLOAD COUPONS</Link>
           </div>
         </div>
       )}

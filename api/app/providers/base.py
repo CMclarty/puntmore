@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 
 
 @dataclass
@@ -20,6 +21,10 @@ class OddsResult:
     # Similarity score behind that match (0–1). Feeds the low-confidence leg
     # flag, so a loose match is badged in the UI rather than only logged.
     match_score: float | None = None
+    # Fixture kickoff (UTC). Drives the tracker's KO countdown, and comes from
+    # the matched fixture rather than the coupon's match_day, which is only a
+    # date and cannot order legs within a day.
+    kickoff: datetime | None = None
 
 
 class OddsProvider(ABC):
