@@ -42,7 +42,9 @@ import httpx
 from .base import OddsProvider, MatchQuery, OddsResult
 from ..normalise import normalise_match
 from ..odds.utils import devigd_multi
-from ..pricing.grid import fit_grid, score_grid, p_win_and_over
+from ..pricing.grid import (
+    fit_grid, score_grid, p_win_and_over, p_btts, p_gg_no_draw,
+)
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -78,6 +80,12 @@ SIDE_MARGIN = 0.10
 _OVER_RE = re.compile(r"over\s+([\d.]+)", re.IGNORECASE)
 _UNDER_RE = re.compile(r"under\s+([\d.]+)", re.IGNORECASE)
 _WIN_RE = re.compile(r"\bwin\b", re.IGNORECASE)
+# "Team to Score N" means N OR MORE, so the line is N-0.5 (SPEC §3). Getting
+# this off by one misprices every TTS leg.
+_TTS_RE = re.compile(r"to\s+score\s+(\d+)", re.IGNORECASE)
+# GG = Goal Goal = both teams score. "No Draw" additionally excludes the draw.
+_GG_NO_DRAW_RE = re.compile(r"\bgg\b.*\bno\s+draw\b|\bno\s+draw\b.*\bgg\b", re.IGNORECASE)
+_GG_RE = re.compile(r"\bgg\b|\bbtts\b|both\s+teams\s+to\s+score", re.IGNORECASE)
 
 
 class BettingIsCoolProviderNotConfigured(RuntimeError):
@@ -320,9 +328,33 @@ class BettingIsCoolProvider(OddsProvider):
         has_win = bool(_WIN_RE.search(key))
         over_m = _OVER_RE.search(key)
         under_m = _UNDER_RE.search(key)
+        tts_m = _TTS_RE.search(key)
 
         def total(side: int, points: float) -> float | None:
             return _fair(self._market_prices(rows, "totals", points), side)
+
+        def derived(fn) -> float | None:
+            """Read a probability off the fitted grid, or refuse to price."""
+            if event_id is None:
+                return None
+            grid = self._grid_for(event_id, rows)
+            if grid is None:
+                return None
+            p = fn(grid)
+            return round(1.0 / p, 4) if p > 0 else None
+
+        # GG No Draw before GG — the former contains the latter's keyword.
+        if _GG_NO_DRAW_RE.search(key):
+            return derived(p_gg_no_draw)
+        if _GG_RE.search(key):
+            return derived(p_btts)
+
+        # "Team to Score N" = that team's total over N-0.5, DIRECT off the
+        # vendor's native home_totals / away_totals (no model error).
+        if tts_m:
+            line = float(tts_m.group(1)) - 0.5
+            market = "home_totals" if home else "away_totals"
+            return _fair(self._market_prices(rows, market, line), 1)
 
         if has_win and over_m:
             # DERIVED off the fitted score grid (SPEC §8). Never moneyline ×
@@ -351,10 +383,14 @@ class BettingIsCoolProvider(OddsProvider):
     def _is_team_specific(market_str: str) -> bool:
         """True when the market has a home and an away version.
 
-        Match totals do not — "Over 2.5" is a property of the game, so both
-        sides would return the same price and the distinction is meaningless.
+        Match totals and GG do not — "Over 2.5" and "both teams score" are
+        properties of the game, so both sides would return the same price and
+        the distinction is meaningless.
         """
-        return bool(_WIN_RE.search(market_str.strip().lower()))
+        key = market_str.strip().lower()
+        if _GG_RE.search(key) or _GG_NO_DRAW_RE.search(key):
+            return False
+        return bool(_WIN_RE.search(key) or _TTS_RE.search(key))
 
     @staticmethod
     def _best_match(query: str, candidates: list[str]) -> tuple[str, float] | None:
@@ -411,8 +447,11 @@ class BettingIsCoolProvider(OddsProvider):
                         fair_away = self._fair_odds_for(
                             odds_rows, q.market, event_id=event_id, home=False
                         )
+                        # The team is named in the PICK ("Lyon Win and Over
+                        # 2.5"), not in match_name ("PSG vs Lyon") — that names
+                        # both sides and resolves to neither.
                         side = _side_of(
-                            q.match_name, row.get("runner_home"), row.get("runner_away")
+                            q.market, row.get("runner_home"), row.get("runner_away")
                         )
                         # Unresolved side stays UNPRICED rather than guessing;
                         # both sides still ride along so the leg can show where

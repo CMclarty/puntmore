@@ -6,6 +6,7 @@ hardcoded home=True. An away selection was priced as its opponent — and since
 the home side is usually the favourite, that overstates value, inventing edge
 rather than hiding it.
 """
+from app.providers.base import MatchQuery
 from app.providers.bettingiscool import (
     BettingIsCoolProvider, _side_of, SIDE_THRESHOLD,
 )
@@ -79,3 +80,52 @@ def test_match_totals_are_not_team_specific():
     assert p._is_team_specific("Over 2.5") is False
     assert p._is_team_specific("PSG Win and Over 2.5") is True
     assert p._is_team_specific("Lyon Win") is True
+
+
+# --- the side is resolved from the PICK, not the fixture name ---
+
+class _StubProvider(BettingIsCoolProvider):
+    """Provider with the network stubbed, to exercise get_fair_odds itself."""
+
+    def __init__(self, fixture, odds_rows):
+        super().__init__("test-key")
+        self._fixture = fixture
+        self._rows = odds_rows
+
+    def _fixtures(self):
+        return [self._fixture]
+
+    def _odds(self, event_id):
+        return self._rows
+
+
+def test_side_comes_from_the_pick_not_the_match_name():
+    """Caught only against live data: match_name names BOTH teams.
+
+    Resolving the side from "PSG vs Lyon" scores alike against both runners and
+    yields None, so every team-specific leg went unpriced. The team is named in
+    the pick, so that is what must be matched.
+    """
+    fixture = {
+        "event_id": 1, "league_name": "Ligue 1",
+        "runner_home": "PSG", "runner_away": "Lyon",
+        "starts": "2026-07-22T19:00:00",
+    }
+    rows = [{
+        "period": 0, "market": "moneyline", "line": None,
+        "odds0": 3.60, "odds1": 1.90, "odds2": 4.20,
+    }]
+    p = _StubProvider(fixture, rows)
+
+    home, away = p.get_fair_odds([
+        MatchQuery(match_id=1, match_name="PSG vs Lyon", market="PSG Win"),
+        MatchQuery(match_id=2, match_name="PSG vs Lyon", market="Lyon Win"),
+    ])
+
+    assert home.side is True
+    assert away.side is False
+    assert home.fair_odds is not None and away.fair_odds is not None
+    assert home.fair_odds < away.fair_odds        # favourite prices shorter
+    # Both sides ride along on every result regardless of which was picked.
+    assert home.fair_odds_home == away.fair_odds_home
+    assert home.fair_odds_away == away.fair_odds_away

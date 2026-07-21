@@ -64,7 +64,7 @@ def upload_client(tmp_path):
     app.state.ocr_provider = MockOCRProvider()
     # Upload now prices inline (auto-confirm), so it needs an odds provider.
     app.state.odds_provider = MockOddsProvider(
-        {("Arsenal vs Chelsea", "Win and Over 2.5"): 1.80},
+        {("Arsenal vs Chelsea", "Arsenal Win and Over 2.5"): 1.80},
         matched={"Arsenal vs Chelsea": ("Arsenal vs Chelsea FC", 0.95)},
     )
     from app import config as cfg
@@ -211,7 +211,7 @@ def test_upload_returns_saved_legs(upload_client):
     body = resp.json()
     assert "coupon_id" in body
     assert len(body["legs"]) == 3
-    assert body["legs"][0]["pick"] == "Win and Over 2.5"
+    assert body["legs"][0]["pick"] == "Arsenal Win and Over 2.5"
 
 def test_upload_rejects_bad_mime(upload_client):
     resp = upload_client.post(

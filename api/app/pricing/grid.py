@@ -114,6 +114,22 @@ def p_win_and_over(grid, line: float, home: bool = True) -> float:
     return sum(p for (h, a), p in grid.items() if a > h and h + a > line)
 
 
+def p_btts(grid) -> float:
+    """P(both teams score) — GG. No vendor market for this, so it is derived."""
+    return sum(p for (h, a), p in grid.items() if h >= 1 and a >= 1)
+
+
+def p_gg_no_draw(grid) -> float:
+    """P(both teams score ∧ the result is not a draw) — GG No Draw.
+
+    BTTS minus the score draws (1-1, 2-2, …). NEVER BTTS × (1 − P(draw)):
+    both-teams-scoring and the result are correlated through this same grid,
+    which is the identical trap that makes moneyline × over wrong for
+    Win-and-Over (SPEC §8.5).
+    """
+    return sum(p for (h, a), p in grid.items() if h >= 1 and a >= 1 and h != a)
+
+
 # --- constraints ---
 
 # A constraint is (kind, line, target_probability). `line` is unused for 1X2.

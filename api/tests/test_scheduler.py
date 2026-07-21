@@ -383,12 +383,36 @@ def test_bic_prices_home_win_from_devigged_moneyline():
     fx = [{"event_id": 1, "runner_home": "Independiente del Valle",
            "runner_away": "Emelec"}]
     p = _BicProvider(fx, _bic_rows())
-    res = p.get_fair_odds([MatchQuery(1, "Independiente del Valle vs Emelec", "Win")])[0]
+    res = p.get_fair_odds([
+        MatchQuery(1, "Independiente del Valle vs Emelec",
+                   "Independiente del Valle Win")
+    ])[0]
     assert res.matched_fixture == "Independiente del Valle vs Emelec"
+    assert res.side is True
     # De-vigged home price, not the raw 1.452. The vendor reports 1.49 to 2dp;
     # we keep 4, so compare within the 0.03% agreement measured against todds.
     assert res.fair_odds == pytest.approx(1.49, rel=0.005)
     assert res.fair_odds > 1.452
+
+
+def test_bic_win_without_a_named_team_is_unpriced():
+    """A bare "Win" names no side, so it cannot be priced.
+
+    This used to silently return the HOME price. Refusing is correct — but it
+    means OCR must carry the selected team into the pick text, or every
+    team-specific leg lands unpriced. See PLAN item 2a.
+    """
+    fx = [{"event_id": 1, "runner_home": "Independiente del Valle",
+           "runner_away": "Emelec"}]
+    p = _BicProvider(fx, _bic_rows())
+    res = p.get_fair_odds([
+        MatchQuery(1, "Independiente del Valle vs Emelec", "Win")
+    ])[0]
+    assert res.side is None
+    assert res.fair_odds is None
+    # Both sides are still carried, so the UI can show where value would be.
+    assert res.fair_odds_home is not None
+    assert res.fair_odds_away is not None
 
 
 def test_bic_prices_over_from_devigged_totals():

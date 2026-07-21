@@ -15,8 +15,14 @@ SYSTEM_PROMPT = """You are an OCR assistant that extracts betting data from coup
 Return ONLY valid JSON — no markdown, no prose, no explanation.
 Output a JSON array of objects. Each object must have exactly these keys:
   "match"     : string  — the fixture, e.g. "Arsenal vs Chelsea"
-  "market"    : string  — the bet type, e.g. "Win and Over 2.5"
+  "market"    : string  — the SELECTION, starting with the selected team where
+                the bet names one, e.g. "Arsenal Win and Over 2.5" or
+                "Arsenal to Score 2". For bets that name no team, give the bet
+                alone, e.g. "Over 2.5", "GG No Draw".
   "your_odds" : number  — the decimal odds offered, e.g. 1.85
+The selected team MUST appear in "market" when the bet is on one team. Pricing
+resolves which side was backed from this field alone — "Win and Over 2.5"
+without a team cannot be priced, because it does not say who is expected to win.
 If you cannot read a field clearly, use null for that field.
 Output format: [{"match": "...", "market": "...", "your_odds": 1.85}, ...]"""
 
