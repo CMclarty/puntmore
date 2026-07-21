@@ -162,12 +162,12 @@ def test_combination_value_is_negative_when_picks_are_long():
     assert combination_value([1.8, 1.8, 1.8], 5.5) < 0
 
 
-def test_flat_payout_break_even_is_below_the_screen_threshold():
-    """5.5^(1/3) = 1.765, so a treble of three 1.80s LOSES.
+def test_flat_payout_break_even_arithmetic():
+    """Pins the break-even of an even three-way split: 5.5^(1/3) = 1.765.
 
-    The GG Bonus screen admits fixtures up to 1.80, which is above break-even —
-    deliberately kept, since real combinations mix shorter picks in, but it
-    means the filter alone does not guarantee a positive combination.
+    Recorded because combination_value depends on it — not as a judgement about
+    the 1.80 screen, which is a shortlist of candidates rather than a set meant
+    to be combined with itself.
     """
     from app.coupon_types import combination_value
     break_even = 5.5 ** (1 / 3)

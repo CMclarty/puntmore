@@ -106,10 +106,11 @@ bettingtools/
     the picks' fair odds (`coupon_types.combination_value`). Shorter selections
     shrink that product, which is exactly WHY these rank shortest-first — the
     ranking is not a stylistic choice.
-  - **Break-even is 5.5^(1/3) = 1.765.** The 1.80 screen threshold sits just
-    ABOVE it, so three selections all at 1.80 combine to −5.7%. The filter
-    admits fixtures that only pay off when mixed with shorter ones; it is a
-    shortlist, not a guarantee.
+  - Break-even on an even three-way split is 5.5^(1/3) = 1.765. Recorded as
+    arithmetic only: the screen is a **shortlist of candidates**, not a set
+    meant to be combined with itself. A selection near the threshold can be a
+    filler alongside two shorter, positive-EV legs, so do NOT treat 1.80 as
+    mispecified or propose tuning it. Betting parameters are Callum's call.
 
 ### Coupon → market mapping (§8.2)
 
