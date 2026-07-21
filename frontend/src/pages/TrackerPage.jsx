@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { getCoupons, getCouponLegs, refreshCoupon, rescanCoupon, editLeg } from '../api'
+import { getCouponTypes, getTypeSelections, editLeg } from '../api'
 import { FRACTIONAL_LADDER, fractionToDecimal, nearestFraction } from '../odds'
 import styles from './TrackerPage.module.css'
 
@@ -49,64 +49,48 @@ function fixtureDiffers(leg) {
   return leg.matched_fixture.trim().toLowerCase() !== leg.match_name.trim().toLowerCase()
 }
 
-function fmtDate(d) {
-  if (!d) return ''
-  const dt = new Date(d)
-  return dt.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
-}
-
 export default function TrackerPage() {
-  const [coupons, setCoupons] = useState([])
-  const [activeCouponId, setActiveCouponId] = useState(null)
+  // The seven coupon types are the entities. Each is its own filtered fixture
+  // list; an upload is just how selections got into one.
+  const [types, setTypes] = useState([])
+  const [activeCode, setActiveCode] = useState(null)
   const [legs, setLegs] = useState([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [rescanning, setRescanning] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [draft, setDraft] = useState(null)
   const [savingId, setSavingId] = useState(null)
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    getCoupons().then(cs => {
-      setCoupons(cs)
-      if (cs.length > 0) setActiveCouponId(cs[0].id)
+    getCouponTypes().then(ts => {
+      setTypes(ts)
+      if (ts.length > 0) setActiveCode(ts[0].code)
     }).finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => {
-    if (!activeCouponId) { setLegs([]); return }
-    getCouponLegs(activeCouponId).then(setLegs)
-  }, [activeCouponId])
+  const loadSelections = useCallback(async (code) => {
+    if (!code) { setLegs([]); return }
+    setLegs(await getTypeSelections(code))
+  }, [])
 
-  const activeCoupon = coupons.find(c => c.id === activeCouponId) ?? null
+  useEffect(() => { loadSelections(activeCode) }, [activeCode, loadSelections])
 
-  function selectCoupon(id) {
-    setActiveCouponId(id)
+  const activeType = types.find(t => t.code === activeCode) ?? null
+
+  function selectType(code) {
+    setActiveCode(code)
     setPickerOpen(false)
   }
 
   async function handleRefresh() {
-    if (!activeCouponId || refreshing) return
+    if (!activeCode || refreshing) return
     setRefreshing(true)
     try {
-      setLegs(await refreshCoupon(activeCouponId))
-    } catch { /* leave existing legs */ } finally {
+      await loadSelections(activeCode)
+    } catch { /* leave existing rows */ } finally {
       setRefreshing(false)
-    }
-  }
-
-  async function handleRescan() {
-    if (!activeCouponId || rescanning) return
-    setError(null)
-    setRescanning(true)
-    try {
-      setLegs((await rescanCoupon(activeCouponId)).legs)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setRescanning(false)
     }
   }
 
@@ -117,7 +101,7 @@ export default function TrackerPage() {
     setSavingId(leg.id)
     setError(null)
     try {
-      const updated = await editLeg(activeCouponId, leg.id, { odds: Number(decimal.toFixed(4)) })
+      const updated = await editLeg(leg.coupon_id, leg.id, { odds: Number(decimal.toFixed(4)) })
       setLegs(prev => prev.map(l => (l.id === leg.id ? updated : l)))
     } catch (e) {
       setError(e.message)
@@ -137,12 +121,12 @@ export default function TrackerPage() {
     setDraft(null)
   }
 
-  async function saveEdit(legId) {
-    setSavingId(legId)
+  async function saveEdit(leg) {
+    setSavingId(leg.id)
     setError(null)
     try {
-      const updated = await editLeg(activeCouponId, legId, draft)
-      setLegs(prev => prev.map(l => (l.id === legId ? updated : l)))
+      const updated = await editLeg(leg.coupon_id, leg.id, draft)
+      setLegs(prev => prev.map(l => (l.id === leg.id ? updated : l)))
       cancelEdit()
     } catch (e) {
       setError(e.message)
@@ -156,34 +140,25 @@ export default function TrackerPage() {
       <div className={styles.header}>
         <button className={styles.couponPill} onClick={() => setPickerOpen(true)}>
           <span className={styles.pillKey}>COUPON</span>
-          <span className={styles.pillName}>{activeCoupon?.name ?? '—'}</span>
+          <span className={styles.pillName}>{activeType?.label ?? '—'}</span>
           <span className={styles.chevron}>▾</span>
         </button>
-        {activeCoupon && (
-          <span className={`${styles.statusChip} ${activeCoupon.status === 'confirmed' ? styles.live : styles.pending}`}>
-            {activeCoupon.status === 'confirmed' ? '● LIVE' : '⏳ PROCESSING'}
+        {activeType?.max_fair_odds != null && (
+          <span className={`${styles.statusChip} ${styles.live}`}>
+            ≤ {activeType.max_fair_odds.toFixed(2)}
           </span>
         )}
       </div>
 
-      {activeCoupon && (
+      {activeType && (
         <div className={styles.subheader}>
           <span className={styles.subMeta}>
-            {fmtDate(activeCoupon.match_day)}
-            {' · '}
-            {legs.length} leg{legs.length !== 1 ? 's' : ''}
+            {legs.length} fixture{legs.length !== 1 ? 's' : ''}
+            {activeType.max_fair_odds != null && ' · shortest first'}
           </span>
           <div className={styles.subActions}>
-            <button
-              className={styles.refreshBtn}
-              onClick={handleRescan}
-              disabled={rescanning}
-              title="Re-read the coupon image. Rows you have edited are kept."
-            >
-              {rescanning ? 'Re-scanning…' : '⟳ Re-scan'}
-            </button>
             <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
-              {refreshing ? 'Refreshing…' : '↻ Refresh odds'}
+              {refreshing ? 'Refreshing…' : '↻ Refresh'}
             </button>
           </div>
         </div>
@@ -191,10 +166,12 @@ export default function TrackerPage() {
 
       {error && <p className={styles.error}>{error}</p>}
 
-      {!loading && coupons.length === 0 && (
+      {!loading && legs.length === 0 && (
         <div className={styles.empty}>
-          <p>No coupons yet.</p>
-          <Link to="/upload" className={styles.uploadLink}>Upload a coupon →</Link>
+          <p>No fixtures on {activeType?.label ?? 'this coupon'} yet.</p>
+          <Link to="/upload" className={styles.uploadLink}>
+            Upload a {activeType?.label ?? 'coupon'} photo →
+          </Link>
         </div>
       )}
 
@@ -233,7 +210,7 @@ export default function TrackerPage() {
                     <button className={styles.editCancel} onClick={cancelEdit}>Cancel</button>
                     <button
                       className={styles.editSave}
-                      onClick={() => saveEdit(leg.id)}
+                      onClick={() => saveEdit(leg)}
                       disabled={savingId === leg.id}
                     >
                       {savingId === leg.id ? 'Saving…' : 'Save & reprice'}
@@ -309,14 +286,16 @@ export default function TrackerPage() {
           <div className={styles.pickerSheet} onClick={e => e.stopPropagation()}>
             <div className={styles.pickerHandle} />
             <div className={styles.pickerList}>
-              {coupons.map(c => (
+              {types.map(t => (
                 <button
-                  key={c.id}
-                  className={`${styles.pickerRow} ${c.id === activeCouponId ? styles.pickerActive : ''}`}
-                  onClick={() => selectCoupon(c.id)}
+                  key={t.code}
+                  className={`${styles.pickerRow} ${t.code === activeCode ? styles.pickerActive : ''}`}
+                  onClick={() => selectType(t.code)}
                 >
-                  <span className={styles.pickerName}>{c.name}</span>
-                  <span className={styles.pickerMeta}>{c.leg_count} legs</span>
+                  <span className={styles.pickerName}>{t.label}</span>
+                  <span className={styles.pickerMeta}>
+                    {t.selection_count} fixture{t.selection_count !== 1 ? 's' : ''}
+                  </span>
                 </button>
               ))}
             </div>

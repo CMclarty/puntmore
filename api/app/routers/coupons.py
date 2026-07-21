@@ -1,12 +1,75 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 from ..database import get_db
 from ..models import Coupon, Leg
-from ..schemas import CouponOut, LegOut, LegEditRequest
+from .. import coupon_types
+from ..coupon_types import COUPON_TYPES
+from ..schemas import CouponOut, CouponTypeOut, LegOut, LegEditRequest
 from ..pricing.legs import price_legs
 from ..security import require_user
 
 router = APIRouter(prefix="/coupons", tags=["coupons"])
+
+
+@router.get("/types", response_model=list[CouponTypeOut])
+def list_coupon_types(db: Session = Depends(get_db)):
+    """The seven coupon types — the app's top-level entities.
+
+    Each is its own filtered list of fixtures, not an accumulator. Served from
+    one place so the tracker dropdown and the upload form cannot drift.
+    """
+    counts = dict(
+        db.query(Coupon.type_code, func.count(Leg.id))
+        .join(Leg, Leg.coupon_id == Coupon.id)
+        .group_by(Coupon.type_code)
+        .all()
+    )
+    return [
+        CouponTypeOut(
+            code=t.code,
+            label=t.label,
+            max_fair_odds=t.max_fair_odds,
+            selection_count=counts.get(t.code, 0),
+        )
+        for t in COUPON_TYPES
+    ]
+
+
+@router.get("/types/{type_code}/selections", response_model=list[LegOut])
+def list_type_selections(type_code: str, db: Session = Depends(get_db)):
+    """One coupon type's filtered fixture list, ranked best-value first.
+
+    Spans every upload of this type — the type is the entity, an upload is just
+    how selections got into it.
+    """
+    coupon_type = coupon_types.get(type_code)
+    if coupon_type is None:
+        raise HTTPException(status_code=404, detail=f"Unknown coupon type: {type_code}")
+
+    selections = (
+        db.query(Leg)
+        .join(Coupon, Leg.coupon_id == Coupon.id)
+        .filter(Coupon.type_code == type_code)
+        .all()
+    )
+
+    # A type's own filter (GG Bonus keeps only fixtures priced <= 1.80). Rows
+    # that never priced are kept regardless — an unpriced row is something to
+    # look at, not something to hide.
+    if coupon_type.max_fair_odds is not None:
+        selections = [
+            s for s in selections
+            if s.fair_odds is None or s.fair_odds <= coupon_type.max_fair_odds
+        ]
+
+    if coupon_type.max_fair_odds is not None:
+        # Screens rank by shortest price — likeliest first, which is the point
+        # of the screen — rather than by value.
+        return sorted(
+            selections, key=lambda s: (s.fair_odds is None, s.fair_odds or 0)
+        )
+    return sorted(selections, key=lambda s: (s.value is None, -(s.value or 0)))
 
 
 @router.get("", response_model=list[CouponOut])

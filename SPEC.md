@@ -79,17 +79,24 @@ bettingtools/
 ```
 
 ## 3. Domain concepts (coupon tracker)
-- **Coupon**: one uploaded accumulator — a named bet slip with N legs, e.g.
-  "Saturday Acca". Has a `type_code` (the offer it came from, e.g. "TTS2",
-  "WO2") and a `match_day` (the date its legs play). Status: **processing** (OCR
-  running / pricing) → **confirmed** (priced; refresh loop tracks its value).
-  There is no manual-review gate — see §7.
-- **Leg**: one parsed row of a coupon — match name, pick (selection text),
-  your odds, fair odds, value, and (for derived markets) an uncertainty band.
-  Displayed ranked by value. `fair_odds_source` records whether the price came
-  from a direct market or the derived model.
-- A coupon's name is optional on upload; it defaults to
-  `"{type_code} · {match_day}"`.
+
+- **Coupon type**: the app's top-level entity. There are exactly **seven**
+  (`app/coupon_types.py`), each a standing market with **its own filtered list
+  of fixtures** — NOT an accumulator with legs inside it. The tracker's
+  dropdown selects one; each shows only its own fixtures.
+- **Selection**: one fixture on a coupon type — match name, pick text, your
+  odds, fair odds, value. Ranked best-value first, except on screens (below).
+  Stored in the `legs` table for historical reasons; the name is a leftover
+  from the accumulator model and does NOT mean a leg of a parlay.
+- **Upload**: a photo of one coupon type, which is how selections and *your*
+  prices get into that type's list. An upload is a delivery mechanism, not an
+  entity — the type is what the UI is organised around, and one type's list
+  spans every upload made against it. Status: **processing** (OCR running) →
+  **confirmed** (priced). No manual-review gate — see §7.
+- **Screen**: a coupon type with a `max_fair_odds` filter. Only GG Bonus is one
+  (≤ 1.80, §8.5). Screens rank **shortest price first** — likeliest, which is
+  the point — where every other type ranks by value. Unpriced rows survive the
+  filter either way: an unpriced row is something to look at, not to hide.
 
 ### Coupon → market mapping (§8.2)
 

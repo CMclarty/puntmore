@@ -53,6 +53,12 @@ export const logout = () => post('/auth/logout', {})
 // Coupons (new model: accumulators + legs)
 export const getCoupons = () => get('/coupons')
 export const getCouponLegs = (id) => get(`/coupons/${id}/legs`)
+
+// The seven coupon types are the app's top-level entities — each is its own
+// filtered fixture list. Served by the API so the tracker dropdown and the
+// upload form cannot drift out of sync.
+export const getCouponTypes = () => get('/coupons/types')
+export const getTypeSelections = (code) => get(`/coupons/types/${code}/selections`)
 export const refreshCoupon = (id) => post(`/coupons/${id}/refresh`, {})
 
 export async function uploadCoupon(typeCode, matchDay, file, name = null) {

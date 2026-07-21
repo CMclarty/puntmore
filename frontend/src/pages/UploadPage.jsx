@@ -1,21 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getCoupons, uploadCoupon } from '../api'
+import { getCoupons, uploadCoupon, getCouponTypes } from '../api'
 import styles from './UploadPage.module.css'
 
-// The seven coupon types the syndicate actually plays. Codes follow the
-// existing convention (market + line, no decimal point) and are stored on
-// Coupon.type_code as a label — pricing keys off each leg's pick text, not
-// this, so adding a type here needs no backend change.
-const TYPE_CODES = [
-  { value: 'TTS1', label: 'Team to Score 1' },
-  { value: 'TTS2', label: 'Team to Score 2' },
-  { value: 'TTS3', label: 'Team to Score 3' },
-  { value: 'WO15', label: 'Win and Over 1.5' },
-  { value: 'WO25', label: 'Win and Over 2.5' },
-  { value: 'GGB',  label: 'GG Bonus' },
-  { value: 'GGND', label: 'GG No Draw' },
-]
 
 function fmtDate(d) {
   if (!d) return ''
@@ -31,7 +18,9 @@ export default function UploadPage() {
   const [error, setError] = useState(null)
 
   // Form state
-  const [typeCode, setTypeCode] = useState('TTS2')
+  // Types come from the API so this form and the tracker cannot drift.
+  const [types, setTypes] = useState([])
+  const [typeCode, setTypeCode] = useState('')
   const [matchDay, setMatchDay] = useState(new Date().toISOString().slice(0, 10))
   const [file, setFile] = useState(null)
   const [dragOver, setDragOver] = useState(false)
@@ -45,6 +34,10 @@ export default function UploadPage() {
 
   useEffect(() => {
     getCoupons().then(setPrevCoupons).catch(() => {})
+    getCouponTypes().then(ts => {
+      setTypes(ts)
+      if (ts.length > 0) setTypeCode(prev => prev || ts[0].code)
+    }).catch(() => {})
   }, [])
 
   async function handleProcess() {
@@ -110,8 +103,8 @@ export default function UploadPage() {
       <div className={styles.form}>
         <label className={styles.label}>Coupon type</label>
         <select className={styles.select} value={typeCode} onChange={e => setTypeCode(e.target.value)}>
-          {TYPE_CODES.map(t => (
-            <option key={t.value} value={t.value}>{t.label}</option>
+          {types.map(t => (
+            <option key={t.code} value={t.code}>{t.label}</option>
           ))}
         </select>
 

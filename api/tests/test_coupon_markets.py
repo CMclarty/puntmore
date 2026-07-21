@@ -114,3 +114,26 @@ def test_unknown_market_is_unpriced():
 def test_gg_without_a_grid_is_unpriced():
     """No event_id means no grid — refuse, never fall back."""
     assert _provider()._fair_odds_for([], "GG No Draw", event_id=None) is None
+
+
+# --- the seven types as top-level entities ---
+
+def test_seven_types_exist_with_stable_codes():
+    from app.coupon_types import COUPON_TYPES
+    assert [t.code for t in COUPON_TYPES] == [
+        "TTS1", "TTS2", "TTS3", "WO15", "WO25", "GGB", "GGND",
+    ]
+
+
+def test_only_gg_bonus_is_a_screen():
+    """GG Bonus filters on price; the rest rank on value alone."""
+    from app.coupon_types import COUPON_TYPES, get
+    assert get("GGB").max_fair_odds == 1.80
+    assert [t.code for t in COUPON_TYPES if t.max_fair_odds is not None] == ["GGB"]
+
+
+def test_unknown_type_is_rejected():
+    from app import coupon_types
+    assert coupon_types.is_valid("TTS2") is True
+    assert coupon_types.is_valid("WO35") is False   # dropped from the seven
+    assert coupon_types.get("nope") is None

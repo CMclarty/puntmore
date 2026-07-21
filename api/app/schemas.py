@@ -39,6 +39,14 @@ class CouponOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CouponTypeOut(BaseModel):
+    """One of the seven coupon types — a top-level entity, not an accumulator."""
+    code: str
+    label: str
+    max_fair_odds: Optional[float] = None
+    selection_count: int = 0
+
+
 # Upload flow schemas. OCR auto-confirms, so an upload returns saved+priced
 # legs rather than candidate rows awaiting a review step.
 class UploadInitResponse(BaseModel):

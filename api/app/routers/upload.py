@@ -10,6 +10,7 @@ from ..database import get_db
 from ..models import Coupon, Leg
 from ..schemas import UploadInitResponse
 from ..config import settings
+from .. import coupon_types
 from ..images import normalise_orientation
 from ..pricing.legs import price_legs
 from ..security import require_user
@@ -34,6 +35,11 @@ async def upload_coupon(
     db: Session = Depends(get_db),
     user: str = Depends(require_user),
 ):
+    if not coupon_types.is_valid(type_code):
+        raise HTTPException(
+            status_code=400, detail=f"Unknown coupon type: {type_code}"
+        )
+
     media_type = file.content_type
     if media_type not in ALLOWED_MEDIA_TYPES:
         raise HTTPException(status_code=400, detail=f"Unsupported image type: {media_type}")

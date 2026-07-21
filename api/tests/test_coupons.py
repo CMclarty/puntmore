@@ -417,3 +417,68 @@ def test_coupons_requires_auth():
         assert api.get("/coupons").status_code == 401
     finally:
         app.dependency_overrides[require_user] = lambda: "testuser"
+
+
+# --- coupon types as top-level entities ---
+
+def test_list_types_returns_all_seven_with_counts(db):
+    c = _make_coupon(db, type_code="TTS2")
+    db.add(Leg(coupon_id=c.id, match_name="A vs B", pick="A to Score 2", odds=1.9, rank=0))
+    db.commit()
+
+    body = api.get("/coupons/types").json()
+    assert len(body) == 7
+    tts2 = next(t for t in body if t["code"] == "TTS2")
+    assert tts2["label"] == "Team to Score 2"
+    assert tts2["selection_count"] == 1
+    # Types with nothing uploaded still appear — they are the entities.
+    assert next(t for t in body if t["code"] == "GGND")["selection_count"] == 0
+
+
+def test_type_selections_span_every_upload_of_that_type(db):
+    """The TYPE is the entity; an upload is just how selections got into it."""
+    c1 = _make_coupon(db, type_code="TTS2")
+    c2 = _make_coupon(db, type_code="TTS2")
+    other = _make_coupon(db, type_code="WO25")
+    db.add(Leg(coupon_id=c1.id, match_name="A vs B", pick="A to Score 2", odds=1.9, rank=0, value=0.03))
+    db.add(Leg(coupon_id=c2.id, match_name="C vs D", pick="C to Score 2", odds=2.0, rank=0, value=0.09))
+    db.add(Leg(coupon_id=other.id, match_name="E vs F", pick="E Win and Over 2.5", odds=3.0, rank=0))
+    db.commit()
+
+    rows = api.get("/coupons/types/TTS2/selections").json()
+    assert [r["match_name"] for r in rows] == ["C vs D", "A vs B"]   # best value first
+    assert all(r["pick"] != "E Win and Over 2.5" for r in rows)
+
+
+def test_gg_bonus_screens_on_price_and_ranks_shortest_first(db):
+    c = _make_coupon(db, type_code="GGB")
+    db.add(Leg(coupon_id=c.id, match_name="Short", pick="GG Bonus", odds=1.5, rank=0, fair_odds=1.45))
+    db.add(Leg(coupon_id=c.id, match_name="Mid", pick="GG Bonus", odds=1.8, rank=1, fair_odds=1.75))
+    db.add(Leg(coupon_id=c.id, match_name="TooLong", pick="GG Bonus", odds=2.4, rank=2, fair_odds=2.30))
+    db.commit()
+
+    rows = api.get("/coupons/types/GGB/selections").json()
+    # Over the 1.80 cut is excluded; the rest are shortest-first (likeliest).
+    assert [r["match_name"] for r in rows] == ["Short", "Mid"]
+
+
+def test_unpriced_rows_survive_the_screen(db):
+    """An unpriced row is something to look at, not something to hide."""
+    c = _make_coupon(db, type_code="GGB")
+    db.add(Leg(coupon_id=c.id, match_name="Unpriced", pick="GG Bonus", odds=1.6, rank=0, fair_odds=None))
+    db.commit()
+    rows = api.get("/coupons/types/GGB/selections").json()
+    assert [r["match_name"] for r in rows] == ["Unpriced"]
+
+
+def test_unknown_type_selections_404():
+    assert api.get("/coupons/types/WO35/selections").status_code == 404
+
+
+def test_upload_rejects_a_type_outside_the_seven(upload_client):
+    resp = upload_client.post(
+        "/upload",
+        data={"type_code": "WO35", "match_day": date.today().isoformat()},
+        files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
+    )
+    assert resp.status_code == 400
