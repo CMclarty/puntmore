@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 from datetime import date
@@ -14,6 +15,8 @@ from .. import coupon_types, coupon_periods
 from ..images import normalise_orientation
 from ..pricing.legs import price_legs
 from ..security import require_user
+
+logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
@@ -89,6 +92,8 @@ async def upload_coupon(
     try:
         extracted = ocr.extract(image_bytes, media_type)
     except Exception:
+        # Log the cause: a bare 502 hid a plain AttributeError for a full day.
+        logger.exception("OCR extraction failed (%s)", type(ocr).__name__)
         db.rollback()
         if os.path.exists(image_path):
             os.remove(image_path)
@@ -159,6 +164,7 @@ def rescan_coupon(
     try:
         extracted = ocr.extract(image_bytes, media_type)
     except Exception:
+        logger.exception("OCR re-scan failed (%s)", type(ocr).__name__)
         raise HTTPException(status_code=502, detail="OCR extraction failed")
 
     existing = db.query(Leg).filter(Leg.coupon_id == coupon_id).order_by(Leg.rank).all()

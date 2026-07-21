@@ -27,6 +27,18 @@ If you cannot read a field clearly, use null for that field.
 Output format: [{"match": "...", "market": "...", "your_odds": 1.85}, ...]"""
 
 
+def _strip_code_fence(text: str) -> str:
+    """Tolerate ```json fences despite the prompt forbidding them.
+
+    Models add them often enough that failing the whole upload over formatting
+    would be the wrong trade.
+    """
+    if not text.startswith("```"):
+        return text
+    body = text.split("\n", 1)[1] if "\n" in text else ""
+    return body.rsplit("```", 1)[0].strip()
+
+
 class ClaudeOCRProvider(OCRProvider):
     def __init__(self, api_key: str):
         self._client = anthropic.Anthropic(api_key=api_key)
@@ -59,18 +71,28 @@ class ClaudeOCRProvider(OCRProvider):
             ],
         )
 
-        raw = message.content[0].text.strip()
-        rows = json.loads(raw)
+        # Take the first TEXT block, not content[0]: the response can lead with
+        # a thinking block, and indexing blindly raised AttributeError on every
+        # single image ('ThinkingBlock' object has no attribute 'text').
+        raw = next(
+            (b.text for b in message.content if getattr(b, "type", None) == "text"),
+            None,
+        )
+        if raw is None:
+            raise ValueError("OCR response contained no text block")
+
+        rows = json.loads(_strip_code_fence(raw.strip()))
         results = []
         for row in rows:
             odds = row.get("your_odds")
-            if odds is None:
-                continue
+            # Odds are OPTIONAL: flat-payout coupons (GG Bonus / GG No Draw)
+            # print no per-selection price. A row with no odds is still a real
+            # selection — dropping it would silently lose the whole coupon.
             results.append(
                 ExtractedRow(
                     match=row.get("match") or "",
                     market=row.get("market") or "",
-                    your_odds=float(odds),
+                    your_odds=float(odds) if odds is not None else None,
                 )
             )
         return results
