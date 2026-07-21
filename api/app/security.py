@@ -191,6 +191,27 @@ def ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN fair_odds_away FLOAT"))
             if "side" not in cols:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN side VARCHAR"))
+
+        # legs.odds must become NULLABLE: GG Bonus / GG No Draw coupons print no
+        # per-selection price (any 3 pay a flat 5.5), so those rows have no odds
+        # and the old NOT NULL would reject the whole upload. SQLite cannot
+        # ALTER a column's nullability, so the table is rebuilt in place.
+        odds_col = next(
+            (c for c in inspector.get_columns("legs") if c["name"] == "odds"), None
+        )
+        if odds_col is not None and not odds_col["nullable"]:
+            carried = [c["name"] for c in inspector.get_columns("legs")]
+            with engine.begin() as conn:
+                # FKs off for the swap, or legs' own FK to coupons blocks the
+                # drop. Re-enabled by the connect listener on the next checkout.
+                conn.execute(text("PRAGMA foreign_keys = OFF"))
+                conn.execute(text("ALTER TABLE legs RENAME TO legs_old"))
+                Base.metadata.tables["legs"].create(bind=conn)
+                cols_sql = ", ".join(f'"{c}"' for c in carried)
+                conn.execute(text(
+                    f"INSERT INTO legs ({cols_sql}) SELECT {cols_sql} FROM legs_old"
+                ))
+                conn.execute(text("DROP TABLE legs_old"))
             if "flags" not in cols:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN flags VARCHAR"))
             if "edited" not in cols:

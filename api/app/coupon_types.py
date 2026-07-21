@@ -21,6 +21,14 @@ class CouponType:
     # Fixtures are only worth listing when the price is short enough to be
     # worth taking. None = no filter, rank on value alone.
     max_fair_odds: float | None = None
+    # Flat-payout coupons print NO per-selection price: ANY `payout_picks`
+    # selections pay `flat_payout` combined. Value is therefore a property of
+    # the COMBINATION, not of a row — the fixed return is compared against the
+    # product of the picks' fair odds, so shorter (likelier) selections make
+    # the flat price better. That is why these rank shortest-first, and why
+    # their rows have no odds and no per-row EV.
+    flat_payout: float | None = None
+    payout_picks: int = 3
 
 
 COUPON_TYPES: tuple[CouponType, ...] = (
@@ -31,8 +39,8 @@ COUPON_TYPES: tuple[CouponType, ...] = (
     CouponType("WO25", "Win and Over 2.5", "{team} Win and Over 2.5"),
     # GG Bonus is a screen: only fixtures where both teams scoring is likely
     # enough to be worth taking (fair odds <= 1.80), shortest first (SPEC §8.5).
-    CouponType("GGB", "GG Bonus", "GG Bonus", max_fair_odds=1.80),
-    CouponType("GGND", "GG No Draw", "GG No Draw"),
+    CouponType("GGB", "GG Bonus", "GG Bonus", max_fair_odds=1.80, flat_payout=5.5),
+    CouponType("GGND", "GG No Draw", "GG No Draw", flat_payout=5.5),
 )
 
 BY_CODE = {t.code: t for t in COUPON_TYPES}
@@ -44,3 +52,18 @@ def get(code: str) -> CouponType | None:
 
 def is_valid(code: str) -> bool:
     return code in BY_CODE
+
+
+def combination_value(fair_odds: list[float], flat_payout: float) -> float | None:
+    """Edge on a flat-payout combination: the fixed return vs its fair price.
+
+    The fair price of an N-fold is the product of the legs' fair odds, so a
+    flat 5.5 is value whenever that product is below 5.5. Returns None if any
+    leg is unpriced — a combination is only as knowable as its worst leg.
+    """
+    if not fair_odds or any(f is None or f <= 0 for f in fair_odds):
+        return None
+    combined = 1.0
+    for f in fair_odds:
+        combined *= f
+    return round(flat_payout / combined - 1, 4)

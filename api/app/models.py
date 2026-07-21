@@ -39,7 +39,9 @@ class Leg(Base):
     coupon_id = Column(Integer, ForeignKey("coupons.id", ondelete="CASCADE"), nullable=False)
     match_name = Column(String, nullable=False)
     pick = Column(String, nullable=False)            # selection e.g. "PSG HT/FT"
-    odds = Column(Float, nullable=False)             # your odds
+    # Nullable: GG Bonus and GG No Draw coupons print NO per-selection price —
+    # any 3 selections pay a flat 5.5 — so those rows genuinely have no odds.
+    odds = Column(Float, nullable=True)
     fair_odds = Column(Float, nullable=True)
     value = Column(Float, nullable=True)
     fair_odds_updated_at = Column(DateTime, nullable=True)

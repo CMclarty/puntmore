@@ -97,6 +97,19 @@ bettingtools/
   (≤ 1.80, §8.5). Screens rank **shortest price first** — likeliest, which is
   the point — where every other type ranks by value. Unpriced rows survive the
   filter either way: an unpriced row is something to look at, not to hide.
+- **Flat-payout coupon**: GG Bonus and GG No Draw print **no per-selection
+  odds**. ANY 3 selections pay a flat **5.5** combined. Consequences, all of
+  which the code depends on:
+  - `legs.odds` is NULL on these rows, and per-row EV is meaningless. Do not
+    reintroduce a per-row price or a NOT NULL constraint.
+  - Value is a property of the COMBINATION: the flat 5.5 against the product of
+    the picks' fair odds (`coupon_types.combination_value`). Shorter selections
+    shrink that product, which is exactly WHY these rank shortest-first — the
+    ranking is not a stylistic choice.
+  - **Break-even is 5.5^(1/3) = 1.765.** The 1.80 screen threshold sits just
+    ABOVE it, so three selections all at 1.80 combine to −5.7%. The filter
+    admits fixtures that only pay off when mixed with shorter ones; it is a
+    shortlist, not a guarantee.
 
 ### Coupon → market mapping (§8.2)
 

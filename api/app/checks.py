@@ -48,7 +48,7 @@ def odds_range_for(pick: str) -> tuple[float, float]:
 
 def evaluate_leg(
     pick: str,
-    odds: float,
+    odds: float | None,
     *,
     value: float | None = None,
     matched_fixture: str | None = None,
@@ -57,9 +57,11 @@ def evaluate_leg(
     """Flag codes for one leg. Empty list means nothing looked wrong."""
     flags: list[str] = []
 
-    low, high = odds_range_for(pick)
-    if odds < low or odds > high:
-        flags.append(FLAG_ODDS_RANGE)
+    # No odds is normal on flat-payout coupons, not an anomaly.
+    if odds is not None:
+        low, high = odds_range_for(pick)
+        if odds < low or odds > high:
+            flags.append(FLAG_ODDS_RANGE)
 
     if matched_fixture is None:
         flags.append(FLAG_NO_MATCH)

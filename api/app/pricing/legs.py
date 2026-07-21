@@ -34,7 +34,13 @@ def price_legs(legs: list[Leg], odds_provider) -> list[Leg]:
         result = result_map.get(leg.id)
         if result and result.fair_odds is not None:
             leg.fair_odds = result.fair_odds
-            leg.value = compute_value(leg.odds, result.fair_odds)
+            # Flat-payout coupons (GG Bonus / GG No Draw) carry no per-selection
+            # price, so a per-row edge is meaningless — value for those is a
+            # property of the COMBINATION (coupon_types.combination_value).
+            leg.value = (
+                compute_value(leg.odds, result.fair_odds)
+                if leg.odds is not None else None
+            )
             leg.fair_odds_updated_at = now
             priced.append(leg)
         if result:

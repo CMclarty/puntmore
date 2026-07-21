@@ -155,6 +155,15 @@ export default function TrackerPage() {
           <span className={styles.subMeta}>
             {legs.length} fixture{legs.length !== 1 ? 's' : ''}
             {activeType.max_fair_odds != null && ' · shortest first'}
+            {activeType.flat_payout != null && activeType.best_combination_value != null && (
+              <>
+                {' · best '}{activeType.payout_picks}{': '}
+                <span className={activeType.best_combination_value > 0 ? styles.comboGood : styles.comboBad}>
+                  {activeType.best_combination_fair?.toFixed(2)} fair vs {activeType.flat_payout} flat
+                  {' ('}{(activeType.best_combination_value * 100).toFixed(1)}%{')'}
+                </span>
+              </>
+            )}
           </span>
           <div className={styles.subActions}>
             <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
@@ -242,31 +251,37 @@ export default function TrackerPage() {
                       )}
                     </button>
                     <span className={`${styles.evCell} ${styles[valueTier(leg.value)]} ${styles.mono}`}>
-                      {fmtEv(leg.value)}
+                      {leg.odds == null ? '·' : fmtEv(leg.value)}
                     </span>
                   </div>
 
                   <div className={styles.legBottom}>
                     <span className={`${styles.ko} ${styles.mono}`}>{fmtKickoff(leg.kickoff)}</span>
 
-                    {/* Native select = scroll wheel on mobile. Coupon prices
-                        move during the day, so this is picked, not typed. */}
-                    <select
-                      className={`${styles.oddsWheel} ${styles.mono}`}
-                      value={nearestFraction(leg.odds) ?? ''}
-                      onChange={e => handleOddsChange(leg, e.target.value)}
-                      disabled={savingId === leg.id}
-                      aria-label={`Odds for ${leg.pick}`}
-                    >
-                      {FRACTIONAL_LADDER.map(f => (
-                        <option key={f} value={f}>{f}</option>
-                      ))}
-                    </select>
+                    {/* Flat-payout coupons print no per-selection price, so
+                        there is nothing to pick and nothing to show. */}
+                    {leg.odds != null && (
+                      <>
+                        {/* Native select = scroll wheel on mobile. Prices move
+                            during the day, so this is picked, not typed. */}
+                        <select
+                          className={`${styles.oddsWheel} ${styles.mono}`}
+                          value={nearestFraction(leg.odds) ?? ''}
+                          onChange={e => handleOddsChange(leg, e.target.value)}
+                          disabled={savingId === leg.id}
+                          aria-label={`Odds for ${leg.pick}`}
+                        >
+                          {FRACTIONAL_LADDER.map(f => (
+                            <option key={f} value={f}>{f}</option>
+                          ))}
+                        </select>
 
-                    <span className={styles.oddsPair}>
-                      <span className={styles.oddsLabel}>book</span>
-                      <span className={`${styles.bookOdds} ${styles.mono}`}>{leg.odds.toFixed(2)}</span>
-                    </span>
+                        <span className={styles.oddsPair}>
+                          <span className={styles.oddsLabel}>book</span>
+                          <span className={`${styles.bookOdds} ${styles.mono}`}>{leg.odds.toFixed(2)}</span>
+                        </span>
+                      </>
+                    )}
                     <span className={styles.oddsPair}>
                       <span className={styles.oddsLabel}>fair</span>
                       <span className={`${styles.fairOdds} ${styles.mono}`}>

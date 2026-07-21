@@ -44,7 +44,9 @@ class OddsProvider(ABC):
 class ExtractedRow:
     match: str
     market: str
-    your_odds: float
+    # None on flat-payout coupons (GG Bonus / GG No Draw), which print no
+    # per-selection price.
+    your_odds: float | None
 
 
 class OCRProvider(ABC):

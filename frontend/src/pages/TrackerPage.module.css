@@ -125,6 +125,9 @@
   font-size: 12px;
 }
 
+.comboGood { color: var(--accent); font-weight: 600; }
+.comboBad  { color: #8C2F1E; font-weight: 600; }
+
 /* Leg cards — laid out on the reference tracker's columns so rank, EV and
    odds line up down the list, without a sideways-scrolling table. */
 .legsHead {

@@ -1,3 +1,5 @@
+import math
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
@@ -25,15 +27,35 @@ def list_coupon_types(db: Session = Depends(get_db)):
         .group_by(Coupon.type_code)
         .all()
     )
-    return [
-        CouponTypeOut(
+    out = []
+    for t in COUPON_TYPES:
+        combo_value = combo_fair = None
+        if t.flat_payout is not None:
+            # Shortest priced selections make the flat return best, so the best
+            # combination is simply the N shortest.
+            shortest = (
+                db.query(Leg.fair_odds)
+                .join(Coupon, Leg.coupon_id == Coupon.id)
+                .filter(Coupon.type_code == t.code, Leg.fair_odds.isnot(None))
+                .order_by(Leg.fair_odds)
+                .limit(t.payout_picks)
+                .all()
+            )
+            picks = [row[0] for row in shortest]
+            if len(picks) == t.payout_picks:
+                combo_value = coupon_types.combination_value(picks, t.flat_payout)
+                combo_fair = round(math.prod(picks), 4)
+        out.append(CouponTypeOut(
             code=t.code,
             label=t.label,
             max_fair_odds=t.max_fair_odds,
             selection_count=counts.get(t.code, 0),
-        )
-        for t in COUPON_TYPES
-    ]
+            flat_payout=t.flat_payout,
+            payout_picks=t.payout_picks,
+            best_combination_value=combo_value,
+            best_combination_fair=combo_fair,
+        ))
+    return out
 
 
 @router.get("/types/{type_code}/selections", response_model=list[LegOut])

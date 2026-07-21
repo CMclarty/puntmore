@@ -8,7 +8,7 @@ class LegOut(BaseModel):
     coupon_id: int
     match_name: str
     pick: str
-    odds: float
+    odds: Optional[float]
     fair_odds: Optional[float]
     value: Optional[float]
     fair_odds_updated_at: Optional[datetime]
@@ -45,6 +45,14 @@ class CouponTypeOut(BaseModel):
     label: str
     max_fair_odds: Optional[float] = None
     selection_count: int = 0
+    # Flat-payout coupons: any `payout_picks` selections return `flat_payout`
+    # combined, and print no per-selection price.
+    flat_payout: Optional[float] = None
+    payout_picks: int = 3
+    # Edge on the best `payout_picks` selections taken together, at the flat
+    # price. The only value that means anything on these coupons.
+    best_combination_value: Optional[float] = None
+    best_combination_fair: Optional[float] = None
 
 
 # Upload flow schemas. OCR auto-confirms, so an upload returns saved+priced

@@ -137,3 +137,53 @@ def test_unknown_type_is_rejected():
     assert coupon_types.is_valid("TTS2") is True
     assert coupon_types.is_valid("WO35") is False   # dropped from the seven
     assert coupon_types.get("nope") is None
+
+
+# --- flat-payout coupons (GG Bonus / GG No Draw) ---
+
+def test_gg_coupons_pay_a_flat_price_over_three_picks():
+    from app.coupon_types import get
+    for code in ("GGB", "GGND"):
+        assert get(code).flat_payout == 5.5
+        assert get(code).payout_picks == 3
+    # The other five are priced per selection, not flat.
+    assert get("TTS2").flat_payout is None
+
+
+def test_combination_value_beats_flat_price_when_picks_are_short():
+    from app.coupon_types import combination_value
+    # 1.60^3 = 4.10 fair against a flat 5.5 — clear value.
+    assert combination_value([1.6, 1.6, 1.6], 5.5) == pytest.approx(0.3428, abs=1e-3)
+
+
+def test_combination_value_is_negative_when_picks_are_long():
+    from app.coupon_types import combination_value
+    # 1.80^3 = 5.83 fair against a flat 5.5 — a losing combination.
+    assert combination_value([1.8, 1.8, 1.8], 5.5) < 0
+
+
+def test_flat_payout_break_even_is_below_the_screen_threshold():
+    """5.5^(1/3) = 1.765, so a treble of three 1.80s LOSES.
+
+    The GG Bonus screen admits fixtures up to 1.80, which is above break-even —
+    deliberately kept, since real combinations mix shorter picks in, but it
+    means the filter alone does not guarantee a positive combination.
+    """
+    from app.coupon_types import combination_value
+    break_even = 5.5 ** (1 / 3)
+    assert break_even < 1.80
+    assert combination_value([break_even] * 3, 5.5) == pytest.approx(0.0, abs=1e-3)
+
+
+def test_combination_is_unknowable_if_any_leg_is_unpriced():
+    from app.coupon_types import combination_value
+    assert combination_value([1.6, None, 1.6], 5.5) is None
+    assert combination_value([], 5.5) is None
+
+
+def test_flat_payout_rows_carry_no_odds_and_no_row_value():
+    """A per-row edge is meaningless with no per-row price."""
+    from app import checks
+    # No odds is normal here, so it must not raise or flag an odds anomaly.
+    flags = checks.evaluate_leg("GG Bonus", None, matched_fixture="A vs B", match_score=0.9)
+    assert checks.FLAG_ODDS_RANGE not in flags
