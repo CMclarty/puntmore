@@ -12,12 +12,8 @@ function niceStep(range) {
   return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag
 }
 
-const KEYS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', '⌫']
-
 export default function PnlPage() {
   const [bets, setBets] = useState([])
-  const [entry, setEntry] = useState('')
-  const [sign, setSign] = useState(1)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const chartRef = useRef(null)
@@ -131,24 +127,14 @@ export default function PnlPage() {
     return () => { svg.removeEventListener('pointermove', move); svg.removeEventListener('pointerleave', leave) }
   }, [])
 
-  function press(k) {
-    if (k === '⌫') return setEntry(e => e.slice(0, -1))
-    if (k === '.') return setEntry(e => e.includes('.') ? e : (e || '0') + '.')
-    setEntry(e => {
-      if (e.includes('.') && e.split('.')[1].length >= 2) return e
-      if (e.replace('.', '').length >= 6) return e
-      return e + k
-    })
-  }
-
-  async function commit() {
-    const v = parseFloat(entry)
-    if (!v || busy) return
+  // Only called when a bet is actually submitted — so the chart re-renders once
+  // per bet, never per keystroke (the entry lives in its own component below).
+  async function handleAdd(amount) {
+    if (!amount || busy) return
     setBusy(true); setError(null)
     try {
-      const bet = await addBet(sign * Math.round(v * 100) / 100)
+      const bet = await addBet(amount)
       setBets(bs => [...bs, bet])
-      setEntry(''); setSign(1)
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
 
@@ -161,8 +147,6 @@ export default function PnlPage() {
       setBets(bs => bs.slice(0, -1))
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
-
-  const canEnter = entry !== '' && parseFloat(entry) !== 0 && !busy
 
   return (
     <div className={styles.page}>
@@ -196,30 +180,65 @@ export default function PnlPage() {
         </div>
       </section>
 
-      <section className={styles.pad}>
-        <div className={`${styles.display} ${sign > 0 ? styles.plus : styles.minus}`}>
-          <span className={styles.dSign}>{sign > 0 ? '+' : '−'}</span>
-          <span className={`${styles.amt} ${entry === '' ? styles.empty : ''}`}>
-            {entry === '' ? '£0.00' : '£' + entry}
-          </span>
-        </div>
-        <div className={styles.toggle}>
-          <button
-            className={`${styles.minusBtn} ${sign < 0 ? styles.on : ''}`}
-            onClick={() => setSign(-1)}
-          ><span>−</span><span className={styles.lbl}>Loss</span></button>
-          <button
-            className={`${styles.plusBtn} ${sign > 0 ? styles.on : ''}`}
-            onClick={() => setSign(1)}
-          ><span>+</span><span className={styles.lbl}>Win</span></button>
-        </div>
-        <div className={styles.keys}>
-          {KEYS.map(k => (
-            <button key={k} className={k === '.' || k === '⌫' ? styles.util : ''} onClick={() => press(k)}>{k}</button>
-          ))}
-        </div>
-        <button className={styles.enter} onClick={commit} disabled={!canEnter}>Enter</button>
-      </section>
+      <PnlEntry onAdd={handleAdd} busy={busy} />
     </div>
+  )
+}
+
+// Digits plus a single dot, max 2 decimals, capped length.
+function sanitizeAmount(v) {
+  v = v.replace(/[^\d.]/g, '')
+  const parts = v.split('.')
+  if (parts.length > 2) v = parts[0] + '.' + parts.slice(1).join('')
+  const dot = v.indexOf('.')
+  if (dot !== -1) v = v.slice(0, dot + 1) + v.slice(dot + 1).replace(/\./g, '').slice(0, 2)
+  return v.slice(0, 9)
+}
+
+// Own component with local state: typing here re-renders only this small tree,
+// never the chart above — which is what caused the input lag.
+function PnlEntry({ onAdd, busy }) {
+  const [amount, setAmount] = useState('')
+  const [sign, setSign] = useState(1)
+  const value = parseFloat(amount)
+  const canAdd = amount !== '' && value > 0 && !busy
+
+  function submit() {
+    if (!canAdd) return
+    onAdd(sign * Math.round(value * 100) / 100)
+    setAmount(''); setSign(1)
+  }
+
+  return (
+    <section className={styles.pad}>
+      <div className={`${styles.display} ${sign > 0 ? styles.plus : styles.minus}`}>
+        <span className={styles.dSign}>{sign > 0 ? '+' : '−'}</span>
+        <span className={styles.currency}>£</span>
+        <input
+          className={styles.amountInput}
+          value={amount}
+          onChange={e => setAmount(sanitizeAmount(e.target.value))}
+          onKeyDown={e => { if (e.key === 'Enter') submit() }}
+          inputMode="decimal"
+          type="text"
+          placeholder="0.00"
+          aria-label="Bet result"
+          autoComplete="off"
+        />
+      </div>
+      <div className={styles.toggle}>
+        <button
+          type="button"
+          className={`${styles.minusBtn} ${sign < 0 ? styles.on : ''}`}
+          onClick={() => setSign(-1)}
+        ><span>−</span><span className={styles.lbl}>Loss</span></button>
+        <button
+          type="button"
+          className={`${styles.plusBtn} ${sign > 0 ? styles.on : ''}`}
+          onClick={() => setSign(1)}
+        ><span>+</span><span className={styles.lbl}>Win</span></button>
+      </div>
+      <button type="button" className={styles.enter} onClick={submit} disabled={!canAdd}>Enter</button>
+    </section>
   )
 }

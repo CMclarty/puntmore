@@ -7,7 +7,7 @@
 
 /* ---- top: stats + chart ---- */
 .top {
-  flex: 1 1 45%;
+  flex: 1;
   display: flex;
   flex-direction: column;
   padding: 12px 14px 2px;
@@ -103,9 +103,9 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ---- bottom: entry pad ---- */
+/* ---- bottom: entry pad (native numeric input) ---- */
 .pad {
-  flex: 1 1 55%;
+  flex: 0 0 auto;
   border-top: 1px solid var(--line);
   display: flex;
   flex-direction: column;
@@ -115,9 +115,9 @@
 .display {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 48px;
+  gap: 5px;
+  height: 52px;
+  padding: 0 16px;
   border-radius: 12px;
   background: var(--paper);
   border: 1px solid var(--line);
@@ -126,11 +126,23 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
+.display:focus-within { border-color: var(--line-strong); }
 .dSign { font-weight: 700; }
 .plus .dSign { color: var(--accent); }
 .minus .dSign { color: var(--red); }
-.amt { color: var(--ink); }
-.amt.empty { color: var(--faint); }
+.currency { color: var(--ink); }
+.amountInput {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.amountInput::placeholder { color: var(--faint); }
 
 .toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .toggle button {
@@ -152,23 +164,6 @@
 .lbl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
 .minusBtn.on { background: rgba(185, 28, 28, 0.09); border-color: var(--red); color: var(--red); }
 .plusBtn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
-
-.keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; flex: 1; }
-.keys button {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--paper);
-  font-family: var(--font-mono);
-  font-size: 22px;
-  font-weight: 500;
-  color: var(--ink);
-  cursor: pointer;
-  transition: background 0.08s, transform 0.05s;
-  min-height: 42px;
-  font-variant-numeric: tabular-nums;
-}
-.keys button:active { background: var(--accent-soft); transform: translateY(1px); }
-.keys button.util { color: var(--muted); font-size: 18px; }
 
 .enter {
   height: 48px;
