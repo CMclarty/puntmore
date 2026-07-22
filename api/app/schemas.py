@@ -22,6 +22,10 @@ class LegOut(BaseModel):
     side: Optional[str] = None
     edited: bool = False
     flags: list[str] = Field(default_factory=list, validation_alias="flag_list")
+    # Period this selection's coupon runs on, and where today sits in it, so the
+    # tracker can separate the live set from the next one to upload.
+    period_label: Optional[str] = None       # "Mon–Wed"
+    period_status: Optional[str] = None       # "active" | "upcoming" | "past"
 
     model_config = {"from_attributes": True, "populate_by_name": True}
 

@@ -91,6 +91,33 @@ class Leg(Base):
     def flag_list(self) -> list[str]:
         return decode_flags(self.flags)
 
+    @property
+    def period_label(self) -> str | None:
+        """Human label of this selection's coupon period, e.g. "Mon–Wed"."""
+        from .coupon_periods import get as get_period
+        if not self.coupon or not self.coupon.period:
+            return None
+        p = get_period(self.coupon.period)
+        return p.label if p else self.coupon.period
+
+    @property
+    def period_status(self) -> str | None:
+        """Where today sits in this selection's coupon window:
+        "active" (window contains today), "upcoming" (not started yet — the next
+        set to upload), or "past" (window ended). None when the window is
+        unknown (variable coupon not yet resolved from its fixtures)."""
+        from datetime import date
+        if not self.coupon or self.coupon.match_day is None:
+            return None
+        start = self.coupon.match_day
+        end = self.coupon.period_ends or start
+        today = date.today()
+        if today < start:
+            return "upcoming"
+        if today > end:
+            return "past"
+        return "active"
+
 
 class GoalscorerAlert(Base):
     """A first-goalscorer value row found by the scheduler (bet365 > fair).
