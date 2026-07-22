@@ -5,7 +5,12 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..models import User
-from ..security import LoginThrottle, verify_login, require_user
+from ..security import (
+    LoginThrottle,
+    granted_tools,
+    require_user,
+    verify_login,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -21,6 +26,13 @@ class LoginRequest(BaseModel):
 
 class UserOut(BaseModel):
     username: str
+    permissions: str          # raw grant ("*" or tools joined by "+")
+    tools: list[str]          # tools this user may see (grant ∩ enabled tools)
+
+
+def _user_out(user: User) -> UserOut:
+    perms = user.permissions or "*"
+    return UserOut(username=user.username, permissions=perms, tools=granted_tools(perms))
 
 
 @router.post("/login", response_model=UserOut)
@@ -49,7 +61,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     # this login" true regardless of what else ever gets put in the session.
     request.session.clear()
     request.session["user"] = user.username
-    return UserOut(username=user.username)
+    return _user_out(user)
 
 
 @router.post("/logout")
@@ -59,5 +71,8 @@ def logout(request: Request):
 
 
 @router.get("/me", response_model=UserOut)
-def me(username: str = Depends(require_user)):
-    return UserOut(username=username)
+def me(username: str = Depends(require_user), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == username).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return _user_out(user)

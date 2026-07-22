@@ -146,11 +146,13 @@ def test_cards_feed_sorted_by_best_value():
 
 
 def test_feeds_require_auth():
-    from app.security import require_user
+    from app.security import require_user, user_permissions
     app.dependency_overrides.pop(require_user, None)
+    app.dependency_overrides.pop(user_permissions, None)
     try:
         assert client.get("/accabonus/feed").status_code == 401
         assert client.get("/tennis/feed").status_code == 401  # legacy alias guarded too
         assert client.get("/cards/feed").status_code == 401
     finally:
         app.dependency_overrides[require_user] = lambda: "testuser"
+        app.dependency_overrides[user_permissions] = lambda: "*"

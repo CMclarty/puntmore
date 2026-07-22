@@ -72,8 +72,12 @@ class Settings(BaseSettings):
     # us to one anyway); a multi-instance deploy would need a shared store.
     login_max_attempts: int = 10
     login_lockout_seconds: int = 900
-    # Seed users, format "user1:pass1,user2:pass2". Parsed on startup; missing
-    # users are created. Existing users are never modified.
+    # Seed users, format "user:pass[:perms],...". Parsed on startup; missing
+    # users are created, existing users are never modified. The optional third
+    # field is the tool grant: "*" = all tools (present and future), or tool
+    # names joined by "+" (e.g. "coupons+accabonus"). Omitted = "*". Seeing a
+    # tool means full use of it. Because ":" separates fields, a password cannot
+    # contain ":". Example: "callum:s3cret-pw-here:*, dave:otherpw:coupons".
     auth_users: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

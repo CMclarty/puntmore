@@ -10,11 +10,21 @@ from app.main import app
 from app.models import User
 from app.security import (
     require_user,
+    user_permissions,
     hash_password,
     verify_password,
     parse_auth_users,
     seed_users,
+    has_permission,
+    granted_tools,
 )
+
+
+def _use_real_auth():
+    """Drop the conftest bypass so a test exercises the real session guard and
+    the real per-tool authorization (both seams are overridden by default)."""
+    app.dependency_overrides.pop(require_user, None)
+    app.dependency_overrides.pop(user_permissions, None)
 
 # --- In-memory test DB ---
 
@@ -50,10 +60,14 @@ def setup_db():
     Base.metadata.drop_all(bind=test_engine)
 
 
-def _seed_user(username="alice", password="secret"):
+def _seed_user(username="alice", password="secret", permissions="*"):
     db = TestSession()
     try:
-        db.add(User(username=username, password_hash=hash_password(password)))
+        db.add(User(
+            username=username,
+            password_hash=hash_password(password),
+            permissions=permissions,
+        ))
         db.commit()
     finally:
         db.close()
@@ -75,7 +89,18 @@ def test_verify_handles_garbage_hash():
 # --- Unit: parse_auth_users / seed_users ---
 
 def test_parse_auth_users_tolerant():
-    assert parse_auth_users("a:1, b:2 ,, bad, c:3") == [("a", "1"), ("b", "2"), ("c", "3")]
+    # Two-field entries default to the "*" (all tools) grant.
+    assert parse_auth_users("a:1, b:2 ,, bad, c:3") == [
+        ("a", "1", "*"), ("b", "2", "*"), ("c", "3", "*"),
+    ]
+
+
+def test_parse_auth_users_with_grants():
+    assert parse_auth_users("admin:pw:*, dave:pw:coupons, sam:pw:coupons+accabonus") == [
+        ("admin", "pw", "*"),
+        ("dave", "pw", "coupons"),
+        ("sam", "pw", "coupons+accabonus"),
+    ]
 
 
 def test_parse_auth_users_empty():
@@ -110,14 +135,14 @@ def test_seed_users_never_modifies_existing():
 def test_login_bad_credentials_401():
     _seed_user()
     client = TestClient(app)
-    app.dependency_overrides.pop(require_user, None)  # use real auth
+    _use_real_auth()
     resp = client.post("/auth/login", json={"username": "alice", "password": "wrong"})
     assert resp.status_code == 401
 
 
 def test_login_unknown_user_401():
     client = TestClient(app)
-    app.dependency_overrides.pop(require_user, None)
+    _use_real_auth()
     resp = client.post("/auth/login", json={"username": "ghost", "password": "x"})
     assert resp.status_code == 401
 
@@ -125,26 +150,33 @@ def test_login_unknown_user_401():
 def test_login_success_then_me():
     _seed_user()
     client = TestClient(app)
-    app.dependency_overrides.pop(require_user, None)
+    _use_real_auth()
     resp = client.post("/auth/login", json={"username": "alice", "password": "secret"})
     assert resp.status_code == 200
-    assert resp.json() == {"username": "alice"}
+    # alice was seeded with the "*" grant; both tool flags are on in tests, so
+    # she resolves to every tool.
+    expected = {
+        "username": "alice",
+        "permissions": "*",
+        "tools": ["coupons", "accabonus", "cards"],
+    }
+    assert resp.json() == expected
     # session cookie now set on the client → /auth/me works
     me = client.get("/auth/me")
     assert me.status_code == 200
-    assert me.json() == {"username": "alice"}
+    assert me.json() == expected
 
 
 def test_me_401_without_session():
     client = TestClient(app)
-    app.dependency_overrides.pop(require_user, None)
+    _use_real_auth()
     assert client.get("/auth/me").status_code == 401
 
 
 def test_logout_clears_session():
     _seed_user()
     client = TestClient(app)
-    app.dependency_overrides.pop(require_user, None)
+    _use_real_auth()
     client.post("/auth/login", json={"username": "alice", "password": "secret"})
     assert client.get("/auth/me").status_code == 200
     client.post("/auth/logout")
@@ -155,16 +187,78 @@ def test_logout_clears_session():
 
 def test_data_router_401_without_session():
     client = TestClient(app)
-    app.dependency_overrides.pop(require_user, None)  # real guard
+    _use_real_auth()
     assert client.get("/coupons").status_code == 401
 
 
 def test_data_router_200_with_session():
     _seed_user()
     client = TestClient(app)
-    app.dependency_overrides.pop(require_user, None)
+    _use_real_auth()
     client.post("/auth/login", json={"username": "alice", "password": "secret"})
     assert client.get("/coupons").status_code == 200
+
+
+# --- Split auth: per-tool authorization ---
+
+def test_coupons_grant_admits_coupons_router():
+    _seed_user("dave", "couponpass", permissions="coupons")
+    client = TestClient(app)
+    _use_real_auth()
+    client.post("/auth/login", json={"username": "dave", "password": "couponpass"})
+    assert client.get("/coupons").status_code == 200
+
+
+def test_non_coupons_grant_is_403_on_coupons_router():
+    # A logged-in user without the coupons grant is authenticated but forbidden:
+    # 403, not 401 — the session is valid, the permission is not.
+    _seed_user("sam", "accapass", permissions="accabonus")
+    client = TestClient(app)
+    _use_real_auth()
+    client.post("/auth/login", json={"username": "sam", "password": "accapass"})
+    assert client.get("/coupons").status_code == 403
+
+
+def test_me_reports_only_granted_and_enabled_tools():
+    _seed_user("sam", "accapass", permissions="coupons+accabonus")
+    client = TestClient(app)
+    _use_real_auth()
+    client.post("/auth/login", json={"username": "sam", "password": "accapass"})
+    body = client.get("/auth/me").json()
+    assert body["permissions"] == "coupons+accabonus"
+    assert body["tools"] == ["coupons", "accabonus"]  # cards not granted
+
+
+def test_seed_users_persists_the_grant():
+    db = TestSession()
+    try:
+        seed_users(db, "admin:pw:*, dave:pw:coupons")
+        admin = db.query(User).filter(User.username == "admin").first()
+        dave = db.query(User).filter(User.username == "dave").first()
+        assert admin.permissions == "*"
+        assert dave.permissions == "coupons"
+    finally:
+        db.close()
+
+
+# --- Unit: permission helpers ---
+
+def test_has_permission_wildcard_and_explicit():
+    assert has_permission("*", "coupons")
+    assert has_permission("*", "anything-future")
+    assert has_permission("coupons+cards", "cards")
+    assert not has_permission("coupons", "accabonus")
+    assert not has_permission("", "coupons")
+
+
+def test_granted_tools_intersects_grant_with_enabled(monkeypatch):
+    # Both flags on in the test env, so "*" yields all three in nav order.
+    assert granted_tools("*") == ["coupons", "accabonus", "cards"]
+    assert granted_tools("coupons") == ["coupons"]
+    # A grant for a disabled tool yields nothing for it.
+    from app import security
+    monkeypatch.setattr(security.settings, "enable_cards", False)
+    assert granted_tools("coupons+cards") == ["coupons"]
 
 
 # --- brute-force throttle + constant-time login ---

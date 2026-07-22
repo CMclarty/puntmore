@@ -94,4 +94,9 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     username = Column(String, unique=True, nullable=False)
     password_hash = Column(String, nullable=False)
+    # Tool access. "*" = every tool, present and future (admin). Otherwise the
+    # granted tool names joined by "+" (e.g. "coupons+accabonus"). Seeing a tool
+    # means full use of it — there is no view-only tier. Default "*" so any user
+    # created without an explicit grant keeps the pre-split behaviour.
+    permissions = Column(String, nullable=False, default="*")
     created_at = Column(DateTime, default=utcnow)

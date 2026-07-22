@@ -3,6 +3,7 @@ import styles from './BottomNav.module.css'
 
 const TABS = [
   {
+    tool: 'coupons',
     label: 'Coupon',
     to: '/',
     matches: (p) => p === '/' || p.startsWith('/upload'),
@@ -19,6 +20,7 @@ const TABS = [
     // Hidden for now — coupon-tracker-only mode (PLAN.md v5). Definition kept;
     // remove `hidden` to bring the tab back (also re-enable its API router).
     hidden: true,
+    tool: 'accabonus',
     label: 'AccaBonus',
     to: '/accabonus',
     matches: (p) => p.startsWith('/accabonus') || p.startsWith('/tennis'),
@@ -33,6 +35,7 @@ const TABS = [
   {
     // Hidden for now — coupon-tracker-only mode (PLAN.md v5). See above.
     hidden: true,
+    tool: 'cards',
     label: 'C/C',
     to: '/cards',
     matches: (p) => p.startsWith('/cards'),
@@ -45,11 +48,15 @@ const TABS = [
   },
 ]
 
-export default function BottomNav() {
+export default function BottomNav({ tools = [] }) {
   const { pathname } = useLocation()
+  // A tab shows only if it isn't globally hidden (PLAN.md v5) AND this user is
+  // granted its tool. The server already intersects the grant with the enabled
+  // tools, so `tools` never contains a globally-disabled tool.
+  const visible = TABS.filter(tab => !tab.hidden && tools.includes(tab.tool))
   return (
     <nav className={styles.nav}>
-      {TABS.filter(tab => !tab.hidden).map(tab => {
+      {visible.map(tab => {
         const active = tab.matches(pathname)
         return (
           <Link

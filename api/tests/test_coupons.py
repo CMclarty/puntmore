@@ -440,12 +440,14 @@ def test_upload_requires_auth(upload_client):
         app.dependency_overrides[require_user] = lambda: "testuser"
 
 def test_coupons_requires_auth():
-    from app.security import require_user
+    from app.security import require_user, user_permissions
     app.dependency_overrides.pop(require_user, None)
+    app.dependency_overrides.pop(user_permissions, None)
     try:
         assert api.get("/coupons").status_code == 401
     finally:
         app.dependency_overrides[require_user] = lambda: "testuser"
+        app.dependency_overrides[user_permissions] = lambda: "*"
 
 
 # --- coupon types as top-level entities ---

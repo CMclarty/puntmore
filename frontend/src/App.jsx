@@ -28,7 +28,16 @@ export default function App() {
 
   if (loading) return null
 
-  const protect = (el) => (user ? el : <Navigate to="/login" replace />)
+  const canSee = (tool) => Boolean(user?.tools?.includes(tool))
+
+  // Gate a route on a tool grant: not logged in → login; logged in but not
+  // granted this tool → the no-access notice (never a redirect to another
+  // guarded route, which would loop for a user granted nothing).
+  const protectTool = (el, tool) => {
+    if (!user) return <Navigate to="/login" replace />
+    if (!canSee(tool)) return <NoAccess onLogout={handleLogout} />
+    return el
+  }
 
   return (
     <BrowserRouter>
@@ -38,15 +47,24 @@ export default function App() {
             path="/login"
             element={user ? <Navigate to="/" replace /> : <LoginPage onLogin={setUser} />}
           />
-          <Route path="/" element={protect(<TrackerPage />)} />
-          <Route path="/upload" element={protect(<UploadPage user={user} />)} />
+          <Route path="/" element={protectTool(<TrackerPage />, 'coupons')} />
+          <Route path="/upload" element={protectTool(<UploadPage user={user} />, 'coupons')} />
           {/* Hidden tools — redirect to the tracker (PLAN.md v5). */}
           <Route path="/accabonus" element={<Navigate to="/" replace />} />
           <Route path="/tennis" element={<Navigate to="/" replace />} />
           <Route path="/cards" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
-      {user && <BottomNav onLogout={handleLogout} username={user.username} />}
+      {user && <BottomNav onLogout={handleLogout} username={user.username} tools={user.tools} />}
     </BrowserRouter>
+  )
+}
+
+function NoAccess({ onLogout }) {
+  return (
+    <div className={styles.noAccess}>
+      <p>Your account has no tools enabled. Ask an admin for access.</p>
+      <button type="button" onClick={onLogout}>Log out</button>
+    </div>
   )
 }

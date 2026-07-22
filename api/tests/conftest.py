@@ -20,11 +20,16 @@ os.environ.setdefault("SESSION_COOKIE_INSECURE", "true")
 import pytest
 
 from app.main import app
-from app.security import require_user
+from app.security import require_user, user_permissions
 
 
 @pytest.fixture(autouse=True)
 def bypass_auth():
+    # Bypass identity (require_user) for attribution and /auth/me, and the
+    # per-tool guard (user_permissions) for the router-level require_tool checks.
+    # "*" admits every tool so the existing endpoint tests need no grant setup.
     app.dependency_overrides[require_user] = lambda: "testuser"
+    app.dependency_overrides[user_permissions] = lambda: "*"
     yield
     app.dependency_overrides.pop(require_user, None)
+    app.dependency_overrides.pop(user_permissions, None)

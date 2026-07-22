@@ -10,7 +10,7 @@ from .models import Base, User
 from .seed import seed
 from .config import settings
 from .security import (
-    require_user,
+    require_tool,
     seed_users,
     ensure_schema,
     weak_seed_passwords,
@@ -198,17 +198,18 @@ app.add_middleware(
 # Auth router is open (login/logout); /auth/me self-guards.
 app.include_router(auth_router.router)
 
-# All data routers require a logged-in session.
-_guard = [Depends(require_user)]
-app.include_router(coupons.router, dependencies=_guard)
-app.include_router(upload_router, dependencies=_guard)
+# Each data router is gated on its tool. require_tool enforces both a logged-in
+# session and the per-user grant (seeing a tool = full use of it). Upload is
+# part of the coupon tracker, so it shares the "coupons" grant.
+app.include_router(coupons.router, dependencies=[Depends(require_tool("coupons"))])
+app.include_router(upload_router, dependencies=[Depends(require_tool("coupons"))])
 # AccaBonus and Cards/Corners are hidden for now (coupon-tracker-only mode,
 # PLAN.md v5). Code is kept; the routers are only mounted when re-enabled via
 # the ENABLE_ACCABONUS / ENABLE_CARDS flags in .env.
 if settings.enable_accabonus:
-    app.include_router(accabonus.router, dependencies=_guard)
+    app.include_router(accabonus.router, dependencies=[Depends(require_tool("accabonus"))])
 if settings.enable_cards:
-    app.include_router(cards_router.router, dependencies=_guard)
+    app.include_router(cards_router.router, dependencies=[Depends(require_tool("cards"))])
 
 # /state self-guards with a static API key (machine consumers, no session).
 app.include_router(state_router.router)

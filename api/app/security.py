@@ -6,12 +6,18 @@ startup. require_user is the single guard applied to every data router.
 import time
 
 import bcrypt
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
-from .database import engine
+from .config import settings
+from .database import engine, get_db
 from .models import User
+
+# Every tool the suite knows about. "*" in a permission string means all of
+# these plus any added later (so an admin never needs their entry edited when a
+# tool ships). Keep in sync with the routers mounted in main.py.
+ALL_TOOLS = ("coupons", "accabonus", "cards")
 
 
 def hash_password(plain: str) -> str:
@@ -86,18 +92,91 @@ def require_user(request: Request) -> str:
     return user
 
 
-def parse_auth_users(raw: str) -> list[tuple[str, str]]:
-    """Parse "u1:p1,u2:p2" → [("u1","p1"), ("u2","p2")]. Tolerant of whitespace."""
-    pairs = []
+def parse_permissions(perms: str) -> set[str]:
+    """Expand a permission string to the concrete set of tool names it grants.
+
+    "*" expands to every known tool. Otherwise tools are joined by "+"
+    (e.g. "coupons+accabonus"). Does NOT apply the server's enable flags — use
+    granted_tools for what a user may actually see.
+    """
+    perms = (perms or "").strip()
+    if perms == "*":
+        return set(ALL_TOOLS)
+    return {t.strip() for t in perms.split("+") if t.strip()}
+
+
+def has_permission(perms: str, tool: str) -> bool:
+    """True if the permission string grants access to `tool` ("*" grants all)."""
+    if (perms or "").strip() == "*":
+        return True
+    return tool in parse_permissions(perms)
+
+
+def enabled_tools() -> list[str]:
+    """Tools the server currently surfaces, in nav order. coupons is always on;
+    AccaBonus and Cards are gated by their ENABLE_* flags (PLAN.md v5)."""
+    tools = ["coupons"]
+    if settings.enable_accabonus:
+        tools.append("accabonus")
+    if settings.enable_cards:
+        tools.append("cards")
+    return tools
+
+
+def granted_tools(perms: str) -> list[str]:
+    """Tools a user may actually see: their permission grant intersected with
+    the tools the server has enabled. This is what the frontend nav gates on."""
+    allowed = parse_permissions(perms)
+    return [t for t in enabled_tools() if t in allowed]
+
+
+def user_permissions(request: Request, db: Session = Depends(get_db)) -> str:
+    """FastAPI dependency: the current user's permission string, read live from
+    the DB (so a re-seed takes effect without waiting for re-login).
+
+    A single overridable seam — tests replace this one function to bypass
+    per-tool authorization, and every require_tool guard resolves through it.
+    """
+    username = require_user(request)
+    user = db.query(User).filter(User.username == username).first()
+    if user is None:
+        # Session names a user that no longer exists (deleted between requests).
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user.permissions or ""
+
+
+def require_tool(tool: str):
+    """Build a dependency that admits a request only if the session user is
+    granted `tool`. Router-level guard: seeing a tool means full use of it."""
+
+    def guard(perms: str = Depends(user_permissions)) -> None:
+        if not has_permission(perms, tool):
+            raise HTTPException(
+                status_code=403, detail="Insufficient permissions"
+            )
+
+    return guard
+
+
+def parse_auth_users(raw: str) -> list[tuple[str, str, str]]:
+    """Parse "u:p:perms,..." → [("u","p","perms"), ...]. Tolerant of whitespace.
+
+    The third field is optional and defaults to "*" (all tools), preserving the
+    two-field "user:pass" format. It is "*" or tools joined by "+"
+    (e.g. "coupons+accabonus"). Because ":" separates the three fields, a
+    password itself cannot contain ":".
+    """
+    entries = []
     for chunk in raw.split(","):
         chunk = chunk.strip()
         if not chunk or ":" not in chunk:
             continue
-        username, password = chunk.split(":", 1)
-        username, password = username.strip(), password.strip()
+        parts = chunk.split(":", 2)
+        username, password = parts[0].strip(), parts[1].strip()
+        permissions = parts[2].strip() if len(parts) > 2 and parts[2].strip() else "*"
         if username and password:
-            pairs.append((username, password))
-    return pairs
+            entries.append((username, password, permissions))
+    return entries
 
 
 # Passwords that are effectively public knowledge. Not an exhaustive strength
@@ -115,7 +194,7 @@ def weak_seed_passwords(raw: str) -> list[str]:
     Returns usernames only — never the passwords, since the caller logs this.
     """
     weak = []
-    for username, password in parse_auth_users(raw):
+    for username, password, _permissions in parse_auth_users(raw):
         if (
             password.lower() in _COMMON_PASSWORDS
             or password.lower() == username.lower()
@@ -132,11 +211,15 @@ def seed_users(db: Session, raw: str) -> int:
     Returns the number of users created.
     """
     created = 0
-    for username, password in parse_auth_users(raw):
+    for username, password, permissions in parse_auth_users(raw):
         exists = db.query(User).filter(User.username == username).first()
         if exists:
             continue
-        db.add(User(username=username, password_hash=hash_password(password)))
+        db.add(User(
+            username=username,
+            password_hash=hash_password(password),
+            permissions=permissions,
+        ))
         created += 1
     db.commit()
     return created
@@ -148,6 +231,18 @@ def ensure_schema() -> None:
 
     inspector = inspect(engine)
     tables = inspector.get_table_names()
+
+    # Split-auth migration: users gain a permission grant. Default "*" (all
+    # tools) so users seeded before the split keep full access — nobody is
+    # locked out by the column appearing.
+    if "users" in tables:
+        ucols = {c["name"] for c in inspector.get_columns("users")}
+        if "permissions" not in ucols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE users ADD COLUMN permissions VARCHAR "
+                    "NOT NULL DEFAULT '*'"
+                ))
 
     # R1 migration: old schema had sets/versions/matches + template coupons.
     # Detect by presence of 'sets' or 'versions' (new schema has neither).
