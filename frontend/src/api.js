@@ -102,3 +102,7 @@ export const getAccaBonusFeed = (minEdge = -0.02) =>
 // Cards & corners
 export const getCardsFeed = (minEdge = -0.02) =>
   get(`/cards/feed?min_edge=${minEdge}`)
+
+// First-goalscorer value (bet365 vs de-vigged Pinnacle). Rows are produced by
+// the scheduler near kickoff and stored, so this just reads the current set.
+export const getGoalscorerFeed = () => get('/goalscorers/feed')

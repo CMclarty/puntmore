@@ -5,6 +5,40 @@ costs API credits — read this before spending more.
 
 ---
 
+## TheOddsApi — first-goalscorer (NOT yet verified against live data)
+
+**Status:** the goalscorer tool (`app/goalscorers/`) was built 22 Jul 2026 but
+its per-event response shape is **unverified** — first goalscorer only posts
+near kickoff for major fixtures, and late July is off-season, so there was no
+live fixture to probe.
+
+Assumptions baked in, to confirm on the first in-season major fixture:
+
+1. **Market key** is `player_first_goal_scorer` (per-event endpoint only, like
+   cards/corners — the bulk `/odds` endpoint rejects it).
+2. **Player identity** — `value.py::_player_prices` reads `outcome["description"]`
+   then falls back to `outcome["name"]`. Confirm which field actually carries
+   the player name (note the CLAUDE.md warning that `description` is absent on
+   *featured* markets — player props may differ).
+3. **bet365 coverage** — bet365 is confirmed on TheOddsApi for h2h, but returned
+   NO corners/cards below. Confirm it prices `player_first_goal_scorer`.
+4. **Pinnacle coverage** — user states Pinnacle prices it, but only close to KO
+   and for majors. Confirm the "no goalscorer" outcome is included (the de-vig
+   needs the complete book).
+
+5. **Name matching** — bet365 and Pinnacle spell players differently, so names
+   are fuzzy-matched (`value.py::player_match_score`, difflib + accent-fold, same
+   approach as the fixture matcher). The floor (`GOALSCORER_NAME_MATCH_FLOOR`,
+   default 0.8) is biased for precision but **uncalibrated** — collect real
+   bet365/Pinnacle name pairs from the first live fixtures and tune it. Rows
+   below the confident band (0.9) are surfaced with a ⚠ rather than trusted. A
+   learned alias table was deliberately deferred (no data to learn from yet).
+
+Until confirmed, treat the stored edges as unvalidated. One probe of a real
+fixture settles the schema; a handful of fixtures calibrates the name floor.
+
+---
+
 ## TheOddsApi — cards/bookings & corners markets (verified 21 July 2026)
 
 **Question:** does TheOddsApi carry Paddy Power bookings and corners markets?

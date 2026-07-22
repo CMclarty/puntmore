@@ -4,6 +4,7 @@ import { getMe, logout as apiLogout } from './api'
 import BottomNav from './components/BottomNav'
 import TrackerPage from './pages/TrackerPage'
 import UploadPage from './pages/UploadPage'
+import GoalscorersPage from './pages/GoalscorersPage'
 import LoginPage from './pages/LoginPage'
 import styles from './App.module.css'
 // AccaBonusPage and CardsPage are hidden for now (coupon-tracker-only mode,
@@ -49,6 +50,7 @@ export default function App() {
           />
           <Route path="/" element={protectTool(<TrackerPage />, 'coupons')} />
           <Route path="/upload" element={protectTool(<UploadPage user={user} />, 'coupons')} />
+          <Route path="/goalscorers" element={protectTool(<GoalscorersPage />, 'goalscorers')} />
           {/* Hidden tools — redirect to the tracker (PLAN.md v5). */}
           <Route path="/accabonus" element={<Navigate to="/" replace />} />
           <Route path="/tennis" element={<Navigate to="/" replace />} />

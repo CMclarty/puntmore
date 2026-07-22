@@ -32,6 +32,7 @@ from .routers import coupons
 from .routers.upload import router as upload_router
 from .routers import accabonus
 from .routers import cards as cards_router
+from .routers import goalscorers as goalscorers_router
 from .routers import auth as auth_router
 from .routers import state as state_router
 from .cards.client import CardsApiClient
@@ -156,6 +157,7 @@ async def lifespan(app: FastAPI):
     scheduler = start_scheduler(
         odds_provider=app.state.odds_provider,
         notifier=app.state.notifier,
+        odds_client=odds_client,
     )
     app.state.scheduler = scheduler
 
@@ -210,6 +212,11 @@ if settings.enable_accabonus:
     app.include_router(accabonus.router, dependencies=[Depends(require_tool("accabonus"))])
 if settings.enable_cards:
     app.include_router(cards_router.router, dependencies=[Depends(require_tool("cards"))])
+if settings.enable_goalscorers:
+    app.include_router(
+        goalscorers_router.router,
+        dependencies=[Depends(require_tool("goalscorers"))],
+    )
 
 # /state self-guards with a static API key (machine consumers, no session).
 app.include_router(state_router.router)

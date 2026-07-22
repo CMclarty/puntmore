@@ -1,4 +1,5 @@
 import re
+import unicodedata
 
 _ABBREVS: dict[str, str] = {
     "man": "manchester",
@@ -28,3 +29,20 @@ def normalise_match(match_name: str) -> str:
     if len(parts) == 2:
         return f"{normalise_team(parts[0])} vs {normalise_team(parts[1])}"
     return normalise_team(match_name)
+
+
+def _strip_accents(s: str) -> str:
+    """Fold diacritics so 'Gündoğan' and 'Gundogan' compare equal — bookmakers
+    are inconsistent about accents on player names."""
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)
+    )
+
+
+def normalise_player(name: str) -> str:
+    """Normalise a goalscorer name for fuzzy matching across bookmakers:
+    accent-fold, drop punctuation ('M.' -> 'm'), lowercase, collapse spaces."""
+    name = _strip_accents(name)
+    name = _PUNCT_RE.sub(" ", name)
+    name = _SPACE_RE.sub(" ", name).strip().lower()
+    return name

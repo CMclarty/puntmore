@@ -106,6 +106,21 @@ class CardFeedItem(BaseModel):
     bets: list[CardFeedBet]
 
 
+# First-goalscorer value feed (bet365 vs de-vigged Pinnacle)
+class GoalscorerFeedItem(BaseModel):
+    match: str
+    commence_time: str | None = None
+    player: str
+    matched_player: str | None = None
+    match_score: float | None = None
+    low_confidence: bool = False   # match_score below the confident band
+    bet365_price: float
+    pinnacle_price: float
+    fair_price: float
+    edge: float
+    inplay: bool
+
+
 # AccaBonus arbs (full detail)
 class ArbOut(BaseModel):
     event_id: str

@@ -57,6 +57,30 @@ class Settings(BaseSettings):
     # Flip to True (in .env) to bring a tool back. See PLAN.md v5.
     enable_accabonus: bool = False
     enable_cards: bool = False
+    # First-goalscorer value alerts (bet365 vs de-vigged Pinnacle). Surfaced in
+    # the UI when on. The scheduler builds a daily watchlist of major fixtures
+    # and scans each at kickoff − 45 min (Pinnacle only posts the market near KO
+    # for majors), storing rows and alerting Discord on new value.
+    enable_goalscorers: bool = True
+    # Comma-separated sport keys the watchlist covers. Default = the big-five
+    # leagues + Champions League, where both books price first goalscorer.
+    goalscorer_sport_keys: str = (
+        "soccer_epl,soccer_spain_la_liga,soccer_italy_serie_a,"
+        "soccer_germany_bundesliga,soccer_france_ligue_one,soccer_uefa_champs_league"
+    )
+    # Minimum edge vs de-vigged Pinnacle for a player to be stored/alerted.
+    # 0.0 = bet365 at or above fair. Provisional — not backtest-calibrated.
+    goalscorer_min_edge: float = 0.0
+    # Confidence floor for matching a bet365 player name to a Pinnacle one.
+    # Biased for precision (a false match invents fake value). Provisional —
+    # calibrate against real bet365/Pinnacle name pairs before lowering.
+    goalscorer_name_match_floor: float = 0.8
+    # Minutes before kickoff to run the first scan.
+    goalscorer_lead_minutes: int = 45
+    # In-play re-scan: interval (minutes) and how long after KO to keep scanning.
+    # in-play interval of 0 disables the in-play loop (pre-KO scan only).
+    goalscorer_inplay_interval: int = 0
+    goalscorer_inplay_window: int = 40
     # Static API key for GET /state (machine consumers, e.g. dashboards/bots).
     # Sent as the X-API-Key header. Blank = endpoint disabled (503).
     state_api_key: str = ""

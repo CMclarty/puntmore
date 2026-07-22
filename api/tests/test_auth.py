@@ -158,7 +158,7 @@ def test_login_success_then_me():
     expected = {
         "username": "alice",
         "permissions": "*",
-        "tools": ["coupons", "accabonus", "cards"],
+        "tools": ["coupons", "accabonus", "cards", "goalscorers"],
     }
     assert resp.json() == expected
     # session cookie now set on the client → /auth/me works
@@ -252,8 +252,8 @@ def test_has_permission_wildcard_and_explicit():
 
 
 def test_granted_tools_intersects_grant_with_enabled(monkeypatch):
-    # Both flags on in the test env, so "*" yields all three in nav order.
-    assert granted_tools("*") == ["coupons", "accabonus", "cards"]
+    # Both flags on in the test env, so "*" yields every tool in nav order.
+    assert granted_tools("*") == ["coupons", "accabonus", "cards", "goalscorers"]
     assert granted_tools("coupons") == ["coupons"]
     # A grant for a disabled tool yields nothing for it.
     from app import security

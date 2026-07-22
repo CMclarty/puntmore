@@ -17,6 +17,18 @@ const TABS = [
     ),
   },
   {
+    tool: 'goalscorers',
+    label: 'Scorers',
+    to: '/goalscorers',
+    matches: (p) => p.startsWith('/goalscorers'),
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="11" cy="11" r="7"/>
+        <polygon points="11,7 13.4,9 12.5,12 9.5,12 8.6,9"/>
+      </svg>
+    ),
+  },
+  {
     // Hidden for now — coupon-tracker-only mode (PLAN.md v5). Definition kept;
     // remove `hidden` to bring the tab back (also re-enable its API router).
     hidden: true,

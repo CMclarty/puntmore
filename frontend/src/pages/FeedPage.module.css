@@ -99,6 +99,35 @@
   text-overflow: ellipsis;
 }
 
+/* Small monospace sub-line under a card row (e.g. fair/pinnacle reference). */
+.sub {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--faint);
+}
+
+/* Low-confidence name-match marker on a goalscorer pick. */
+.warn {
+  color: var(--amber, #d68a00);
+  cursor: help;
+}
+
+/* Header refresh button (feeds that read a stored set rather than a slider). */
+.refresh {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.refresh:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .arbChip {
   font-size: 10px;
   font-weight: 700;

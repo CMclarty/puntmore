@@ -17,7 +17,7 @@ from .models import User
 # Every tool the suite knows about. "*" in a permission string means all of
 # these plus any added later (so an admin never needs their entry edited when a
 # tool ships). Keep in sync with the routers mounted in main.py.
-ALL_TOOLS = ("coupons", "accabonus", "cards")
+ALL_TOOLS = ("coupons", "accabonus", "cards", "goalscorers")
 
 
 def hash_password(plain: str) -> str:
@@ -120,6 +120,8 @@ def enabled_tools() -> list[str]:
         tools.append("accabonus")
     if settings.enable_cards:
         tools.append("cards")
+    if settings.enable_goalscorers:
+        tools.append("goalscorers")
     return tools
 
 

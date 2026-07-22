@@ -23,6 +23,8 @@ class TheOddsApiClient:
         self._cache_ttl = cache_ttl
         # keyed by (sport_key, markets, bookmakers) → (fetched_at, events)
         self._cache: dict[tuple[str, str, str], tuple[float, list]] = {}
+        # per-event odds cache, keyed by ("__event__", event_id, markets, books)
+        self._event_cache: dict[tuple[str, str, str, str], tuple[float, dict]] = {}
 
     def fetch(
         self,
@@ -75,6 +77,89 @@ class TheOddsApiClient:
             "OddsApi call: %s [%s] — quota used=%s remaining=%s",
             sport_key, markets, used, remaining,
         )
+        events = resp.json()
+        self._cache[cache_key] = (now, events)
+        return events
+
+    def fetch_event(
+        self,
+        sport_key: str,
+        event_id: str,
+        markets: str,
+        bookmakers: str | None = None,
+        ttl: int | None = None,
+    ) -> dict:
+        """Return one event's odds from the PER-EVENT endpoint, cached.
+
+        Player-prop and alternate markets (e.g. player_first_goal_scorer) are
+        NOT served by the bulk /odds endpoint — it rejects them with
+        INVALID_MARKET (see docs/provider-verification.md). They live only on
+        /v4/sports/{sport}/events/{eventId}/odds, billed per event as
+        (markets returned × regions).
+
+        Returns the event dict, or {} if the event/market is absent (404).
+        """
+        cache_key = ("__event__", event_id, markets, bookmakers or "")
+        effective_ttl = self._cache_ttl if ttl is None else ttl
+        now = time.monotonic()
+
+        if cache_key in self._event_cache:
+            fetched_at, event = self._event_cache[cache_key]
+            if now - fetched_at < effective_ttl:
+                return event
+
+        params: dict = {
+            "apiKey": self._api_key,
+            "regions": "eu",
+            "markets": markets,
+            "oddsFormat": "decimal",
+        }
+        if bookmakers:
+            params["bookmakers"] = bookmakers
+
+        resp = httpx.get(
+            f"{BASE_URL}/v4/sports/{sport_key}/events/{event_id}/odds",
+            params=params,
+            timeout=15,
+        )
+        if resp.status_code == 404:
+            self._event_cache[cache_key] = (now, {})
+            return {}
+        resp.raise_for_status()
+        remaining = resp.headers.get("x-requests-remaining")
+        used = resp.headers.get("x-requests-used")
+        logger.info(
+            "OddsApi per-event call: %s/%s [%s] — quota used=%s remaining=%s",
+            sport_key, event_id, markets, used, remaining,
+        )
+        event = resp.json()
+        self._event_cache[cache_key] = (now, event)
+        return event
+
+    def list_events(self, sport_key: str, ttl: int | None = None) -> list[dict]:
+        """Today-and-upcoming fixtures for a sport (id, teams, commence_time).
+
+        Uses /v4/sports/{sport}/events, which is FREE (no quota) — it carries no
+        odds, just the fixture list the watchlist is built from.
+        """
+        cache_key = ("__events__", sport_key, "")
+        effective_ttl = self._cache_ttl if ttl is None else ttl
+        now = time.monotonic()
+
+        if cache_key in self._cache:
+            fetched_at, events = self._cache[cache_key]
+            if now - fetched_at < effective_ttl:
+                return events
+
+        resp = httpx.get(
+            f"{BASE_URL}/v4/sports/{sport_key}/events",
+            params={"apiKey": self._api_key},
+            timeout=15,
+        )
+        if resp.status_code == 404:
+            self._cache[cache_key] = (now, [])
+            return []
+        resp.raise_for_status()
         events = resp.json()
         self._cache[cache_key] = (now, events)
         return events

@@ -88,6 +88,30 @@ class Leg(Base):
         return decode_flags(self.flags)
 
 
+class GoalscorerAlert(Base):
+    """A first-goalscorer value row found by the scheduler (bet365 > fair).
+
+    Written by the pre-kickoff / in-play scan and read by GET /goalscorers/feed.
+    Rows for an event are replaced on each scan, so the table always reflects
+    the latest picture rather than accumulating history.
+    """
+    __tablename__ = "goalscorer_alerts"
+
+    id = Column(Integer, primary_key=True)
+    event_id = Column(String, nullable=False, index=True)
+    match_name = Column(String, nullable=False)
+    commence_time = Column(DateTime, nullable=True)   # fixture kickoff (UTC)
+    player = Column(String, nullable=False)            # bet365's spelling
+    matched_player = Column(String, nullable=True)     # Pinnacle's spelling paired to
+    match_score = Column(Float, nullable=True)         # name-match confidence [0,1]
+    bet365_price = Column(Float, nullable=False)
+    pinnacle_price = Column(Float, nullable=False)
+    fair_price = Column(Float, nullable=False)         # de-vigged Pinnacle
+    edge = Column(Float, nullable=False)               # bet365/fair - 1
+    inplay = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=utcnow)
+
+
 class User(Base):
     __tablename__ = "users"
 
