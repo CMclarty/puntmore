@@ -19,10 +19,10 @@ React frontend, behind a shared nginx layer.
 
 ```
 bettingtools/
-├── api/              ← shared FastAPI backend (all three tools)
-├── frontend/         ← single React app (Coupons / AccaBonus / Cards), Vite
-├── nginx/            ← shared reverse proxy (routes /api/ → api, / → frontend)
-└── docker-compose.yml
+├── api/              ← FastAPI backend; api/Dockerfile ALSO builds the frontend
+│                       into this one image, and app/asgi.py serves both
+├── frontend/         ← React app (Vite); built into the api image, not deployed alone
+└── render.yaml       ← Render blueprint: ONE Docker web service, deploy on push to main
 ```
 
 The three tools are routes in one React app (`/`, `/accabonus`, `/cards`), not
@@ -183,13 +183,18 @@ operations behind the API key.
   on PATH). Rules are in `.gitleaks.toml` — the tool's defaults miss this repo's
   known leak shape, so don't replace them with a stock config.
 
-## Stack
+## Stack & deployment
 - Backend: FastAPI (Python), one app, routers namespaced per tool.
-- Frontend: one React (Vite) app, built to static files served by its own nginx
-  container. CSS modules + shared CSS variables in `src/index.css`.
-- Reverse proxy: shared nginx container routes `/api/` → api, `/` → frontend.
-  Caddy sits in front for TLS (`puntmore.com`).
-- Storage: SQLite on a named Docker volume (`db_data`). Images on `uploads`.
+- Frontend: one React (Vite) app. `api/Dockerfile` builds it and copies the
+  static bundle into the API image; `app/asgi.py` serves the SPA at `/` and the
+  API under `/api` — ONE origin (required: the session cookie is `same_site=lax`
+  and the frontend calls relative `/api/...`). CSS modules + vars in `index.css`.
+- **Deployment is Render only.** ONE Docker web service (`render.yaml`),
+  `autoDeploy: true` → **every push to `main` deploys** (`puntmore.com`, served at
+  216.24.57.x). There is NO local docker-compose / nginx stack — it was removed;
+  don't reintroduce one. To deploy: push to `main`. Health gate is `/api/ready`.
+- Storage: SQLite on the Render persistent disk at `/data` (`DATABASE_URL`);
+  uploaded images under `/data/uploads`. Single instance — SQLite has one writer.
 - Scheduler: APScheduler (in-process).
 
 ## Adding a new tool page
@@ -211,8 +216,8 @@ operations behind the API key.
 # Run the frontend dev server (from frontend/):
 npm run dev
 
-# Build and run full stack:
-docker compose up --build
+# Deploy: push to main — Render autoDeploys (no local stack).
+git push origin HEAD:main
 
 # Re-run the derived-market calibration backtest (from api/):
 .venv/bin/python tools/backtest_calibration.py
