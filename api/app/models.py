@@ -79,7 +79,11 @@ class Leg(Base):
     flags = Column(String, nullable=True)            # comma-separated codes (checks.py)
     # True once a human has corrected this row. A re-scan must never overwrite
     # an edited row with a fresh machine read.
-    edited = Column(Boolean, nullable=False, default=False)
+    # server_default is REQUIRED, not cosmetic: the ensure_schema legs rebuild
+    # recreates this table from the model and copies old rows with an INSERT
+    # that omits `edited`. Without a SQL DEFAULT the NOT NULL column rejects
+    # those rows (the Python-side default never reaches a raw INSERT ... SELECT).
+    edited = Column(Boolean, nullable=False, default=False, server_default="0")
 
     coupon = relationship("Coupon", back_populates="legs")
 

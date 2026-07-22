@@ -309,12 +309,10 @@ def ensure_schema() -> None:
                     f"INSERT INTO legs ({cols_sql}) SELECT {cols_sql} FROM legs_old"
                 ))
                 conn.execute(text("DROP TABLE legs_old"))
-            if "flags" not in cols:
-                conn.execute(text("ALTER TABLE legs ADD COLUMN flags VARCHAR"))
-            if "edited" not in cols:
-                conn.execute(text(
-                    "ALTER TABLE legs ADD COLUMN edited BOOLEAN NOT NULL DEFAULT 0"
-                ))
+            # The rebuilt table already has `flags` and `edited` from the model
+            # (edited carries a SQL server_default so the INSERT above fills it),
+            # so no further ALTERs are needed here — the previous ones ran on a
+            # closed connection and duplicated existing columns.
 
     # Coupons cover a window (Mon–Wed / Wed–Fri / Sat / Sun), not one day.
     if "coupons" in tables:
