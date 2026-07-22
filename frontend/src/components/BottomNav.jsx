@@ -29,6 +29,18 @@ const TABS = [
     ),
   },
   {
+    tool: 'pnl',
+    label: 'P&L',
+    to: '/pnl',
+    matches: (p) => p.startsWith('/pnl'),
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="3,15 8,10 12,13 19,5" />
+        <polyline points="14,5 19,5 19,10" />
+      </svg>
+    ),
+  },
+  {
     // Hidden for now — coupon-tracker-only mode (PLAN.md v5). Definition kept;
     // remove `hidden` to bring the tab back (also re-enable its API router).
     hidden: true,

@@ -33,6 +33,7 @@ from .routers.upload import router as upload_router
 from .routers import accabonus
 from .routers import cards as cards_router
 from .routers import goalscorers as goalscorers_router
+from .routers import pnl as pnl_router
 from .routers import auth as auth_router
 from .routers import state as state_router
 from .cards.client import CardsApiClient
@@ -217,6 +218,8 @@ if settings.enable_goalscorers:
         goalscorers_router.router,
         dependencies=[Depends(require_tool("goalscorers"))],
     )
+if settings.enable_pnl:
+    app.include_router(pnl_router.router, dependencies=[Depends(require_tool("pnl"))])
 
 # /state self-guards with a static API key (machine consumers, no session).
 app.include_router(state_router.router)

@@ -110,6 +110,15 @@ class CardFeedItem(BaseModel):
     bets: list[CardFeedBet]
 
 
+# Private P&L bet tracker — one settled bet's net result
+class BetOut(BaseModel):
+    id: int
+    amount: float
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # First-goalscorer value feed (bet365 vs de-vigged Pinnacle)
 class GoalscorerFeedItem(BaseModel):
     match: str

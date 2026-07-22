@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     # and scans each at kickoff − 45 min (Pinnacle only posts the market near KO
     # for majors), storing rows and alerting Discord on new value.
     enable_goalscorers: bool = True
+    # Private P&L bet tracker. Mounted when on, but gated by the "pnl" tool
+    # grant — only users whose AUTH_USERS permission is "*" (or lists "pnl")
+    # see it, so it stays a private per-user ledger.
+    enable_pnl: bool = True
     # Comma-separated sport keys the watchlist covers. Default = the big-five
     # leagues + Champions League, where both books price first goalscorer.
     goalscorer_sport_keys: str = (

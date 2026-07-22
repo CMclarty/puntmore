@@ -1,0 +1,63 @@
+"""Private P&L bet tracker — a per-user ledger of settled bets.
+
+Router-gated by require_tool("pnl") (main.py), and every row is scoped to the
+session user, so a user only ever sees and edits their own bets. The API is
+deliberately thin: it stores/returns raw bets and the frontend derives the
+cumulative total, month-to-date and the chart from them.
+"""
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from ..database import get_db
+from ..models import Bet
+from ..schemas import BetOut
+from ..security import require_user
+
+router = APIRouter(prefix="/pnl", tags=["pnl"])
+
+
+class BetIn(BaseModel):
+    # Net result of the bet: positive = win, negative = loss. Bounded so a
+    # fat-fingered keypad entry can't store a nonsense figure.
+    amount: float = Field(..., gt=-1_000_000, lt=1_000_000)
+
+
+@router.get("/bets", response_model=list[BetOut])
+def list_bets(db: Session = Depends(get_db), user: str = Depends(require_user)):
+    """This user's bets, oldest first — the order the chart accumulates in."""
+    return (
+        db.query(Bet)
+        .filter(Bet.user == user)
+        .order_by(Bet.created_at.asc(), Bet.id.asc())
+        .all()
+    )
+
+
+@router.post("/bets", response_model=BetOut)
+def add_bet(
+    body: BetIn,
+    db: Session = Depends(get_db),
+    user: str = Depends(require_user),
+):
+    if round(body.amount, 2) == 0:
+        raise HTTPException(status_code=400, detail="A bet result cannot be zero")
+    bet = Bet(user=user, amount=round(body.amount, 2))
+    db.add(bet)
+    db.commit()
+    db.refresh(bet)
+    return bet
+
+
+@router.delete("/bets/{bet_id}", status_code=204)
+def delete_bet(
+    bet_id: int,
+    db: Session = Depends(get_db),
+    user: str = Depends(require_user),
+):
+    """Remove a bet — used to undo a mistaken entry. Scoped to the owner."""
+    bet = db.query(Bet).filter(Bet.id == bet_id, Bet.user == user).first()
+    if bet is None:
+        raise HTTPException(status_code=404, detail="Bet not found")
+    db.delete(bet)
+    db.commit()

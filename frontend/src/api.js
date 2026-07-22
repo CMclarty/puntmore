@@ -106,3 +106,12 @@ export const getCardsFeed = (minEdge = -0.02) =>
 // First-goalscorer value (bet365 vs de-vigged Pinnacle). Rows are produced by
 // the scheduler near kickoff and stored, so this just reads the current set.
 export const getGoalscorerFeed = () => get('/goalscorers/feed')
+
+// Private P&L bet tracker (per-user ledger).
+export const getBets = () => get('/pnl/bets')
+export const addBet = (amount) => post('/pnl/bets', { amount })
+export async function deleteBet(id) {
+  const res = await fetch(`${BASE}/pnl/bets/${id}`, { method: 'DELETE' })
+  if (res.status === 401) { redirectToLogin(); throw new Error('Not authenticated') }
+  if (!res.ok && res.status !== 204) throw new Error(`DELETE /pnl/bets/${id} → ${res.status}`)
+}

@@ -143,6 +143,21 @@ class GoalscorerAlert(Base):
     created_at = Column(DateTime, default=utcnow)
 
 
+class Bet(Base):
+    """A single settled bet's net result in the private P&L tracker.
+
+    Owned by the user who logged it (the tracker is a per-user ledger, gated to
+    the "pnl" tool). amount is the net change: positive = win, negative = loss.
+    Cumulative total, month-to-date and the chart are all derived from these.
+    """
+    __tablename__ = "bets"
+
+    id = Column(Integer, primary_key=True)
+    user = Column(String, nullable=False, index=True)
+    amount = Column(Float, nullable=False)          # net change, + win / − loss
+    created_at = Column(DateTime, default=utcnow, index=True)
+
+
 class User(Base):
     __tablename__ = "users"
 
