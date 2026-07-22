@@ -6,6 +6,13 @@ services:
     build:
       context: .
       dockerfile: api/Dockerfile
+    # The image's default CMD is app.asgi:root (single-origin: serves the SPA at
+    # / and the API under /api) for the Render one-service model. This compose
+    # stack instead fronts a SEPARATE frontend container with nginx, which strips
+    # /api/ before proxying (see nginx/nginx.conf). So here the api must be the
+    # BARE API rooted at / — otherwise /api/coupons lands on the SPA fallback and
+    # returns 200 instead of the auth 401.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     env_file: .env
     volumes:
       - db_data:/data
