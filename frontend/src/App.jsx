@@ -6,10 +6,13 @@ import TrackerPage from './pages/TrackerPage'
 import UploadPage from './pages/UploadPage'
 import GoalscorersPage from './pages/GoalscorersPage'
 import PnlPage from './pages/PnlPage'
+import AccaBonusPage from './pages/AccaBonusPage'
+import CardsPage from './pages/CardsPage'
 import LoginPage from './pages/LoginPage'
 import styles from './App.module.css'
-// AccaBonusPage and CardsPage are hidden for now (coupon-tracker-only mode,
-// PLAN.md v5). Their pages/API stay in the repo; their routes redirect to the
+// AccaBonusPage and CardsPage are surfaced only to a grant that includes them
+// (i.e. "*"), reached via the nav's "More" sheet. Their feeds are empty until
+// ODDS_API_KEY is set / the cards client is rebuilt (docs/provider-verification).
 // tracker below. Re-import and restore the routes to bring them back.
 
 export default function App() {
@@ -53,10 +56,9 @@ export default function App() {
           <Route path="/upload" element={protectTool(<UploadPage user={user} />, 'coupons')} />
           <Route path="/goalscorers" element={protectTool(<GoalscorersPage />, 'goalscorers')} />
           <Route path="/pnl" element={protectTool(<PnlPage />, 'pnl')} />
-          {/* Hidden tools — redirect to the tracker (PLAN.md v5). */}
-          <Route path="/accabonus" element={<Navigate to="/" replace />} />
-          <Route path="/tennis" element={<Navigate to="/" replace />} />
-          <Route path="/cards" element={<Navigate to="/" replace />} />
+          <Route path="/accabonus" element={protectTool(<AccaBonusPage />, 'accabonus')} />
+          <Route path="/tennis" element={<Navigate to="/accabonus" replace />} />
+          <Route path="/cards" element={protectTool(<CardsPage />, 'cards')} />
         </Routes>
       </main>
       {user && <BottomNav onLogout={handleLogout} username={user.username} tools={user.tools} />}

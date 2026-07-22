@@ -36,6 +36,14 @@ services:
       - key: UPLOAD_DIR
         value: /data/uploads   # on the disk, or images vanish on redeploy
 
+      # Surface AccaBonus + Cards in the tool switcher. They stay private via
+      # the split-auth grant (only "*" users see them) and their feeds are empty
+      # until ODDS_API_KEY is set / the cards client is rebuilt.
+      - key: ENABLE_ACCABONUS
+        value: "true"
+      - key: ENABLE_CARDS
+        value: "true"
+
       # Secrets: sync:false means Render prompts once at first deploy and stores
       # the value itself. Never commit these.
       - key: SECRET_KEY

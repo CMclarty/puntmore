@@ -1,98 +1,112 @@
+import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import styles from './BottomNav.module.css'
 
-const TABS = [
+// Order here is the fan order. `sub` is a static one-word descriptor (no live
+// fetch in the nav); `muted` dims a tool with no live data yet; `priv` marks a
+// personal tool. Only tools in the user's grant appear.
+const TOOLS = [
   {
-    tool: 'coupons',
-    label: 'Coupon',
-    to: '/',
+    tool: 'coupons', name: 'Coupon', to: '/', sub: 'Tracker',
     matches: (p) => p === '/' || p.startsWith('/upload'),
     icon: (
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="2" width="16" height="18" rx="2"/>
-        <line x1="7" y1="7" x2="15" y2="7"/>
-        <line x1="7" y1="11" x2="15" y2="11"/>
-        <line x1="7" y1="15" x2="11" y2="15"/>
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="4" y="2" width="14" height="18" rx="2"/><line x1="7" y1="7" x2="15" y2="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="7" y1="15" x2="11" y2="15"/>
       </svg>
     ),
   },
   {
-    tool: 'goalscorers',
-    label: 'Scorers',
-    to: '/goalscorers',
+    tool: 'goalscorers', name: 'Scorers', to: '/goalscorers', sub: 'Value',
     matches: (p) => p.startsWith('/goalscorers'),
     icon: (
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="11" cy="11" r="7"/>
-        <polygon points="11,7 13.4,9 12.5,12 9.5,12 8.6,9"/>
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="11" cy="11" r="7.5"/><polygon points="11,7 13.6,9 12.6,12.2 9.4,12.2 8.4,9"/>
       </svg>
     ),
   },
   {
-    tool: 'pnl',
-    label: 'P&L',
-    to: '/pnl',
+    tool: 'pnl', name: 'P&L', to: '/pnl', sub: 'Ledger', priv: true,
     matches: (p) => p.startsWith('/pnl'),
     icon: (
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="3,15 8,10 12,13 19,5" />
-        <polyline points="14,5 19,5 19,10" />
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="3,15 8,10 12,13 19,4"/><polyline points="14,4 19,4 19,9"/>
       </svg>
     ),
   },
   {
-    // Hidden for now — coupon-tracker-only mode (PLAN.md v5). Definition kept;
-    // remove `hidden` to bring the tab back (also re-enable its API router).
-    hidden: true,
-    tool: 'accabonus',
-    label: 'AccaBonus',
-    to: '/accabonus',
+    tool: 'accabonus', name: 'AccaBonus', to: '/accabonus', sub: 'Arbs', muted: true,
     matches: (p) => p.startsWith('/accabonus') || p.startsWith('/tennis'),
     icon: (
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="4,17 11,13 18,17"/>
-        <polyline points="4,12 11,8 18,12"/>
-        <polyline points="4,7 11,3 18,7"/>
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="4,17 11,12 18,17"/><polyline points="4,12 11,7 18,12"/>
       </svg>
     ),
   },
   {
-    // Hidden for now — coupon-tracker-only mode (PLAN.md v5). See above.
-    hidden: true,
-    tool: 'cards',
-    label: 'C/C',
-    to: '/cards',
+    tool: 'cards', name: 'Cards', to: '/cards', sub: 'Corners', muted: true,
     matches: (p) => p.startsWith('/cards'),
     icon: (
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="4,4 4,18 18,18"/>
-        <polyline points="4,4 10,4 10,10 16,10 16,18"/>
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="4,4 4,18 18,18"/><polyline points="4,4 10,4 10,10 16,10 16,18"/>
       </svg>
     ),
   },
 ]
 
+const SPREAD = 94  // total degrees the fan spans
+
 export default function BottomNav({ tools = [] }) {
   const { pathname } = useLocation()
-  // A tab shows only if it isn't globally hidden (PLAN.md v5) AND this user is
-  // granted its tool. The server already intersects the grant with the enabled
-  // tools, so `tools` never contains a globally-disabled tool.
-  const visible = TABS.filter(tab => !tab.hidden && tools.includes(tab.tool))
+  const [open, setOpen] = useState(false)
+
+  const granted = TOOLS.filter(t => tools.includes(t.tool))
+  // One tool (or none) needs no switcher — you're already on it; direct URL works.
+  if (granted.length < 2) return null
+
+  const active = granted.find(t => t.matches(pathname)) || granted[0]
+  const others = granted.filter(t => t !== active)
+
   return (
-    <nav className={styles.nav}>
-      {visible.map(tab => {
-        const active = tab.matches(pathname)
-        return (
-          <Link
-            key={tab.to}
-            to={tab.to}
-            className={`${styles.tab}${active ? ` ${styles.active}` : ''}`}
-          >
-            <span className={styles.icon}>{tab.icon}</span>
-            <span className={styles.label}>{tab.label}</span>
-          </Link>
-        )
-      })}
-    </nav>
+    <div className={`${styles.dock} ${open ? styles.open : ''}`}>
+      <div className={styles.scrim} onClick={() => setOpen(false)} />
+      <div className={styles.fan} aria-hidden={!open}>
+        {others.map((t, k) => {
+          const rot = others.length === 1 ? 0 : -SPREAD / 2 + (SPREAD / (others.length - 1)) * k
+          return (
+            <Link
+              key={t.tool}
+              to={t.to}
+              tabIndex={open ? 0 : -1}
+              onClick={() => setOpen(false)}
+              className={`${styles.card} ${t.muted ? styles.muted : ''}`}
+              style={{ '--rot': `${rot.toFixed(1)}deg` }}
+            >
+              {t.priv && <span className={styles.priv}>yours</span>}
+              <span className={styles.cardIc}>{t.icon}</span>
+              <span className={styles.cardNm}>{t.name}</span>
+              <span className={styles.cardSub}>{t.sub}</span>
+            </Link>
+          )
+        })}
+      </div>
+      <button
+        type="button"
+        className={styles.anchor}
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        aria-label={`Current tool: ${active.name}. Tap to switch tools.`}
+      >
+        <span className={styles.anchorIc}>{active.icon}</span>
+        <span className={styles.anchorMeta}>
+          <span className={styles.anchorNm}>{active.name}</span>
+          <span className={styles.anchorSub}>{active.sub}</span>
+        </span>
+        <span className={`${styles.chev} ${open ? styles.chevOpen : ''}`}>
+          <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="6,13 11,8 16,13"/>
+          </svg>
+        </span>
+      </button>
+    </div>
   )
 }
