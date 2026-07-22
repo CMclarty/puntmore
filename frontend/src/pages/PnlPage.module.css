@@ -50,6 +50,13 @@
 .neg { color: var(--red); }
 .total { font-size: 38px; font-weight: 600; }
 .mtd { font-size: 22px; font-weight: 600; }
+.statCount {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+}
 
 .subline {
   font-family: var(--font-mono);

@@ -31,9 +31,12 @@ export default function PnlPage() {
   for (const b of bets) { t += b.amount; cum.push(t) }
   const total = t
   const now = new Date()
-  const mtd = bets
-    .filter(b => { const d = parseDate(b.created_at); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() })
-    .reduce((s, b) => s + b.amount, 0)
+  const mtdBets = bets.filter(b => {
+    const d = parseDate(b.created_at)
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+  })
+  const mtd = mtdBets.reduce((s, b) => s + b.amount, 0)
+  const mtdCount = mtdBets.length
   const wins = bets.filter(b => b.amount > 0).length
   const winrate = bets.length ? Math.round(100 * wins / bets.length) + '%' : '0%'
 
@@ -171,14 +174,15 @@ export default function PnlPage() {
           <div className={styles.stat}>
             <div className={styles.statLabel}>Total profit</div>
             <div className={`${styles.figure} ${styles.total} ${total < 0 ? styles.neg : styles.pos}`}>{signed(total)}</div>
+            <div className={styles.statCount}>{bets.length} bet{bets.length === 1 ? '' : 's'}</div>
           </div>
           <div className={styles.stat}>
             <div className={styles.statLabel}>Month to date</div>
             <div className={`${styles.figure} ${styles.mtd} ${mtd < 0 ? styles.neg : styles.pos}`}>{signed(mtd)}</div>
+            <div className={styles.statCount}>{mtdCount} bet{mtdCount === 1 ? '' : 's'}</div>
           </div>
         </div>
         <div className={styles.subline}>
-          <span><b>{bets.length}</b> bets</span>
           <span><b>{winrate}</b> win</span>
           <span>last <b>{bets.length ? signed(bets[bets.length - 1].amount) : '—'}</b></span>
           {bets.length > 0 && (
