@@ -102,6 +102,14 @@ class ClaudeOCRProvider(OCRProvider):
             model=MODEL,
             # A long list runs to ~75 fixtures; 2048 truncated it mid-array.
             max_tokens=8192,
+            # Sonnet 5 runs extended thinking BY DEFAULT, and thinking tokens
+            # count against max_tokens. On a long coupon the thinking block
+            # (~2k tokens) plus the JSON exceeded 8192, truncating the JSON
+            # mid-array → JSONDecodeError → a 502 that deleted the upload. This
+            # is structured extraction; thinking adds only overhead and variance,
+            # so disable it and keep the whole budget for the JSON (the JSON
+            # alone is ~4k tokens for a full 75-fixture coupon).
+            thinking={"type": "disabled"},
             system=SYSTEM_PROMPT,
             messages=[
                 {
@@ -120,6 +128,15 @@ class ClaudeOCRProvider(OCRProvider):
                 }
             ],
         )
+
+        # If the model still hits the cap, the JSON is truncated and will not
+        # parse. Fail LOUDLY with the cause rather than as an opaque
+        # JSONDecodeError — a bare 502 hid this exact bug for a long time.
+        if message.stop_reason == "max_tokens":
+            raise ValueError(
+                "OCR output truncated (hit max_tokens) — coupon too long for the "
+                "token budget; raise max_tokens"
+            )
 
         # Take the first TEXT block, not content[0]: the response can lead with
         # a thinking block, and indexing blindly raised AttributeError on every
