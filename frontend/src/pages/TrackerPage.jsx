@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Fragment } from 'react'
 import { Link } from 'react-router-dom'
 import { getCouponTypes, getTypeSelections, editLeg } from '../api'
 import { FRACTIONAL_LADDER, fractionToDecimal, nearestFraction } from '../odds'
@@ -49,6 +49,27 @@ function fixtureDiffers(leg) {
   return leg.matched_fixture.trim().toLowerCase() !== leg.match_name.trim().toLowerCase()
 }
 
+// Split a type's selections into period sections so the live set reads apart
+// from the next one to bet. Order: active (window contains today), upcoming
+// (the next set), ended, then any whose window isn't known yet.
+const PERIOD_SECTIONS = [
+  { status: 'active', label: 'Active now' },
+  { status: 'upcoming', label: 'Next set' },
+  { status: 'past', label: 'Ended' },
+  { status: null, label: 'Unscheduled' },
+]
+
+function groupLegsByPeriod(legs) {
+  return PERIOD_SECTIONS
+    .map(({ status, label }) => {
+      const items = legs.filter(l => (l.period_status ?? null) === status)
+      if (!items.length) return null
+      const windows = [...new Set(items.map(l => l.period_label).filter(Boolean))]
+      return { status, label, windows, legs: items }
+    })
+    .filter(Boolean)
+}
+
 export default function TrackerPage() {
   // The seven coupon types are the entities. Each is its own filtered fixture
   // list; an upload is just how selections got into one.
@@ -78,6 +99,7 @@ export default function TrackerPage() {
   useEffect(() => { loadSelections(activeCode) }, [activeCode, loadSelections])
 
   const activeType = types.find(t => t.code === activeCode) ?? null
+  const legGroups = groupLegsByPeriod(legs)
 
   function selectType(code) {
     setActiveCode(code)
@@ -199,7 +221,16 @@ export default function TrackerPage() {
             </span>
           </div>
 
-          {legs.map((leg, i) => (
+          {legGroups.map(g => (
+            <Fragment key={g.status ?? 'none'}>
+              <div className={`${styles.periodHead} ${styles['ph_' + (g.status ?? 'none')]}`}>
+                <span className={styles.phStatus}>{g.label}</span>
+                {g.windows.length > 0 && (
+                  <span className={styles.phWindow}>{g.windows.join(' · ')}</span>
+                )}
+                <span className={`${styles.phCount} ${styles.mono}`}>{g.legs.length}</span>
+              </div>
+              {g.legs.map((leg, i) => (
             <div
               key={leg.id}
               className={`${styles.legCard} ${leg.flags?.length ? styles.flagged : ''}`}
@@ -302,6 +333,8 @@ export default function TrackerPage() {
                 </>
               )}
             </div>
+              ))}
+            </Fragment>
           ))}
         </div>
       )}
@@ -324,7 +357,13 @@ export default function TrackerPage() {
                 </button>
               ))}
             </div>
-            <Link to="/upload" className={styles.pickerUpload}>↑ UPLOAD COUPONS</Link>
+            <Link to="/upload" className={styles.pickerUploadBtn}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 16V4M7 9l5-5 5 5" />
+                <path d="M5 16v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" />
+              </svg>
+              UPLOAD COUPONS
+            </Link>
           </div>
         </div>
       )}

@@ -4,18 +4,6 @@ import { getCoupons, uploadCoupon, getCouponTypes, getCouponPeriods } from '../a
 import styles from './UploadPage.module.css'
 
 
-/** "Sat 25 Jul" or "Mon 20 – Wed 22 Jul". Variable windows show no dates —
- *  they are printed on the coupon and read from it. */
-function fmtRange(startsOn, endsOn) {
-  if (!startsOn || !endsOn) return 
-  const opts = { weekday: 'short', day: 'numeric', month: 'short' }
-  const a = new Date(startsOn)
-  const b = new Date(endsOn)
-  if (startsOn === endsOn) return a.toLocaleDateString('en-GB', opts)
-  const short = { weekday: 'short', day: 'numeric' }
-  return `${a.toLocaleDateString('en-GB', short)} – ${b.toLocaleDateString('en-GB', opts)}`
-}
-
 function fmtDate(d) {
   if (!d) return ''
   const dt = new Date(d)
@@ -136,9 +124,7 @@ export default function UploadPage() {
         <label className={styles.label}>Coupon period</label>
         <select className={styles.select} value={period} onChange={e => setPeriod(e.target.value)}>
           {periods.map(p => (
-            <option key={p.code} value={p.code}>
-              {p.label}{p.starts_on ? ` — ${fmtRange(p.starts_on, p.ends_on)}` : ''}
-            </option>
+            <option key={p.code} value={p.code}>{p.label}</option>
           ))}
         </select>
 
