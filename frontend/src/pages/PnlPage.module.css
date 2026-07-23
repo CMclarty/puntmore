@@ -214,6 +214,53 @@
 .minusBtn.on { background: rgba(185, 28, 28, 0.09); border-color: var(--red); color: var(--red); }
 .plusBtn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
+/* Four-figure guard. Replaces the Enter button in place rather than opening a
+   modal — the figure stays on screen above it, so you confirm what you can see. */
+.confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--paper);
+}
+.confirmQ {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink);
+}
+.confirmQ b {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 19px;
+  font-weight: 600;
+}
+.confirmSub {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.confirmBtns { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; }
+.confirmBtns .enter { height: 42px; font-size: 13px; }
+.cancel {
+  height: 42px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+}
+
 .enter {
   height: 48px;
   border: none;

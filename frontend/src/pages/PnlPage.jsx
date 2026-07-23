@@ -197,6 +197,9 @@ export default function PnlPage() {
   )
 }
 
+// A net swing at or beyond this asks for confirmation before it's written.
+const BIG_ENTRY = 1000
+
 // Digits plus a single dot, max 2 decimals, capped length.
 function sanitizeAmount(v) {
   v = v.replace(/[^\d.]/g, '')
@@ -215,6 +218,11 @@ function PnlEntry({ onAdd, busy }) {
   const [sign, setSign] = useState(1)
   const [stake, setStake] = useState('')
   const [ret, setRet] = useState('')
+  const [confirming, setConfirming] = useState(false)
+
+  // Any edit invalidates a pending confirmation — you must re-read the figure
+  // you're agreeing to, or a changed amount could ride through on a stale yes.
+  const edit = setter => v => { setConfirming(false); setter(v) }
 
   const value = parseFloat(amount)
   const stakeV = parseFloat(stake)
@@ -231,8 +239,13 @@ function PnlEntry({ onAdd, busy }) {
     ? (canAdd ? sign * Math.round(value * 100) / 100 : null)
     : (canAdd ? Math.round((retV - stakeV) * 100) / 100 : null)
 
+  const big = net !== null && Math.abs(net) >= BIG_ENTRY
+
   function submit() {
     if (!canAdd) return
+    // A four-figure swing is almost always a slipped decimal point on a phone
+    // keypad, and the ledger has no edit — only undo-last. Make it deliberate.
+    if (big && !confirming) { setConfirming(true); return }
     if (mode === 'flat') {
       onAdd({ amount: sign * Math.round(value * 100) / 100 })
     } else {
@@ -241,7 +254,7 @@ function PnlEntry({ onAdd, busy }) {
         returned: Math.round(retV * 100) / 100,
       })
     }
-    setAmount(''); setSign(1); setStake(''); setRet('')
+    setAmount(''); setSign(1); setStake(''); setRet(''); setConfirming(false)
   }
 
   const onEnterKey = e => { if (e.key === 'Enter') submit() }
@@ -269,7 +282,7 @@ function PnlEntry({ onAdd, busy }) {
             <input
               className={styles.amountInput}
               value={amount}
-              onChange={e => setAmount(sanitizeAmount(e.target.value))}
+              onChange={e => edit(setAmount)(sanitizeAmount(e.target.value))}
               onKeyDown={onEnterKey}
               inputMode="decimal"
               type="text"
@@ -282,12 +295,12 @@ function PnlEntry({ onAdd, busy }) {
             <button
               type="button"
               className={`${styles.minusBtn} ${sign < 0 ? styles.on : ''}`}
-              onClick={() => setSign(-1)}
+              onClick={() => edit(setSign)(-1)}
             ><span>−</span><span className={styles.lbl}>Loss</span></button>
             <button
               type="button"
               className={`${styles.plusBtn} ${sign > 0 ? styles.on : ''}`}
-              onClick={() => setSign(1)}
+              onClick={() => edit(setSign)(1)}
             ><span>+</span><span className={styles.lbl}>Win</span></button>
           </div>
         </>
@@ -301,7 +314,7 @@ function PnlEntry({ onAdd, busy }) {
                 <input
                   className={styles.amountInput}
                   value={stake}
-                  onChange={e => setStake(sanitizeAmount(e.target.value))}
+                  onChange={e => edit(setStake)(sanitizeAmount(e.target.value))}
                   onKeyDown={onEnterKey}
                   inputMode="decimal"
                   type="text"
@@ -317,7 +330,7 @@ function PnlEntry({ onAdd, busy }) {
                 <input
                   className={styles.amountInput}
                   value={ret}
-                  onChange={e => setRet(sanitizeAmount(e.target.value))}
+                  onChange={e => edit(setRet)(sanitizeAmount(e.target.value))}
                   onKeyDown={onEnterKey}
                   inputMode="decimal"
                   type="text"
@@ -336,7 +349,24 @@ function PnlEntry({ onAdd, busy }) {
         </>
       )}
 
-      <button type="button" className={styles.enter} onClick={submit} disabled={!canAdd}>Enter</button>
+      {confirming ? (
+        <div className={styles.confirm} role="alertdialog" aria-live="assertive">
+          <p className={styles.confirmQ}>
+            Record <b className={net > 0 ? styles.pos : styles.neg}>{signed(net)}</b>?
+            {mode === 'detail' && <span className={styles.confirmSub}>
+              {money(stakeV)} staked, {money(retV)} returned
+            </span>}
+          </p>
+          <div className={styles.confirmBtns}>
+            <button type="button" className={styles.cancel} onClick={() => setConfirming(false)}>Cancel</button>
+            <button type="button" className={styles.enter} onClick={submit} disabled={!canAdd}>Yes, record it</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" className={styles.enter} onClick={submit} disabled={!canAdd}>
+          {big ? `Enter ${signed(net)}…` : 'Enter'}
+        </button>
+      )}
     </section>
   )
 }

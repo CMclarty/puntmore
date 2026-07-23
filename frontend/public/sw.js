@@ -4,7 +4,9 @@
 // outgoing build are deleted. A shell cached before the deploy points at those
 // deleted hashes, so it renders a blank page forever. The bump is load-bearing:
 // it evicts any already-poisoned v2 cache on the next visit.
-const SHELL_CACHE = 'puntmore-shell-v3'
+// v4: forced eviction so the P&L four-figure guard lands on every device on the
+// next visit rather than whenever the old shell happened to be replaced.
+const SHELL_CACHE = 'puntmore-shell-v4'
 
 self.addEventListener('install', e => {
   e.waitUntil(
