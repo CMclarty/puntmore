@@ -18,11 +18,20 @@ import styles from './App.module.css'
 export default function App() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [bootError, setBootError] = useState(null)
 
   useEffect(() => {
     getMe()
-      .then(setUser)
-      .catch(() => setUser(null))
+      .then(u => { setUser(u); setBootError(null) })
+      .catch(e => {
+        // A 401 is not an error — getMe returns null for it and we fall through
+        // to the login route. Anything reaching here is the API being reachable
+        // but unhealthy (502 mid-deploy) or the fetch failing outright, and it
+        // must be said out loud: this used to render as a blank page, which is
+        // indistinguishable from a bundle that never booted.
+        setUser(null)
+        setBootError(e?.message || 'Could not reach the server')
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -31,7 +40,8 @@ export default function App() {
     setUser(null)
   }
 
-  if (loading) return null
+  if (loading) return <div className={styles.boot}>Loading…</div>
+  if (bootError) return <BootError detail={bootError} />
 
   const canSee = (tool) => Boolean(user?.tools?.includes(tool))
 
@@ -63,6 +73,19 @@ export default function App() {
       </main>
       {user && <BottomNav onLogout={handleLogout} username={user.username} tools={user.tools} />}
     </BrowserRouter>
+  )
+}
+
+// Shown when the app loads but the API doesn't answer healthily — most often
+// the ~40s container swap on a deploy. Retry is a hard reload so it also drops
+// any service-worker shell that's pinned to a build whose assets are gone.
+function BootError({ detail }) {
+  return (
+    <div className={styles.noAccess}>
+      <p>Couldn’t reach Puntmore. If a deploy is in progress this clears on its own in a minute.</p>
+      <p className={styles.bootDetail}>{detail}</p>
+      <button type="button" onClick={() => window.location.reload()}>Retry</button>
+    </div>
   )
 }
 

@@ -6,6 +6,24 @@
   min-height: 0;
 }
 
+/* Boot states. Never render nothing here — a blank page is indistinguishable
+   from a bundle that failed to load, which is exactly what made a stale
+   service-worker shell so hard to diagnose. */
+.boot {
+  margin: auto;
+  padding: 2rem;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint, #999);
+}
+.bootDetail {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--faint, #999);
+  word-break: break-word;
+}
+
 .noAccess {
   margin: auto;
   padding: 2rem;
