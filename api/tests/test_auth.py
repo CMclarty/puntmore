@@ -110,22 +110,70 @@ def test_parse_auth_users_empty():
 def test_seed_users_idempotent():
     db = TestSession()
     try:
-        assert seed_users(db, "bob:pw,carol:pw") == 2
-        assert seed_users(db, "bob:pw,carol:pw") == 0  # already exist
+        assert seed_users(db, "bob:pw,carol:pw") == (2, [])
+        assert seed_users(db, "bob:pw,carol:pw") == (0, [])  # already exist
         assert db.query(User).count() == 2
     finally:
         db.close()
 
 
-def test_seed_users_never_modifies_existing():
+def test_seed_users_never_modifies_an_existing_password():
     db = TestSession()
     try:
         seed_users(db, "dave:original")
         original = db.query(User).filter(User.username == "dave").first().password_hash
-        seed_users(db, "dave:changed")  # should be a no-op
+        seed_users(db, "dave:changed")  # password change must be a no-op
         after = db.query(User).filter(User.username == "dave").first().password_hash
         assert original == after
         assert verify_password("original", after)
+    finally:
+        db.close()
+
+
+def test_seed_users_reconciles_permissions_of_existing_users():
+    # AUTH_USERS is the only lever in production — the database sits on a disk
+    # with no SQL shell — so a grant edit must take effect on restart.
+    db = TestSession()
+    try:
+        seed_users(db, "erin:pw:coupons")
+        created, changed = seed_users(db, "erin:pw:coupons+pnl")
+        assert created == 0
+        assert changed == [("erin", "coupons", "coupons+pnl")]
+        assert db.query(User).filter(User.username == "erin").first().permissions == "coupons+pnl"
+    finally:
+        db.close()
+
+
+def test_seed_users_reports_no_change_when_the_grant_matches():
+    db = TestSession()
+    try:
+        seed_users(db, "frank:pw:coupons")
+        assert seed_users(db, "frank:pw:coupons") == (0, [])
+    finally:
+        db.close()
+
+
+def test_seed_users_can_narrow_a_grant_too():
+    # Reconciliation is not "widen only" — removing a tool from AUTH_USERS
+    # revokes it, so the env var is genuinely the source of truth.
+    db = TestSession()
+    try:
+        seed_users(db, "gina:pw:*")
+        _, changed = seed_users(db, "gina:pw:coupons")
+        assert changed == [("gina", "*", "coupons")]
+        assert db.query(User).filter(User.username == "gina").first().permissions == "coupons"
+    finally:
+        db.close()
+
+
+def test_seed_users_leaves_users_absent_from_auth_users_alone():
+    # A user not named in AUTH_USERS is untouched, not deleted or reset.
+    db = TestSession()
+    try:
+        seed_users(db, "hank:pw:coupons")
+        seed_users(db, "iris:pw:pnl")
+        assert db.query(User).filter(User.username == "hank").first().permissions == "coupons"
+        assert db.query(User).count() == 2
     finally:
         db.close()
 

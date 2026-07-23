@@ -48,13 +48,20 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed(db)
-        created = seed_users(db, settings.auth_users)
+        created, regranted = seed_users(db, settings.auth_users)
         if created:
             logger.info("Seeded %d user(s) from AUTH_USERS", created)
+        # Every grant change is logged with both sides. A permission edit is
+        # invisible until someone hits a 403, so the log is the only record that
+        # a redeploy widened or narrowed what an account can reach.
+        for username, old, new in regranted:
+            logger.info(
+                "Regranted %s from AUTH_USERS: %r -> %r", username, old, new
+            )
         # Login is reachable from the public internet, so a guessable password
         # is the whole attack. Warn every startup until it is fixed — seeding
-        # never rewrites an existing user, so changing AUTH_USERS alone is not
-        # enough: delete the row too.
+        # never rewrites a PASSWORD, so changing AUTH_USERS alone is not enough
+        # for one: delete the row too. (Permissions, by contrast, do reconcile.)
         weak = weak_seed_passwords(settings.auth_users)
         if weak:
             logger.warning(

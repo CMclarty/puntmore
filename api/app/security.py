@@ -208,25 +208,39 @@ def weak_seed_passwords(raw: str) -> list[str]:
     return weak
 
 
-def seed_users(db: Session, raw: str) -> int:
-    """Create any users from auth_users that don't already exist.
+def seed_users(db: Session, raw: str) -> tuple[int, list[tuple[str, str, str]]]:
+    """Create users from auth_users, and reconcile existing users' permissions.
 
-    Existing users are never modified (change a password by deleting the row).
-    Returns the number of users created.
+    Returns (created_count, [(username, old_perms, new_perms), ...]).
+
+    Permissions are reconciled on every startup because AUTH_USERS is the only
+    lever available in production: the database lives on a disk we cannot open a
+    SQL shell against, so a grant that could only be changed by editing the row
+    could not be changed at all. Making the env var authoritative means a
+    permission change is an env edit plus a restart.
+
+    Passwords are still NEVER rewritten. Re-hashing on every boot would silently
+    revert a password changed by any other means, and unlike a permission grant
+    a password has no visible symptom when it is wrong-but-valid. Changing one
+    still means deleting the row.
     """
     created = 0
+    changed: list[tuple[str, str, str]] = []
     for username, password, permissions in parse_auth_users(raw):
-        exists = db.query(User).filter(User.username == username).first()
-        if exists:
+        existing = db.query(User).filter(User.username == username).first()
+        if existing is None:
+            db.add(User(
+                username=username,
+                password_hash=hash_password(password),
+                permissions=permissions,
+            ))
+            created += 1
             continue
-        db.add(User(
-            username=username,
-            password_hash=hash_password(password),
-            permissions=permissions,
-        ))
-        created += 1
+        if existing.permissions != permissions:
+            changed.append((username, existing.permissions, permissions))
+            existing.permissions = permissions
     db.commit()
-    return created
+    return created, changed
 
 
 def ensure_schema() -> None:
