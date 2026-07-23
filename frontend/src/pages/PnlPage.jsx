@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getBets, addBet, deleteBet } from '../api'
-import OddsWheel from '../components/OddsWheel'
+import OddsWheel, { DEFAULT_PRICE } from '../components/OddsWheel'
 import styles from './PnlPage.module.css'
 
 const money = v => (v < 0 ? '-' : '') + '£' + Math.abs(v).toLocaleString('en-GB', { maximumFractionDigits: 2 })
@@ -506,6 +506,7 @@ function PnlEntry({ onAdd, busy }) {
                 ? <>vs SP <b className={price > sp ? styles.pos : price < sp ? styles.neg : ''}>{vsSp(price, sp)}</b></>
                 : 'Set both to score this bet against SP'}
             </span>
+            <span className={styles.oddsHint}>fractional · stored as decimal</span>
             <button
               type="button"
               className={styles.oddsClear}
@@ -514,7 +515,14 @@ function PnlEntry({ onAdd, busy }) {
           </div>
         </div>
       ) : (
-        <button type="button" className={styles.oddsAdd} onClick={() => setShowOdds(true)}>
+        <button
+          type="button"
+          className={styles.oddsAdd}
+          // Opening the panel seats both wheels at the default, and that is the
+          // value that gets filed — what you see is what is recorded, with no
+          // hidden "untouched means nothing" state.
+          onClick={() => { setPrice(DEFAULT_PRICE); setSp(DEFAULT_PRICE); setShowOdds(true) }}
+        >
           + Price / BFSP
         </button>
       )}

@@ -46,26 +46,26 @@
 
 .spacer { height: 34px; }
 
+/* Fraction is the price; the decimal rides alongside it, quieter, because that
+   is what gets stored and what the vs-SP percentage is computed from. */
 .row {
   height: 34px;
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: center;
+  gap: 6px;
   scroll-snap-align: start;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 15px;
   color: var(--muted);
   opacity: 0.5;
   transition: opacity 0.12s, color 0.12s;
   position: relative;
   z-index: 2;
 }
-.row.on {
-  color: var(--ink);
-  opacity: 1;
-  font-weight: 600;
-  font-size: 17px;
-}
+.frac { font-size: 15px; }
+.dec { font-size: 10px; opacity: 0.65; }
+.row.on { color: var(--ink); opacity: 1; }
+.row.on .frac { font-weight: 600; font-size: 17px; }
 
 @media (prefers-reduced-motion: reduce) { .row { transition: none; } }

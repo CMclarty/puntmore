@@ -185,6 +185,7 @@
   font-variant-numeric: tabular-nums;
 }
 .vsSp b { font-size: 13px; font-weight: 600; }
+.oddsHint { color: var(--faint); font-size: 9.5px; letter-spacing: 0.04em; }
 .oddsClear {
   border: none;
   background: none;
