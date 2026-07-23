@@ -149,12 +149,21 @@ class Bet(Base):
     Owned by the user who logged it (the tracker is a per-user ledger, gated to
     the "pnl" tool). amount is the net change: positive = win, negative = loss.
     Cumulative total, month-to-date and the chart are all derived from these.
+
+    A bet can be logged two ways: the flat net result on its own, or a
+    stake/return pair when there's time to enter both. In the second case
+    amount is still stored (= returned − stake) so every derived figure reads
+    one field regardless of entry mode; stake/returned are extra detail and are
+    NULL on flat entries. Anything needing them (turnover, ROI) must skip rows
+    where they are NULL rather than treat a missing stake as zero.
     """
     __tablename__ = "bets"
 
     id = Column(Integer, primary_key=True)
     user = Column(String, nullable=False, index=True)
     amount = Column(Float, nullable=False)          # net change, + win / − loss
+    stake = Column(Float)                           # NULL on flat entries
+    returned = Column(Float)                        # NULL on flat entries
     created_at = Column(DateTime, default=utcnow, index=True)
 
 

@@ -33,8 +33,19 @@ export default function PnlPage() {
   })
   const mtd = mtdBets.reduce((s, b) => s + b.amount, 0)
   const mtdCount = mtdBets.length
-  const wins = bets.filter(b => b.amount > 0).length
-  const winrate = bets.length ? Math.round(100 * wins / bets.length) + '%' : '0%'
+  // Pushes (stake returned exactly) are neither win nor loss, so they leave the
+  // win rate alone rather than counting against it.
+  const settled = bets.filter(b => b.amount !== 0)
+  const wins = settled.filter(b => b.amount > 0).length
+  const winrate = settled.length ? Math.round(100 * wins / settled.length) + '%' : '0%'
+
+  // Turnover and ROI only exist for bets logged with a stake — a flat win/loss
+  // entry has no stake, so it contributes to neither. Both are hidden until at
+  // least one staked bet is on the ledger.
+  const staked = bets.filter(b => b.stake != null)
+  const turnover = staked.reduce((s, b) => s + b.stake, 0)
+  const stakedProfit = staked.reduce((s, b) => s + b.amount, 0)
+  const roi = turnover > 0 ? (stakedProfit / turnover * 100).toFixed(1) + '%' : null
 
   const renderChart = useCallback(() => {
     const svg = chartRef.current
@@ -129,11 +140,11 @@ export default function PnlPage() {
 
   // Only called when a bet is actually submitted — so the chart re-renders once
   // per bet, never per keystroke (the entry lives in its own component below).
-  async function handleAdd(amount) {
-    if (!amount || busy) return
+  async function handleAdd(payload) {
+    if (!payload || busy) return
     setBusy(true); setError(null)
     try {
-      const bet = await addBet(amount)
+      const bet = await addBet(payload)
       setBets(bs => [...bs, bet])
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
@@ -168,6 +179,7 @@ export default function PnlPage() {
         </div>
         <div className={styles.subline}>
           <span><b>{winrate}</b> win</span>
+          {roi !== null && <span><b>{roi}</b> ROI on {money(turnover)}</span>}
           <span>last <b>{bets.length ? signed(bets[bets.length - 1].amount) : '—'}</b></span>
           {bets.length > 0 && (
             <button className={styles.undo} onClick={undoLast} disabled={busy}>undo last</button>
@@ -198,46 +210,132 @@ function sanitizeAmount(v) {
 // Own component with local state: typing here re-renders only this small tree,
 // never the chart above — which is what caused the input lag.
 function PnlEntry({ onAdd, busy }) {
+  const [mode, setMode] = useState('flat')
   const [amount, setAmount] = useState('')
   const [sign, setSign] = useState(1)
+  const [stake, setStake] = useState('')
+  const [ret, setRet] = useState('')
+
   const value = parseFloat(amount)
-  const canAdd = amount !== '' && value > 0 && !busy
+  const stakeV = parseFloat(stake)
+  const retV = parseFloat(ret)
+
+  // Flat: any positive figure, signed by the win/loss toggle. Detailed: a
+  // positive stake and a return (0 = lost the lot). A push nets zero and is
+  // allowed here — it's a real settlement, unlike a zero flat entry.
+  const canAdd = !busy && (mode === 'flat'
+    ? amount !== '' && value > 0
+    : stake !== '' && ret !== '' && stakeV > 0 && retV >= 0)
+
+  const net = mode === 'flat'
+    ? (canAdd ? sign * Math.round(value * 100) / 100 : null)
+    : (canAdd ? Math.round((retV - stakeV) * 100) / 100 : null)
 
   function submit() {
     if (!canAdd) return
-    onAdd(sign * Math.round(value * 100) / 100)
-    setAmount(''); setSign(1)
+    if (mode === 'flat') {
+      onAdd({ amount: sign * Math.round(value * 100) / 100 })
+    } else {
+      onAdd({
+        stake: Math.round(stakeV * 100) / 100,
+        returned: Math.round(retV * 100) / 100,
+      })
+    }
+    setAmount(''); setSign(1); setStake(''); setRet('')
   }
+
+  const onEnterKey = e => { if (e.key === 'Enter') submit() }
 
   return (
     <section className={styles.pad}>
-      <div className={`${styles.display} ${sign > 0 ? styles.plus : styles.minus}`}>
-        <span className={styles.dSign}>{sign > 0 ? '+' : '−'}</span>
-        <span className={styles.currency}>£</span>
-        <input
-          className={styles.amountInput}
-          value={amount}
-          onChange={e => setAmount(sanitizeAmount(e.target.value))}
-          onKeyDown={e => { if (e.key === 'Enter') submit() }}
-          inputMode="decimal"
-          type="text"
-          placeholder="0.00"
-          aria-label="Bet result"
-          autoComplete="off"
-        />
-      </div>
-      <div className={styles.toggle}>
+      <div className={styles.modes} role="tablist" aria-label="Entry mode">
         <button
-          type="button"
-          className={`${styles.minusBtn} ${sign < 0 ? styles.on : ''}`}
-          onClick={() => setSign(-1)}
-        ><span>−</span><span className={styles.lbl}>Loss</span></button>
+          type="button" role="tab" aria-selected={mode === 'flat'}
+          className={mode === 'flat' ? styles.modeOn : ''}
+          onClick={() => setMode('flat')}
+        >Win / loss</button>
         <button
-          type="button"
-          className={`${styles.plusBtn} ${sign > 0 ? styles.on : ''}`}
-          onClick={() => setSign(1)}
-        ><span>+</span><span className={styles.lbl}>Win</span></button>
+          type="button" role="tab" aria-selected={mode === 'detail'}
+          className={mode === 'detail' ? styles.modeOn : ''}
+          onClick={() => setMode('detail')}
+        >Stake / return</button>
       </div>
+
+      {mode === 'flat' ? (
+        <>
+          <div className={`${styles.display} ${sign > 0 ? styles.plus : styles.minus}`}>
+            <span className={styles.dSign}>{sign > 0 ? '+' : '−'}</span>
+            <span className={styles.currency}>£</span>
+            <input
+              className={styles.amountInput}
+              value={amount}
+              onChange={e => setAmount(sanitizeAmount(e.target.value))}
+              onKeyDown={onEnterKey}
+              inputMode="decimal"
+              type="text"
+              placeholder="0.00"
+              aria-label="Bet result"
+              autoComplete="off"
+            />
+          </div>
+          <div className={styles.toggle}>
+            <button
+              type="button"
+              className={`${styles.minusBtn} ${sign < 0 ? styles.on : ''}`}
+              onClick={() => setSign(-1)}
+            ><span>−</span><span className={styles.lbl}>Loss</span></button>
+            <button
+              type="button"
+              className={`${styles.plusBtn} ${sign > 0 ? styles.on : ''}`}
+              onClick={() => setSign(1)}
+            ><span>+</span><span className={styles.lbl}>Win</span></button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className={styles.pair}>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Stake</span>
+              <div className={styles.display}>
+                <span className={styles.currency}>£</span>
+                <input
+                  className={styles.amountInput}
+                  value={stake}
+                  onChange={e => setStake(sanitizeAmount(e.target.value))}
+                  onKeyDown={onEnterKey}
+                  inputMode="decimal"
+                  type="text"
+                  placeholder="0.00"
+                  autoComplete="off"
+                />
+              </div>
+            </label>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Return</span>
+              <div className={styles.display}>
+                <span className={styles.currency}>£</span>
+                <input
+                  className={styles.amountInput}
+                  value={ret}
+                  onChange={e => setRet(sanitizeAmount(e.target.value))}
+                  onKeyDown={onEnterKey}
+                  inputMode="decimal"
+                  type="text"
+                  placeholder="0.00"
+                  autoComplete="off"
+                />
+              </div>
+            </label>
+          </div>
+          <div className={styles.netLine}>
+            <span>Net</span>
+            <b className={net === null ? '' : net > 0 ? styles.pos : net < 0 ? styles.neg : ''}>
+              {net === null ? '—' : signed(net)}
+            </b>
+          </div>
+        </>
+      )}
+
       <button type="button" className={styles.enter} onClick={submit} disabled={!canAdd}>Enter</button>
     </section>
   )

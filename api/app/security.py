@@ -327,6 +327,17 @@ def ensure_schema() -> None:
             if "payout_ladder" not in ccols:
                 conn.execute(text("ALTER TABLE coupons ADD COLUMN payout_ladder TEXT"))
 
+    # P&L stake/return entry mode: bets logged with both figures carry them
+    # alongside the net amount. NULL on every pre-existing (flat) row — that
+    # NULL is meaningful, so don't backfill it with a zero stake.
+    if "bets" in tables:
+        bcols = {c["name"] for c in inspector.get_columns("bets")}
+        with engine.begin() as conn:
+            if "stake" not in bcols:
+                conn.execute(text("ALTER TABLE bets ADD COLUMN stake FLOAT"))
+            if "returned" not in bcols:
+                conn.execute(text("ALTER TABLE bets ADD COLUMN returned FLOAT"))
+
     # V5 status remap: pending|live -> processing|confirmed. Existing coupons
     # were all past the old review gate, so 'pending' rows are stale uploads
     # that never got confirmed; they map to 'processing' and re-price on the

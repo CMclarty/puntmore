@@ -109,7 +109,9 @@ export const getGoalscorerFeed = () => get('/goalscorers/feed')
 
 // Private P&L bet tracker (per-user ledger).
 export const getBets = () => get('/pnl/bets')
-export const addBet = (amount) => post('/pnl/bets', { amount })
+// Two entry modes — flat net result `{ amount }`, or `{ stake, returned }`
+// when both figures are to hand. Pass exactly one shape; the API rejects both.
+export const addBet = (payload) => post('/pnl/bets', payload)
 export async function deleteBet(id) {
   const res = await fetch(`${BASE}/pnl/bets/${id}`, { method: 'DELETE' })
   if (res.status === 401) { redirectToLogin(); throw new Error('Not authenticated') }

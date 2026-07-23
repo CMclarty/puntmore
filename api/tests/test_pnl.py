@@ -58,6 +58,50 @@ def test_amount_is_rounded_to_pennies():
     assert r["amount"] == 12.35
 
 
+def test_stake_return_entry_derives_the_net():
+    client = TestClient(app)
+    r = client.post("/pnl/bets", json={"stake": 10, "returned": 34.5})
+    assert r.status_code == 200
+    assert r.json() == {**r.json(), "amount": 24.5, "stake": 10.0, "returned": 34.5}
+
+    lost = client.post("/pnl/bets", json={"stake": 25, "returned": 0}).json()
+    assert lost["amount"] == -25.0 and lost["stake"] == 25.0
+
+
+def test_flat_entry_leaves_stake_and_return_null():
+    # None means "not recorded" — never 0, or turnover/ROI would be wrong.
+    client = TestClient(app)
+    r = client.post("/pnl/bets", json={"amount": 40}).json()
+    assert r["stake"] is None and r["returned"] is None
+
+
+def test_push_is_allowed_only_in_stake_return_mode():
+    client = TestClient(app)
+    r = client.post("/pnl/bets", json={"stake": 20, "returned": 20})
+    assert r.status_code == 200 and r.json()["amount"] == 0.0
+    assert client.post("/pnl/bets", json={"amount": 0}).status_code == 400
+
+
+def test_mixed_or_incomplete_entry_rejected():
+    client = TestClient(app)
+    bad = [
+        {"amount": 5, "stake": 10, "returned": 15},   # both modes at once
+        {"stake": 10},                                # return missing
+        {"returned": 15},                             # stake missing
+        {},                                           # neither
+        {"stake": 0, "returned": 5},                  # zero stake
+        {"stake": 10, "returned": -1},                # negative return
+    ]
+    for body in bad:
+        assert client.post("/pnl/bets", json=body).status_code == 422, body
+
+
+def test_stake_and_return_are_rounded_to_pennies():
+    client = TestClient(app)
+    r = client.post("/pnl/bets", json={"stake": 10.004, "returned": 22.229}).json()
+    assert (r["stake"], r["returned"], r["amount"]) == (10.0, 22.23, 12.23)
+
+
 def test_delete_bet():
     client = TestClient(app)
     bet_id = client.post("/pnl/bets", json={"amount": 20.0}).json()["id"]

@@ -6,7 +6,7 @@ deliberately thin: it stores/returns raw bets and the frontend derives the
 cumulative total, month-to-date and the chart from them.
 """
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -17,10 +17,42 @@ from ..security import require_user
 router = APIRouter(prefix="/pnl", tags=["pnl"])
 
 
+LIMIT = 1_000_000
+
+
 class BetIn(BaseModel):
-    # Net result of the bet: positive = win, negative = loss. Bounded so a
-    # fat-fingered keypad entry can't store a nonsense figure.
-    amount: float = Field(..., gt=-1_000_000, lt=1_000_000)
+    """One bet, in either entry mode.
+
+    Flat: `amount` alone — the net result, positive = win, negative = loss.
+    Detailed: `stake` + `returned` — the net is derived (returned − stake) so
+    the rest of the app keeps reading one field. Exactly one mode per request;
+    sending `amount` alongside stake/return is rejected rather than silently
+    preferring one, since a mismatch between them has no right answer.
+    Bounded so a fat-fingered keypad entry can't store a nonsense figure.
+    """
+    amount: float | None = Field(default=None, gt=-LIMIT, lt=LIMIT)
+    stake: float | None = Field(default=None, ge=0, lt=LIMIT)
+    returned: float | None = Field(default=None, ge=0, lt=LIMIT)
+
+    @model_validator(mode="after")
+    def _one_mode(self):
+        detailed = self.stake is not None or self.returned is not None
+        if detailed:
+            if self.amount is not None:
+                raise ValueError("Send either amount, or stake and returned — not both")
+            if self.stake is None or self.returned is None:
+                raise ValueError("Stake/return entry needs both stake and returned")
+            if round(self.stake, 2) <= 0:
+                raise ValueError("Stake must be greater than zero")
+        elif self.amount is None:
+            raise ValueError("Send either amount, or stake and returned")
+        return self
+
+    def net(self) -> float:
+        """The net result in pennies-rounded form, whichever mode was used."""
+        if self.amount is not None:
+            return round(self.amount, 2)
+        return round(round(self.returned, 2) - round(self.stake, 2), 2)
 
 
 @router.get("/bets", response_model=list[BetOut])
@@ -40,9 +72,17 @@ def add_bet(
     db: Session = Depends(get_db),
     user: str = Depends(require_user),
 ):
-    if round(body.amount, 2) == 0:
+    # A zero net is meaningless as a flat entry — there's nothing to record. In
+    # stake/return mode it's a push (returned == stake), a real settlement the
+    # user typed both sides of, so it's kept: the stake still counts as turnover.
+    if body.amount is not None and round(body.amount, 2) == 0:
         raise HTTPException(status_code=400, detail="A bet result cannot be zero")
-    bet = Bet(user=user, amount=round(body.amount, 2))
+    bet = Bet(
+        user=user,
+        amount=body.net(),
+        stake=None if body.stake is None else round(body.stake, 2),
+        returned=None if body.returned is None else round(body.returned, 2),
+    )
     db.add(bet)
     db.commit()
     db.refresh(bet)

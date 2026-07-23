@@ -110,10 +110,14 @@ class CardFeedItem(BaseModel):
     bets: list[CardFeedBet]
 
 
-# Private P&L bet tracker — one settled bet's net result
+# Private P&L bet tracker — one settled bet's net result. stake/returned are
+# present only when the bet was logged in stake/return mode; None means "not
+# recorded", not zero.
 class BetOut(BaseModel):
     id: int
     amount: float
+    stake: float | None = None
+    returned: float | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
