@@ -1,11 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getBets, addBet, deleteBet } from '../api'
+import OddsWheel from '../components/OddsWheel'
 import styles from './PnlPage.module.css'
 
 const money = v => (v < 0 ? '-' : '') + '£' + Math.abs(v).toLocaleString('en-GB', { maximumFractionDigits: 2 })
 const signed = v => (v > 0 ? '+' : v < 0 ? '−' : '') + '£' + Math.abs(v).toLocaleString('en-GB', { maximumFractionDigits: 2 })
 const parseDate = s => new Date(/[Z+]/.test(s) ? s : s + 'Z')
 const fmtDay = d => d.getDate() + ' ' + d.toLocaleString('en-GB', { month: 'short' })
+
+// Price taken against Betfair SP, as a percentage of the SP. +5% means the
+// price taken was 5% longer than the SP that bet eventually returned.
+const vsSpPct = (price, sp) => (price / sp - 1) * 100
+const vsSp = (price, sp) => {
+  const p = vsSpPct(price, sp)
+  return (p > 0 ? '+' : p < 0 ? '−' : '') + Math.abs(p).toFixed(1) + '%'
+}
 
 function niceStep(range) {
   const raw = range / 4, mag = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / mag
@@ -192,8 +201,66 @@ export default function PnlPage() {
         </div>
       </section>
 
+      <SpSeries bets={bets} />
       <PnlEntry onAdd={handleAdd} busy={busy} />
     </div>
+  )
+}
+
+/**
+ * Price taken vs Betfair SP — its own series, deliberately kept out of the P&L
+ * figures above. It measures the price, not the money: a bet can lose and still
+ * have beaten SP. Only bets carrying BOTH prices appear here.
+ *
+ * The line is the running mean, so it reads as "where my average price stands
+ * after n bets" rather than as per-bet noise.
+ */
+function SpSeries({ bets }) {
+  const rows = bets.filter(b => b.price_taken != null && b.bfsp != null)
+  if (!rows.length) return null
+
+  const pcts = rows.map(b => vsSpPct(b.price_taken, b.bfsp))
+  const running = []
+  let sum = 0
+  pcts.forEach((p, i) => { sum += p; running.push(sum / (i + 1)) })
+  const mean = running[running.length - 1]
+  const beat = pcts.filter(p => p > 0).length
+
+  const W = 100, H = 28
+  const lo = Math.min(0, ...running), hi = Math.max(0, ...running)
+  const span = (hi - lo) || 1
+  const X = i => running.length === 1 ? W / 2 : (W * i) / (running.length - 1)
+  const Y = v => H - ((v - lo) / span) * H
+  const path = running.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ')
+  const col = mean > 0 ? 'var(--accent)' : mean < 0 ? 'var(--red)' : 'var(--muted)'
+
+  return (
+    <section className={styles.spBlock}>
+      <div className={styles.eyebrow}>
+        <span>Price vs BFSP</span>
+        <span className={styles.me}>{rows.length} priced</span>
+      </div>
+      <div className={styles.spRow}>
+        <div className={styles.spFigures}>
+          <div className={`${styles.spMean} ${mean < 0 ? styles.neg : styles.pos}`}>
+            {(mean > 0 ? '+' : mean < 0 ? '−' : '') + Math.abs(mean).toFixed(1) + '%'}
+          </div>
+          <div className={styles.spSub}>
+            mean vs SP · beat SP on <b>{beat}</b>/{rows.length}
+          </div>
+        </div>
+        <svg
+          className={styles.spSpark}
+          viewBox={`0 0 ${W} ${H}`}
+          preserveAspectRatio="none"
+          aria-label={`Running mean price versus starting price, currently ${mean.toFixed(1)} percent`}
+        >
+          <line x1="0" x2={W} y1={Y(0)} y2={Y(0)} stroke="var(--line-strong)" strokeWidth="0.6" strokeDasharray="2 2" vectorEffect="non-scaling-stroke" />
+          <path d={path} fill="none" stroke={col} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+          <circle cx={X(running.length - 1)} cy={Y(mean)} r="2.4" fill={col} vectorEffect="non-scaling-stroke" />
+        </svg>
+      </div>
+    </section>
   )
 }
 
@@ -219,6 +286,11 @@ function PnlEntry({ onAdd, busy }) {
   const [stake, setStake] = useState('')
   const [ret, setRet] = useState('')
   const [confirming, setConfirming] = useState(false)
+  // Odds are opt-in per bet: the wheels stay collapsed until asked for, so the
+  // fast win/loss path is still two taps.
+  const [showOdds, setShowOdds] = useState(false)
+  const [price, setPrice] = useState(null)
+  const [sp, setSp] = useState(null)
 
   // Any edit invalidates a pending confirmation — you must re-read the figure
   // you're agreeing to, or a changed amount could ride through on a stale yes.
@@ -246,15 +318,22 @@ function PnlEntry({ onAdd, busy }) {
     // A four-figure swing is almost always a slipped decimal point on a phone
     // keypad, and the ledger has no edit — only undo-last. Make it deliberate.
     if (big && !confirming) { setConfirming(true); return }
+    // Odds ride along with whichever money mode is active; each is sent only if
+    // set, so a price with no BFSP yet is a valid thing to file.
+    const odds = {}
+    if (price != null) odds.price_taken = price
+    if (sp != null) odds.bfsp = sp
     if (mode === 'flat') {
-      onAdd({ amount: sign * Math.round(value * 100) / 100 })
+      onAdd({ amount: sign * Math.round(value * 100) / 100, ...odds })
     } else {
       onAdd({
         stake: Math.round(stakeV * 100) / 100,
         returned: Math.round(retV * 100) / 100,
+        ...odds,
       })
     }
     setAmount(''); setSign(1); setStake(''); setRet(''); setConfirming(false)
+    setPrice(null); setSp(null); setShowOdds(false)
   }
 
   const onEnterKey = e => { if (e.key === 'Enter') submit() }
@@ -347,6 +426,31 @@ function PnlEntry({ onAdd, busy }) {
             </b>
           </div>
         </>
+      )}
+
+      {showOdds ? (
+        <div className={styles.odds}>
+          <div className={styles.wheels}>
+            <OddsWheel id="pnlPrice" label="Price taken" value={price} onChange={edit(setPrice)} />
+            <OddsWheel id="pnlBfsp" label="BFSP" value={sp} onChange={edit(setSp)} />
+          </div>
+          <div className={styles.oddsFoot}>
+            <span className={styles.vsSp}>
+              {price != null && sp != null
+                ? <>vs SP <b className={price > sp ? styles.pos : price < sp ? styles.neg : ''}>{vsSp(price, sp)}</b></>
+                : 'Set both to score this bet against SP'}
+            </span>
+            <button
+              type="button"
+              className={styles.oddsClear}
+              onClick={() => { setPrice(null); setSp(null); setShowOdds(false) }}
+            >clear</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" className={styles.oddsAdd} onClick={() => setShowOdds(true)}>
+          + Price / BFSP
+        </button>
       )}
 
       {confirming ? (

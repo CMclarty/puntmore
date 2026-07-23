@@ -337,6 +337,12 @@ def ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE bets ADD COLUMN stake FLOAT"))
             if "returned" not in bcols:
                 conn.execute(text("ALTER TABLE bets ADD COLUMN returned FLOAT"))
+            # Price taken vs BFSP — its own series, NULL on every bet logged
+            # before it existed and on any bet where the odds weren't recorded.
+            if "price_taken" not in bcols:
+                conn.execute(text("ALTER TABLE bets ADD COLUMN price_taken FLOAT"))
+            if "bfsp" not in bcols:
+                conn.execute(text("ALTER TABLE bets ADD COLUMN bfsp FLOAT"))
 
     # V5 status remap: pending|live -> processing|confirmed. Existing coupons
     # were all past the old review gate, so 'pending' rows are stale uploads

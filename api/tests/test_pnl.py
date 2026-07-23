@@ -102,6 +102,52 @@ def test_stake_and_return_are_rounded_to_pennies():
     assert (r["stake"], r["returned"], r["amount"]) == (10.0, 22.23, 12.23)
 
 
+def test_price_and_bfsp_recorded_alongside_either_mode():
+    client = TestClient(app)
+    flat = client.post(
+        "/pnl/bets", json={"amount": 50, "price_taken": 3.5, "bfsp": 2.94}
+    ).json()
+    assert (flat["price_taken"], flat["bfsp"]) == (3.5, 2.94)
+
+    detailed = client.post(
+        "/pnl/bets",
+        json={"stake": 20, "returned": 70, "price_taken": 3.5, "bfsp": 4.2},
+    ).json()
+    assert detailed["amount"] == 50.0 and detailed["bfsp"] == 4.2
+
+
+def test_price_and_bfsp_are_independent_and_optional():
+    # BFSP is only known after the off, so a price can be logged without it —
+    # and a bet with neither is still a perfectly good bet.
+    client = TestClient(app)
+    only_price = client.post("/pnl/bets", json={"amount": 10, "price_taken": 6.0}).json()
+    assert only_price["price_taken"] == 6.0 and only_price["bfsp"] is None
+
+    only_sp = client.post("/pnl/bets", json={"amount": 10, "bfsp": 6.0}).json()
+    assert only_sp["price_taken"] is None and only_sp["bfsp"] == 6.0
+
+    neither = client.post("/pnl/bets", json={"amount": 10}).json()
+    assert neither["price_taken"] is None and neither["bfsp"] is None
+
+
+def test_odds_outside_the_decimal_range_rejected():
+    client = TestClient(app)
+    for body in [
+        {"amount": 10, "price_taken": 1.0},     # decimal odds start above 1
+        {"amount": 10, "price_taken": 0},
+        {"amount": 10, "bfsp": -2},
+        {"amount": 10, "bfsp": 1001},           # past the top of the ladder
+    ]:
+        assert client.post("/pnl/bets", json=body).status_code == 422, body
+
+
+def test_odds_still_require_a_money_result():
+    # The odds pair attaches to a bet; it is not a bet on its own.
+    client = TestClient(app)
+    r = client.post("/pnl/bets", json={"price_taken": 3.0, "bfsp": 2.5})
+    assert r.status_code == 422
+
+
 def test_delete_bet():
     client = TestClient(app)
     bet_id = client.post("/pnl/bets", json={"amount": 20.0}).json()["id"]

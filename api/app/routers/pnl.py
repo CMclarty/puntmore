@@ -33,6 +33,10 @@ class BetIn(BaseModel):
     amount: float | None = Field(default=None, gt=-LIMIT, lt=LIMIT)
     stake: float | None = Field(default=None, ge=0, lt=LIMIT)
     returned: float | None = Field(default=None, ge=0, lt=LIMIT)
+    # Decimal odds, so 1.01 is the floor — 1.0 would be a bet that returns the
+    # stake. Bounded at the top of the Betfair ladder.
+    price_taken: float | None = Field(default=None, ge=1.01, le=1000)
+    bfsp: float | None = Field(default=None, ge=1.01, le=1000)
 
     @model_validator(mode="after")
     def _one_mode(self):
@@ -82,6 +86,8 @@ def add_bet(
         amount=body.net(),
         stake=None if body.stake is None else round(body.stake, 2),
         returned=None if body.returned is None else round(body.returned, 2),
+        price_taken=None if body.price_taken is None else round(body.price_taken, 2),
+        bfsp=None if body.bfsp is None else round(body.bfsp, 2),
     )
     db.add(bet)
     db.commit()

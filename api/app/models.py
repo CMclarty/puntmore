@@ -164,6 +164,12 @@ class Bet(Base):
     amount = Column(Float, nullable=False)          # net change, + win / − loss
     stake = Column(Float)                           # NULL on flat entries
     returned = Column(Float)                        # NULL on flat entries
+    # Price taken vs the Betfair starting price, as decimal odds. Independent of
+    # the money columns and of each other: you know the price you took at bet
+    # time but the BFSP only after the off, so either can be recorded alone.
+    # The price-vs-BFSP series uses only rows where BOTH are present.
+    price_taken = Column(Float)
+    bfsp = Column(Float)
     created_at = Column(DateTime, default=utcnow, index=True)
 
 
