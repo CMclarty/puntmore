@@ -191,7 +191,13 @@ export default function PnlPage() {
           {roi !== null && <span><b>{roi}</b> ROI on {money(turnover)}</span>}
           <span>last <b>{bets.length ? signed(bets[bets.length - 1].amount) : '—'}</b></span>
           {bets.length > 0 && (
-            <button className={styles.undo} onClick={undoLast} disabled={busy}>undo last</button>
+            <>
+              {/* A plain link, not a fetch: the session cookie rides along and
+                  the browser handles the download, so there is no blob to build
+                  or object URL to revoke. */}
+              <a className={styles.export} href="/api/pnl/bets.csv" download>csv</a>
+              <button className={styles.undo} onClick={undoLast} disabled={busy}>undo last</button>
+            </>
           )}
         </div>
         {error && <p className={styles.error}>{error}</p>}

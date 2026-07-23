@@ -69,6 +69,21 @@
   font-variant-numeric: tabular-nums;
 }
 .subline b { color: var(--ink); font-weight: 600; }
+.export {
+  margin-left: auto;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 2px 7px;
+}
+
+/* .export takes the auto margin when present, so undo sits next to it. */
+.export + .undo { margin-left: 0; }
+
 .undo {
   margin-left: auto;
   border: 1px solid var(--line);

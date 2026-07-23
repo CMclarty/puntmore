@@ -1,4 +1,7 @@
 """Private P&L tracker: add/list/delete bets, per-user isolation, tool gating."""
+import csv
+import io
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -174,6 +177,59 @@ def test_bets_are_scoped_per_user():
         app.dependency_overrides[require_user] = lambda: "testuser"
 
     assert len(client.get("/pnl/bets").json()) == 1   # original owner still has it
+
+
+def test_csv_export_contains_the_full_history():
+    client = TestClient(app)
+    client.post("/pnl/bets", json={"amount": 45})
+    client.post("/pnl/bets", json={"stake": 20, "returned": 70, "price_taken": 3.5, "bfsp": 2.8})
+
+    r = client.get("/pnl/bets.csv")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    assert "attachment" in r.headers["content-disposition"]
+    assert "puntmore-pnl-testuser-" in r.headers["content-disposition"]
+
+    rows = list(csv.reader(io.StringIO(r.text)))
+    assert rows[0] == [
+        "id", "created_at", "amount", "stake", "returned",
+        "price_taken", "bfsp", "vs_sp_pct",
+    ]
+    assert len(rows) == 3   # header + 2 bets, oldest first
+    assert rows[1][2] == "45.00"
+    assert rows[2][2:7] == ["50.00", "20.00", "70.00", "3.50", "2.80"]
+    assert rows[2][7] == "25.00"   # 3.5/2.8 - 1
+
+
+def test_csv_leaves_unrecorded_fields_empty_not_zero():
+    # In a spreadsheet a 0 stake would read as a real measurement.
+    client = TestClient(app)
+    client.post("/pnl/bets", json={"amount": 45})
+    rows = list(csv.reader(io.StringIO(client.get("/pnl/bets.csv").text)))
+    assert rows[1][3:] == ["", "", "", "", ""]
+
+
+def test_csv_export_is_scoped_to_its_owner():
+    from app.security import require_user
+    client = TestClient(app)
+    client.post("/pnl/bets", json={"amount": 100})   # testuser's
+
+    app.dependency_overrides[require_user] = lambda: "someone_else"
+    try:
+        rows = list(csv.reader(io.StringIO(client.get("/pnl/bets.csv").text)))
+        assert len(rows) == 1   # header only — no sight of another user's ledger
+    finally:
+        app.dependency_overrides[require_user] = lambda: "testuser"
+
+
+def test_csv_export_needs_the_pnl_tool():
+    from app.security import user_permissions
+    client = TestClient(app)
+    app.dependency_overrides[user_permissions] = lambda: "coupons"
+    try:
+        assert client.get("/pnl/bets.csv").status_code == 403
+    finally:
+        app.dependency_overrides[user_permissions] = lambda: "*"
 
 
 def test_pnl_router_requires_the_pnl_tool():

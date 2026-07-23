@@ -5,7 +5,11 @@ session user, so a user only ever sees and edits their own bets. The API is
 deliberately thin: it stores/returns raw bets and the frontend derives the
 cumulative total, month-to-date and the chart from them.
 """
-from fastapi import APIRouter, Depends, HTTPException
+import csv
+import io
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
@@ -93,6 +97,61 @@ def add_bet(
     db.commit()
     db.refresh(bet)
     return bet
+
+
+CSV_COLUMNS = [
+    "id", "created_at", "amount", "stake", "returned",
+    "price_taken", "bfsp", "vs_sp_pct",
+]
+
+
+@router.get("/bets.csv")
+def export_bets_csv(
+    db: Session = Depends(get_db),
+    user: str = Depends(require_user),
+):
+    """This user's full history as CSV, oldest first.
+
+    Scoped to the session user like every other route here — there is no way to
+    export someone else's ledger, by design.
+
+    Empty cells mean "not recorded", never zero: a flat win/loss entry has no
+    stake, and vs_sp_pct exists only where both prices were captured. Writing 0
+    for those would misread as a real measurement once the file is in a
+    spreadsheet, away from the UI that explains the difference.
+    """
+    bets = (
+        db.query(Bet)
+        .filter(Bet.user == user)
+        .order_by(Bet.created_at.asc(), Bet.id.asc())
+        .all()
+    )
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(CSV_COLUMNS)
+    for b in bets:
+        vs_sp = ""
+        if b.price_taken is not None and b.bfsp is not None:
+            vs_sp = f"{(b.price_taken / b.bfsp - 1) * 100:.2f}"
+        writer.writerow([
+            b.id,
+            b.created_at.isoformat() if b.created_at else "",
+            f"{b.amount:.2f}",
+            "" if b.stake is None else f"{b.stake:.2f}",
+            "" if b.returned is None else f"{b.returned:.2f}",
+            "" if b.price_taken is None else f"{b.price_taken:.2f}",
+            "" if b.bfsp is None else f"{b.bfsp:.2f}",
+            vs_sp,
+        ])
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    filename = f"puntmore-pnl-{user}-{stamp}.csv"
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.delete("/bets/{bet_id}", status_code=204)
