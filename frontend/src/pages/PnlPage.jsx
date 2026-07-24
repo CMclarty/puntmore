@@ -293,11 +293,11 @@ function sanitizeAmount(v) {
 // never the chart above — which is what caused the input lag.
 function PnlEntry({ onAdd, busy }) {
   const [stake, setStake] = useState('')
-  // Price taken is part of every entry — it settles a win and scores the bet
-  // against SP — so it carries the 2/1 default and is always recorded.
-  const [odds, setOdds] = useState(DEFAULT_PRICE)
-  // BFSP is optional: the wheel sits at 2/1 but stays BLANK until set, so an
-  // untouched wheel files nothing rather than a phantom price.
+  // Odds taken is REQUIRED — every bet records the price, which is what scores
+  // it against SP. It starts blank (no bet enters until it's set), not on a
+  // silent 2/1 default that could be filed unnoticed.
+  const [odds, setOdds] = useState(null)
+  // BFSP is optional: blank until set, so an untouched wheel files nothing.
   const [bsp, setBsp] = useState(null)
   const [result, setResult] = useState(null)   // 'win' | 'lose' | 'push'
   const [confirming, setConfirming] = useState(false)
@@ -317,7 +317,8 @@ function PnlEntry({ onAdd, busy }) {
     : result === 'push' ? stakeV
     : null
 
-  const canAdd = !busy && hasStake && result !== null
+  // Odds is required, so a bet needs stake + a set price + a result.
+  const canAdd = !busy && hasStake && odds != null && result !== null
   const net = canAdd ? Math.round((returned - stakeV) * 100) / 100 : null
   const big = net !== null && Math.abs(net) >= BIG_ENTRY
 
@@ -332,7 +333,7 @@ function PnlEntry({ onAdd, busy }) {
       price_taken: odds,
       ...(bsp != null ? { bfsp: bsp } : {}),
     })
-    setStake(''); setOdds(DEFAULT_PRICE); setBsp(null); setResult(null); setConfirming(false)
+    setStake(''); setOdds(null); setBsp(null); setResult(null); setConfirming(false)
   }
 
   const onEnterKey = e => { if (e.key === 'Enter') submit() }
@@ -358,16 +359,23 @@ function PnlEntry({ onAdd, busy }) {
       </label>
 
       <div className={styles.wheels}>
-        <OddsWheel id="pnlOdds" label="Odds" value={odds} onChange={edit(setOdds)} />
-        <div className={styles.bsp}>
-          <div className={bsp == null ? styles.bspDim : ''}>
-            <OddsWheel id="pnlBsp" label="BFSP" value={bsp} onChange={edit(setBsp)} />
-          </div>
+        <div className={styles.wheelCol}>
+          <OddsWheel id="pnlOdds" label="Odds" value={odds} onChange={edit(setOdds)} required />
+          {/* From blank, commit the value the wheel already shows so 2/1 can be
+              filed without a spin; once set, clear it back to blank. */}
           <button
             type="button"
-            className={styles.bspNote}
-            // From blank, commit the value the wheel already shows so 2/1 can be
-            // filed without a spin; once set, clear it back to blank.
+            className={`${styles.wNote} ${odds == null ? styles.wNoteReq : ''}`}
+            onClick={() => edit(setOdds)(odds == null ? DEFAULT_PRICE : null)}
+          >
+            {odds == null ? 'required · tap or spin to set' : 'clear'}
+          </button>
+        </div>
+        <div className={styles.wheelCol}>
+          <OddsWheel id="pnlBsp" label="BFSP" value={bsp} onChange={edit(setBsp)} />
+          <button
+            type="button"
+            className={styles.wNote}
             onClick={() => edit(setBsp)(bsp == null ? DEFAULT_PRICE : null)}
           >
             {bsp == null ? 'optional · tap or spin to set' : 'clear'}

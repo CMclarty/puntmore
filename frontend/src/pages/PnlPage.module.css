@@ -149,11 +149,10 @@
 
 /* odds wheels in the entry pad — price taken (always filed) + optional BFSP */
 .wheels { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: start; }
-.bsp { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-/* BFSP is blank-until-set: the wheel shows 2/1 but is dimmed until it holds a
-   real value, so an untouched wheel never reads as a filed price. */
-.bspDim { opacity: 0.4; transition: opacity 0.15s ease; }
-.bspNote {
+.wheelCol { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* Note under each wheel: tap to set/clear. The blank/selected look lives in the
+   wheel itself (OddsWheel handles the placeholder); this is the affordance. */
+.wNote {
   border: none;
   background: none;
   padding: 0;
@@ -165,6 +164,7 @@
   cursor: pointer;
   text-align: center;
 }
+.wNoteReq { color: var(--red); }
 .vsSpLine {
   font-family: var(--font-mono);
   font-size: 11px;

@@ -17,7 +17,32 @@
   border-radius: 10px;
   background: var(--paper);
   overflow: hidden;
+  transition: border-color 0.15s ease;
 }
+/* Required-but-empty: tint the frame red until a price is set. */
+.viewport.needs { border-color: var(--red); }
+
+/* Blank state: an opaque neutral band with a placeholder sits over the centre,
+   above the rows (z-index 2), so no phantom price shows as selected. */
+.placeholder {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 34px;
+  height: 34px;
+  z-index: 3;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--zebra);
+  border-top: 1px solid var(--line-strong);
+  border-bottom: 1px solid var(--line-strong);
+  font-family: var(--font-mono);
+  font-size: 16px;
+  color: var(--faint);
+  pointer-events: none;
+}
+.viewport.blank .placeholder { display: flex; }
 
 /* The centre band the value snaps into. */
 .selection {

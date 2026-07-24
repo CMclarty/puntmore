@@ -53,12 +53,17 @@ export function nearestTick(v) {
  *
  * value: decimal odds or null. onChange: (price) => void.
  */
-export default function OddsWheel({ value, onChange, label, id }) {
+export default function OddsWheel({ value, onChange, label, id, required = false }) {
   const ref = useRef(null)
   const settle = useRef(null)
   // Held so programmatic scrolling (seating the initial value) doesn't feed
   // itself back through onChange as if the user had spun it.
   const quiet = useRef(false)
+  // A null value is BLANK, not 2/1. The wheel still SEATS on the 2/1 row so a
+  // spin starts somewhere sensible, but nothing is shown as selected and the
+  // centre band shows a placeholder — an unset wheel must not read as a chosen
+  // price. `required` tints the frame while it's still empty.
+  const blank = value == null
 
   const index = useMemo(() => {
     const dec = value == null ? DEFAULT_PRICE : value
@@ -97,7 +102,7 @@ export default function OddsWheel({ value, onChange, label, id }) {
   return (
     <div className={styles.wheel}>
       <label className={styles.label} htmlFor={id}>{label}</label>
-      <div className={styles.viewport}>
+      <div className={`${styles.viewport} ${blank ? styles.blank : ''} ${blank && required ? styles.needs : ''}`}>
         <div className={styles.selection} aria-hidden="true" />
         <div
           className={styles.scroller}
@@ -113,9 +118,9 @@ export default function OddsWheel({ value, onChange, label, id }) {
           {LADDER.map((t, i) => (
             <div
               key={t.label}
-              className={`${styles.row} ${i === index ? styles.on : ''}`}
+              className={`${styles.row} ${i === index && !blank ? styles.on : ''}`}
               role="option"
-              aria-selected={i === index}
+              aria-selected={i === index && !blank}
               aria-label={`${t.label}, decimal ${t.dec.toFixed(2)}`}
             >
               <span className={styles.frac}>{t.label}</span>
@@ -124,6 +129,8 @@ export default function OddsWheel({ value, onChange, label, id }) {
           ))}
           <div className={styles.spacer} />
         </div>
+        {/* Covers the centre band while blank, so no price reads as selected. */}
+        <div className={styles.placeholder} aria-hidden="true">—</div>
       </div>
     </div>
   )
