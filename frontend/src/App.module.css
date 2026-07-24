@@ -11,6 +11,13 @@
   padding-top: env(safe-area-inset-top, 0px);
 }
 
+/* Focused mode (direct load of a single-tool route, e.g. /pnl): no switcher
+   dock is rendered, so reclaim the bottom safe-area inset the dock otherwise
+   provided — without it the page's own footer sits under the home indicator. */
+.focused {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 /* Boot states. Never render nothing here — a blank page is indistinguishable
    from a bundle that failed to load, which is exactly what made a stale
    service-worker shell so hard to diagnose. */

@@ -10,6 +10,16 @@ import AccaBonusPage from './pages/AccaBonusPage'
 import CardsPage from './pages/CardsPage'
 import LoginPage from './pages/LoginPage'
 import styles from './App.module.css'
+
+// The path the app was FIRST loaded at, captured once before the router starts
+// navigating. A direct (hard) load of a focused route — e.g. saving /pnl to the
+// home screen as a standalone ledger — shows just that tool with no switcher
+// fan. Opening the app normally at / keeps the fan; reaching P&L via the fan is
+// not a direct load, so this module-level capture stays on the entry URL.
+const ENTRY_PATH = window.location.pathname
+const FOCUSED_ROOTS = ['/pnl']
+const IS_FOCUSED = FOCUSED_ROOTS.some(r => ENTRY_PATH === r || ENTRY_PATH.startsWith(r + '/'))
+
 // AccaBonusPage and CardsPage are surfaced only to a grant that includes them
 // (i.e. "*"), reached via the nav's "More" sheet. Their feeds are empty until
 // ODDS_API_KEY is set / the cards client is rebuilt (docs/provider-verification).
@@ -56,7 +66,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <main className={styles.main}>
+      <main className={`${styles.main} ${IS_FOCUSED ? styles.focused : ''}`}>
         <Routes>
           <Route
             path="/login"
@@ -71,7 +81,7 @@ export default function App() {
           <Route path="/cards" element={protectTool(<CardsPage />, 'cards')} />
         </Routes>
       </main>
-      {user && <BottomNav onLogout={handleLogout} username={user.username} tools={user.tools} />}
+      {user && !IS_FOCUSED && <BottomNav onLogout={handleLogout} username={user.username} tools={user.tools} />}
     </BrowserRouter>
   )
 }
