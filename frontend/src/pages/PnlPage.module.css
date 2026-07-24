@@ -147,44 +147,33 @@
 .spSub b { color: var(--ink); font-weight: 600; }
 .spSpark { flex: 1; min-width: 0; height: 30px; display: block; overflow: visible; }
 
-/* odds wheels in the entry pad */
-.oddsAdd {
-  height: 30px;
-  border: 1px dashed var(--line-strong);
-  border-radius: 9px;
-  background: none;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-  cursor: pointer;
-}
-.odds { display: flex; flex-direction: column; gap: 6px; }
-.wheels { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.oddsFoot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.vsSp b { font-size: 13px; font-weight: 600; }
-.oddsHint { color: var(--faint); font-size: 9.5px; letter-spacing: 0.04em; }
-.oddsClear {
+/* odds wheels in the entry pad — price taken (always filed) + optional BFSP */
+.wheels { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: start; }
+.bsp { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* BFSP is blank-until-set: the wheel shows 2/1 but is dimmed until it holds a
+   real value, so an untouched wheel never reads as a filed price. */
+.bspDim { opacity: 0.4; transition: opacity 0.15s ease; }
+.bspNote {
   border: none;
   background: none;
+  padding: 0;
   font: inherit;
-  font-size: 10.5px;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
   color: var(--faint);
   text-decoration: underline;
   cursor: pointer;
-  padding: 0;
+  text-align: center;
 }
+.vsSpLine {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  margin-top: -3px;
+}
+.vsSpLine b { font-size: 13px; font-weight: 600; }
 
 /* ---- bottom: entry pad (native numeric input) ---- */
 .pad {
@@ -194,28 +183,6 @@
   flex-direction: column;
   gap: 9px;
   padding: 12px 14px 14px;
-}
-/* entry-mode tabs: flat win/loss vs stake+return */
-.modes { display: flex; gap: 4px; }
-.modes button {
-  flex: 1;
-  height: 28px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: none;
-  font: inherit;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--faint);
-  cursor: pointer;
-  transition: all 0.12s;
-}
-.modes button.modeOn {
-  border-color: var(--line-strong);
-  color: var(--ink);
-  background: var(--paper);
 }
 
 .display {
@@ -233,9 +200,6 @@
   letter-spacing: -0.01em;
 }
 .display:focus-within { border-color: var(--line-strong); }
-.dSign { font-weight: 700; }
-.plus .dSign { color: var(--accent); }
-.minus .dSign { color: var(--red); }
 .currency { color: var(--ink); }
 .amountInput {
   flex: 1;
@@ -250,9 +214,7 @@
 }
 .amountInput::placeholder { color: var(--faint); }
 
-/* stake + return, side by side — smaller than the single flat display so both
-   fit one row on a phone without wrapping */
-.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* stake field — a compact display, smaller than the old flat entry */
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .field .display { height: 46px; padding: 0 12px; font-size: 21px; }
 .fieldLabel {
@@ -276,26 +238,25 @@
 }
 .netLine b { font-size: 17px; font-weight: 600; color: var(--ink); text-transform: none; }
 
-.toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.toggle button {
-  height: 38px;
+/* result: lose / push / win — the return is derived from this + stake + odds */
+.results { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.res {
+  height: 40px;
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   background: var(--paper);
   font: inherit;
-  font-size: 18px;
+  font-size: 12px;
   font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   color: var(--muted);
   cursor: pointer;
   transition: all 0.12s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
 }
-.lbl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
-.minusBtn.on { background: rgba(185, 28, 28, 0.09); border-color: var(--red); color: var(--red); }
-.plusBtn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.resLose.on { background: rgba(185, 28, 28, 0.09); border-color: var(--red); color: var(--red); }
+.resPush.on { background: var(--zebra); border-color: var(--line-strong); color: var(--ink); }
+.resWin.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
 /* Four-figure guard. Replaces the Enter button in place rather than opening a
    modal — the figure stays on screen above it, so you confirm what you can see. */

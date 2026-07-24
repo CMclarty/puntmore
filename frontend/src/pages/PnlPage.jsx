@@ -292,196 +292,127 @@ function sanitizeAmount(v) {
 // Own component with local state: typing here re-renders only this small tree,
 // never the chart above — which is what caused the input lag.
 function PnlEntry({ onAdd, busy }) {
-  const [mode, setMode] = useState('flat')
-  const [amount, setAmount] = useState('')
-  const [sign, setSign] = useState(1)
   const [stake, setStake] = useState('')
-  // Return defaults to 0 — the common settlement is a loss, so a staked bet is
-  // one entry: type the stake, hit Enter. Type over the 0 for a win.
-  const [ret, setRet] = useState('0')
+  // Price taken is part of every entry — it settles a win and scores the bet
+  // against SP — so it carries the 2/1 default and is always recorded.
+  const [odds, setOdds] = useState(DEFAULT_PRICE)
+  // BFSP is optional: the wheel sits at 2/1 but stays BLANK until set, so an
+  // untouched wheel files nothing rather than a phantom price.
+  const [bsp, setBsp] = useState(null)
+  const [result, setResult] = useState(null)   // 'win' | 'lose' | 'push'
   const [confirming, setConfirming] = useState(false)
-  // Odds are opt-in per bet: the wheels stay collapsed until asked for, so the
-  // fast win/loss path is still two taps.
-  const [showOdds, setShowOdds] = useState(false)
-  const [price, setPrice] = useState(null)
-  const [sp, setSp] = useState(null)
 
   // Any edit invalidates a pending confirmation — you must re-read the figure
-  // you're agreeing to, or a changed amount could ride through on a stale yes.
+  // you're agreeing to, or a changed entry could ride through on a stale yes.
   const edit = setter => v => { setConfirming(false); setter(v) }
 
-  const value = parseFloat(amount)
   const stakeV = parseFloat(stake)
-  const retV = parseFloat(ret)
+  const hasStake = stake !== '' && stakeV > 0
 
-  // Flat: any positive figure, signed by the win/loss toggle. Detailed: a
-  // positive stake and a return (0 = lost the lot). A push nets zero and is
-  // allowed here — it's a real settlement, unlike a zero flat entry.
-  const canAdd = !busy && (mode === 'flat'
-    ? amount !== '' && value > 0
-    : stake !== '' && ret !== '' && stakeV > 0 && retV >= 0)
+  // The return is DERIVED from stake, odds and result — no second figure to
+  // type: win → stake × odds, lose → 0, push → stake back.
+  const returned =
+    result === 'win' ? stakeV * odds
+    : result === 'lose' ? 0
+    : result === 'push' ? stakeV
+    : null
 
-  const net = mode === 'flat'
-    ? (canAdd ? sign * Math.round(value * 100) / 100 : null)
-    : (canAdd ? Math.round((retV - stakeV) * 100) / 100 : null)
-
+  const canAdd = !busy && hasStake && result !== null
+  const net = canAdd ? Math.round((returned - stakeV) * 100) / 100 : null
   const big = net !== null && Math.abs(net) >= BIG_ENTRY
 
   function submit() {
     if (!canAdd) return
-    // A four-figure swing is almost always a slipped decimal point on a phone
-    // keypad, and the ledger has no edit — only undo-last. Make it deliberate.
+    // A four-figure swing is almost always a slipped decimal on a phone keypad,
+    // and the ledger has no edit — only undo-last. Make it deliberate.
     if (big && !confirming) { setConfirming(true); return }
-    // Odds ride along with whichever money mode is active; each is sent only if
-    // set, so a price with no BFSP yet is a valid thing to file.
-    const odds = {}
-    if (price != null) odds.price_taken = price
-    if (sp != null) odds.bfsp = sp
-    if (mode === 'flat') {
-      onAdd({ amount: sign * Math.round(value * 100) / 100, ...odds })
-    } else {
-      onAdd({
-        stake: Math.round(stakeV * 100) / 100,
-        returned: Math.round(retV * 100) / 100,
-        ...odds,
-      })
-    }
-    setAmount(''); setSign(1); setStake(''); setRet('0'); setConfirming(false)
-    setPrice(null); setSp(null); setShowOdds(false)
+    onAdd({
+      stake: Math.round(stakeV * 100) / 100,
+      returned: Math.round(returned * 100) / 100,
+      price_taken: odds,
+      ...(bsp != null ? { bfsp: bsp } : {}),
+    })
+    setStake(''); setOdds(DEFAULT_PRICE); setBsp(null); setResult(null); setConfirming(false)
   }
 
   const onEnterKey = e => { if (e.key === 'Enter') submit() }
 
   return (
     <section className={styles.pad}>
-      <div className={styles.modes} role="tablist" aria-label="Entry mode">
-        <button
-          type="button" role="tab" aria-selected={mode === 'flat'}
-          className={mode === 'flat' ? styles.modeOn : ''}
-          onClick={() => setMode('flat')}
-        >Win / loss</button>
-        <button
-          type="button" role="tab" aria-selected={mode === 'detail'}
-          className={mode === 'detail' ? styles.modeOn : ''}
-          onClick={() => setMode('detail')}
-        >Stake / return</button>
+      <label className={styles.field}>
+        <span className={styles.fieldLabel}>Stake</span>
+        <div className={styles.display}>
+          <span className={styles.currency}>£</span>
+          <input
+            className={styles.amountInput}
+            value={stake}
+            onChange={e => edit(setStake)(sanitizeAmount(e.target.value))}
+            onKeyDown={onEnterKey}
+            inputMode="decimal"
+            type="text"
+            placeholder="0.00"
+            aria-label="Stake"
+            autoComplete="off"
+          />
+        </div>
+      </label>
+
+      <div className={styles.wheels}>
+        <OddsWheel id="pnlOdds" label="Odds" value={odds} onChange={edit(setOdds)} />
+        <div className={styles.bsp}>
+          <div className={bsp == null ? styles.bspDim : ''}>
+            <OddsWheel id="pnlBsp" label="BFSP" value={bsp} onChange={edit(setBsp)} />
+          </div>
+          <button
+            type="button"
+            className={styles.bspNote}
+            // From blank, commit the value the wheel already shows so 2/1 can be
+            // filed without a spin; once set, clear it back to blank.
+            onClick={() => edit(setBsp)(bsp == null ? DEFAULT_PRICE : null)}
+          >
+            {bsp == null ? 'optional · tap or spin to set' : 'clear'}
+          </button>
+        </div>
       </div>
 
-      {mode === 'flat' ? (
-        <>
-          <div className={`${styles.display} ${sign > 0 ? styles.plus : styles.minus}`}>
-            <span className={styles.dSign}>{sign > 0 ? '+' : '−'}</span>
-            <span className={styles.currency}>£</span>
-            <input
-              className={styles.amountInput}
-              value={amount}
-              onChange={e => edit(setAmount)(sanitizeAmount(e.target.value))}
-              onKeyDown={onEnterKey}
-              inputMode="decimal"
-              type="text"
-              placeholder="0.00"
-              aria-label="Bet result"
-              autoComplete="off"
-            />
-          </div>
-          <div className={styles.toggle}>
-            <button
-              type="button"
-              className={`${styles.minusBtn} ${sign < 0 ? styles.on : ''}`}
-              onClick={() => edit(setSign)(-1)}
-            ><span>−</span><span className={styles.lbl}>Loss</span></button>
-            <button
-              type="button"
-              className={`${styles.plusBtn} ${sign > 0 ? styles.on : ''}`}
-              onClick={() => edit(setSign)(1)}
-            ><span>+</span><span className={styles.lbl}>Win</span></button>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className={styles.pair}>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>Stake</span>
-              <div className={styles.display}>
-                <span className={styles.currency}>£</span>
-                <input
-                  className={styles.amountInput}
-                  value={stake}
-                  onChange={e => edit(setStake)(sanitizeAmount(e.target.value))}
-                  onKeyDown={onEnterKey}
-                  inputMode="decimal"
-                  type="text"
-                  placeholder="0.00"
-                  autoComplete="off"
-                />
-              </div>
-            </label>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>Return</span>
-              <div className={styles.display}>
-                <span className={styles.currency}>£</span>
-                <input
-                  className={styles.amountInput}
-                  value={ret}
-                  onChange={e => edit(setRet)(sanitizeAmount(e.target.value))}
-                  onKeyDown={onEnterKey}
-                  inputMode="decimal"
-                  type="text"
-                  placeholder="0.00"
-                  autoComplete="off"
-                />
-              </div>
-            </label>
-          </div>
-          <div className={styles.netLine}>
-            <span>Net</span>
-            <b className={net === null ? '' : net > 0 ? styles.pos : net < 0 ? styles.neg : ''}>
-              {net === null ? '—' : signed(net)}
-            </b>
-          </div>
-        </>
+      {bsp != null && (
+        <div className={styles.vsSpLine}>
+          vs SP <b className={odds > bsp ? styles.pos : odds < bsp ? styles.neg : ''}>{vsSp(odds, bsp)}</b>
+        </div>
       )}
 
-      {showOdds ? (
-        <div className={styles.odds}>
-          <div className={styles.wheels}>
-            <OddsWheel id="pnlPrice" label="Price taken" value={price} onChange={edit(setPrice)} />
-            <OddsWheel id="pnlBfsp" label="BFSP" value={sp} onChange={edit(setSp)} />
-          </div>
-          <div className={styles.oddsFoot}>
-            <span className={styles.vsSp}>
-              {price != null && sp != null
-                ? <>vs SP <b className={price > sp ? styles.pos : price < sp ? styles.neg : ''}>{vsSp(price, sp)}</b></>
-                : 'Set both to score this bet against SP'}
-            </span>
-            <span className={styles.oddsHint}>fractional · stored as decimal</span>
-            <button
-              type="button"
-              className={styles.oddsClear}
-              onClick={() => { setPrice(null); setSp(null); setShowOdds(false) }}
-            >clear</button>
-          </div>
-        </div>
-      ) : (
+      <div className={styles.results} role="group" aria-label="Result">
         <button
           type="button"
-          className={styles.oddsAdd}
-          // Opening the panel seats both wheels at the default, and that is the
-          // value that gets filed — what you see is what is recorded, with no
-          // hidden "untouched means nothing" state.
-          onClick={() => { setPrice(DEFAULT_PRICE); setSp(DEFAULT_PRICE); setShowOdds(true) }}
-        >
-          + Price / BFSP
-        </button>
-      )}
+          className={`${styles.res} ${styles.resLose} ${result === 'lose' ? styles.on : ''}`}
+          onClick={() => edit(setResult)('lose')}
+        >Lose</button>
+        <button
+          type="button"
+          className={`${styles.res} ${styles.resPush} ${result === 'push' ? styles.on : ''}`}
+          onClick={() => edit(setResult)('push')}
+        >Push</button>
+        <button
+          type="button"
+          className={`${styles.res} ${styles.resWin} ${result === 'win' ? styles.on : ''}`}
+          onClick={() => edit(setResult)('win')}
+        >Win</button>
+      </div>
+
+      <div className={styles.netLine}>
+        <span>Net</span>
+        <b className={net === null ? '' : net > 0 ? styles.pos : net < 0 ? styles.neg : ''}>
+          {net === null ? '—' : signed(net)}
+        </b>
+      </div>
 
       {confirming ? (
         <div className={styles.confirm} role="alertdialog" aria-live="assertive">
           <p className={styles.confirmQ}>
             Record <b className={net > 0 ? styles.pos : styles.neg}>{signed(net)}</b>?
-            {mode === 'detail' && <span className={styles.confirmSub}>
-              {money(stakeV)} staked, {money(retV)} returned
-            </span>}
+            <span className={styles.confirmSub}>
+              {money(stakeV)} at {odds.toFixed(2)} · {result}
+            </span>
           </p>
           <div className={styles.confirmBtns}>
             <button type="button" className={styles.cancel} onClick={() => setConfirming(false)}>Cancel</button>
