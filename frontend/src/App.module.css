@@ -4,6 +4,11 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* Reserve the notch/dynamic-island area. The status bar is black-translucent
+     (index.html) with viewport-fit=cover, so the web view extends up under the
+     island — without this, the top of every page renders behind it. Left/right
+     insets are on #root; bottom is on the dock (BottomNav). */
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 /* Boot states. Never render nothing here — a blank page is indistinguishable
