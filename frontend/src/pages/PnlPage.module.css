@@ -10,18 +10,20 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 12px 14px 2px;
+  padding: 10px 14px 2px;
   min-height: 0;
 }
+/* Section dividers — the eyebrow that heads each block. Bolder + darker than a
+   caption so the sections read apart at a glance. */
 .eyebrow {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.11em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--muted);
 }
 .me { color: var(--muted); }
 
@@ -100,7 +102,7 @@
 
 .error { font-size: 12px; color: var(--red); margin-top: 4px; }
 
-.chartWrap { position: relative; flex: 1; min-height: 0; margin-top: 6px; }
+.chartWrap { position: relative; flex: 1; min-height: 0; margin-top: 4px; }
 .chart { width: 100%; height: 100%; display: block; overflow: visible; }
 .tip {
   position: absolute;
@@ -122,7 +124,7 @@
 .spBlock {
   flex: 0 0 auto;
   border-top: 1px solid var(--line);
-  padding: 9px 14px 10px;
+  padding: 7px 14px 8px;
 }
 .spRow {
   display: flex;
@@ -134,7 +136,7 @@
 .spMean {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 21px;
+  font-size: 18px;
   font-weight: 600;
   line-height: 1;
 }
@@ -145,7 +147,7 @@
   font-variant-numeric: tabular-nums;
 }
 .spSub b { color: var(--ink); font-weight: 600; }
-.spSpark { flex: 1; min-width: 0; height: 30px; display: block; overflow: visible; }
+.spSpark { flex: 1; min-width: 0; height: 26px; display: block; overflow: visible; }
 
 /* odds wheels in the entry pad — price taken (always filed) + optional BFSP */
 .wheels { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: start; }
@@ -181,8 +183,8 @@
   border-top: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  gap: 9px;
-  padding: 12px 14px 14px;
+  gap: 8px;
+  padding: 10px 14px 12px;
 }
 
 .display {
@@ -241,7 +243,7 @@
 /* result: lose / push / win — the return is derived from this + stake + odds */
 .results { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 .res {
-  height: 40px;
+  height: 38px;
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   background: var(--paper);
@@ -306,7 +308,7 @@
 }
 
 .enter {
-  height: 48px;
+  height: 46px;
   border: none;
   border-radius: 12px;
   background: var(--accent);
@@ -321,5 +323,23 @@
 }
 .enter:active { transform: translateY(1px); }
 .enter:disabled { background: var(--line-strong); cursor: default; }
+
+/* Fit the whole tool on one screen. The chart already flexes to fill whatever
+   the fixed sections leave; on shorter viewports the figures, gaps and buttons
+   step down too so the entry pad never pushes the page into a scroll. */
+@media (max-height: 760px) {
+  .total { font-size: 30px; }
+  .mtd { font-size: 18px; }
+  .stats { gap: 20px; margin-top: 5px; }
+  .subline { margin-top: 5px; }
+  .pad { gap: 7px; padding: 8px 14px 10px; }
+  .res { height: 36px; }
+  .enter { height: 44px; }
+}
+@media (max-height: 640px) {
+  .total { font-size: 26px; }
+  .spSpark { display: none; }   /* keep the SP numbers, drop the sparkline */
+  .field .display { height: 42px; font-size: 19px; }
+}
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
