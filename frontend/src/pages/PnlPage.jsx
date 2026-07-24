@@ -172,11 +172,10 @@ export default function PnlPage() {
     <div className={styles.page}>
       <section className={styles.top}>
         <div className={styles.eyebrow}>
-          <span>Cumulative P&amp;L</span><span className={styles.me}>Private</span>
+          <span>Total profit</span><span className={styles.me}>Private</span>
         </div>
         <div className={styles.stats}>
           <div className={styles.stat}>
-            <div className={styles.statLabel}>Total profit</div>
             <div className={`${styles.figure} ${styles.total} ${total < 0 ? styles.neg : styles.pos}`}>{signed(total)}</div>
             <div className={styles.statCount}>{bets.length} bet{bets.length === 1 ? '' : 's'}</div>
           </div>
@@ -221,59 +220,11 @@ export default function PnlPage() {
  * The line is the running mean, so it reads as "where my average price stands
  * after n bets" rather than as per-bet noise.
  */
-const SP_WINDOW_DAYS = 30   // "prior month" for the rolling estimate
-const DAY_MS = 86400000
-
-/**
- * Estimate the unpriced bets from the trailing SP_WINDOW_DAYS of PRICED ones.
- *
- * The window is drawn exclusively from measured bets. Feeding imputed values
- * back in would let the estimate drift on its own output until it converged on
- * whatever it started at — a fixed assumption wearing a moving average's
- * clothes, and the exact failure this is meant to avoid.
- *
- * A bet with no measured bets behind it in the window is left OUT, not filled
- * with zero: substituting a constant where there is no evidence is the thing
- * being replaced. Those are counted and reported as un-estimable.
- */
-function estimateUnpriced(bets, measuredSet) {
-  const withPct = bets.map(b => ({
-    b,
-    at: parseDate(b.created_at).getTime(),
-    pct: measuredSet.has(b) ? vsSpPct(b.price_taken, b.bfsp) : null,
-  }))
-
-  let filled = 0, unestimable = 0
-  const out = withPct.map(row => {
-    if (row.pct !== null) return { ...row, estimated: false }
-    const win = withPct.filter(o =>
-      o.pct !== null && o.at < row.at && o.at >= row.at - SP_WINDOW_DAYS * DAY_MS
-    )
-    if (!win.length) { unestimable++; return null }
-    filled++
-    return {
-      ...row,
-      pct: win.reduce((s, o) => s + o.pct, 0) / win.length,
-      estimated: true,
-    }
-  }).filter(Boolean)
-
-  return { rows: out, filled, unestimable }
-}
-
 function SpSeries({ bets }) {
-  const [estimating, setEstimating] = useState(false)
-
   const measured = bets.filter(b => b.price_taken != null && b.bfsp != null)
   if (!measured.length) return null
 
-  const measuredSet = new Set(measured)
-  const est = estimating ? estimateUnpriced(bets, measuredSet) : null
-
-  // The figure on screen: measured-only by default, measured+estimated when
-  // asked for. The measured count stays visible either way, so the estimated
-  // number can never be mistaken for a bigger sample than it has.
-  const pcts = est ? est.rows.map(r => r.pct) : measured.map(b => vsSpPct(b.price_taken, b.bfsp))
+  const pcts = measured.map(b => vsSpPct(b.price_taken, b.bfsp))
   const running = []
   let sum = 0
   pcts.forEach((p, i) => { sum += p; running.push(sum / (i + 1)) })
@@ -292,46 +243,32 @@ function SpSeries({ bets }) {
   return (
     <section className={styles.spBlock}>
       <div className={styles.eyebrow}>
-        <span>Price vs BFSP{estimating && <span className={styles.estTag}>est</span>}</span>
+        <span>Price vs BFSP</span>
         <span className={styles.me}>{measured.length} of {bets.length} priced · {coverage}%</span>
       </div>
       <div className={styles.spRow}>
         <div className={styles.spFigures}>
-          <div className={`${styles.spMean} ${mean < 0 ? styles.neg : styles.pos} ${estimating ? styles.estimated : ''}`}>
+          <div className={`${styles.spMean} ${mean < 0 ? styles.neg : styles.pos}`}>
             {(mean > 0 ? '+' : mean < 0 ? '−' : '') + Math.abs(mean).toFixed(1) + '%'}
           </div>
           <div className={styles.spSub}>
-            {estimating
-              ? <>estimated · <b>{est.filled}</b> filled from prior {SP_WINDOW_DAYS}d
-                  {est.unestimable > 0 && <> · {est.unestimable} unestimable</>}</>
-              : <>mean vs SP · beat SP on <b>{beat}</b>/{measured.length}</>}
+            beat SP on <b>{beat}</b>/{measured.length}
           </div>
         </div>
         <svg
           className={styles.spSpark}
           viewBox={`0 0 ${W} ${H}`}
           preserveAspectRatio="none"
-          aria-label={`Running mean price versus starting price, currently ${mean.toFixed(1)} percent${estimating ? ', including estimated bets' : ', measured bets only'}`}
+          aria-label={`Running mean price versus starting price, currently ${mean.toFixed(1)} percent`}
         >
           <line x1="0" x2={W} y1={Y(0)} y2={Y(0)} stroke="var(--line-strong)" strokeWidth="0.6" strokeDasharray="2 2" vectorEffect="non-scaling-stroke" />
-          {/* Dashed while estimating: the line is part inference, and should not
-              draw like a measurement. */}
           <path
             d={path} fill="none" stroke={col} strokeWidth="1.6"
-            strokeDasharray={estimating ? '3 2' : undefined}
             strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke"
           />
           <circle cx={X(running.length - 1)} cy={Y(mean)} r="2.4" fill={col} vectorEffect="non-scaling-stroke" />
         </svg>
       </div>
-      <button
-        type="button"
-        className={styles.estToggle}
-        onClick={() => setEstimating(e => !e)}
-        aria-pressed={estimating}
-      >
-        {estimating ? 'show measured only' : `estimate unpriced from prior ${SP_WINDOW_DAYS}d`}
-      </button>
     </section>
   )
 }

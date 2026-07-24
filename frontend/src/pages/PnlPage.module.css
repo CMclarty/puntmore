@@ -147,32 +147,6 @@
 .spSub b { color: var(--ink); font-weight: 600; }
 .spSpark { flex: 1; min-width: 0; height: 30px; display: block; overflow: visible; }
 
-/* Estimated readings are marked in three places at once — tag, dashed line and
-   a lighter figure — so an inferred number is never mistaken for a measured
-   one at a glance. */
-.estTag {
-  margin-left: 6px;
-  padding: 1px 4px;
-  border: 1px solid var(--line-strong);
-  border-radius: 4px;
-  font-size: 8px;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-}
-.spMean.estimated { opacity: 0.72; }
-.estToggle {
-  margin-top: 6px;
-  border: none;
-  background: none;
-  padding: 0;
-  font: inherit;
-  font-size: 10px;
-  letter-spacing: 0.05em;
-  color: var(--faint);
-  text-decoration: underline;
-  cursor: pointer;
-}
-
 /* odds wheels in the entry pad */
 .oddsAdd {
   height: 30px;
