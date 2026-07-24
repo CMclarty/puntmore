@@ -26,8 +26,8 @@
    above the rows (z-index 2), so no phantom price shows as selected. */
 .placeholder {
   position: absolute;
-  left: 0;
-  right: 0;
+  left: 6px;
+  right: 6px;
   top: 34px;
   height: 34px;
   z-index: 3;
@@ -35,8 +35,8 @@
   align-items: center;
   justify-content: center;
   background: var(--zebra);
-  border-top: 1px solid var(--line-strong);
-  border-bottom: 1px solid var(--line-strong);
+  border: 1.5px solid var(--line-strong);
+  border-radius: 9px;
   font-family: var(--font-mono);
   font-size: 16px;
   color: var(--faint);
@@ -44,15 +44,16 @@
 }
 .viewport.blank .placeholder { display: flex; }
 
-/* The centre band the value snaps into. */
+/* The centre band the value snaps into — an outlined box so the selection reads
+   clearly. The pale accent-soft fill alone was nearly invisible on paper. */
 .selection {
   position: absolute;
-  left: 0;
-  right: 0;
+  left: 6px;
+  right: 6px;
   top: 34px;
   height: 34px;
-  border-top: 1px solid var(--line-strong);
-  border-bottom: 1px solid var(--line-strong);
+  border: 1.5px solid var(--accent);
+  border-radius: 9px;
   background: var(--accent-soft);
   pointer-events: none;
   z-index: 1;
@@ -76,7 +77,7 @@
 .row {
   height: 34px;
   display: flex;
-  align-items: baseline;
+  align-items: center;        /* centre the value in the band, not on baseline */
   justify-content: center;
   gap: 6px;
   scroll-snap-align: start;
