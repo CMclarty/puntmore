@@ -53,7 +53,7 @@ export function nearestTick(v) {
  *
  * value: decimal odds or null. onChange: (price) => void.
  */
-export default function OddsWheel({ value, onChange, label, id, required = false }) {
+export default function OddsWheel({ value, onChange, label, id }) {
   const ref = useRef(null)
   const settle = useRef(null)
   // Held so programmatic scrolling (seating the initial value) doesn't feed
@@ -62,7 +62,7 @@ export default function OddsWheel({ value, onChange, label, id, required = false
   // A null value is BLANK, not 2/1. The wheel still SEATS on the 2/1 row so a
   // spin starts somewhere sensible, but nothing is shown as selected and the
   // centre band shows a placeholder — an unset wheel must not read as a chosen
-  // price. `required` tints the frame while it's still empty.
+  // price. (Used by the optional BFSP wheel; odds carries a default.)
   const blank = value == null
 
   const index = useMemo(() => {
@@ -107,7 +107,7 @@ export default function OddsWheel({ value, onChange, label, id, required = false
   return (
     <div className={styles.wheel}>
       <label className={styles.label} htmlFor={id}>{label}</label>
-      <div className={`${styles.viewport} ${blank ? styles.blank : ''} ${blank && required ? styles.needs : ''}`}>
+      <div className={`${styles.viewport} ${blank ? styles.blank : ''}`}>
         <div className={styles.selection} aria-hidden="true" />
         <div
           className={styles.scroller}

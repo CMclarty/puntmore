@@ -166,7 +166,6 @@
   cursor: pointer;
   text-align: center;
 }
-.wNoteReq { color: var(--red); }
 .vsSpLine {
   font-family: var(--font-mono);
   font-size: 11px;

@@ -19,8 +19,6 @@
   overflow: hidden;
   transition: border-color 0.15s ease;
 }
-/* Required-but-empty: tint the frame red until a price is set. */
-.viewport.needs { border-color: var(--red); }
 
 /* Blank state: an opaque neutral band with a placeholder sits over the centre,
    above the rows (z-index 2), so no phantom price shows as selected. */

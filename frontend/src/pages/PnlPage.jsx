@@ -293,10 +293,9 @@ function sanitizeAmount(v) {
 // never the chart above — which is what caused the input lag.
 function PnlEntry({ onAdd, busy }) {
   const [stake, setStake] = useState('')
-  // Odds taken is REQUIRED — every bet records the price, which is what scores
-  // it against SP. It starts blank (no bet enters until it's set), not on a
-  // silent 2/1 default that could be filed unnoticed.
-  const [odds, setOdds] = useState(null)
+  // Odds taken defaults to 2/1 and is always recorded — what the wheel shows is
+  // what gets filed, so there's no extra tap on the common path.
+  const [odds, setOdds] = useState(DEFAULT_PRICE)
   // BFSP is optional: blank until set, so an untouched wheel files nothing.
   const [bsp, setBsp] = useState(null)
   const [result, setResult] = useState(null)   // 'win' | 'lose' | 'push'
@@ -317,8 +316,8 @@ function PnlEntry({ onAdd, busy }) {
     : result === 'push' ? stakeV
     : null
 
-  // Odds is required, so a bet needs stake + a set price + a result.
-  const canAdd = !busy && hasStake && odds != null && result !== null
+  // Odds always carries a value, so a bet needs only a stake and a result.
+  const canAdd = !busy && hasStake && result !== null
   const net = canAdd ? Math.round((returned - stakeV) * 100) / 100 : null
   const big = net !== null && Math.abs(net) >= BIG_ENTRY
 
@@ -333,7 +332,7 @@ function PnlEntry({ onAdd, busy }) {
       price_taken: odds,
       ...(bsp != null ? { bfsp: bsp } : {}),
     })
-    setStake(''); setOdds(null); setBsp(null); setResult(null); setConfirming(false)
+    setStake(''); setOdds(DEFAULT_PRICE); setBsp(null); setResult(null); setConfirming(false)
   }
 
   const onEnterKey = e => { if (e.key === 'Enter') submit() }
@@ -360,19 +359,12 @@ function PnlEntry({ onAdd, busy }) {
 
       <div className={styles.wheels}>
         <div className={styles.wheelCol}>
-          <OddsWheel id="pnlOdds" label="Odds" value={odds} onChange={edit(setOdds)} required />
-          {/* From blank, commit the value the wheel already shows so 2/1 can be
-              filed without a spin; once set, clear it back to blank. */}
-          <button
-            type="button"
-            className={`${styles.wNote} ${odds == null ? styles.wNoteReq : ''}`}
-            onClick={() => edit(setOdds)(odds == null ? DEFAULT_PRICE : null)}
-          >
-            {odds == null ? 'required · tap or spin to set' : 'clear'}
-          </button>
+          <OddsWheel id="pnlOdds" label="Odds" value={odds} onChange={edit(setOdds)} />
         </div>
         <div className={styles.wheelCol}>
           <OddsWheel id="pnlBsp" label="BFSP" value={bsp} onChange={edit(setBsp)} />
+          {/* From blank, commit the value the wheel already shows so 2/1 can be
+              filed without a spin; once set, clear it back to blank. */}
           <button
             type="button"
             className={styles.wNote}
