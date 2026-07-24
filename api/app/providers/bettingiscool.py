@@ -33,7 +33,7 @@ independent confirmation that the power method is the right one. The pricing
 path still de-vigs in-house so the provider stays swappable (§7.1).
 """
 import difflib
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import logging
 import re
 import time
@@ -52,14 +52,19 @@ logger = logging.getLogger("uvicorn.error")
 BASE_URL = "https://api.bettingiscool.com"
 SOCCER_SPORT_ID = 29
 FULL_MATCH_PERIOD = 0
-# The board must cover a whole coupon window, not just today. At 500 the API
-# truncated mid-week — a Mon–Thu coupon lost most of its Thursday fixtures and
-# they came back as "no match", indistinguishable from a bad name. 1500 covers
-# ~5 days of soccer. Cost is 1 token per row against a 500k/DAY quota, cached
-# for cache_ttl, so this is immaterial. 1000 is the API's hard maximum (it 422s
-# above it); if a window ever needs more, /api/fixtures also takes `starts_to`
-# so it can be fetched in date slices.
+# The board must cover a whole coupon window, not just today. The vendor caps a
+# single /api/fixtures response at 1000 rows (it 422s above) — and on a busy
+# weekend one day of soccer alone approaches that (Jul 25 2026: 907 fixtures),
+# so a single request starting today runs out only ~1.5 days ahead. A coupon for
+# the coming weekend then matched nothing and showed no fair odds AT ALL. So the
+# board is fetched ONE DAY PER REQUEST (starts_from == starts_to) across a
+# horizon and merged: each slice is a whole day, comfortably under the cap. Cost
+# is ~1 token per row against a 500k/DAY quota, cached for cache_ttl — the
+# handful of extra requests is immaterial.
 FIXTURE_LIMIT = 1000
+# How many days ahead to build the board (today + the next 6). Coupons run up to
+# ~a week; a slice per day keeps every request under FIXTURE_LIMIT.
+FIXTURE_HORIZON_DAYS = 7
 
 # Fuzzy-match thresholds. HIGHER than the TheOddsApi provider's 0.6 on purpose:
 # that one scores against ~10 fixtures per league, this one against the whole
@@ -180,20 +185,50 @@ class BettingIsCoolProvider(OddsProvider):
         now = time.time()
         if self._fixtures_cache and now - self._fixtures_cache[0] < self._cache_ttl:
             return self._fixtures_cache[1]
-        try:
-            rows = self._get(
-                "/api/fixtures",
-                {
-                    "sport_id": self._sport_id,
-                    "starts_from": time.strftime("%Y-%m-%d", time.gmtime(now)),
-                    "limit": FIXTURE_LIMIT,
-                },
-            )
-        except Exception as exc:
-            logger.error("bettingiscool fixtures fetch failed: %s", exc)
+
+        today = datetime.fromtimestamp(now, tz=timezone.utc).date()
+        merged: dict[int, dict] = {}
+        fetched_any = False
+        for offset in range(FIXTURE_HORIZON_DAYS):
+            day = (today + timedelta(days=offset)).isoformat()
+            try:
+                rows = self._get(
+                    "/api/fixtures",
+                    {
+                        "sport_id": self._sport_id,
+                        "starts_from": day,
+                        "starts_to": day,
+                        "limit": FIXTURE_LIMIT,
+                    },
+                )
+            except Exception as exc:
+                # One slice failing is not fatal — keep the days that did load so
+                # most legs still price. Only a total wipe-out falls back below.
+                logger.error("bettingiscool fixtures fetch failed (%s): %s", day, exc)
+                continue
+            fetched_any = True
+            # A single day at the cap means fixtures on it were dropped — surface
+            # it, because the resulting "no match" is indistinguishable from a bad
+            # name. If this ever fires, the slice needs splitting finer than a day.
+            if len(rows) >= FIXTURE_LIMIT:
+                logger.warning(
+                    "bettingiscool: %s hit the %d-row cap — some fixtures that "
+                    "day are missing from the board", day, FIXTURE_LIMIT,
+                )
+            for r in rows:
+                eid = r.get("event_id")
+                if eid is not None:
+                    merged.setdefault(eid, r)
+
+        # Every slice failed (transient network blip) — keep the last good board
+        # rather than blanking every leg. A partial board (some slices loaded) is
+        # kept as-is: partial coverage prices most legs and the next refresh completes it.
+        if not fetched_any:
             return self._fixtures_cache[1] if self._fixtures_cache else []
-        self._fixtures_cache = (now, rows)
-        return rows
+
+        board = list(merged.values())
+        self._fixtures_cache = (now, board)
+        return board
 
     def _odds(self, event_id: int) -> list[dict]:
         now = time.time()
