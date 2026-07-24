@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useCallback } from 'react'
+import { useRef, useEffect, useMemo, useCallback, memo } from 'react'
 import styles from './OddsWheel.module.css'
 
 // The bookmakers' fractional ladder — the prices actually returned as SPs —
@@ -53,7 +53,7 @@ export function nearestTick(v) {
  *
  * value: decimal odds or null. onChange: (price) => void.
  */
-export default function OddsWheel({ value, onChange, label, id }) {
+function OddsWheel({ value, onChange, label, id }) {
   const ref = useRef(null)
   const settle = useRef(null)
   // Held so programmatic scrolling (seating the initial value) doesn't feed
@@ -140,3 +140,10 @@ export default function OddsWheel({ value, onChange, label, id }) {
     </div>
   )
 }
+
+// Each wheel renders 65 price rows, so two of them rebuilt 130 elements on
+// every parent render — including each keystroke in the stake field, which is
+// what made the P&L entry feel laggy. Memoised, a wheel re-renders only when
+// its own value changes. Callers MUST pass a stable onChange (useCallback) or
+// this does nothing.
+export default memo(OddsWheel)

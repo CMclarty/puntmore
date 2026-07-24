@@ -305,6 +305,12 @@ function PnlEntry({ onAdd, busy }) {
   // you're agreeing to, or a changed entry could ride through on a stale yes.
   const edit = setter => v => { setConfirming(false); setter(v) }
 
+  // The wheels are memoised, so their onChange must keep a stable identity —
+  // an inline `edit(setOdds)` is a new function every render and would re-render
+  // both wheels' 130 rows on each keystroke, which is the lag this removes.
+  const onOddsChange = useCallback(v => { setConfirming(false); setOdds(v) }, [])
+  const onBspChange = useCallback(v => { setConfirming(false); setBsp(v) }, [])
+
   const stakeV = parseFloat(stake)
   const hasStake = stake !== '' && stakeV > 0
 
@@ -359,10 +365,10 @@ function PnlEntry({ onAdd, busy }) {
 
       <div className={styles.wheels}>
         <div className={styles.wheelCol}>
-          <OddsWheel id="pnlOdds" label="Odds" value={odds} onChange={edit(setOdds)} />
+          <OddsWheel id="pnlOdds" label="Odds" value={odds} onChange={onOddsChange} />
         </div>
         <div className={styles.wheelCol}>
-          <OddsWheel id="pnlBsp" label="BFSP" value={bsp} onChange={edit(setBsp)} />
+          <OddsWheel id="pnlBsp" label="BFSP" value={bsp} onChange={onBspChange} />
           {/* From blank, commit the value the wheel already shows so 2/1 can be
               filed without a spin; once set, clear it back to blank. */}
           <button

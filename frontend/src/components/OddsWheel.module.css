@@ -57,12 +57,20 @@
   z-index: 1;
 }
 
+/* MUST stay above .selection. `-webkit-overflow-scrolling: touch` used to be set
+   here, which on iOS makes the scroller its own stacking context — that trapped
+   the rows' z-index inside it, so the opaque selection band painted OVER the
+   selected price and the box rendered empty on iPhone (fine on desktop). The
+   property is a no-op on iOS 13+ anyway, so it's gone; positioning the scroller
+   itself above the band makes the order explicit rather than relying on the
+   children's z-index. */
 .scroller {
+  position: relative;
+  z-index: 2;
   height: 100%;
   overflow-y: auto;
   scroll-snap-type: y mandatory;
   scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
   outline: none;
 }
 .scroller::-webkit-scrollbar { display: none; }
