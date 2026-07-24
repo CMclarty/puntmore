@@ -72,7 +72,11 @@ export default function OddsWheel({ value, onChange, label, id, required = false
   }, [value])
 
   // Seat the wheel on the selected row whenever the value changes from outside
-  // (including the reset after a bet is filed, which returns it to 2/1).
+  // (including the reset after a bet is filed, which returns it to blank). Mark
+  // it quiet: the scroll this triggers is the seat's own, not a user spin, and
+  // must not commit a value. `quiet` is cleared in onScroll once that scroll
+  // settles — NOT on a fixed timer, which fired too early on mobile and let the
+  // seat auto-commit 2/1, silently setting an "unset" wheel.
   useEffect(() => {
     const el = ref.current
     if (!el) return
@@ -80,18 +84,19 @@ export default function OddsWheel({ value, onChange, label, id, required = false
     if (Math.abs(el.scrollTop - target) < 1) return
     quiet.current = true
     el.scrollTop = target
-    // One frame is enough for the scroll event this triggers to have fired.
-    const t = setTimeout(() => { quiet.current = false }, 60)
-    return () => clearTimeout(t)
   }, [index])
 
   const onScroll = useCallback(() => {
     const el = ref.current
-    if (!el || quiet.current) return
+    if (!el) return
     // Report only once the wheel has come to rest — otherwise every frame of a
     // flick fires a change, and the parent re-renders through the whole spin.
     clearTimeout(settle.current)
     settle.current = setTimeout(() => {
+      // The first settle after a programmatic seat is that seat's scroll —
+      // absorb it (clear the flag, commit nothing) so seating never reads as a
+      // pick. Every settle after is a genuine user spin.
+      if (quiet.current) { quiet.current = false; return }
       const i = Math.max(0, Math.min(LADDER.length - 1, Math.round(el.scrollTop / ROW)))
       if (LADDER[i].dec !== value) onChange(LADDER[i].dec)
     }, 90)
