@@ -120,31 +120,85 @@ export default function PnlPage() {
   }, [bets])
 
   useEffect(() => { renderChart() }, [renderChart])
+
+  // Redrawing the chart re-parses its whole SVG (innerHTML), so it must not run
+  // on every resize event: on a phone, scrolling shows/hides the URL bar and
+  // fires a storm of them. Coalesce to one animation frame and redraw only when
+  // the box genuinely changed size — a URL-bar resize that leaves the chart the
+  // same width now costs nothing.
   useEffect(() => {
-    window.addEventListener('resize', renderChart)
-    return () => window.removeEventListener('resize', renderChart)
+    let raf = 0
+    let lastW = 0, lastH = 0
+    const onResize = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        const svg = chartRef.current
+        if (!svg) return
+        const r = svg.getBoundingClientRect()
+        if (Math.abs(r.width - lastW) < 1 && Math.abs(r.height - lastH) < 1) return
+        lastW = r.width; lastH = r.height
+        renderChart()
+      })
+    }
+    window.addEventListener('resize', onResize)
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', onResize) }
   }, [renderChart])
 
-  // hover / tap readout — attached once, reads live data off the svg element
+  // hover / tap readout — attached once, reads live data off the svg element.
+  // The per-move work is deliberately minimal: the bounding rect and the two
+  // hover nodes are looked up once and cached (a getBoundingClientRect on every
+  // pointermove forces a layout, which is what made dragging the chart stutter),
+  // and the DOM writes are coalesced into one animation frame.
   useEffect(() => {
     const svg = chartRef.current, tip = tipRef.current
     if (!svg) return
-    const move = e => {
-      const r = svg.getBoundingClientRect()
-      const px = (e.touches ? e.touches[0].clientX : e.clientX) - r.left
+    let rect = null, hv = null, hd = null, raf = 0, pending = 0
+
+    const invalidate = () => { rect = null }
+
+    const paint = () => {
+      raf = 0
       const pts = svg._pts, cumA = svg._cum, dates = svg._dates
       if (!pts) return
+      const px = pending
       let bi = 0, bd = 1e9
-      pts.forEach((p, i) => { const d = Math.abs(p[0] - px); if (d < bd) { bd = d; bi = i } })
-      const hv = svg.querySelector('.pnlHover'), hd = svg.querySelector('.pnlHdot')
+      for (let i = 0; i < pts.length; i++) {
+        const d = Math.abs(pts[i][0] - px)
+        if (d < bd) { bd = d; bi = i }
+      }
+      // A redraw replaces the SVG's innerHTML, so a cached node can be detached
+      // — re-query when that happens rather than writing into a dead element.
+      if (!hv || !hv.isConnected) {
+        hv = svg.querySelector('.pnlHover'); hd = svg.querySelector('.pnlHdot')
+      }
       if (hv && hd) { hv.style.opacity = 1; hd.setAttribute('cx', pts[bi][0]); hd.setAttribute('cy', pts[bi][1]) }
       tip.style.opacity = 1; tip.style.left = pts[bi][0] + 'px'; tip.style.top = pts[bi][1] + 'px'
       tip.textContent = (bi === 0 ? 'Start' : fmtDay(dates[bi])) + '  ' + signed(cumA[bi])
     }
-    const leave = () => { tip.style.opacity = 0; const hv = svg.querySelector('.pnlHover'); if (hv) hv.style.opacity = 0 }
+
+    const move = e => {
+      if (!rect) rect = svg.getBoundingClientRect()
+      pending = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left
+      if (!raf) raf = requestAnimationFrame(paint)
+    }
+    const leave = () => {
+      cancelAnimationFrame(raf); raf = 0
+      tip.style.opacity = 0
+      if (!hv || !hv.isConnected) hv = svg.querySelector('.pnlHover')
+      if (hv) hv.style.opacity = 0
+    }
+
     svg.addEventListener('pointermove', move)
     svg.addEventListener('pointerleave', leave)
-    return () => { svg.removeEventListener('pointermove', move); svg.removeEventListener('pointerleave', leave) }
+    window.addEventListener('resize', invalidate)
+    window.addEventListener('scroll', invalidate, true)
+    return () => {
+      cancelAnimationFrame(raf)
+      svg.removeEventListener('pointermove', move)
+      svg.removeEventListener('pointerleave', leave)
+      window.removeEventListener('resize', invalidate)
+      window.removeEventListener('scroll', invalidate, true)
+    }
   }, [])
 
   // Only called when a bet is actually submitted — so the chart re-renders once

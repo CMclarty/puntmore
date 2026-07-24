@@ -17,7 +17,9 @@
   border-radius: 10px;
   background: var(--paper);
   overflow: hidden;
-  transition: border-color 0.15s ease;
+  /* Keep a spin's repaints inside the wheel instead of letting them invalidate
+     the surrounding entry pad. */
+  contain: paint;
 }
 
 /* Blank state: an opaque neutral band with a placeholder sits over the centre,
@@ -91,9 +93,11 @@
   font-variant-numeric: tabular-nums;
   color: var(--muted);
   opacity: 0.5;
-  transition: opacity 0.12s, color 0.12s;
   position: relative;
-  z-index: 2;
+  /* No transition here on purpose. 65 rows per wheel were each animating colour
+     and opacity as the highlight moved, so a fast spin queued a repaint on
+     every row every frame. The highlight now switches instantly, which reads
+     as sharper on a wheel that is already moving. */
 }
 .frac { font-size: 15px; }
 .dec { font-size: 10px; opacity: 0.65; }
@@ -105,5 +109,3 @@
    are unchanged — only fewer rows are visible. */
 @media (max-height: 760px) { .viewport { height: 85px; } }
 @media (max-height: 640px) { .viewport { height: 68px; } }
-
-@media (prefers-reduced-motion: reduce) { .row { transition: none; } }

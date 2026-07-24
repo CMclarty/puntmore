@@ -253,7 +253,9 @@
   text-transform: uppercase;
   color: var(--muted);
   cursor: pointer;
-  transition: all 0.12s;
+  /* Named properties, not `all` — `all` animates every animatable property
+     including layout ones, so a tap did more work than repainting a colour. */
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
 }
 .resLose.on { background: rgba(185, 28, 28, 0.09); border-color: var(--red); color: var(--red); }
 .resPush.on { background: var(--zebra); border-color: var(--line-strong); color: var(--ink); }
