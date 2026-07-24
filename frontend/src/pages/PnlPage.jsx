@@ -3,8 +3,33 @@ import { getBets, addBet, deleteBet } from '../api'
 import OddsWheel, { DEFAULT_PRICE } from '../components/OddsWheel'
 import styles from './PnlPage.module.css'
 
-const money = v => (v < 0 ? '-' : '') + '£' + Math.abs(v).toLocaleString('en-GB', { maximumFractionDigits: 2 })
-const signed = v => (v > 0 ? '+' : v < 0 ? '−' : '') + '£' + Math.abs(v).toLocaleString('en-GB', { maximumFractionDigits: 2 })
+/**
+ * Magnitude for the headline figures: exact pounds and pence below £1,000,
+ * abbreviated above it (£1,250 → "£1.3k"). Four- and five-figure sums are what
+ * the total, the chart axis and the tooltip have to fit, and their pennies
+ * carry no information at that size. Six figures drop the decimal too — "£123k"
+ * rather than "£123.4k".
+ */
+function magnitude(abs) {
+  if (abs < 1000) return abs.toLocaleString('en-GB', { maximumFractionDigits: 2 })
+  const k = abs / 1000
+  // Test the ROUNDED value, not the raw one: £99,999 rounds to 100.0k, which
+  // belongs in the no-decimal bracket alongside £100,000 rather than printing
+  // as "£100.0k" one pound below it.
+  const oneDp = Math.round(k * 10) / 10
+  return oneDp >= 100 ? `${Math.round(k)}k` : `${oneDp.toFixed(1)}k`
+}
+
+const money = v => (v < 0 ? '-' : '') + '£' + magnitude(Math.abs(v))
+const signed = v => (v > 0 ? '+' : v < 0 ? '−' : '') + '£' + magnitude(Math.abs(v))
+
+// Exact to the penny, for the places where a figure is being CONFIRMED rather
+// than read. The four-figure guard exists to catch a slipped decimal point, so
+// abbreviating there would hide the very digits it asks you to check.
+const exact = v =>
+  (v < 0 ? '-' : '') + '£' + Math.abs(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const signedExact = v =>
+  (v > 0 ? '+' : v < 0 ? '−' : '') + '£' + Math.abs(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const parseDate = s => new Date(/[Z+]/.test(s) ? s : s + 'Z')
 const fmtDay = d => d.getDate() + ' ' + d.toLocaleString('en-GB', { month: 'short' })
 
@@ -462,16 +487,16 @@ function PnlEntry({ onAdd, busy }) {
       <div className={styles.netLine}>
         <span>Net</span>
         <b className={net === null ? '' : net > 0 ? styles.pos : net < 0 ? styles.neg : ''}>
-          {net === null ? '—' : signed(net)}
+          {net === null ? '—' : signedExact(net)}
         </b>
       </div>
 
       {confirming ? (
         <div className={styles.confirm} role="alertdialog" aria-live="assertive">
           <p className={styles.confirmQ}>
-            Record <b className={net > 0 ? styles.pos : styles.neg}>{signed(net)}</b>?
+            Record <b className={net > 0 ? styles.pos : styles.neg}>{signedExact(net)}</b>?
             <span className={styles.confirmSub}>
-              {money(stakeV)} at {odds.toFixed(2)} · {result}
+              {exact(stakeV)} at {odds.toFixed(2)} · {result}
             </span>
           </p>
           <div className={styles.confirmBtns}>
@@ -481,7 +506,7 @@ function PnlEntry({ onAdd, busy }) {
         </div>
       ) : (
         <button type="button" className={styles.enter} onClick={submit} disabled={!canAdd}>
-          {big ? `Enter ${signed(net)}…` : 'Enter'}
+          {big ? `Enter ${signedExact(net)}…` : 'Enter'}
         </button>
       )}
     </section>
