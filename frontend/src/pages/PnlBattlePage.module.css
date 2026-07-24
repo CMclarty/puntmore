@@ -1,0 +1,300 @@
+/* Game Boy Advance battle screen. This page deliberately commits to one lit
+   visual world rather than following the app's paper theme — it is a skin, and
+   the whole point is that it does not look like the plain ledger. Every token
+   is local so nothing here leaks into the rest of the app. */
+
+.page {
+  --field-top: #5aa9d6;
+  --field-bot: #24405c;
+  --box: #f8f4e2;
+  --box-shade: #ded7bd;
+  --gb-ink: #3a4d66;      /* GBA UI text — blue-grey, never pure black */
+  --gb-soft: #7d8ea3;
+  --rule: #22304a;
+  --gold: #f2c14e;
+  --hp-green: #58d68d;
+  --hp-amber: #f2c14e;
+  --hp-red: #e8503a;
+  --menu: #eef3f8;
+  --gb-mono: ui-monospace, "DejaVu Sans Mono", "Cascadia Code", Menlo, Consolas, monospace;
+
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px;
+  background: #101a2b;
+  background-image: repeating-linear-gradient(
+    0deg, rgba(255, 255, 255, 0.022) 0 2px, transparent 2px 4px
+  );
+  font-family: var(--gb-mono);
+}
+
+.screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 4px solid var(--rule);
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 0 0 3px #35507a, 0 14px 34px rgba(0, 0, 0, 0.5);
+}
+
+/* ── battle field ───────────────────────────────────────────── */
+.field {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 10px 9px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  background: linear-gradient(180deg, var(--field-top) 0%, #3a6d97 52%, var(--field-bot) 100%);
+}
+/* the ground a battler stands on */
+.field::after {
+  content: "";
+  position: absolute;
+  left: 7%;
+  bottom: 62px;
+  width: 38%;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(12, 26, 44, 0.32);
+}
+
+/* Stat plate — the slanted HP box from the battle screen. */
+.card {
+  position: relative;
+  z-index: 1;
+  width: 76%;
+  padding: 6px 9px 7px;
+  background: var(--box);
+  border: 3px solid var(--rule);
+  border-radius: 4px 14px 4px 14px;
+  box-shadow: inset 0 -3px 0 var(--box-shade);
+  color: var(--gb-ink);
+}
+.you {
+  align-self: flex-end;
+  border-radius: 14px 4px 14px 4px;
+}
+
+.cardTop { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.name { font-size: 11.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+.lvl { font-size: 9.5px; letter-spacing: 0.06em; color: var(--gb-soft); }
+
+.barRow { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.barLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--gold);
+  -webkit-text-stroke: 0.4px var(--rule);
+}
+.barTrack {
+  flex: 1;
+  height: 8px;
+  background: #48566b;
+  border: 2px solid var(--rule);
+  border-radius: 5px;
+  overflow: hidden;
+}
+/* Drains in steps, the way a GBA bar ticks — not a smooth CSS slide. */
+.barFill {
+  height: 100%;
+  background: var(--hp-green);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22);
+  transition: width 0.5s steps(12), background-color 0.3s;
+}
+.amber { background: var(--hp-amber); }
+.red { background: var(--hp-red); }
+
+.cardFig {
+  margin-top: 3px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.cardSub { font-size: 9px; letter-spacing: 0.05em; color: var(--gb-soft); font-weight: 400; }
+.up { color: #2f9e5e; }
+.down { color: #c23b26; }
+
+.spark {
+  display: block;
+  width: 100%;
+  height: 56px;
+  margin-top: auto;
+}
+
+/* ── dialogue box ───────────────────────────────────────────── */
+.dialogue {
+  flex: 0 0 auto;
+  background: var(--box);
+  border-top: 4px solid var(--rule);
+  padding: 9px;
+}
+/* the signature double frame: hard outer rule, white inner bevel */
+.frame {
+  border: 3px solid var(--rule);
+  border-radius: 5px;
+  background: linear-gradient(180deg, #ffffff 0%, var(--box) 100%);
+  box-shadow: inset 0 0 0 2px #ffffff, inset 0 -3px 0 var(--box-shade);
+  padding: 9px 10px 10px;
+  color: var(--gb-ink);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.say {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  min-height: 32px;
+}
+.bad { color: #b8341f; }
+.cursor {
+  display: inline-block;
+  margin-left: 3px;
+  animation: blink 1s steps(2, jump-none) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+.rows { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.slot { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.slotLabel {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gb-soft);
+}
+.slotBox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 8px;
+  background: var(--menu);
+  border: 2px solid var(--rule);
+  border-radius: 4px;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--gb-ink);
+}
+.slotBox:focus-within { background: #fff; box-shadow: inset 0 0 0 2px var(--gold); }
+.slotBox input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+}
+.slotBox input::placeholder { color: #a8b6c7; }
+.oddsVal { flex: 1; text-align: center; font-size: 14px; }
+.stepper {
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  color: var(--gb-soft);
+}
+.stepper:hover { color: var(--gb-ink); }
+
+/* ── battle menu ────────────────────────────────────────────── */
+.menu { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 7px; }
+.opt {
+  position: relative;
+  height: 40px;
+  padding-left: 16px;
+  display: flex;
+  align-items: center;
+  background: var(--menu);
+  border: 3px solid var(--rule);
+  border-radius: 4px;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.09);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gb-ink);
+  cursor: pointer;
+}
+/* the ▶ pointer marking the highlighted option */
+.opt::before {
+  content: "▶";
+  position: absolute;
+  left: 4px;
+  font-size: 8px;
+  color: var(--gold);
+  opacity: 0;
+}
+.opt[aria-pressed="true"]::before { opacity: 1; }
+.opt[aria-pressed="true"] {
+  background: #fff;
+  box-shadow: inset 0 0 0 2px var(--gold), inset 0 -3px 0 rgba(0, 0, 0, 0.09);
+}
+.win[aria-pressed="true"] { color: #1f6f45; }
+.lose[aria-pressed="true"] { color: #b8341f; }
+.opt:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+
+.confirm {
+  width: 100%;
+  height: 42px;
+  background: var(--rule);
+  border: 3px solid var(--rule);
+  border-radius: 4px;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.35);
+  color: var(--box);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.confirm:disabled {
+  background: #93a3b6;
+  border-color: #93a3b6;
+  color: #e6ecf3;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.confirm:not(:disabled):active { transform: translateY(2px); box-shadow: none; }
+
+.exit {
+  align-self: center;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gb-soft);
+  text-decoration: none;
+}
+.exit:hover { color: var(--gb-ink); }
+
+/* Short screens: the field yields first, the controls never do. */
+@media (max-height: 700px) {
+  .spark { height: 40px; }
+  .field { gap: 5px; }
+  .say { min-height: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .barFill { transition: none; }
+  .cursor { animation: none; }
+}

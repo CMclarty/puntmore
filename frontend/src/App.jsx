@@ -14,6 +14,7 @@ import styles from './App.module.css'
 const UploadPage = lazy(() => import('./pages/UploadPage'))
 const GoalscorersPage = lazy(() => import('./pages/GoalscorersPage'))
 const PnlPage = lazy(() => import('./pages/PnlPage'))
+const PnlBattlePage = lazy(() => import('./pages/PnlBattlePage'))
 const AccaBonusPage = lazy(() => import('./pages/AccaBonusPage'))
 const CardsPage = lazy(() => import('./pages/CardsPage'))
 
@@ -83,6 +84,8 @@ export default function App() {
           <Route path="/upload" element={protectTool(<UploadPage user={user} />, 'coupons')} />
           <Route path="/goalscorers" element={protectTool(<GoalscorersPage />, 'goalscorers')} />
           <Route path="/pnl" element={protectTool(<PnlPage />, 'pnl')} />
+          {/* Same ledger, same API — a skin, behind its own path. */}
+          <Route path="/pnl/battle" element={protectTool(<PnlBattlePage />, 'pnl')} />
           <Route path="/accabonus" element={protectTool(<AccaBonusPage />, 'accabonus')} />
           <Route path="/tennis" element={<Navigate to="/accabonus" replace />} />
           <Route path="/cards" element={protectTool(<CardsPage />, 'cards')} />

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { getBets, addBet, deleteBet } from '../api'
 import OddsWheel, { DEFAULT_PRICE } from '../components/OddsWheel'
 import styles from './PnlPage.module.css'
@@ -268,6 +269,8 @@ export default function PnlPage() {
           <span><b>{winrate}</b> win</span>
           {roi !== null && <span><b>{roi}</b> ROI on {money(turnover)}</span>}
           <span>last <b>{bets.length ? signed(bets[bets.length - 1].amount) : '—'}</b></span>
+          {/* Same ledger, same API — just wearing a different skin. */}
+          <Link className={styles.battle} to="/pnl/battle">battle</Link>
           {bets.length > 0 && (
             <>
               {/* A plain link, not a fetch: the session cookie rides along and
