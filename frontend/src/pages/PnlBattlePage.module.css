@@ -1,195 +1,196 @@
-/* Game Boy Advance battle screen. This page deliberately commits to one lit
-   visual world rather than following the app's paper theme — it is a skin, and
-   the whole point is that it does not look like the plain ledger. Every token
-   is local so nothing here leaks into the rest of the app. */
+/* Game Boy Advance skin for the P&L tracker. Same sections as /pnl, dressed
+   differently. It commits to one lit-screen world rather than following the
+   paper theme — that is the point of the skin, not an omission.
+
+   The block below REDEFINES the global tokens on this page's root. Shared
+   components styled through those tokens — OddsWheel in particular — pick the
+   skin up for free, with no changes of their own. Scoped to .page, so nothing
+   here leaks into the rest of the app. */
 
 .page {
+  /* --- skin tokens --- */
   --field-top: #5aa9d6;
-  --field-bot: #24405c;
-  --box: #f8f4e2;
-  --box-shade: #ded7bd;
-  --gb-ink: #3a4d66;      /* GBA UI text — blue-grey, never pure black */
-  --gb-soft: #7d8ea3;
+  --field-bot: #22405f;
+  --bone: #f8f4e2;
+  --bone-shade: #ded7bd;
   --rule: #22304a;
   --gold: #f2c14e;
-  --hp-green: #58d68d;
-  --hp-amber: #f2c14e;
-  --hp-red: #e8503a;
-  --menu: #eef3f8;
-  --gb-mono: ui-monospace, "DejaVu Sans Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  --gb-green: #2f9e5e;
+  --gb-red: #c23b26;
+
+  /* --- global tokens, re-pointed so shared components inherit the skin --- */
+  --paper: #f4f1de;
+  --zebra: #e6e8d5;
+  --ink: #33475f;
+  --muted: #6d7f95;
+  --faint: #93a3b6;
+  --line: #97a3b5;
+  --line-strong: #22304a;
+  --accent: #2f9e5e;
+  --accent-soft: #cdeed8;
+  --font-mono: ui-monospace, "DejaVu Sans Mono", "Cascadia Code", Menlo, Consolas, monospace;
 
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 10px;
+  padding: 8px 9px 10px;
+  gap: 8px;
   background: #101a2b;
+  /* the handheld's scanline wash */
   background-image: repeating-linear-gradient(
     0deg, rgba(255, 255, 255, 0.022) 0 2px, transparent 2px 4px
   );
-  font-family: var(--gb-mono);
+  font-family: var(--font-mono);
+  color: var(--bone);
 }
 
-.screen {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border: 4px solid var(--rule);
-  border-radius: 6px;
-  overflow: hidden;
-  box-shadow: 0 0 0 3px #35507a, 0 14px 34px rgba(0, 0, 0, 0.5);
-}
-
-/* ── battle field ───────────────────────────────────────────── */
-.field {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  padding: 10px 9px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  background: linear-gradient(180deg, var(--field-top) 0%, #3a6d97 52%, var(--field-bot) 100%);
-}
-/* the ground a battler stands on */
-.field::after {
-  content: "";
-  position: absolute;
-  left: 7%;
-  bottom: 62px;
-  width: 38%;
-  height: 14px;
-  border-radius: 50%;
-  background: rgba(12, 26, 44, 0.32);
-}
-
-/* Stat plate — the slanted HP box from the battle screen. */
-.card {
-  position: relative;
-  z-index: 1;
-  width: 76%;
-  padding: 6px 9px 7px;
-  background: var(--box);
-  border: 3px solid var(--rule);
-  border-radius: 4px 14px 4px 14px;
-  box-shadow: inset 0 -3px 0 var(--box-shade);
-  color: var(--gb-ink);
-}
-.you {
-  align-self: flex-end;
-  border-radius: 14px 4px 14px 4px;
-}
-
-.cardTop { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.name { font-size: 11.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
-.lvl { font-size: 9.5px; letter-spacing: 0.06em; color: var(--gb-soft); }
-
-.barRow { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
-.barLabel {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  color: var(--gold);
-  -webkit-text-stroke: 0.4px var(--rule);
-}
-.barTrack {
-  flex: 1;
-  height: 8px;
-  background: #48566b;
-  border: 2px solid var(--rule);
-  border-radius: 5px;
-  overflow: hidden;
-}
-/* Drains in steps, the way a GBA bar ticks — not a smooth CSS slide. */
-.barFill {
-  height: 100%;
-  background: var(--hp-green);
-  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22);
-  transition: width 0.5s steps(12), background-color 0.3s;
-}
-.amber { background: var(--hp-amber); }
-.red { background: var(--hp-red); }
-
-.cardFig {
-  margin-top: 3px;
+/* Section heading — gold, hard-shadowed, the way GBA UI labels sit. */
+.eyebrow {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  font-size: 12.5px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+  padding: 0 2px 4px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold);
+  text-shadow: 1px 1px 0 var(--rule);
 }
-.cardSub { font-size: 9px; letter-spacing: 0.05em; color: var(--gb-soft); font-weight: 400; }
-.up { color: #2f9e5e; }
-.down { color: #c23b26; }
+.me { color: #8fa6c2; font-weight: 700; text-shadow: none; letter-spacing: 0.08em; }
 
-.spark {
-  display: block;
-  width: 100%;
-  height: 56px;
-  margin-top: auto;
-}
-
-/* ── dialogue box ───────────────────────────────────────────── */
-.dialogue {
-  flex: 0 0 auto;
-  background: var(--box);
-  border-top: 4px solid var(--rule);
-  padding: 9px;
-}
-/* the signature double frame: hard outer rule, white inner bevel */
-.frame {
+/* The signature double frame: hard outer rule, white inner bevel. */
+.panel,
+.frame,
+.chartFrame {
   border: 3px solid var(--rule);
   border-radius: 5px;
-  background: linear-gradient(180deg, #ffffff 0%, var(--box) 100%);
-  box-shadow: inset 0 0 0 2px #ffffff, inset 0 -3px 0 var(--box-shade);
-  padding: 9px 10px 10px;
-  color: var(--gb-ink);
+  background: linear-gradient(180deg, #ffffff 0%, var(--bone) 100%);
+  box-shadow: inset 0 0 0 2px #ffffff, inset 0 -3px 0 var(--bone-shade);
+  color: var(--ink);
+}
+.panel { padding: 8px 10px 9px; }
+
+/* ── cumulative P&L ─────────────────────────────────────────── */
+.top {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  min-height: 0;
 }
 
-.say {
-  margin: 0;
-  font-size: 11.5px;
-  line-height: 1.5;
-  letter-spacing: 0.04em;
+.stats { display: flex; align-items: flex-end; gap: 20px; }
+.stat { display: flex; flex-direction: column; gap: 1px; }
+.statLabel {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  min-height: 32px;
+  color: var(--muted);
 }
-.bad { color: #b8341f; }
-.cursor {
-  display: inline-block;
-  margin-left: 3px;
-  animation: blink 1s steps(2, jump-none) infinite;
+.figure {
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: -0.01em;
 }
-@keyframes blink { 50% { opacity: 0; } }
+.total { font-size: 30px; font-weight: 700; }
+.mtd { font-size: 17px; font-weight: 700; }
+.pos { color: var(--gb-green); }
+.neg { color: var(--gb-red); }
+.statCount {
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 2px;
+}
 
-.rows { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.slot { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.slotLabel {
+.subline {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 2px solid var(--bone-shade);
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.subline b { color: var(--ink); font-weight: 700; }
+
+/* chunky little buttons, the GBA menu chip */
+.chip {
+  border: 2px solid var(--rule);
+  border-radius: 3px;
+  background: #eef3f8;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.1);
+  font: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  text-decoration: none;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.chip:first-of-type { margin-left: auto; }
+.chip:disabled { opacity: 0.5; cursor: default; }
+
+.error {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: #ffb3a6;
+  letter-spacing: 0.04em;
+}
+
+/* The chart sits on the field, not on paper — it is the one place the skin
+   shows its battle backdrop. */
+.chartFrame {
+  flex: 1;
+  min-height: 88px;
+  margin-top: 8px;
+  padding: 4px;
+  background: linear-gradient(180deg, var(--field-top) 0%, #3a6d97 55%, var(--field-bot) 100%);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+.chart { display: block; width: 100%; height: 100%; }
+
+/* ── price vs BFSP ──────────────────────────────────────────── */
+.spBlock { flex: 0 0 auto; }
+.spRow { display: flex; align-items: center; gap: 12px; }
+.spFigures { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.spMean { font-variant-numeric: tabular-nums; font-size: 17px; font-weight: 700; line-height: 1; }
+.spSub { font-size: 9.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.spSub b { color: var(--ink); font-weight: 700; }
+.spSpark { flex: 1; min-width: 0; height: 24px; display: block; }
+
+/* ── entry pad ──────────────────────────────────────────────── */
+.pad { flex: 0 0 auto; }
+.frame { padding: 9px 10px 10px; display: flex; flex-direction: column; gap: 8px; }
+
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fieldLabel {
   font-size: 8.5px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--gb-soft);
+  color: var(--muted);
 }
 .slotBox {
   display: flex;
   align-items: center;
-  gap: 4px;
-  height: 34px;
-  padding: 0 8px;
-  background: var(--menu);
+  gap: 5px;
+  height: 42px;
+  padding: 0 10px;
+  background: #eef3f8;
   border: 2px solid var(--rule);
   border-radius: 4px;
-  font-size: 15px;
+  font-size: 20px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--gb-ink);
+  color: var(--ink);
 }
 .slotBox:focus-within { background: #fff; box-shadow: inset 0 0 0 2px var(--gold); }
 .slotBox input {
@@ -203,27 +204,41 @@
   color: inherit;
 }
 .slotBox input::placeholder { color: #a8b6c7; }
-.oddsVal { flex: 1; text-align: center; font-size: 14px; }
-.stepper {
+
+.wheels { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: start; }
+.wheelCol { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.wNote {
   border: 0;
   background: none;
-  padding: 0 2px;
-  cursor: pointer;
+  padding: 0;
   font: inherit;
-  font-size: 12px;
-  color: var(--gb-soft);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+  text-align: center;
 }
-.stepper:hover { color: var(--gb-ink); }
 
-/* ── battle menu ────────────────────────────────────────────── */
+.vsSpLine {
+  font-size: 10.5px;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  margin-top: -3px;
+}
+.vsSpLine b { font-size: 12.5px; font-weight: 700; }
+
+/* result menu — the ▶ pointer marks the highlighted option */
 .menu { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 7px; }
 .opt {
   position: relative;
   height: 40px;
-  padding-left: 16px;
+  padding-left: 15px;
   display: flex;
   align-items: center;
-  background: var(--menu);
+  background: #eef3f8;
   border: 3px solid var(--rule);
   border-radius: 4px;
   box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.09);
@@ -232,10 +247,9 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--gb-ink);
+  color: var(--ink);
   cursor: pointer;
 }
-/* the ▶ pointer marking the highlighted option */
 .opt::before {
   content: "▶";
   position: absolute;
@@ -249,18 +263,31 @@
   background: #fff;
   box-shadow: inset 0 0 0 2px var(--gold), inset 0 -3px 0 rgba(0, 0, 0, 0.09);
 }
-.win[aria-pressed="true"] { color: #1f6f45; }
-.lose[aria-pressed="true"] { color: #b8341f; }
+.win[aria-pressed="true"] { color: var(--gb-green); }
+.lose[aria-pressed="true"] { color: var(--gb-red); }
 .opt:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+
+.netLine {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 2px;
+}
+.netLine b { font-size: 16px; font-weight: 700; color: var(--ink); letter-spacing: 0; }
 
 .confirm {
   width: 100%;
-  height: 42px;
+  height: 44px;
   background: var(--rule);
   border: 3px solid var(--rule);
   border-radius: 4px;
   box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.35);
-  color: var(--box);
+  color: var(--bone);
   font: inherit;
   font-size: 13px;
   font-weight: 700;
@@ -277,24 +304,42 @@
 }
 .confirm:not(:disabled):active { transform: translateY(2px); box-shadow: none; }
 
-.exit {
-  align-self: center;
-  font-size: 9.5px;
+/* four-figure guard, in place rather than as a modal */
+.confirmBox {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 8px 9px;
+  border: 3px solid var(--rule);
+  border-radius: 4px;
+  background: #fff;
+}
+.confirmQ { margin: 0; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+.confirmQ b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.confirmBtns { display: grid; grid-template-columns: 1fr 1.4fr; gap: 7px; }
+.confirmBtns .confirm { height: 38px; font-size: 12px; }
+.cancel {
+  height: 38px;
+  border: 3px solid var(--rule);
+  border-radius: 4px;
+  background: #eef3f8;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--gb-soft);
-  text-decoration: none;
+  color: var(--ink);
+  cursor: pointer;
 }
-.exit:hover { color: var(--gb-ink); }
 
-/* Short screens: the field yields first, the controls never do. */
-@media (max-height: 700px) {
-  .spark { height: 40px; }
-  .field { gap: 5px; }
-  .say { min-height: 0; }
+/* Short screens: the chart yields first, the controls never do. */
+@media (max-height: 720px) {
+  .total { font-size: 25px; }
+  .mtd { font-size: 15px; }
+  .chartFrame { min-height: 66px; }
+  .slotBox { height: 38px; font-size: 18px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .barFill { transition: none; }
-  .cursor { animation: none; }
+  .confirm:not(:disabled):active { transform: none; }
 }
