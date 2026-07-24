@@ -1,8 +1,17 @@
-import { useState, useEffect, useCallback, Fragment } from 'react'
+import { useState, useEffect, useCallback, useMemo, memo, Fragment } from 'react'
 import { Link } from 'react-router-dom'
 import { getCouponTypes, getTypeSelections, editLeg } from '../api'
 import { FRACTIONAL_LADDER, fractionToDecimal, nearestFraction } from '../odds'
 import styles from './TrackerPage.module.css'
+
+// The ladder is static, so build its <option> elements ONCE at module load and
+// share them across every row. A long coupon renders ~77 options per leg — 5.7k
+// elements on a 74-fixture list — and rebuilding those on each render was the
+// bulk of the tracker's render cost. React elements are immutable, so one array
+// can safely back every select.
+const LADDER_OPTIONS = FRACTIONAL_LADDER.map(f => (
+  <option key={f} value={f}>{f}</option>
+))
 
 // Flag codes from api/app/checks.py. Keep in sync — an unknown code falls back
 // to the raw code rather than rendering nothing, so a missed mapping is visible.
@@ -70,6 +79,127 @@ function groupLegsByPeriod(legs) {
     .filter(Boolean)
 }
 
+/**
+ * The inline edit form. Its draft lives HERE, not on the page, so typing
+ * re-renders only this one card — holding it on the page re-rendered all 74
+ * leg cards (and their selects) on every keystroke, which is what made editing
+ * feel laggy. Same reason PnlEntry keeps its own state.
+ */
+function LegEditForm({ leg, saving, onCancel, onSave }) {
+  const [draft, setDraft] = useState({ match_name: leg.match_name, pick: leg.pick })
+
+  return (
+    <div className={styles.editCell}>
+      <input
+        className={styles.editInput}
+        value={draft.match_name}
+        onChange={e => setDraft(d => ({ ...d, match_name: e.target.value }))}
+        placeholder="Match"
+        autoFocus
+      />
+      <input
+        className={styles.editInput}
+        value={draft.pick}
+        onChange={e => setDraft(d => ({ ...d, pick: e.target.value }))}
+        placeholder="Pick"
+      />
+      <div className={styles.editActions}>
+        <button className={styles.editCancel} onClick={onCancel}>Cancel</button>
+        <button
+          className={styles.editSave}
+          onClick={() => onSave(leg, draft)}
+          disabled={saving}
+        >
+          {saving ? 'Saving…' : 'Save & reprice'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * One fixture row. Memoised on primitive props (`editing` / `saving` are
+ * booleans, the callbacks are stable), so refreshing or editing one row leaves
+ * the other 73 untouched instead of re-rendering the whole list.
+ */
+const LegCard = memo(function LegCard({
+  leg, rank, editing, saving, onStartEdit, onCancelEdit, onSave, onOddsChange,
+}) {
+  return (
+    <div className={`${styles.legCard} ${leg.flags?.length ? styles.flagged : ''}`}>
+      {editing ? (
+        <LegEditForm leg={leg} saving={saving} onCancel={onCancelEdit} onSave={onSave} />
+      ) : (
+        <>
+          <div className={styles.legTop}>
+            <span className={`${styles.rank} ${styles.mono}`}>{rank}</span>
+            <button className={styles.nameCell} onClick={() => onStartEdit(leg)}>
+              <span className={styles.nameLine}>
+                {leg.flags?.length > 0 && (
+                  <span
+                    className={styles.warnBadge}
+                    title={leg.flags.map(f => FLAG_LABELS[f] ?? f).join('\n')}
+                  >⚠</span>
+                )}
+                <span className={styles.pickName}>{leg.pick}</span>
+                <span className={styles.fixture}> – {leg.match_name}</span>
+                {leg.edited && (
+                  <span className={styles.editedMark} title="Edited by hand — a re-scan will not overwrite this row">✎</span>
+                )}
+              </span>
+              {fixtureDiffers(leg) && (
+                <span className={styles.matchedTo} title="Fixture the odds provider matched — check it's the right game">
+                  → {leg.matched_fixture}
+                </span>
+              )}
+            </button>
+            {/* A ladder coupon has no per-row EV — value belongs to the
+                combination — so the row shows its fair price. */}
+            <span className={`${styles.evCell} ${leg.odds == null ? styles.none : styles[valueTier(leg.value)]} ${styles.mono}`}>
+              {leg.odds == null
+                ? (leg.fair_odds != null ? leg.fair_odds.toFixed(2) : '—')
+                : fmtEv(leg.value)}
+            </span>
+          </div>
+
+          <div className={styles.legBottom}>
+            <span className={`${styles.ko} ${styles.mono}`}>{fmtKickoff(leg.kickoff)}</span>
+
+            {/* Flat-payout coupons print no per-selection price, so there is
+                nothing to pick and nothing to show. */}
+            {leg.odds != null && (
+              <>
+                {/* Native select = scroll wheel on mobile. Prices move during
+                    the day, so this is picked, not typed. */}
+                <select
+                  className={`${styles.oddsWheel} ${styles.mono}`}
+                  value={nearestFraction(leg.odds) ?? ''}
+                  onChange={e => onOddsChange(leg, e.target.value)}
+                  disabled={saving}
+                  aria-label={`Odds for ${leg.pick}`}
+                >
+                  {LADDER_OPTIONS}
+                </select>
+
+                <span className={styles.oddsPair}>
+                  <span className={styles.oddsLabel}>book</span>
+                  <span className={`${styles.bookOdds} ${styles.mono}`}>{leg.odds.toFixed(2)}</span>
+                </span>
+                <span className={styles.oddsPair}>
+                  <span className={styles.oddsLabel}>fair</span>
+                  <span className={`${styles.fairOdds} ${styles.mono}`}>
+                    {leg.fair_odds != null ? leg.fair_odds.toFixed(2) : '—'}
+                  </span>
+                </span>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+})
+
 export default function TrackerPage() {
   // The seven coupon types are the entities. Each is its own filtered fixture
   // list; an upload is just how selections got into one.
@@ -80,7 +210,6 @@ export default function TrackerPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [editingId, setEditingId] = useState(null)
-  const [draft, setDraft] = useState(null)
   const [savingId, setSavingId] = useState(null)
   const [error, setError] = useState(null)
 
@@ -98,8 +227,12 @@ export default function TrackerPage() {
 
   useEffect(() => { loadSelections(activeCode) }, [activeCode, loadSelections])
 
-  const activeType = types.find(t => t.code === activeCode) ?? null
-  const legGroups = groupLegsByPeriod(legs)
+  // Both derive from state that changes far less often than the page renders.
+  const activeType = useMemo(
+    () => types.find(t => t.code === activeCode) ?? null,
+    [types, activeCode],
+  )
+  const legGroups = useMemo(() => groupLegsByPeriod(legs), [legs])
 
   function selectType(code) {
     setActiveCode(code)
@@ -116,8 +249,12 @@ export default function TrackerPage() {
     }
   }
 
+  // These are handed to every memoised row, so they must keep a stable identity
+  // — an inline arrow here would re-render all of them on each page render and
+  // undo the memo entirely.
+
   /** Odds picked from the wheel: persist, reprice, and re-sort on the result. */
-  async function handleOddsChange(leg, fraction) {
+  const handleOddsChange = useCallback(async (leg, fraction) => {
     const decimal = fractionToDecimal(fraction)
     if (decimal == null) return
     setSavingId(leg.id)
@@ -130,32 +267,28 @@ export default function TrackerPage() {
     } finally {
       setSavingId(null)
     }
-  }
+  }, [])
 
-  function startEdit(leg) {
+  const startEdit = useCallback(leg => {
     setEditingId(leg.id)
-    setDraft({ match_name: leg.match_name, pick: leg.pick })
     setError(null)
-  }
+  }, [])
 
-  function cancelEdit() {
-    setEditingId(null)
-    setDraft(null)
-  }
+  const cancelEdit = useCallback(() => setEditingId(null), [])
 
-  async function saveEdit(leg) {
+  const saveEdit = useCallback(async (leg, draft) => {
     setSavingId(leg.id)
     setError(null)
     try {
       const updated = await editLeg(leg.coupon_id, leg.id, draft)
       setLegs(prev => prev.map(l => (l.id === leg.id ? updated : l)))
-      cancelEdit()
+      setEditingId(null)
     } catch (e) {
       setError(e.message)
     } finally {
       setSavingId(null)
     }
-  }
+  }, [])
 
   return (
     <div className={styles.page}>
@@ -231,108 +364,17 @@ export default function TrackerPage() {
                 <span className={`${styles.phCount} ${styles.mono}`}>{g.legs.length}</span>
               </div>
               {g.legs.map((leg, i) => (
-            <div
-              key={leg.id}
-              className={`${styles.legCard} ${leg.flags?.length ? styles.flagged : ''}`}
-            >
-              {editingId === leg.id ? (
-                <div className={styles.editCell}>
-                  <input
-                    className={styles.editInput}
-                    value={draft.match_name}
-                    onChange={e => setDraft({ ...draft, match_name: e.target.value })}
-                    placeholder="Match"
-                    autoFocus
-                  />
-                  <input
-                    className={styles.editInput}
-                    value={draft.pick}
-                    onChange={e => setDraft({ ...draft, pick: e.target.value })}
-                    placeholder="Pick"
-                  />
-                  <div className={styles.editActions}>
-                    <button className={styles.editCancel} onClick={cancelEdit}>Cancel</button>
-                    <button
-                      className={styles.editSave}
-                      onClick={() => saveEdit(leg)}
-                      disabled={savingId === leg.id}
-                    >
-                      {savingId === leg.id ? 'Saving…' : 'Save & reprice'}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className={styles.legTop}>
-                    <span className={`${styles.rank} ${styles.mono}`}>{i + 1}</span>
-                    <button className={styles.nameCell} onClick={() => startEdit(leg)}>
-                      <span className={styles.nameLine}>
-                        {leg.flags?.length > 0 && (
-                          <span
-                            className={styles.warnBadge}
-                            title={leg.flags.map(f => FLAG_LABELS[f] ?? f).join('\n')}
-                          >⚠</span>
-                        )}
-                        <span className={styles.pickName}>{leg.pick}</span>
-                        <span className={styles.fixture}> – {leg.match_name}</span>
-                        {leg.edited && (
-                          <span className={styles.editedMark} title="Edited by hand — a re-scan will not overwrite this row">✎</span>
-                        )}
-                      </span>
-                      {fixtureDiffers(leg) && (
-                        <span className={styles.matchedTo} title="Fixture the odds provider matched — check it's the right game">
-                          → {leg.matched_fixture}
-                        </span>
-                      )}
-                    </button>
-                    {/* A ladder coupon has no per-row EV — value belongs to
-                        the combination — so the row shows its fair price. */}
-                    <span className={`${styles.evCell} ${leg.odds == null ? styles.none : styles[valueTier(leg.value)]} ${styles.mono}`}>
-                      {leg.odds == null
-                        ? (leg.fair_odds != null ? leg.fair_odds.toFixed(2) : '—')
-                        : fmtEv(leg.value)}
-                    </span>
-                  </div>
-
-                  <div className={styles.legBottom}>
-                    <span className={`${styles.ko} ${styles.mono}`}>{fmtKickoff(leg.kickoff)}</span>
-
-                    {/* Flat-payout coupons print no per-selection price, so
-                        there is nothing to pick and nothing to show. */}
-                    {leg.odds != null && (
-                      <>
-                        {/* Native select = scroll wheel on mobile. Prices move
-                            during the day, so this is picked, not typed. */}
-                        <select
-                          className={`${styles.oddsWheel} ${styles.mono}`}
-                          value={nearestFraction(leg.odds) ?? ''}
-                          onChange={e => handleOddsChange(leg, e.target.value)}
-                          disabled={savingId === leg.id}
-                          aria-label={`Odds for ${leg.pick}`}
-                        >
-                          {FRACTIONAL_LADDER.map(f => (
-                            <option key={f} value={f}>{f}</option>
-                          ))}
-                        </select>
-
-                        <span className={styles.oddsPair}>
-                          <span className={styles.oddsLabel}>book</span>
-                          <span className={`${styles.bookOdds} ${styles.mono}`}>{leg.odds.toFixed(2)}</span>
-                        </span>
-                      </>
-                    )}
-                    {leg.odds != null && (
-                      <span className={styles.oddsPair}>
-                        <span className={styles.oddsLabel}>fair</span>
-                        <span className={`${styles.fairOdds} ${styles.mono}`}>
-                          {leg.fair_odds != null ? leg.fair_odds.toFixed(2) : '—'}
-                        </span>
-                      </span>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
+                <LegCard
+                  key={leg.id}
+                  leg={leg}
+                  rank={i + 1}
+                  editing={editingId === leg.id}
+                  saving={savingId === leg.id}
+                  onStartEdit={startEdit}
+                  onCancelEdit={cancelEdit}
+                  onSave={saveEdit}
+                  onOddsChange={handleOddsChange}
+                />
               ))}
             </Fragment>
           ))}

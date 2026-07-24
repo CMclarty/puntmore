@@ -37,8 +37,15 @@ const LADDER_DECIMALS = FRACTIONAL_LADDER.map(f => ({
  * rung keeps the wheel showing something truthful rather than blank, and the
  * displayed decimal stays the leg's own value until the user actually picks.
  */
+const NEAREST_CACHE = new Map()
+
 export function nearestFraction(decimal) {
   if (decimal == null) return null
+  // Every leg row calls this on each render against the same handful of prices,
+  // so memoise the 77-rung scan. The ladder is static, so a hit is always valid.
+  const hit = NEAREST_CACHE.get(decimal)
+  if (hit !== undefined) return hit
+
   let best = null
   let bestDiff = Infinity
   for (const rung of LADDER_DECIMALS) {
@@ -48,6 +55,7 @@ export function nearestFraction(decimal) {
       best = rung.fraction
     }
   }
+  NEAREST_CACHE.set(decimal, best)
   return best
 }
 

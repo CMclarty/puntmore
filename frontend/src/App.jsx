@@ -1,15 +1,21 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { getMe, logout as apiLogout } from './api'
 import BottomNav from './components/BottomNav'
 import TrackerPage from './pages/TrackerPage'
-import UploadPage from './pages/UploadPage'
-import GoalscorersPage from './pages/GoalscorersPage'
-import PnlPage from './pages/PnlPage'
-import AccaBonusPage from './pages/AccaBonusPage'
-import CardsPage from './pages/CardsPage'
 import LoginPage from './pages/LoginPage'
 import styles from './App.module.css'
+
+// The tracker and login are the entry points, so they stay in the main bundle.
+// Everything else is a separate chunk fetched on first visit — a phone opening
+// the tracker no longer downloads and parses the P&L chart code, the upload
+// page or the two gated tools. They are small and same-origin, so the fetch is
+// unnoticeable; Suspense covers it with the same wording as the boot state.
+const UploadPage = lazy(() => import('./pages/UploadPage'))
+const GoalscorersPage = lazy(() => import('./pages/GoalscorersPage'))
+const PnlPage = lazy(() => import('./pages/PnlPage'))
+const AccaBonusPage = lazy(() => import('./pages/AccaBonusPage'))
+const CardsPage = lazy(() => import('./pages/CardsPage'))
 
 // The path the app was FIRST loaded at, captured once before the router starts
 // navigating. A direct (hard) load of a focused route — e.g. saving /pnl to the
@@ -67,6 +73,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <main className={`${styles.main} ${IS_FOCUSED ? styles.focused : ''}`}>
+        <Suspense fallback={<div className={styles.boot}>Loading…</div>}>
         <Routes>
           <Route
             path="/login"
@@ -80,6 +87,7 @@ export default function App() {
           <Route path="/tennis" element={<Navigate to="/accabonus" replace />} />
           <Route path="/cards" element={protectTool(<CardsPage />, 'cards')} />
         </Routes>
+        </Suspense>
       </main>
       {user && !IS_FOCUSED && <BottomNav onLogout={handleLogout} username={user.username} tools={user.tools} />}
     </BrowserRouter>
