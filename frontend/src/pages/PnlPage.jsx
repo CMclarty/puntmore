@@ -342,6 +342,9 @@ const BIG_ENTRY = 1000
 // Digits plus a single dot, max 2 decimals, capped length.
 function sanitizeAmount(v) {
   v = v.replace(/[^\d.]/g, '')
+  // Drop leading zeros so typing over a default "0" reads "50", not "050".
+  // Keeps a lone "0" and the "0" in "0.50" (the lookahead needs a digit next).
+  v = v.replace(/^0+(?=\d)/, '')
   const parts = v.split('.')
   if (parts.length > 2) v = parts[0] + '.' + parts.slice(1).join('')
   const dot = v.indexOf('.')
@@ -356,7 +359,9 @@ function PnlEntry({ onAdd, busy }) {
   const [amount, setAmount] = useState('')
   const [sign, setSign] = useState(1)
   const [stake, setStake] = useState('')
-  const [ret, setRet] = useState('')
+  // Return defaults to 0 — the common settlement is a loss, so a staked bet is
+  // one entry: type the stake, hit Enter. Type over the 0 for a win.
+  const [ret, setRet] = useState('0')
   const [confirming, setConfirming] = useState(false)
   // Odds are opt-in per bet: the wheels stay collapsed until asked for, so the
   // fast win/loss path is still two taps.
@@ -404,7 +409,7 @@ function PnlEntry({ onAdd, busy }) {
         ...odds,
       })
     }
-    setAmount(''); setSign(1); setStake(''); setRet(''); setConfirming(false)
+    setAmount(''); setSign(1); setStake(''); setRet('0'); setConfirming(false)
     setPrice(null); setSp(null); setShowOdds(false)
   }
 
