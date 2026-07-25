@@ -1,5 +1,5 @@
-/* Game Boy Advance skin for the P&L tracker. Same sections as /pnl, dressed
-   differently. It commits to one lit-screen world rather than following the
+/* Pokémon Yellow skin for the P&L tracker. Same sections as /pnl, dressed
+   differently. It commits to Gen 1's look rather than following the app's
    paper theme — that is the point of the skin, not an omission.
 
    The block below REDEFINES the global tokens on this page's root. Shared
@@ -8,26 +8,31 @@
    here leaks into the rest of the app. */
 
 .page {
-  /* --- skin tokens --- */
-  --field-top: #5aa9d6;
-  --field-bot: #22405f;
-  --bone: #f8f4e2;
-  --bone-shade: #ded7bd;
-  --rule: #22304a;
-  --gold: #f2c14e;
-  --gb-green: #2f9e5e;
-  --gb-red: #c23b26;
+  /* --- skin tokens: Pokémon Yellow ---
+     Gen 1 rendered its interface as pure black line art on white — the colour
+     lived in the cartridge and the box, not the menus. So the ground is Pikachu
+     yellow, the panels stay white with heavy black rules, and the only other
+     hues are the cheek red and the logo blue, used sparingly. */
+  --pika: #ffcb05;         /* Pikachu / logo yellow            */
+  --pika-deep: #e5a900;    /* its shadow side                  */
+  --cheek: #e3350d;        /* cheek red — losses, endpoints    */
+  --logo-blue: #2a75bb;    /* the logo's outline blue          */
+  --bone: #ffffff;
+  --bone-shade: #e8e2cb;
+  --rule: #1b1b1b;         /* Gen 1 drew everything in black   */
+  --gb-green: #2f7d3f;
+  --gb-red: var(--cheek);
 
   /* --- global tokens, re-pointed so shared components inherit the skin --- */
-  --paper: #f4f1de;
-  --zebra: #e6e8d5;
-  --ink: #33475f;
-  --muted: #6d7f95;
-  --faint: #93a3b6;
-  --line: #97a3b5;
-  --line-strong: #22304a;
-  --accent: #2f9e5e;
-  --accent-soft: #cdeed8;
+  --paper: #ffffff;
+  --zebra: #fff3c4;
+  --ink: #1b1b1b;
+  --muted: #5b5851;
+  --faint: #8d8a80;
+  --line: #2b2b2b;
+  --line-strong: #1b1b1b;
+  --accent: #1b1b1b;       /* the wheel's selection rule       */
+  --accent-soft: #ffe47a;  /* ...over pale yellow              */
   --font-mono: ui-monospace, "DejaVu Sans Mono", "Cascadia Code", Menlo, Consolas, monospace;
 
   flex: 1;
@@ -36,39 +41,42 @@
   min-height: 0;
   padding: 8px 9px 10px;
   gap: 8px;
-  background: #101a2b;
-  /* the handheld's scanline wash */
-  background-image: repeating-linear-gradient(
-    0deg, rgba(255, 255, 255, 0.022) 0 2px, transparent 2px 4px
-  );
+  background: var(--pika);
+  /* a soft vignette to the deeper yellow, so the ground is not one flat fill */
+  background-image:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.028) 0 2px, transparent 2px 4px),
+    radial-gradient(120% 90% at 50% 0%, #ffd93d 0%, var(--pika) 46%, var(--pika-deep) 100%);
   font-family: var(--font-mono);
-  color: var(--bone);
+  color: var(--rule);
 }
 
-/* Section heading — gold, hard-shadowed, the way GBA UI labels sit. */
+/* Section heading — black on the yellow ground, lifted with a light shadow so
+   it doesn't sit flat against the fill. */
 .eyebrow {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  padding: 0 2px 4px;
+  padding: 0 3px 4px;
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--gold);
-  text-shadow: 1px 1px 0 var(--rule);
+  color: var(--rule);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
 }
-.me { color: #8fa6c2; font-weight: 700; text-shadow: none; letter-spacing: 0.08em; }
+.me { color: #6b5a12; font-weight: 700; letter-spacing: 0.08em; }
 
-/* The signature double frame: hard outer rule, white inner bevel. */
+/* Gen 1's dialogue box: white fill, one heavy black rule, and a hard offset
+   shadow — no bevels or gradients, which is what makes it read as the 8-bit
+   original rather than a later console. */
 .panel,
 .frame,
 .chartFrame {
   border: 3px solid var(--rule);
-  border-radius: 5px;
-  background: linear-gradient(180deg, #ffffff 0%, var(--bone) 100%);
-  box-shadow: inset 0 0 0 2px #ffffff, inset 0 -3px 0 var(--bone-shade);
+  border-radius: 6px;
+  background: var(--bone);
+  box-shadow: 3px 3px 0 rgba(27, 27, 27, 0.32);
   color: var(--ink);
 }
 .panel { padding: 8px 10px 9px; }
@@ -119,12 +127,12 @@
 }
 .subline b { color: var(--ink); font-weight: 700; }
 
-/* chunky little buttons, the GBA menu chip */
+/* chunky little menu chips */
 .chip {
   border: 2px solid var(--rule);
   border-radius: 3px;
-  background: #eef3f8;
-  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.1);
+  background: var(--pika);
+  box-shadow: 1px 1px 0 rgba(27, 27, 27, 0.4);
   font: inherit;
   font-size: 9px;
   font-weight: 700;
@@ -140,20 +148,22 @@
 
 .error {
   margin: 6px 0 0;
+  padding: 4px 7px;
+  border: 2px solid var(--rule);
+  border-radius: 4px;
+  background: var(--cheek);
+  color: #fff;
   font-size: 11px;
-  color: #ffb3a6;
   letter-spacing: 0.04em;
 }
 
-/* The chart sits on the field, not on paper — it is the one place the skin
-   shows its battle backdrop. */
+/* The chart is black line art on white, like every Gen 1 screen — the yellow
+   is the fill under the curve, not a backdrop behind it. */
 .chartFrame {
   flex: 1;
   min-height: 88px;
   margin-top: 8px;
-  padding: 4px;
-  background: linear-gradient(180deg, var(--field-top) 0%, #3a6d97 55%, var(--field-bot) 100%);
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+  padding: 5px;
 }
 .chart { display: block; width: 100%; height: 100%; }
 
@@ -184,7 +194,7 @@
   gap: 5px;
   height: 42px;
   padding: 0 10px;
-  background: #eef3f8;
+  background: #ffffff;
   border: 2px solid var(--rule);
   border-radius: 4px;
   font-size: 20px;
@@ -192,7 +202,7 @@
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
-.slotBox:focus-within { background: #fff; box-shadow: inset 0 0 0 2px var(--gold); }
+.slotBox:focus-within { background: #fff; box-shadow: inset 0 0 0 2px var(--pika); }
 .slotBox input {
   flex: 1;
   min-width: 0;
@@ -203,7 +213,7 @@
   font: inherit;
   color: inherit;
 }
-.slotBox input::placeholder { color: #a8b6c7; }
+.slotBox input::placeholder { color: #b3aea0; }
 
 .wheels { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: start; }
 .wheelCol { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -238,7 +248,7 @@
   padding-left: 15px;
   display: flex;
   align-items: center;
-  background: #eef3f8;
+  background: #ffffff;
   border: 3px solid var(--rule);
   border-radius: 4px;
   box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.09);
@@ -255,17 +265,22 @@
   position: absolute;
   left: 4px;
   font-size: 8px;
-  color: var(--gold);
+  color: var(--cheek);
   opacity: 0;
 }
 .opt[aria-pressed="true"]::before { opacity: 1; }
+/* Selected fills with yellow rather than gaining an inner ring — on a white
+   button a yellow ring is barely visible, and Gen 1 marked a choice by
+   inverting the cell, not outlining it. */
 .opt[aria-pressed="true"] {
-  background: #fff;
-  box-shadow: inset 0 0 0 2px var(--gold), inset 0 -3px 0 rgba(0, 0, 0, 0.09);
+  background: var(--pika);
+  box-shadow: inset 0 -3px 0 rgba(27, 27, 27, 0.2);
 }
 .win[aria-pressed="true"] { color: var(--gb-green); }
 .lose[aria-pressed="true"] { color: var(--gb-red); }
-.opt:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+/* Focus takes the logo blue — the one hue that reads against both the white
+   button and the yellow ground. */
+.opt:focus-visible { outline: 3px solid var(--logo-blue); outline-offset: 2px; }
 
 .netLine {
   display: flex;
@@ -286,8 +301,9 @@
   background: var(--rule);
   border: 3px solid var(--rule);
   border-radius: 4px;
-  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.35);
-  color: var(--bone);
+  box-shadow: 2px 2px 0 rgba(27, 27, 27, 0.35);
+  /* Black plate, yellow lettering — the cartridge, essentially. */
+  color: var(--pika);
   font: inherit;
   font-size: 13px;
   font-weight: 700;
@@ -296,9 +312,9 @@
   cursor: pointer;
 }
 .confirm:disabled {
-  background: #93a3b6;
-  border-color: #93a3b6;
-  color: #e6ecf3;
+  background: #cbc5b2;
+  border-color: #9c9686;
+  color: #f2efe4;
   cursor: not-allowed;
   box-shadow: none;
 }
@@ -322,7 +338,7 @@
   height: 38px;
   border: 3px solid var(--rule);
   border-radius: 4px;
-  background: #eef3f8;
+  background: #ffffff;
   font: inherit;
   font-size: 12px;
   font-weight: 700;

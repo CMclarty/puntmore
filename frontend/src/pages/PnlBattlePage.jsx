@@ -91,19 +91,20 @@ export default function PnlBattlePage() {
     const X = i => padL + (W - padL - padR) * (i / (cum.length - 1))
     const Y = v => padT + (H - padT - padB) * (1 - (v - lo) / (hi - lo))
 
-    // gridlines + right-hand labels
+    // Gen 1 drew its screens as black line art on white — so the chart is black
+    // ink on the panel, with Pikachu yellow the only fill.
     g.font = '9px ui-monospace, monospace'
     g.textBaseline = 'middle'
     const step = niceStep(hi - lo)
     for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
       const y = Math.round(Y(v)) + 0.5
       const zero = Math.abs(v) < 1e-6
-      g.strokeStyle = zero ? 'rgba(255,255,255,.45)' : 'rgba(255,255,255,.16)'
+      g.strokeStyle = zero ? '#1b1b1b' : 'rgba(27,27,27,.18)'
       g.lineWidth = zero ? 2 : 1
       g.setLineDash(zero ? [] : [3, 3])
       g.beginPath(); g.moveTo(padL, y); g.lineTo(W - padR, y); g.stroke()
       g.setLineDash([])
-      g.fillStyle = 'rgba(226,238,252,.66)'
+      g.fillStyle = 'rgba(27,27,27,.55)'
       g.fillText(money(v), W - padR + 4, y)
     }
 
@@ -111,16 +112,16 @@ export default function PnlBattlePage() {
     g.beginPath()
     cum.forEach((v, i) => (i ? g.lineTo(X(i), Y(v)) : g.moveTo(X(i), Y(v))))
     g.lineTo(X(cum.length - 1), Y(0)); g.lineTo(X(0), Y(0)); g.closePath()
-    g.fillStyle = total < 0 ? 'rgba(232,80,58,.22)' : 'rgba(88,214,141,.24)'
+    g.fillStyle = total < 0 ? 'rgba(227,53,13,.20)' : 'rgba(255,203,5,.62)'
     g.fill()
 
     g.beginPath()
     cum.forEach((v, i) => (i ? g.lineTo(X(i), Y(v)) : g.moveTo(X(i), Y(v))))
-    g.strokeStyle = total < 0 ? '#ff9d8b' : '#8ef0b4'
+    g.strokeStyle = '#1b1b1b'
     g.lineWidth = 3; g.lineJoin = 'miter'; g.stroke()
 
-    // endpoint block — square, not a dot
-    g.fillStyle = '#f2c14e'
+    // endpoint block — square, not a dot. Pikachu's cheek red.
+    g.fillStyle = '#e3350d'
     g.fillRect(X(cum.length - 1) - 3, Y(cum[cum.length - 1]) - 3, 6, 6)
   }, [cum, total])
 
@@ -263,8 +264,8 @@ function SpSeries({ bets }) {
             preserveAspectRatio="none"
             aria-label={`Running mean price versus starting price, currently ${mean.toFixed(1)} percent`}
           >
-            <line x1="0" x2={W} y1={Y(0)} y2={Y(0)} stroke="rgba(255,255,255,.35)" strokeWidth="0.6" strokeDasharray="2 2" vectorEffect="non-scaling-stroke" />
-            <path d={path} fill="none" stroke={mean < 0 ? '#ff9d8b' : '#8ef0b4'} strokeWidth="1.8" strokeLinejoin="miter" vectorEffect="non-scaling-stroke" />
+            <line x1="0" x2={W} y1={Y(0)} y2={Y(0)} stroke="rgba(27,27,27,.35)" strokeWidth="0.6" strokeDasharray="2 2" vectorEffect="non-scaling-stroke" />
+            <path d={path} fill="none" stroke={mean < 0 ? '#e3350d' : '#1b1b1b'} strokeWidth="1.8" strokeLinejoin="miter" vectorEffect="non-scaling-stroke" />
           </svg>
         </div>
       </div>
