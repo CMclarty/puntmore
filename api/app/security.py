@@ -370,6 +370,16 @@ def ensure_schema() -> None:
             conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_bets_category ON bets (category)"
             ))
+            # Each-way (virtuals): stake holds the total outlay, place_fraction
+            # the terms the place part was paid at. Pre-existing rows are all
+            # win-only, which is what the DEFAULT 0 records.
+            if "each_way" not in bcols:
+                conn.execute(text(
+                    "ALTER TABLE bets ADD COLUMN each_way BOOLEAN "
+                    "NOT NULL DEFAULT 0"
+                ))
+            if "place_fraction" not in bcols:
+                conn.execute(text("ALTER TABLE bets ADD COLUMN place_fraction FLOAT"))
 
     # V5 status remap: pending|live -> processing|confirmed. Existing coupons
     # were all past the old review gate, so 'pending' rows are stale uploads

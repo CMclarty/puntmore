@@ -56,6 +56,10 @@ class BetIn(BaseModel):
     # stake. Bounded at the top of the Betfair ladder.
     price_taken: float | None = Field(default=None, ge=1.01, le=1000)
     bfsp: float | None = Field(default=None, ge=1.01, le=1000)
+    # Each-way. `stake` is then the TOTAL outlay (both parts), and
+    # place_fraction the terms the place part paid at — 0.25 = 1/4 odds.
+    each_way: bool = False
+    place_fraction: float | None = Field(default=None, gt=0, le=1)
 
     @model_validator(mode="after")
     def _one_mode(self):
@@ -69,6 +73,13 @@ class BetIn(BaseModel):
                 raise ValueError("Stake must be greater than zero")
         elif self.amount is None:
             raise ValueError("Send either amount, or stake and returned")
+        # An each-way bet without its place terms can't be reconstructed later,
+        # and terms without each_way describe a bet that has no place part —
+        # both are stored-but-meaningless, so neither is accepted.
+        if self.each_way and self.place_fraction is None:
+            raise ValueError("An each-way bet needs place_fraction")
+        if self.place_fraction is not None and not self.each_way:
+            raise ValueError("place_fraction only applies to an each-way bet")
         return self
 
     def net(self) -> float:
@@ -113,6 +124,8 @@ def add_bet(
         returned=None if body.returned is None else round(body.returned, 2),
         price_taken=None if body.price_taken is None else round(body.price_taken, 2),
         bfsp=None if body.bfsp is None else round(body.bfsp, 2),
+        each_way=body.each_way,
+        place_fraction=body.place_fraction,
     )
     db.add(bet)
     db.commit()
@@ -122,7 +135,7 @@ def add_bet(
 
 CSV_COLUMNS = [
     "id", "created_at", "amount", "stake", "returned",
-    "price_taken", "bfsp", "vs_sp_pct",
+    "price_taken", "bfsp", "vs_sp_pct", "each_way", "place_fraction",
 ]
 
 
@@ -165,6 +178,8 @@ def export_bets_csv(
             "" if b.price_taken is None else f"{b.price_taken:.2f}",
             "" if b.bfsp is None else f"{b.bfsp:.2f}",
             vs_sp,
+            "1" if b.each_way else "0",
+            "" if b.place_fraction is None else f"{b.place_fraction:.4f}",
         ])
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")

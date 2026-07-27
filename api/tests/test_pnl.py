@@ -179,6 +179,53 @@ def test_ledgers_are_isolated_by_category():
     assert len(client.get("/pnl/dogs/bets").json()) == 2
 
 
+def test_each_way_bet_records_its_terms():
+    # £10 e/w at 5.0 on 1/4 terms = £20 outlay. Placed (not won) returns only
+    # the place part: 10 × (1 + 4 × 0.25) = £20 — a push in money terms.
+    client = TestClient(app)
+    r = client.post("/pnl/virtuals/bets", json={
+        "stake": 20, "returned": 20, "price_taken": 5.0,
+        "each_way": True, "place_fraction": 0.25,
+    })
+    assert r.status_code == 200
+    b = r.json()
+    assert b["each_way"] is True and b["place_fraction"] == 0.25
+    assert b["stake"] == 20.0 and b["amount"] == 0.0
+
+
+def test_bets_default_to_win_only():
+    client = TestClient(app)
+    b = client.post("/pnl/dogs/bets", json={"stake": 10, "returned": 0}).json()
+    assert b["each_way"] is False and b["place_fraction"] is None
+
+
+def test_each_way_and_terms_must_agree():
+    client = TestClient(app)
+    bad = [
+        # Each-way with no terms can't be reconstructed later...
+        {"stake": 20, "returned": 0, "each_way": True},
+        # ...and terms without each-way describe a bet with no place part.
+        {"stake": 10, "returned": 0, "place_fraction": 0.25},
+        {"stake": 20, "returned": 0, "each_way": True, "place_fraction": 0},
+        {"stake": 20, "returned": 0, "each_way": True, "place_fraction": 1.5},
+    ]
+    for body in bad:
+        assert client.post("/pnl/virtuals/bets", json=body).status_code == 422, body
+
+
+def test_csv_carries_each_way_columns():
+    client = TestClient(app)
+    client.post("/pnl/virtuals/bets", json={
+        "stake": 20, "returned": 45, "price_taken": 5.0,
+        "each_way": True, "place_fraction": 0.2,
+    })
+    client.post("/pnl/virtuals/bets", json={"stake": 10, "returned": 0})
+    rows = list(csv.reader(io.StringIO(client.get("/pnl/virtuals/bets.csv").text)))
+    assert rows[0][-2:] == ["each_way", "place_fraction"]
+    assert rows[1][-2:] == ["1", "0.2000"]
+    assert rows[2][-2:] == ["0", ""]     # win-only: flag off, no terms
+
+
 def test_unknown_ledger_is_a_404():
     client = TestClient(app)
     assert client.get("/pnl/horses/bets").status_code == 404
@@ -220,7 +267,7 @@ def test_csv_export_contains_the_full_history():
     rows = list(csv.reader(io.StringIO(r.text)))
     assert rows[0] == [
         "id", "created_at", "amount", "stake", "returned",
-        "price_taken", "bfsp", "vs_sp_pct",
+        "price_taken", "bfsp", "vs_sp_pct", "each_way", "place_fraction",
     ]
     assert len(rows) == 3   # header + 2 bets, oldest first
     assert rows[1][2] == "45.00"
@@ -233,7 +280,9 @@ def test_csv_leaves_unrecorded_fields_empty_not_zero():
     client = TestClient(app)
     client.post("/pnl/dogs/bets", json={"amount": 45})
     rows = list(csv.reader(io.StringIO(client.get("/pnl/dogs/bets.csv").text)))
-    assert rows[1][3:] == ["", "", "", "", ""]
+    # stake, returned, price_taken, bfsp, vs_sp_pct all blank; each_way is a
+    # real "0" (the bet WAS win-only) and its terms are correctly absent.
+    assert rows[1][3:] == ["", "", "", "", "", "0", ""]
 
 
 def test_csv_export_is_scoped_to_its_owner():

@@ -121,6 +121,8 @@ class BetOut(BaseModel):
     returned: float | None = None
     price_taken: float | None = None
     bfsp: float | None = None
+    each_way: bool = False
+    place_fraction: float | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

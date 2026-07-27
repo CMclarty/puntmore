@@ -35,6 +35,29 @@ const exact = v =>
 
 const BIG_ENTRY = 1000
 
+// Place terms for an each-way bet, as a fraction of the odds taken (virtuals).
+const EW_TERMS = [
+  { label: '1/5', v: 0.2 },
+  { label: '1/4', v: 0.25 },
+  { label: '1/3', v: 1 / 3 },
+  { label: '1/2', v: 0.5 },
+]
+const DEFAULT_TERMS = 0.25
+
+/** Shared with the plain tracker: each-way is two bets, so the outlay doubles
+ *  and the place part pays unit × (1 + (odds − 1) × terms). */
+function settle({ unit, odds, result, ew, terms }) {
+  const outlay = ew ? unit * 2 : unit
+  const place = unit * (1 + (odds - 1) * terms)
+  let returned
+  if (!ew) {
+    returned = result === 'win' ? unit * odds : result === 'push' ? unit : 0
+  } else {
+    returned = result === 'win' ? unit * odds + place : result === 'place' ? place : 0
+  }
+  return { outlay, returned }
+}
+
 export default function PnlBattlePage({ category = 'dogs' }) {
   const [bets, setBets] = useState([])
   const [error, setError] = useState(null)
@@ -280,7 +303,7 @@ export default function PnlBattlePage({ category = 'dogs' }) {
         </div>
       </section>
 
-      <BattleEntry onAdd={handleAdd} busy={busy} />
+      <BattleEntry onAdd={handleAdd} busy={busy} category={category} />
     </div>
   )
 }
@@ -293,7 +316,10 @@ function niceStep(range) {
 }
 
 /** Same flow as the plain tracker: stake, odds, optional BFSP, lose/push/win. */
-function BattleEntry({ onAdd, busy }) {
+function BattleEntry({ onAdd, busy, category }) {
+  // Virtuals has no BFSP (no Betfair market on a virtual race); it records
+  // each-way instead, which doubles the outlay and adds a "place" result.
+  const isVirtuals = category === 'virtuals'
   const [stake, setStake] = useState('')
   // The 2/1 seat is where the wheel rests, not a price the user chose —
   // `oddsTouched` keeps the two apart so an unspun wheel files nothing.
@@ -304,6 +330,8 @@ function BattleEntry({ onAdd, busy }) {
   // own). Tracking is the default: BFSP is only knowable after the off.
   const [bsp, setBsp] = useState(null)
   const [spOn, setSpOn] = useState(false)
+  const [ew, setEw] = useState(false)
+  const [terms, setTerms] = useState(DEFAULT_TERMS)
   // Losses are the common outcome, so start on 'lose': a losing bet is stake +
   // Add, no result tap. Win/push are one tap away.
   const [result, setResult] = useState('lose')
@@ -328,13 +356,12 @@ function BattleEntry({ onAdd, busy }) {
 
   const stakeV = parseFloat(stake)
   const hasStake = stake !== '' && stakeV > 0
-  const returned =
-    result === 'win' ? stakeV * odds
-    : result === 'lose' ? 0
-    : result === 'push' ? stakeV : null
+  const { outlay, returned } = hasStake
+    ? settle({ unit: stakeV, odds, result, ew: isVirtuals && ew, terms })
+    : { outlay: null, returned: null }
 
   const canAdd = !busy && hasStake && result !== null
-  const net = canAdd ? Math.round((returned - stakeV) * 100) / 100 : null
+  const net = canAdd ? Math.round((returned - outlay) * 100) / 100 : null
   const big = net !== null && Math.abs(net) >= BIG_ENTRY
 
   function submit() {
@@ -343,12 +370,14 @@ function BattleEntry({ onAdd, busy }) {
     // An untouched odds wheel files NEITHER price — its 2/1 seat is not a price
     // taken, and a BFSP "matching" it would inherit the same fiction.
     const price = oddsTouched ? odds : null
-    const sp = !spOn ? null : (bsp != null ? bsp : price)
+    const sp = isVirtuals || !spOn ? null : (bsp != null ? bsp : price)
+    const isEw = isVirtuals && ew
     onAdd({
-      stake: Math.round(stakeV * 100) / 100,
+      stake: Math.round(outlay * 100) / 100,
       returned: Math.round(returned * 100) / 100,
       ...(price != null ? { price_taken: price } : {}),
       ...(sp != null ? { bfsp: sp } : {}),
+      ...(isEw ? { each_way: true, place_fraction: terms } : {}),
     })
     setStake(''); setOdds(DEFAULT_PRICE); setOddsTouched(false)
     setBsp(null); setSpOn(false); setResult('lose'); setConfirming(false)
@@ -358,7 +387,7 @@ function BattleEntry({ onAdd, busy }) {
     <section className={styles.pad}>
       <div className={styles.frame}>
         <label className={styles.field}>
-          <span className={styles.fieldLabel}>Stake</span>
+          <span className={styles.fieldLabel}>{isVirtuals && ew ? 'Stake (each way)' : 'Stake'}</span>
           <span className={styles.slotBox}>
             £
             <input
@@ -382,6 +411,32 @@ function BattleEntry({ onAdd, busy }) {
             id="gbOdds" label="Odds" value={odds}
             onChange={onOddsChange} onTouch={onOddsTouch}
           />
+          {isVirtuals ? (
+            <div className={styles.wheelCol}>
+              <span className={styles.fieldLabel}>Each way</span>
+              <div className={styles.ewToggle} role="group" aria-label="Each way">
+                <button
+                  type="button" className={styles.opt} aria-pressed={!ew}
+                  onClick={() => { setConfirming(false); setEw(false); if (result === 'place') setResult('lose') }}
+                >Win only</button>
+                <button
+                  type="button" className={styles.opt} aria-pressed={ew}
+                  onClick={() => { setConfirming(false); setEw(true) }}
+                >E/W</button>
+              </div>
+              {ew && (
+                <div className={styles.terms} role="group" aria-label="Place terms">
+                  {EW_TERMS.map(t => (
+                    <button
+                      key={t.label} type="button" className={styles.term}
+                      aria-pressed={Math.abs(terms - t.v) < 1e-9}
+                      onClick={() => { setConfirming(false); setTerms(t.v) }}
+                    >{t.label}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
           <div className={styles.wheelCol}>
             {/* Tracks the odds taken; one tap records that price. */}
             <OddsWheel
@@ -392,9 +447,10 @@ function BattleEntry({ onAdd, busy }) {
             />
             <button type="button" className={styles.wNote} onClick={cycleSp}>{spNote}</button>
           </div>
+          )}
         </div>
 
-        {spOn && (
+        {!isVirtuals && spOn && (
           <div className={styles.vsSpLine}>
             vs SP <b className={odds > bspShown ? styles.pos : odds < bspShown ? styles.neg : ''}>
               {pct(vsSpPct(odds, bspShown))}
@@ -403,7 +459,10 @@ function BattleEntry({ onAdd, busy }) {
         )}
 
         <div className={styles.menu} role="group" aria-label="Result">
-          {[['lose', 'Lose'], ['push', 'Push'], ['win', 'Win']].map(([key, label]) => (
+          {(isVirtuals && ew
+            ? [['lose', 'Lose'], ['place', 'Place'], ['win', 'Win']]
+            : [['lose', 'Lose'], ['push', 'Push'], ['win', 'Win']]
+          ).map(([key, label]) => (
             <button
               key={key}
               type="button"

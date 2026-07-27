@@ -368,13 +368,45 @@ export default function PnlPage({ category = 'dogs' }) {
         </div>
       </section>
 
-      <PnlEntry onAdd={handleAdd} busy={busy} />
+      <PnlEntry onAdd={handleAdd} busy={busy} category={category} />
     </div>
   )
 }
 
 // A net swing at or beyond this asks for confirmation before it's written.
 const BIG_ENTRY = 1000
+
+// Place terms for an each-way bet, as a fraction of the odds taken. These are
+// the standard boards; 1/4 is the default because it's the commonest, but the
+// terms are a property of the race, so they're one tap to change.
+const EW_TERMS = [
+  { label: '1/5', v: 0.2 },
+  { label: '1/4', v: 0.25 },
+  { label: '1/3', v: 1 / 3 },
+  { label: '1/2', v: 0.5 },
+]
+const DEFAULT_TERMS = 0.25
+
+/**
+ * What a bet returns, for both ledgers' entry shapes.
+ *
+ * Straight (win-only): stake is the unit, and a win pays unit × odds.
+ * Each-way: TWO bets on one line — the outlay is 2 × unit, the win part pays
+ * unit × odds and the place part pays unit × (1 + (odds − 1) × terms). A "place"
+ * result collects only the second; a "win" collects both. That is why the stake
+ * doubles: forgetting it understates turnover and overstates ROI on every EW row.
+ */
+function settle({ unit, odds, result, ew, terms }) {
+  const outlay = ew ? unit * 2 : unit
+  const place = unit * (1 + (odds - 1) * terms)
+  let returned
+  if (!ew) {
+    returned = result === 'win' ? unit * odds : result === 'push' ? unit : 0
+  } else {
+    returned = result === 'win' ? unit * odds + place : result === 'place' ? place : 0
+  }
+  return { outlay, returned }
+}
 
 // Digits plus a single dot, max 2 decimals, capped length.
 function sanitizeAmount(v) {
@@ -391,7 +423,12 @@ function sanitizeAmount(v) {
 
 // Own component with local state: typing here re-renders only this small tree,
 // never the chart above — which is what caused the input lag.
-function PnlEntry({ onAdd, busy }) {
+function PnlEntry({ onAdd, busy, category }) {
+  // The two ledgers track different things about a bet. Dogs measures the price
+  // against the Betfair SP; virtuals doesn't (there is no BFSP on a virtual
+  // race) and instead records whether the bet was each-way, which changes both
+  // the outlay and the set of results that can happen.
+  const isVirtuals = category === 'virtuals'
   const [stake, setStake] = useState('')
   // The odds wheel rests on 2/1, but that seat is NOT a price the user chose.
   // `oddsTouched` separates the two: until the wheel is actually spun nothing is
@@ -409,6 +446,9 @@ function PnlEntry({ onAdd, busy }) {
   // tap covers the common "SP came back at my price" case with no spinning.
   const [bsp, setBsp] = useState(null)
   const [spOn, setSpOn] = useState(false)
+  // Virtuals only: each-way and the place terms it pays at.
+  const [ew, setEw] = useState(false)
+  const [terms, setTerms] = useState(DEFAULT_TERMS)
   // Losses are the common outcome, so the wheel starts on 'lose' — a losing bet
   // is then just stake + Add, no result tap. Any edit still re-reads for a big
   // swing, and win/push are one tap away.
@@ -449,16 +489,14 @@ function PnlEntry({ onAdd, busy }) {
   const hasStake = stake !== '' && stakeV > 0
 
   // The return is DERIVED from stake, odds and result — no second figure to
-  // type: win → stake × odds, lose → 0, push → stake back.
-  const returned =
-    result === 'win' ? stakeV * odds
-    : result === 'lose' ? 0
-    : result === 'push' ? stakeV
-    : null
+  // type. Each-way doubles the outlay and adds the place part (see settle).
+  const { outlay, returned } = hasStake
+    ? settle({ unit: stakeV, odds, result, ew: isVirtuals && ew, terms })
+    : { outlay: null, returned: null }
 
   // Odds always carries a value, so a bet needs only a stake and a result.
   const canAdd = !busy && hasStake && result !== null
-  const net = canAdd ? Math.round((returned - stakeV) * 100) / 100 : null
+  const net = canAdd ? Math.round((returned - outlay) * 100) / 100 : null
   const big = net !== null && Math.abs(net) >= BIG_ENTRY
 
   function submit() {
@@ -471,15 +509,19 @@ function PnlEntry({ onAdd, busy }) {
     // same fiction. A spun BFSP still files on its own — that is a real reading
     // the user entered, and the API takes either price independently.
     const price = oddsTouched ? odds : null
-    const sp = !spOn ? null : (bsp != null ? bsp : price)
+    const sp = isVirtuals || !spOn ? null : (bsp != null ? bsp : price)
+    const isEw = isVirtuals && ew
     onAdd({
-      stake: Math.round(stakeV * 100) / 100,
+      stake: Math.round(outlay * 100) / 100,
       returned: Math.round(returned * 100) / 100,
       ...(price != null ? { price_taken: price } : {}),
       ...(sp != null ? { bfsp: sp } : {}),
+      ...(isEw ? { each_way: true, place_fraction: terms } : {}),
     })
     setStake(''); setOdds(DEFAULT_PRICE); setOddsTouched(false)
     setBsp(null); setSpOn(false); setResult('lose'); setConfirming(false)
+    // Each-way and its terms persist across entries — a session of virtuals is
+    // usually all EW or all not, so re-toggling per bet would be pure friction.
   }
 
   const onEnterKey = e => { if (e.key === 'Enter') submit() }
@@ -487,7 +529,9 @@ function PnlEntry({ onAdd, busy }) {
   return (
     <section className={styles.pad}>
       <label className={styles.field}>
-        <span className={styles.fieldLabel}>Stake</span>
+        <span className={styles.fieldLabel}>
+          {isVirtuals && ew ? 'Stake (each way)' : 'Stake'}
+        </span>
         <div className={styles.display}>
           <span className={styles.currency}>£</span>
           <input
@@ -504,6 +548,15 @@ function PnlEntry({ onAdd, busy }) {
         </div>
       </label>
 
+      {/* Each-way is two bets, so the money actually leaving is double the unit
+          typed above. Say so on the line itself — an EW stake that reads as the
+          unit is the easiest figure on this page to get wrong. */}
+      {isVirtuals && ew && hasStake && (
+        <div className={styles.vsSpLine}>
+          outlay <b>{exact(outlay)}</b> · 2 × {exact(stakeV)}
+        </div>
+      )}
+
       <div className={styles.wheels}>
         <div className={styles.wheelCol}>
           <OddsWheel
@@ -511,6 +564,39 @@ function PnlEntry({ onAdd, busy }) {
             onChange={onOddsChange} onTouch={onOddsTouch}
           />
         </div>
+        {isVirtuals ? (
+          <div className={styles.wheelCol}>
+            <span className={styles.fieldLabel}>Each way</span>
+            <div className={styles.ewToggle} role="group" aria-label="Each way">
+              <button
+                type="button"
+                className={`${styles.res} ${!ew ? styles.on : ''}`}
+                aria-pressed={!ew}
+                onClick={() => { setConfirming(false); setEw(false); if (result === 'place') setResult('lose') }}
+              >Win only</button>
+              <button
+                type="button"
+                className={`${styles.res} ${ew ? styles.on : ''}`}
+                aria-pressed={ew}
+                onClick={() => { setConfirming(false); setEw(true) }}
+              >E/W</button>
+            </div>
+            {/* Place terms — a property of the race, printed on the slip. */}
+            {ew && (
+              <div className={styles.terms} role="group" aria-label="Place terms">
+                {EW_TERMS.map(t => (
+                  <button
+                    key={t.label}
+                    type="button"
+                    className={`${styles.term} ${Math.abs(terms - t.v) < 1e-9 ? styles.on : ''}`}
+                    aria-pressed={Math.abs(terms - t.v) < 1e-9}
+                    onClick={() => { setConfirming(false); setTerms(t.v) }}
+                  >{t.label}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
         <div className={styles.wheelCol}>
           {/* Tracks the odds taken from the start so the price is always in
               place; one tap on the wheel records it, which covers the common
@@ -524,9 +610,10 @@ function PnlEntry({ onAdd, busy }) {
           />
           <button type="button" className={styles.wNote} onClick={cycleSp}>{spNote}</button>
         </div>
+        )}
       </div>
 
-      {spOn && (
+      {!isVirtuals && spOn && (
         <div className={styles.vsSpLine}>
           vs SP <b className={odds > bspShown ? styles.pos : odds < bspShown ? styles.neg : ''}>{vsSp(odds, bspShown)}</b>
         </div>
@@ -538,11 +625,21 @@ function PnlEntry({ onAdd, busy }) {
           className={`${styles.res} ${styles.resLose} ${result === 'lose' ? styles.on : ''}`}
           onClick={() => edit(setResult)('lose')}
         >Lose</button>
+        {/* An each-way bet can place without winning; a win-only bet can't, so
+            that slot stays the push it was. */}
+        {isVirtuals && ew ? (
+          <button
+            type="button"
+            className={`${styles.res} ${styles.resPush} ${result === 'place' ? styles.on : ''}`}
+            onClick={() => edit(setResult)('place')}
+          >Place</button>
+        ) : (
         <button
           type="button"
           className={`${styles.res} ${styles.resPush} ${result === 'push' ? styles.on : ''}`}
           onClick={() => edit(setResult)('push')}
         >Push</button>
+        )}
         <button
           type="button"
           className={`${styles.res} ${styles.resWin} ${result === 'win' ? styles.on : ''}`}
@@ -562,7 +659,8 @@ function PnlEntry({ onAdd, busy }) {
           <p className={styles.confirmQ}>
             Record <b className={net > 0 ? styles.pos : styles.neg}>{signedExact(net)}</b>?
             <span className={styles.confirmSub}>
-              {exact(stakeV)} at {odds.toFixed(2)} · {result}
+              {exact(outlay)} at {odds.toFixed(2)} · {result}
+              {isVirtuals && ew ? ` · e/w ${EW_TERMS.find(t => Math.abs(terms - t.v) < 1e-9)?.label ?? ''}` : ''}
             </span>
           </p>
           <div className={styles.confirmBtns}>

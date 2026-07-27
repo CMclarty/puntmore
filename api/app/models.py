@@ -177,6 +177,12 @@ class Bet(Base):
     # The price-vs-BFSP series uses only rows where BOTH are present.
     price_taken = Column(Float)
     bfsp = Column(Float)
+    # Each-way: two bets on one line, so `stake` holds the TOTAL outlay (2 ×
+    # unit) and `returned` the combined return. place_fraction is the place
+    # terms the return was computed at (0.25 = 1/4 odds) and is NULL unless
+    # each_way — without it a stored EW bet can't be reconstructed.
+    each_way = Column(Boolean, nullable=False, default=False, server_default="0")
+    place_fraction = Column(Float)
     created_at = Column(DateTime, default=utcnow, index=True)
 
 
