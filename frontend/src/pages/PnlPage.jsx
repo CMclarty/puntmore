@@ -138,14 +138,17 @@ export default function PnlPage({ category = 'dogs' }) {
     if (!W || !H) return
     const spPts = spSeries(bets)
     const hasSp = spPts.length > 0
-    // The EV axis needs a left gutter; without an EV series there's nothing to
-    // label, so the money curve keeps the full width it had.
-    const pad = { t: 16, r: 46, b: 30, l: hasSp ? 36 : 8 }
+    const pad = { t: 16, r: 46, b: 30, l: 8 }
     const cumArr = [0]; let acc = 0
     for (const b of bets) { acc += b.amount; cumArr.push(acc) }
     const n = cumArr.length
     const dates = [null, ...bets.map(b => parseDate(b.created_at))]
-    let lo = Math.min(0, ...cumArr), hi = Math.max(0, ...cumArr)
+    // EV shares the money curve's scale so the two can be read against each
+    // other directly — the whole point of putting them together is perspective:
+    // how much of the profit was earned in the price, and how much was variance.
+    // Its range therefore has to sit inside the domain as well.
+    const evVals = spPts.map(p => p[1])
+    let lo = Math.min(0, ...cumArr, ...evVals), hi = Math.max(0, ...cumArr, ...evVals)
     const sp = (hi - lo) || 100; lo -= sp * 0.14; hi += sp * 0.14
     const X = i => pad.l + (W - pad.l - pad.r) * (n <= 1 ? 0.5 : i / (n - 1))
     const Y = v => pad.t + (H - pad.t - pad.b) * (1 - (v - lo) / (hi - lo))
@@ -191,25 +194,15 @@ export default function PnlPage({ category = 'dogs' }) {
     let spLayer = ''
     const spAt = {}
     if (hasSp) {
-      const vals = spPts.map(p => p[1])
-      let slo = Math.min(0, ...vals), shi = Math.max(0, ...vals)
-      // The SAME 14% breathing room the money scale gets. The old sparkline had
-      // none, so whichever point was the extreme sat flush on the frame — which
-      // is what made the line look like it began at the floor.
-      const ssp = (shi - slo) || 10
-      slo -= ssp * 0.14; shi += ssp * 0.14
-      const SY = v => pad.t + (H - pad.t - pad.b) * (1 - (v - slo) / (shi - slo))
-      const sstep = niceStep(shi - slo)
-      for (let g = Math.ceil(slo / sstep) * sstep; g <= shi; g += sstep) {
-        spLayer += `<text x="${(pad.l - 6).toFixed(1)}" y="${SY(g).toFixed(1)}" dy="3.5" text-anchor="end" font-size="9" font-family="var(--font-mono)" fill="var(--amber)" opacity="0.8">${money(g)}</text>`
-      }
-      // One measured bet is a dot, not a line — a single reading is not a trend,
-      // and drawing it as one is exactly the false start this replaces.
-      const d = spPts.map((p, i) => (i ? 'L' : 'M') + X(p[0]).toFixed(1) + ' ' + SY(p[1]).toFixed(1)).join(' ')
+      // Drawn on Y — the money scale — not a scale of its own. EV is usually a
+      // small fraction of the swings beside it, and that flatness IS the
+      // reading: it shows how little of the result the price accounts for.
+      // One measured bet is a dot, not a line: a single reading is not a trend.
+      const d = spPts.map((p, i) => (i ? 'L' : 'M') + X(p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1)).join(' ')
       const last = spPts[spPts.length - 1]
       spLayer +=
         `<path d="${d}" fill="none" stroke="var(--amber)" stroke-width="1.6" stroke-dasharray="4 3" stroke-linejoin="round" stroke-linecap="round"/>` +
-        `<circle cx="${X(last[0]).toFixed(1)}" cy="${SY(last[1]).toFixed(1)}" r="3" fill="var(--amber)" stroke="var(--paper)" stroke-width="1.5"/>`
+        `<circle cx="${X(last[0]).toFixed(1)}" cy="${Y(last[1]).toFixed(1)}" r="3" fill="var(--amber)" stroke="var(--paper)" stroke-width="1.5"/>`
       for (const [i, v] of spPts) spAt[i] = v
     }
 

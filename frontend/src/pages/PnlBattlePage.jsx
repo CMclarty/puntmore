@@ -126,12 +126,13 @@ export default function PnlBattlePage({ category = 'dogs' }) {
     const g = c.getContext('2d')
     g.setTransform(dpr, 0, 0, dpr, 0, 0)
     const W = rect.width, H = rect.height
-    // Left gutter only when there's a % axis to put in it.
-    const padL = spPts.length ? 30 : 4, padR = 42, padT = 8, padB = 16
+    const padL = 4, padR = 42, padT = 8, padB = 16
 
     g.clearRect(0, 0, W, H)
     if (cum.length < 2) return
-    let lo = Math.min(0, ...cum), hi = Math.max(0, ...cum)
+    // EV shares the money scale so the two read against each other.
+    const evVals = spPts.map(p => p[1])
+    let lo = Math.min(0, ...cum, ...evVals), hi = Math.max(0, ...cum, ...evVals)
     const sp = (hi - lo) || 100
     lo -= sp * 0.12; hi += sp * 0.12
     const X = i => padL + (W - padL - padR) * (i / (cum.length - 1))
@@ -175,24 +176,9 @@ export default function PnlBattlePage({ category = 'dogs' }) {
     // while the P&L swings in tens, so a shared axis would flatten it to zero.
     // Logo blue, dashed — distinct from the black money curve at a glance.
     if (spPts.length) {
-      const vals = spPts.map(p => p[1])
-      let slo = Math.min(0, ...vals), shi = Math.max(0, ...vals)
-      // Same breathing room the money scale gets, so the extreme point never
-      // sits flush on the frame and read as "the line starts at the floor".
-      const ssp = (shi - slo) || 10
-      slo -= ssp * 0.12; shi += ssp * 0.12
-      const SY = v => padT + (H - padT - padB) * (1 - (v - slo) / (shi - slo))
-
-      g.fillStyle = 'rgba(42,117,187,.75)'
-      g.textAlign = 'right'
-      const sstep = niceStep(shi - slo)
-      for (let v = Math.ceil(slo / sstep) * sstep; v <= shi; v += sstep) {
-        g.fillText(money(v), padL - 4, SY(v))
-      }
-      g.textAlign = 'left'
-
-      // One reading is a dot, not a trend — drawing a line through it is the
-      // false start this replaces.
+      // Drawn on Y, the money scale — no scale of its own, so the two can be
+      // read in proportion to each other.
+      const SY = Y
       g.strokeStyle = '#2a75bb'
       g.lineWidth = 2
       g.setLineDash([4, 3])

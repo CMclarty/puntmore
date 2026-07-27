@@ -1,7 +1,8 @@
 import logging
 import secrets
+import time
 from contextlib import asynccontextmanager
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -36,9 +37,17 @@ from .routers import goalscorers as goalscorers_router
 from .routers import pnl as pnl_router
 from .routers import auth as auth_router
 from .routers import state as state_router
+from .routers import diagnostics as diagnostics_router
+from . import diagnostics
 from .cards.client import CardsApiClient
 
 logger = logging.getLogger("uvicorn.error")
+
+# A request slower than this is recorded. Render returns 502 when its own
+# timeout is hit, and the app never sees that, so the run-up is the only
+# warning available. OCR uploads are legitimately slow, so this sits well above
+# a normal page load rather than at it.
+SLOW_REQUEST_MS = 8000
 
 
 @asynccontextmanager
@@ -169,8 +178,19 @@ async def lifespan(app: FastAPI):
     )
     app.state.scheduler = scheduler
 
+    diagnostics.record(
+        "boot",
+        note="startup complete",
+        ocr=type(app.state.ocr_provider).__name__ if hasattr(app.state, "ocr_provider") else None,
+        odds=type(app.state.odds_provider).__name__ if hasattr(app.state, "odds_provider") else None,
+    )
+
     yield
 
+    # A clean shutdown is itself evidence: if the boot log has no matching
+    # "shutting down", the process was killed rather than redeployed — which is
+    # what an OOM or a crash behind a 502 looks like from the outside.
+    diagnostics.record("shutdown", note="lifespan exit, scheduler stopping")
     scheduler.shutdown(wait=False)
 
 
@@ -230,6 +250,62 @@ if settings.enable_pnl:
 
 # /state self-guards with a static API key (machine consumers, no session).
 app.include_router(state_router.router)
+
+# /diagnostics self-guards too (admin session OR the state key).
+app.include_router(diagnostics_router.router)
+
+
+# Every request is timed, and anything that fails or drags is recorded. This is
+# the only view into a deploy that has no shell, so it errs toward capturing.
+@app.middleware("http")
+async def observe_requests(request: Request, call_next):
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        # An exception that escapes the routers reaches here. Record it with the
+        # request that caused it and hand the caller a reference, so a screenshot
+        # of the error is enough to find the traceback.
+        ms = round((time.perf_counter() - started) * 1000, 1)
+        ref = diagnostics.record_exception(
+            exc,
+            method=request.method,
+            path=request.url.path,
+            user=request.session.get("user") if "session" in request.scope else None,
+        )
+        diagnostics.record(
+            "server_error_timing", ref=ref, path=request.url.path, duration_ms=ms
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error", "error_id": ref},
+        )
+
+    ms = round((time.perf_counter() - started) * 1000, 1)
+    # 5xx that a handler produced itself (rather than raising) still matters.
+    if response.status_code >= 500:
+        diagnostics.record(
+            "server_error",
+            method=request.method,
+            path=request.url.path,
+            status=response.status_code,
+            duration_ms=ms,
+            user=request.session.get("user") if "session" in request.scope else None,
+        )
+    # Render cuts a request off after its own timeout and returns 502 — the app
+    # never sees that, so a request creeping up on it is the closest thing to a
+    # warning we get. Uploads legitimately take seconds (OCR), hence a threshold
+    # rather than an alarm on anything slow.
+    elif ms >= SLOW_REQUEST_MS:
+        diagnostics.record(
+            "slow_request",
+            method=request.method,
+            path=request.url.path,
+            status=response.status_code,
+            duration_ms=ms,
+        )
+    response.headers["X-Request-Ms"] = str(ms)
+    return response
 
 
 @app.get("/health", include_in_schema=False)

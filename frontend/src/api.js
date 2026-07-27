@@ -1,5 +1,103 @@
 const BASE = '/api'
 
+/**
+ * A failed API call, carrying what the browser knows and the server can't.
+ *
+ * `error_id` is the reference the backend put in its own record, so one string
+ * links what the user saw to the traceback. `body` is the first slice of the
+ * response when it WASN'T the API's JSON — a 502 from Render is an HTML error
+ * page, and knowing that is the difference between "the app threw" and "the
+ * container never answered".
+ */
+export class ApiError extends Error {
+  constructor(message, { status, path, method, errorId, body } = {}) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.path = path
+    this.method = method
+    this.errorId = errorId
+    this.body = body
+  }
+}
+
+// Reporting must never itself throw or recurse: a failing reporter that reports
+// its own failure is an infinite loop, and it fires exactly when the network is
+// already unhappy. Fire-and-forget, capped, and it never reports itself.
+let reported = 0
+const MAX_REPORTS = 20
+
+export function reportClientError(message, extra = {}) {
+  if (reported >= MAX_REPORTS) return
+  reported += 1
+  try {
+    const payload = JSON.stringify({
+      message: String(message).slice(0, 2000),
+      route: window.location.pathname,
+      request: extra.request ? String(extra.request).slice(0, 300) : null,
+      status: typeof extra.status === 'number' ? extra.status : null,
+      detail: extra.detail ? String(extra.detail).slice(0, 4000) : null,
+    })
+    // keepalive so a report survives the page being navigated away or closed,
+    // which is when the interesting crashes happen.
+    fetch(`${BASE}/diagnostics/client`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+      keepalive: true,
+    }).catch(() => {})
+  } catch { /* never let logging break the app */ }
+}
+
+/**
+ * Turn a non-OK response into an ApiError, and report it.
+ *
+ * Reads the body ONCE and decides what it was: the API's JSON error (take its
+ * detail and error_id) or something else entirely (keep a slice — that slice is
+ * how a proxy error page announces itself).
+ */
+async function fail(res, path, method) {
+  let detail = null, errorId = null, body = null
+  const text = await res.text().catch(() => '')
+  try {
+    const json = JSON.parse(text)
+    detail = json.detail ?? null
+    errorId = json.error_id ?? null
+  } catch {
+    body = text.slice(0, 300)
+  }
+  const isProxy = res.status === 502 || res.status === 503 || res.status === 504
+  const message = detail
+    ?? (isProxy
+      ? `The server didn't respond (${res.status}). It may be restarting after a deploy.`
+      : `${method} ${path} → ${res.status}`)
+  const err = new ApiError(message, {
+    status: res.status, path, method, errorId, body,
+  })
+  reportClientError(message, {
+    request: `${method} ${path}`,
+    status: res.status,
+    detail: errorId ? `error_id=${errorId}` : body,
+  })
+  return err
+}
+
+// A fetch that REJECTS never reached the server at all — offline, DNS, TLS, or
+// the container gone. Worth reporting under its own shape, though the report
+// itself will likely fail too; it lands next time the network is back.
+async function send(path, init, method) {
+  try {
+    return await fetch(`${BASE}${path}`, init)
+  } catch (e) {
+    const err = new ApiError(
+      `Could not reach the server (${e?.message || 'network error'})`,
+      { path, method },
+    )
+    reportClientError(err.message, { request: `${method} ${path}` })
+    throw err
+  }
+}
+
 function redirectToLogin() {
   if (window.location.pathname !== '/login') {
     window.location.href = '/login'
@@ -7,44 +105,41 @@ function redirectToLogin() {
 }
 
 async function get(path) {
-  const res = await fetch(`${BASE}${path}`)
-  if (res.status === 401) { redirectToLogin(); throw new Error('Not authenticated') }
-  if (!res.ok) throw new Error(`GET ${path} → ${res.status}`)
+  const res = await send(path, undefined, 'GET')
+  if (res.status === 401) { redirectToLogin(); throw new ApiError('Not authenticated', { status: 401, path }) }
+  if (!res.ok) throw await fail(res, path, 'GET')
   return res.json()
 }
 
 async function post(path, body) {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await send(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })
-  if (res.status === 401) { redirectToLogin(); throw new Error('Not authenticated') }
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}))
-    throw new Error(detail.detail ?? `POST ${path} → ${res.status}`)
-  }
+  }, 'POST')
+  if (res.status === 401) { redirectToLogin(); throw new ApiError('Not authenticated', { status: 401, path }) }
+  if (!res.ok) throw await fail(res, path, 'POST')
   return res.json()
 }
 
 // Auth
 export async function getMe() {
-  const res = await fetch(`${BASE}/auth/me`)
-  if (res.status === 401) return null
-  if (!res.ok) throw new Error(`GET /auth/me → ${res.status}`)
+  const res = await send('/auth/me', undefined, 'GET')
+  if (res.status === 401) return null   // not logged in — not an error
+  if (!res.ok) throw await fail(res, '/auth/me', 'GET')
   return res.json()
 }
 
 export async function login(username, password) {
-  const res = await fetch(`${BASE}/auth/login`, {
+  const res = await send('/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
-  })
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}))
-    throw new Error(detail.detail ?? 'Login failed')
-  }
+  }, 'POST')
+  // A bad password is a 401 here and NOT a diagnostic — reporting every typo
+  // would bury real failures, so it's raised without a report.
+  if (res.status === 401) throw new ApiError('Login failed', { status: 401, path: '/auth/login' })
+  if (!res.ok) throw await fail(res, '/auth/login', 'POST')
   return res.json()
 }
 
@@ -70,28 +165,23 @@ export async function uploadCoupon(typeCode, period, file, name = null) {
   form.append('period', period)
   if (name) form.append('name', name)
   form.append('file', file)
-  const res = await fetch(`${BASE}/upload`, { method: 'POST', body: form })
-  if (res.status === 401) { redirectToLogin(); throw new Error('Not authenticated') }
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}))
-    throw new Error(detail.detail ?? `Upload failed (${res.status})`)
-  }
+  const res = await send('/upload', { method: 'POST', body: form }, 'POST')
+  if (res.status === 401) { redirectToLogin(); throw new ApiError('Not authenticated', { status: 401, path: '/upload' }) }
+  if (!res.ok) throw await fail(res, '/upload', 'POST')
   return res.json()
 }
 
 export const rescanCoupon = (couponId) => post(`/upload/${couponId}/rescan`, {})
 
 export async function editLeg(couponId, legId, fields) {
-  const res = await fetch(`${BASE}/coupons/${couponId}/legs/${legId}`, {
+  const path = `/coupons/${couponId}/legs/${legId}`
+  const res = await send(path, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(fields),
-  })
-  if (res.status === 401) { redirectToLogin(); throw new Error('Not authenticated') }
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}))
-    throw new Error(detail.detail ?? `Edit failed (${res.status})`)
-  }
+  }, 'PATCH')
+  if (res.status === 401) { redirectToLogin(); throw new ApiError('Not authenticated', { status: 401, path }) }
+  if (!res.ok) throw await fail(res, path, 'PATCH')
   return res.json()
 }
 
@@ -114,7 +204,8 @@ export const getBets = (category) => get(`/pnl/${category}/bets`)
 // when both figures are to hand. Pass exactly one shape; the API rejects both.
 export const addBet = (category, payload) => post(`/pnl/${category}/bets`, payload)
 export async function deleteBet(category, id) {
-  const res = await fetch(`${BASE}/pnl/${category}/bets/${id}`, { method: 'DELETE' })
-  if (res.status === 401) { redirectToLogin(); throw new Error('Not authenticated') }
-  if (!res.ok && res.status !== 204) throw new Error(`DELETE /pnl/${category}/bets/${id} → ${res.status}`)
+  const path = `/pnl/${category}/bets/${id}`
+  const res = await send(path, { method: 'DELETE' }, 'DELETE')
+  if (res.status === 401) { redirectToLogin(); throw new ApiError('Not authenticated', { status: 401, path }) }
+  if (!res.ok && res.status !== 204) throw await fail(res, path, 'DELETE')
 }
