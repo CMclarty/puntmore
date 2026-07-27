@@ -20,6 +20,11 @@ const parseDate = s => new Date(/[Z+]/.test(s) ? s : s + 'Z')
 const vsSpPct = (price, sp) => (price / sp - 1) * 100
 const pct = v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(1) + '%'
 
+/** EV of the price taken, in pounds: SP is the fair price, so a bet struck at
+ *  P returns stake × (P/SP − 1) in expectation. Needs the stake. */
+const evOf = b => b.stake * (b.price_taken / b.bfsp - 1)
+const hasEv = b => b.price_taken != null && b.bfsp != null && b.stake != null
+
 /** Same abbreviation rule as the plain tracker: k notation above £1,000. */
 function magnitude(abs) {
   if (abs < 1000) return abs.toLocaleString('en-GB', { maximumFractionDigits: 2 })
@@ -64,7 +69,7 @@ export default function PnlBattlePage({ category = 'dogs' }) {
   // ── derived figures, same as the plain tracker ────────────────────────────
   const {
     cum, total, mtd, mtdCount, winrate, turnover, roi,
-    spPts, spTotal, spMean, spBeat, measuredCount,
+    spPts, evTotal, evPerBet, spBeat, measuredCount,
   } = useMemo(() => {
     const arr = [0]
     let t = 0
@@ -80,17 +85,16 @@ export default function PnlBattlePage({ category = 'dogs' }) {
     const to = staked.reduce((s, b) => s + b.stake, 0)
     const sp = staked.reduce((s, b) => s + b.amount, 0)
 
-    // Price-vs-BFSP ACCUMULATED, anchored to the bet it was measured ON — the
+    // Accumulated EV in pounds, anchored to the bet it was earned ON — the
     // bet's index in the FULL ledger, not its index among priced bets, so the
     // line starts where that bet actually sits on the money curve's axis. Each
-    // edge adds to the last, so the slope is the edge per bet and the line
-    // reads like the money curve beside it (a running mean converges and then
-    // stops moving, hiding how the recent hundred were priced).
+    // bet's EV adds to the last, so the slope is the edge per bet (a running
+    // mean converges and then stops moving, hiding the recent hundred).
     const pts = []
     let ssum = 0, sn = 0
     bets.forEach((b, i) => {
-      if (b.price_taken == null || b.bfsp == null) return
-      ssum += vsSpPct(b.price_taken, b.bfsp); sn += 1
+      if (!hasEv(b)) return
+      ssum += evOf(b); sn += 1
       pts.push([i + 1, ssum])
     })
 
@@ -103,11 +107,9 @@ export default function PnlBattlePage({ category = 'dogs' }) {
       turnover: to,
       roi: to > 0 ? (sp / to * 100).toFixed(1) + '%' : null,
       spPts: pts,
-      spTotal: sn ? ssum : null,
-      spMean: sn ? ssum / sn : null,
-      spBeat: bets.filter(b =>
-        b.price_taken != null && b.bfsp != null && vsSpPct(b.price_taken, b.bfsp) > 0
-      ).length,
+      evTotal: sn ? ssum : null,
+      evPerBet: sn ? ssum / sn : null,
+      spBeat: bets.filter(b => hasEv(b) && b.price_taken > b.bfsp).length,
       measuredCount: sn,
     }
   }, [bets])
@@ -168,7 +170,9 @@ export default function PnlBattlePage({ category = 'dogs' }) {
     g.fillStyle = '#e3350d'
     g.fillRect(X(cum.length - 1) - 3, Y(cum[cum.length - 1]) - 3, 6, 6)
 
-    // ── price vs BFSP, overlaid on its own % scale ──────────────────────────
+    // ── EV, overlaid on its own £ scale ─────────────────────────────────────
+    // Its own scale even though both are pounds: EV accrues in pennies per bet
+    // while the P&L swings in tens, so a shared axis would flatten it to zero.
     // Logo blue, dashed — distinct from the black money curve at a glance.
     if (spPts.length) {
       const vals = spPts.map(p => p[1])
@@ -182,9 +186,8 @@ export default function PnlBattlePage({ category = 'dogs' }) {
       g.fillStyle = 'rgba(42,117,187,.75)'
       g.textAlign = 'right'
       const sstep = niceStep(shi - slo)
-      const dp = sstep < 1 ? 1 : 0
       for (let v = Math.ceil(slo / sstep) * sstep; v <= shi; v += sstep) {
-        g.fillText(`${v > 0 ? '+' : ''}${v.toFixed(dp)}%`, padL - 4, SY(v))
+        g.fillText(money(v), padL - 4, SY(v))
       }
       g.textAlign = 'left'
 
@@ -205,23 +208,25 @@ export default function PnlBattlePage({ category = 'dogs' }) {
   }, [cum, total, spPts])
 
   useEffect(() => { drawChart() }, [drawChart])
+  // Observing the canvas rather than the window catches every box change — the
+  // each-way toggle, the confirm box, a wrapped subline — not just window
+  // resizes. Without it the canvas stretches via CSS while its drawing keeps an
+  // older size, leaving a gap between the chart and the pad below.
+  // Still coalesced + size-guarded: a phone's URL bar fires a storm of these.
   useEffect(() => {
-    // Coalesced + size-guarded: a phone's URL bar fires a resize storm on
-    // scroll and this repaints a canvas.
+    const c = chartRef.current
+    if (!c) return
     let raf = 0, lastW = 0, lastH = 0
-    const onResize = () => {
-      cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => {
-        const c = chartRef.current
-        if (!c) return
-        const r = c.getBoundingClientRect()
-        if (Math.abs(r.width - lastW) < 1 && Math.abs(r.height - lastH) < 1) return
-        lastW = r.width; lastH = r.height
-        drawChart()
-      })
+    const measure = () => {
+      raf = 0
+      const r = c.getBoundingClientRect()
+      if (Math.abs(r.width - lastW) < 1 && Math.abs(r.height - lastH) < 1) return
+      lastW = r.width; lastH = r.height
+      drawChart()
     }
-    window.addEventListener('resize', onResize)
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', onResize) }
+    const ro = new ResizeObserver(() => { if (!raf) raf = requestAnimationFrame(measure) })
+    ro.observe(c)
+    return () => { cancelAnimationFrame(raf); ro.disconnect() }
   }, [drawChart])
 
   async function handleAdd(payload) {
@@ -270,9 +275,9 @@ export default function PnlBattlePage({ category = 'dogs' }) {
             <span><b>{winrate}</b> win</span>
             {roi !== null && <span><b>{roi}</b> ROI on {money(turnover)}</span>}
             {/* Doubles as the chart's legend — the dash matches the overlaid line. */}
-            {spTotal !== null && (
+            {evTotal !== null && (
               <span className={styles.spTag}>
-                <b>{pct(spTotal)}</b> SP · {pct(spMean)}/bet · {spBeat}/{measuredCount}
+                <b>{signed(evTotal)}</b> EV · {signed(evPerBet)}/bet · {spBeat}/{measuredCount}
               </span>
             )}
             <span>last <b>{bets.length ? signed(bets[bets.length - 1].amount) : '—'}</b></span>

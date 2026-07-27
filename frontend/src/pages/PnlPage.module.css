@@ -134,10 +134,10 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ---- price vs BFSP ----
-   The series now rides on the main chart as a dashed amber line on its own %
-   scale; this is its readout in the subline, and the leading dash doubles as
-   the chart's legend. Amber so the eye pairs figure and line without a key. */
+/* ---- EV (price taken vs BFSP, in pounds) ----
+   Rides on the main chart as a dashed amber line on its own £ scale; this is
+   its readout in the subline, and the leading dash doubles as the chart's
+   legend. Amber so the eye pairs figure and line without a key. */
 .spTag { color: var(--amber); white-space: nowrap; }
 .spTag b { color: var(--amber); font-weight: 700; }
 .spTag::before {

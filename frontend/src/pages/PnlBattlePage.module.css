@@ -154,9 +154,9 @@
 }
 .chart { display: block; width: 100%; height: 100%; }
 
-/* ── price vs BFSP ──────────────────────────────────────────────
-   The series rides on the main chart as a dashed blue line on its own % scale;
-   this is its readout in the subline, and the leading dash is the legend. */
+/* ── EV (price taken vs BFSP, in pounds) ───────────────────────
+   Rides on the main chart as a dashed blue line on its own £ scale; this is
+   its readout in the subline, and the leading dash is the legend. */
 .spTag { color: var(--logo-blue); white-space: nowrap; }
 .spTag b { color: var(--logo-blue); font-weight: 700; }
 .spTag::before {

@@ -41,11 +41,22 @@ const pctSigned = p => (p > 0 ? '+' : p < 0 ? '−' : '') + Math.abs(p).toFixed(
 const vsSp = (price, sp) => pctSigned(vsSpPct(price, sp))
 
 /**
- * Price-vs-BFSP, ACCUMULATED — each bet's edge over SP added to the last, so
- * the line climbs while you keep beating SP, falls while you don't, and its
- * slope is the edge you're getting per bet. It was a running mean, which
- * converges and then barely moves however you price the next hundred bets;
- * this reads like the money curve beside it, which is the point of the pairing.
+ * The expected value of the price taken, in POUNDS.
+ *
+ * Treating the Betfair SP as the fair price, the true win probability is 1/SP,
+ * so a bet struck at P returns stake × (P/SP − 1) in expectation — positive when
+ * you beat SP, negative when you didn't, and zero when you matched it. This is
+ * the same quantity the old percentage showed, weighted by what was actually at
+ * risk: +5% on a £2 bet and +5% on a £200 bet are not the same edge, and only
+ * the pounds figure says so.
+ *
+ * Needs the stake, so flat entries (amount only) can't contribute.
+ */
+const evOf = b => b.stake * (b.price_taken / b.bfsp - 1)
+const hasEv = b => b.price_taken != null && b.bfsp != null && b.stake != null
+
+/**
+ * Accumulated EV, anchored to the bet it was earned ON.
  *
  * Returns [cumIndex, totalSoFar] pairs, where cumIndex is the bet's position in
  * the FULL ledger (+1, since index 0 is the pre-first-bet start point) — not its
@@ -57,8 +68,8 @@ function spSeries(bets) {
   const out = []
   let sum = 0
   bets.forEach((b, i) => {
-    if (b.price_taken == null || b.bfsp == null) return
-    sum += vsSpPct(b.price_taken, b.bfsp)
+    if (!hasEv(b)) return
+    sum += evOf(b)
     out.push([i + 1, sum])
   })
   return out
@@ -111,16 +122,14 @@ export default function PnlPage({ category = 'dogs' }) {
   const stakedProfit = staked.reduce((s, b) => s + b.amount, 0)
   const roi = turnover > 0 ? (stakedProfit / turnover * 100).toFixed(1) + '%' : null
 
-  // Price vs BFSP — the figures behind the dashed line on the chart. Only bets
-  // carrying BOTH prices count; it measures the price, not the money, so a bet
-  // can lose and still have beaten SP. The headline is the ACCUMULATED edge, so
-  // it equals where the line ends rather than describing it.
-  const measured = bets.filter(b => b.price_taken != null && b.bfsp != null)
-  const spTotal = measured.length
-    ? measured.reduce((s, b) => s + vsSpPct(b.price_taken, b.bfsp), 0)
-    : null
-  const spMean = spTotal === null ? null : spTotal / measured.length
-  const spBeat = measured.filter(b => vsSpPct(b.price_taken, b.bfsp) > 0).length
+  // EV — the figures behind the dashed line on the chart. It measures the PRICE,
+  // not the result: a bet can lose and still have been +EV. The headline is the
+  // accumulated figure, so it equals where the line ends rather than describing
+  // it. Needs a stake, so flat entries sit this out.
+  const measured = bets.filter(hasEv)
+  const evTotal = measured.length ? measured.reduce((s, b) => s + evOf(b), 0) : null
+  const evPerBet = evTotal === null ? null : evTotal / measured.length
+  const spBeat = measured.filter(b => b.price_taken > b.bfsp).length
 
   const renderChart = useCallback(() => {
     const svg = chartRef.current
@@ -129,7 +138,7 @@ export default function PnlPage({ category = 'dogs' }) {
     if (!W || !H) return
     const spPts = spSeries(bets)
     const hasSp = spPts.length > 0
-    // The % axis needs a left gutter; without a BFSP series there's nothing to
+    // The EV axis needs a left gutter; without an EV series there's nothing to
     // label, so the money curve keeps the full width it had.
     const pad = { t: 16, r: 46, b: 30, l: hasSp ? 36 : 8 }
     const cumArr = [0]; let acc = 0
@@ -173,9 +182,12 @@ export default function PnlPage({ category = 'dogs' }) {
       }
     }
 
-    // ── price vs BFSP, overlaid on its own % scale ───────────────────────────
-    // A second scale on one chart, so the two are read together: the money
-    // curve answers "am I up", this answers "am I taking the right prices".
+    // ── EV, overlaid on its own £ scale ──────────────────────────────────────
+    // Its OWN scale, not the money curve's, even though both are pounds: EV
+    // accrues in pennies per bet while the P&L swings in tens, so sharing an
+    // axis would flatten this line onto zero. Two scales, read together — the
+    // money curve answers "am I up", this answers "am I taking the right
+    // prices", and the difference between them is variance.
     let spLayer = ''
     const spAt = {}
     if (hasSp) {
@@ -188,9 +200,8 @@ export default function PnlPage({ category = 'dogs' }) {
       slo -= ssp * 0.14; shi += ssp * 0.14
       const SY = v => pad.t + (H - pad.t - pad.b) * (1 - (v - slo) / (shi - slo))
       const sstep = niceStep(shi - slo)
-      const dp = sstep < 1 ? 1 : 0
       for (let g = Math.ceil(slo / sstep) * sstep; g <= shi; g += sstep) {
-        spLayer += `<text x="${(pad.l - 6).toFixed(1)}" y="${SY(g).toFixed(1)}" dy="3.5" text-anchor="end" font-size="9" font-family="var(--font-mono)" fill="var(--amber)" opacity="0.8">${(g > 0 ? '+' : '') + g.toFixed(dp)}%</text>`
+        spLayer += `<text x="${(pad.l - 6).toFixed(1)}" y="${SY(g).toFixed(1)}" dy="3.5" text-anchor="end" font-size="9" font-family="var(--font-mono)" fill="var(--amber)" opacity="0.8">${money(g)}</text>`
       }
       // One measured bet is a dot, not a line — a single reading is not a trend,
       // and drawing it as one is exactly the false start this replaces.
@@ -221,27 +232,31 @@ export default function PnlPage({ category = 'dogs' }) {
 
   useEffect(() => { renderChart() }, [renderChart])
 
-  // Redrawing the chart re-parses its whole SVG (innerHTML), so it must not run
-  // on every resize event: on a phone, scrolling shows/hides the URL bar and
-  // fires a storm of them. Coalesce to one animation frame and redraw only when
-  // the box genuinely changed size — a URL-bar resize that leaves the chart the
-  // same width now costs nothing.
+  // The SVG STRETCHES to fill its box via CSS, but its contents are drawn at
+  // absolute coordinates taken from one getBoundingClientRect. So whenever the
+  // box changes height without the window resizing, the drawing keeps the old
+  // size and the chart stops reaching the entry pad — a gap that looks like a
+  // layout bug but is a stale measurement. The entry pad changes height often:
+  // the each-way toggle, the confirm box, an error line, a wrapped subline when
+  // the SP figure appears. window.resize hears none of those.
+  //
+  // Observing the element itself catches every one, window resizes included.
+  // Still coalesced to one frame and guarded on a real size change, because the
+  // redraw re-parses the whole SVG and a phone's URL bar fires a storm of these.
   useEffect(() => {
-    let raf = 0
-    let lastW = 0, lastH = 0
-    const onResize = () => {
-      cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => {
-        const svg = chartRef.current
-        if (!svg) return
-        const r = svg.getBoundingClientRect()
-        if (Math.abs(r.width - lastW) < 1 && Math.abs(r.height - lastH) < 1) return
-        lastW = r.width; lastH = r.height
-        renderChart()
-      })
+    const svg = chartRef.current
+    if (!svg) return
+    let raf = 0, lastW = 0, lastH = 0
+    const measure = () => {
+      raf = 0
+      const r = svg.getBoundingClientRect()
+      if (Math.abs(r.width - lastW) < 1 && Math.abs(r.height - lastH) < 1) return
+      lastW = r.width; lastH = r.height
+      renderChart()
     }
-    window.addEventListener('resize', onResize)
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', onResize) }
+    const ro = new ResizeObserver(() => { if (!raf) raf = requestAnimationFrame(measure) })
+    ro.observe(svg)
+    return () => { cancelAnimationFrame(raf); ro.disconnect() }
   }, [renderChart])
 
   // hover / tap readout — attached once, reads live data off the svg element.
@@ -278,7 +293,7 @@ export default function PnlPage({ category = 'dogs' }) {
       const spv = svg._spAt ? svg._spAt[bi] : undefined
       tip.textContent =
         (bi === 0 ? 'Start' : fmtDay(dates[bi])) + '  ' + signed(cumA[bi]) +
-        (spv === undefined ? '' : '  ·  ' + pctSigned(spv) + ' SP')
+        (spv === undefined ? '' : '  ·  ' + signed(spv) + ' EV')
     }
 
     const move = e => {
@@ -348,9 +363,9 @@ export default function PnlPage({ category = 'dogs' }) {
           <span><b>{winrate}</b> win</span>
           {roi !== null && <span><b>{roi}</b> ROI on {money(turnover)}</span>}
           {/* Doubles as the chart's legend — the dash matches the overlaid line. */}
-          {spTotal !== null && (
+          {evTotal !== null && (
             <span className={styles.spTag}>
-              <b>{pctSigned(spTotal)}</b> SP · {pctSigned(spMean)}/bet · {spBeat}/{measured.length}
+              <b>{signed(evTotal)}</b> EV · {signed(evPerBet)}/bet · {spBeat}/{measured.length}
             </span>
           )}
           <span>last <b>{bets.length ? signed(bets[bets.length - 1].amount) : '—'}</b></span>
