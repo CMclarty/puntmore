@@ -61,7 +61,7 @@ def _apply_coupon_window(coupon, extracted, ctype, period, reference, legs) -> N
     # The coupon's OWN ladder wins: it is printed on each issue and can change.
     # Config is only a floor so a bad scan does not leave it unvaluable.
     ladder = extracted.payout_ladder or ctype.default_ladder
-    if ladder and not ctype.prices_each_selection:
+    if ladder and ctype.pays_ladder:
         coupon.payout_ladder = json.dumps({str(k): v for k, v in ladder.items()})
         if not extracted.payout_ladder:
             logger.warning(

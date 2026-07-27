@@ -120,11 +120,40 @@ def test_gg_without_a_grid_is_unpriced():
 
 # --- the seven types as top-level entities ---
 
-def test_seven_types_exist_with_stable_codes():
+def test_types_exist_with_stable_codes():
     from app.coupon_types import COUPON_TYPES
     assert [t.code for t in COUPON_TYPES] == [
-        "TTS1", "TTS2", "TTS3", "WO15", "WO25", "GGB", "GGND",
+        "TTS1", "TTS2", "TTS3", "WO15", "WO25", "GGB", "GGND", "HILLS",
     ]
+
+
+def test_priced_and_ladder_are_independent_shapes():
+    """A coupon may print prices, pay a ladder, or both.
+
+    HILLS is the reason these are two flags: the William Hill "Both score no
+    draw" sheet prints a price on every fixture AND a ladder for N correct.
+    Collapsing them back into one boolean silently discards half of it.
+    """
+    from app.coupon_types import get
+    priced_only = get("TTS1")
+    assert priced_only.prices_each_selection and not priced_only.pays_ladder
+
+    ladder_only = get("GGND")
+    assert not ladder_only.prices_each_selection and ladder_only.pays_ladder
+
+    both = get("HILLS")
+    assert both.prices_each_selection and both.pays_ladder
+
+
+def test_hills_carries_its_own_ladder_not_betfreds():
+    """Ladders are per bookmaker. Hill's and Betfred's agree at 3 and 4 correct
+    and then diverge sharply — sharing one default would misprice long folds."""
+    from app.coupon_types import get
+    hills, betfred = get("HILLS").default_ladder, get("GGND").default_ladder
+    assert hills[3] == betfred[3] == 5.5
+    assert hills[4] == betfred[4] == 10.0
+    assert hills[5] == 21.0 and betfred[5] == 17.0
+    assert hills[12] == 2724.0 and betfred[12] == 801.0
 
 
 def test_only_gg_bonus_is_a_screen():

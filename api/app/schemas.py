@@ -51,8 +51,10 @@ class CouponTypeOut(BaseModel):
     label: str
     max_fair_odds: Optional[float] = None
     selection_count: int = 0
-    # False when the coupon prints no odds per fixture and pays off a ladder.
+    # Independent flags: a coupon may print per-fixture prices, pay a ladder
+    # for N correct, or (William Hill's "Hills") both.
     prices_each_selection: bool = True
+    pays_ladder: bool = False
     period_codes: list[str] = Field(default_factory=list)
     # Best rung of the ladder for the latest issue: {"picks", "payout", "fair",
     # "value"}. The only value that means anything on a ladder coupon.

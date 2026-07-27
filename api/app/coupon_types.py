@@ -1,18 +1,26 @@
-"""The seven coupon types — the app's top-level entities.
+"""The coupon types — the app's top-level entities.
 
 Each type is a standing market, not an accumulator: it owns a filtered list of
 fixtures with fair odds against the coupon's own terms. A photo of a given
 coupon feeds that type's list. See SPEC §3.
 
-Two shapes exist, and they price completely differently:
+Two behaviours, and a coupon may have EITHER OR BOTH — they are separate
+flags precisely because a real coupon showed up carrying both:
 
-  PRICED   (TTS1/2/3, WO15/WO25) — each fixture carries its own printed odds.
+  PRICED   (prices_each_selection) — each fixture carries its own printed odds.
            Value is per selection: your price against fair.
 
-  LADDER   (GG Bonus, GG No Draw) — no odds are printed per fixture. Getting N
-           selections correct pays a fixed return read off a printed ladder
-           ("All 3 correct 9/2"). Value belongs to the COMBINATION, never to a
-           row, and the best N is the N shortest fair prices.
+  LADDER   (pays_ladder) — getting N selections correct pays a fixed return
+           read off a printed ladder ("All 3 correct 9/2"). That value belongs
+           to the COMBINATION, never to a row, and the best N is the N shortest
+           fair prices.
+
+TTS1/2/3 and WO15/WO25 are priced only. The Betfred GG Bonus / GG No Draw
+coupons are ladder only — they genuinely print no per-fixture price. The
+William Hill "Both score no draw" (HILLS) is BOTH: it prints a price on every
+fixture AND a ladder, so either route is bettable off one sheet. These were one
+boolean until that coupon proved the two are independent; folding them back
+together would silently discard one half of it again.
 
 Single source of truth: the API serves this to the frontend so the dropdown and
 the upload form cannot drift apart.
@@ -33,8 +41,12 @@ class CouponType:
     # fixed weekly schedule; the GG coupons are issued midweek/weekend on dates
     # that move, so they carry their own.
     period_codes: tuple[str, ...] = ("MON_WED", "WED_FRI", "SAT", "SUN")
-    # False when the coupon prints no odds per fixture and pays off a ladder.
+    # Does the coupon print a price against each fixture? False means any
+    # per-row number would be invented, so none is stored.
     prices_each_selection: bool = True
+    # Does it pay a fixed return for N correct, off a printed ladder? Independent
+    # of the above: a coupon can print prices AND pay a ladder.
+    pays_ladder: bool = False
     # Fallback ladder for when OCR cannot read the printed one. The ladder is
     # printed on each issue and CAN change, so the coupon's own reading always
     # wins — this only stops a bad scan leaving a coupon unvaluable.
@@ -44,6 +56,12 @@ class CouponType:
     max_fair_odds: float | None = None
 
 
+# LADDERS ARE PER BOOKMAKER AND PER ISSUE. Each type carries its own fallback,
+# and the coupon's own scanned ladder always wins over it — these only stop a
+# bad scan leaving a coupon unvaluable. Never share one between bookmakers: the
+# Hill and Betfred boards below agree at 3 and 4 correct and then diverge to
+# 3.4x apart by 12, so the wrong default misprices a long fold badly.
+#
 # Ladder observed on the Betfred GG Bonus midweek issue, 20–23 July 2026.
 # Fractional as printed: 9/2, 9/1, 16/1, 28/1, 50/1, 100/1, 175/1, 300/1,
 # 500/1, 800/1, 1500/1. The 14- and 15-fold rungs were cut off by the photo
@@ -51,6 +69,19 @@ class CouponType:
 _GG_LADDER = {
     3: 5.5, 4: 10.0, 5: 17.0, 6: 29.0, 7: 51.0,
     8: 101.0, 9: 176.0, 10: 301.0, 11: 501.0, 12: 801.0, 13: 1501.0,
+}
+
+# Ladder printed on the William Hill "Both score no draw" issue of Sat 25 /
+# Sun 26 July 2026. Fractional as printed: 9/2, 9/1, 20/1, 41/1, 84/1, 169/1,
+# 339/1, 680/1, 1361/1, 2723/1 — the sheet stops at 12.
+#
+# Hill prints these as "Minimum odds", i.e. the return can settle ABOVE a rung.
+# The model treats a rung as the exact return, so a Hills combination's value is
+# a floor rather than a point estimate. Recorded here because that is what the
+# coupon says, not adjusted for.
+_WH_LADDER = {
+    3: 5.5, 4: 10.0, 5: 21.0, 6: 42.0, 7: 85.0,
+    8: 170.0, 9: 340.0, 10: 681.0, 11: 1362.0, 12: 2724.0,
 }
 
 _VARIABLE = ("MIDWEEK", "WEEKEND")
@@ -63,13 +94,22 @@ COUPON_TYPES: tuple[CouponType, ...] = (
     CouponType("WO25", "Win and Over 2.5", "{team} Win and Over 2.5"),
     CouponType(
         "GGB", "GG Bonus", "GG Bonus",
-        period_codes=_VARIABLE, prices_each_selection=False,
+        period_codes=_VARIABLE, prices_each_selection=False, pays_ladder=True,
         default_ladder=_GG_LADDER, max_fair_odds=1.80,
     ),
     CouponType(
         "GGND", "GG No Draw", "GG No Draw",
-        period_codes=_VARIABLE, prices_each_selection=False,
+        period_codes=_VARIABLE, prices_each_selection=False, pays_ladder=True,
         default_ladder=_GG_LADDER,
+    ),
+    # William Hill's "Both score no draw". Same MARKET as GGND — the selection
+    # string is identical so it prices through exactly the same path — but its
+    # own type because the sheet is a different shape: it prints a price on
+    # every fixture and its ladder is Hill's, not Betfred's.
+    CouponType(
+        "HILLS", "Hills", "GG No Draw",
+        period_codes=_VARIABLE, prices_each_selection=True, pays_ladder=True,
+        default_ladder=_WH_LADDER,
     ),
 )
 

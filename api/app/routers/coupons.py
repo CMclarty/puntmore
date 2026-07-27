@@ -60,7 +60,7 @@ def list_coupon_periods(type_code: str | None = None):
 
 @router.get("/types", response_model=list[CouponTypeOut])
 def list_coupon_types(db: Session = Depends(get_db)):
-    """The seven coupon types — the app's top-level entities.
+    """The coupon types — the app's top-level entities.
 
     Each is its own filtered list of fixtures, not an accumulator. Served from
     one place so the tracker dropdown and the upload form cannot drift.
@@ -74,11 +74,12 @@ def list_coupon_types(db: Session = Depends(get_db)):
     out = []
     for t in COUPON_TYPES:
         best = None
-        if not t.prices_each_selection:
-            # Ladder coupons have no per-row value, so the useful number is the
-            # best combination available. Read off the MOST RECENT coupon of
-            # this type: the ladder and the fixture list both belong to an
-            # issue, not to the type.
+        if t.pays_ladder:
+            # Keyed on pays_ladder, NOT on "prints no prices": a Hills coupon
+            # does both, and gating this on the absence of prices would hide the
+            # combination value on the one coupon that offers both routes.
+            # Read off the MOST RECENT coupon of this type: the ladder and the
+            # fixture list both belong to an issue, not to the type.
             latest = (
                 db.query(Coupon)
                 .filter(Coupon.type_code == t.code)
@@ -100,52 +101,9 @@ def list_coupon_types(db: Session = Depends(get_db)):
             max_fair_odds=t.max_fair_odds,
             selection_count=counts.get(t.code, 0),
             prices_each_selection=t.prices_each_selection,
+            pays_ladder=t.pays_ladder,
             period_codes=list(t.period_codes),
             best_combination=best,
-        ))
-    return out
-
-
-@router.get("/types", response_model=list[CouponTypeOut])
-def list_coupon_types(db: Session = Depends(get_db)):
-    """The seven coupon types — the app's top-level entities.
-
-    Each is its own filtered list of fixtures, not an accumulator. Served from
-    one place so the tracker dropdown and the upload form cannot drift.
-    """
-    counts = dict(
-        db.query(Coupon.type_code, func.count(Leg.id))
-        .join(Leg, Leg.coupon_id == Coupon.id)
-        .group_by(Coupon.type_code)
-        .all()
-    )
-    out = []
-    for t in COUPON_TYPES:
-        combo_value = combo_fair = None
-        if t.flat_payout is not None:
-            # Shortest priced selections make the flat return best, so the best
-            # combination is simply the N shortest.
-            shortest = (
-                db.query(Leg.fair_odds)
-                .join(Coupon, Leg.coupon_id == Coupon.id)
-                .filter(Coupon.type_code == t.code, Leg.fair_odds.isnot(None))
-                .order_by(Leg.fair_odds)
-                .limit(t.payout_picks)
-                .all()
-            )
-            picks = [row[0] for row in shortest]
-            if len(picks) == t.payout_picks:
-                combo_value = coupon_types.combination_value(picks, t.flat_payout)
-                combo_fair = round(math.prod(picks), 4)
-        out.append(CouponTypeOut(
-            code=t.code,
-            label=t.label,
-            max_fair_odds=t.max_fair_odds,
-            selection_count=counts.get(t.code, 0),
-            flat_payout=t.flat_payout,
-            payout_picks=t.payout_picks,
-            best_combination_value=combo_value,
-            best_combination_fair=combo_fair,
         ))
     return out
 

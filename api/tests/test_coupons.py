@@ -452,13 +452,14 @@ def test_coupons_requires_auth():
 
 # --- coupon types as top-level entities ---
 
-def test_list_types_returns_all_seven_with_counts(db):
+def test_list_types_returns_every_type_with_counts(db):
     c = _make_coupon(db, type_code="TTS2")
     db.add(Leg(coupon_id=c.id, match_name="A vs B", pick="A to Score 2", odds=1.9, rank=0))
     db.commit()
 
     body = api.get("/coupons/types").json()
-    assert len(body) == 7
+    from app.coupon_types import COUPON_TYPES
+    assert len(body) == len(COUPON_TYPES)
     tts2 = next(t for t in body if t["code"] == "TTS2")
     assert tts2["label"] == "Team to Score 2"
     assert tts2["selection_count"] == 1
@@ -624,3 +625,93 @@ def test_variable_periods_expose_no_dates():
     for p in api.get("/coupons/periods?type_code=GGB").json():
         assert p["variable"] is True
         assert p["starts_on"] is None
+
+
+# --- HILLS: the coupon that prints prices AND pays a ladder ---
+
+@pytest.fixture()
+def hills_client(tmp_path):
+    """Upload client whose OCR returns a William Hill "Both score no draw":
+    a price against every fixture AND a printed ladder."""
+    from app.providers.base import ExtractedCoupon, ExtractedRow
+
+    class _HillsOCR(OCRProvider):
+        def extract(self, image_bytes, media_type):
+            return ExtractedCoupon(
+                rows=[
+                    # 8/4, 6/5, 13/8, 11/8 as printed → decimal. Market stays
+                    # None: it is known from WHICH coupon this is, as on GG.
+                    ExtractedRow("Aberdeen v Kelty Hearts", None, 3.00, "SAT 15:00"),
+                    ExtractedRow("Airdrie v Ross County", None, 2.20, "SAT 15:00"),
+                    ExtractedRow("Arbroath v Stirling", None, 2.63, "SAT 15:00"),
+                    ExtractedRow("Ayr v Albion", None, 2.38, "SAT 15:00"),
+                ],
+                title="BOTH SCORE NO DRAW",
+                period_text="Saturday 25th - Sunday 26th July",
+                payout_ladder={3: 5.5, 4: 10.0, 5: 21.0},
+            )
+
+    app.state.ocr_provider = _HillsOCR()
+    app.state.odds_provider = MockOddsProvider(
+        {
+            ("Aberdeen v Kelty Hearts", "GG No Draw"): 1.60,
+            ("Airdrie v Ross County", "GG No Draw"): 1.70,
+            ("Arbroath v Stirling", "GG No Draw"): 1.75,
+            ("Ayr v Albion", "GG No Draw"): 1.90,
+        },
+        matched={n: (n, 0.99) for n in (
+            "Aberdeen v Kelty Hearts", "Airdrie v Ross County",
+            "Arbroath v Stirling", "Ayr v Albion")},
+    )
+    from app import config as cfg
+    original = cfg.settings.upload_dir
+    cfg.settings.upload_dir = str(tmp_path)
+    yield TestClient(app)
+    cfg.settings.upload_dir = original
+
+
+def _upload_hills(client):
+    return client.post(
+        "/upload",
+        data={"type_code": "HILLS", "period": "WEEKEND",
+              "uploaded_on": date(2026, 7, 25).isoformat()},
+        files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
+    )
+
+
+def test_hills_keeps_the_printed_prices(hills_client, db):
+    """The bug this type exists to fix: a Hills sheet prints a price on every
+    fixture, and the ladder-only model threw every one of them away."""
+    legs = _upload_hills(hills_client).json()["legs"]
+    assert [l["odds"] for l in legs] == [3.00, 2.20, 2.63, 2.38]
+    # ...and a printed price means a per-row edge, unlike a ladder-only coupon.
+    assert all(l["value"] is not None for l in legs)
+
+
+def test_hills_also_stores_its_ladder(hills_client, db):
+    """Both halves, not one or the other: the same coupon carries the ladder."""
+    coupon_id = _upload_hills(hills_client).json()["coupon_id"]
+    db.expire_all()
+    assert db.get(Coupon, coupon_id).ladder == {3: 5.5, 4: 10.0, 5: 21.0}
+
+
+def test_hills_reports_a_combination_despite_being_priced(hills_client, db):
+    """Combination value is gated on pays_ladder, not on "prints no prices" —
+    gating it the old way would hide it on the one coupon offering both."""
+    _upload_hills(hills_client)
+    body = hills_client.get("/coupons/types").json()
+    hills = next(t for t in body if t["code"] == "HILLS")
+    assert hills["prices_each_selection"] is True and hills["pays_ladder"] is True
+    best = hills["best_combination"]
+    # 3 shortest fair: 1.60*1.70*1.75 = 4.76 against 5.5 → +15.6%.
+    assert best["picks"] == 3
+    assert best["fair"] == pytest.approx(4.76, abs=0.01)
+    assert best["value"] == pytest.approx(0.1555, abs=1e-3)
+
+
+def test_priced_only_coupon_stores_no_ladder(hills_client, db):
+    """The other direction: pays_ladder=False must not acquire one, even if a
+    scan hands one over."""
+    from app.coupon_types import get
+    assert get("TTS2").pays_ladder is False
+    assert get("TTS2").default_ladder == {}
