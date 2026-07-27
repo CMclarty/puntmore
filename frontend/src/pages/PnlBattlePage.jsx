@@ -299,11 +299,11 @@ function BattleEntry({ onAdd, busy }) {
   // `oddsTouched` keeps the two apart so an unspun wheel files nothing.
   const [odds, setOdds] = useState(DEFAULT_PRICE)
   const [oddsTouched, setOddsTouched] = useState(false)
-  // Three states, one control (see PnlPage): matching (tracks the odds taken
-  // and files it), set (spun to its own price), unknown (blank, files nothing —
-  // BFSP is only knowable after the off).
+  // Three states (see PnlPage): tracking (ghosted, follows the odds, files
+  // nothing), matched (tapped — records the tracked price), set (spun to its
+  // own). Tracking is the default: BFSP is only knowable after the off.
   const [bsp, setBsp] = useState(null)
-  const [spKnown, setSpKnown] = useState(true)
+  const [spOn, setSpOn] = useState(false)
   // Losses are the common outcome, so start on 'lose': a losing bet is stake +
   // Add, no result tap. Win/push are one tap away.
   const [result, setResult] = useState('lose')
@@ -312,16 +312,17 @@ function BattleEntry({ onAdd, busy }) {
   const onOddsChange = useCallback(v => { setConfirming(false); setOdds(v) }, [])
   const onOddsTouch = useCallback(() => { setOddsTouched(true) }, [])
   // A spin is itself the assertion that the price is known.
-  const onBspChange = useCallback(v => { setConfirming(false); setBsp(v); setSpKnown(true) }, [])
+  const onBspChange = useCallback(v => { setConfirming(false); setBsp(v); setSpOn(true) }, [])
+  const onBspActivate = useCallback(() => { setConfirming(false); setSpOn(true) }, [])
 
-  const bspShown = spKnown ? (bsp ?? odds) : null
-  const spNote = !spKnown ? 'not recorded · tap to match'
-    : bsp == null ? 'matching odds · tap if unknown'
-    : 'clear · match odds'
+  const bspShown = bsp ?? odds
+  const spNote = !spOn ? 'tracking odds · tap to record'
+    : bsp == null ? 'recording · tap to stop'
+    : 'set · tap to match odds'
   function cycleSp() {
     setConfirming(false)
-    if (!spKnown) { setSpKnown(true); setBsp(null) }
-    else if (bsp == null) setSpKnown(false)
+    if (!spOn) setSpOn(true)
+    else if (bsp == null) setSpOn(false)
     else setBsp(null)
   }
 
@@ -342,7 +343,7 @@ function BattleEntry({ onAdd, busy }) {
     // An untouched odds wheel files NEITHER price — its 2/1 seat is not a price
     // taken, and a BFSP "matching" it would inherit the same fiction.
     const price = oddsTouched ? odds : null
-    const sp = !spKnown ? null : (bsp != null ? bsp : price)
+    const sp = !spOn ? null : (bsp != null ? bsp : price)
     onAdd({
       stake: Math.round(stakeV * 100) / 100,
       returned: Math.round(returned * 100) / 100,
@@ -350,7 +351,7 @@ function BattleEntry({ onAdd, busy }) {
       ...(sp != null ? { bfsp: sp } : {}),
     })
     setStake(''); setOdds(DEFAULT_PRICE); setOddsTouched(false)
-    setBsp(null); setSpKnown(true); setResult('lose'); setConfirming(false)
+    setBsp(null); setSpOn(false); setResult('lose'); setConfirming(false)
   }
 
   return (
@@ -382,13 +383,18 @@ function BattleEntry({ onAdd, busy }) {
             onChange={onOddsChange} onTouch={onOddsTouch}
           />
           <div className={styles.wheelCol}>
-            {/* Matched by default — the wheel moves with the odds taken. */}
-            <OddsWheel id="gbBsp" label="BFSP" value={bspShown} onChange={onBspChange} seat={odds} />
+            {/* Tracks the odds taken; one tap records that price. */}
+            <OddsWheel
+              id="gbBsp" label="BFSP"
+              value={spOn ? bspShown : null} seat={odds}
+              ghost={!spOn} onActivate={onBspActivate}
+              onChange={onBspChange}
+            />
             <button type="button" className={styles.wNote} onClick={cycleSp}>{spNote}</button>
           </div>
         </div>
 
-        {bspShown != null && (
+        {spOn && (
           <div className={styles.vsSpLine}>
             vs SP <b className={odds > bspShown ? styles.pos : odds < bspShown ? styles.neg : ''}>
               {pct(vsSpPct(odds, bspShown))}

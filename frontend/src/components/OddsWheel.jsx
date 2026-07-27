@@ -60,8 +60,16 @@ export function nearestTick(v) {
  *   from "nobody moved it off the default" — including the case where a spin
  *   lands back on the value it started from, which onChange stays silent about.
  *   Must be stable (useCallback), like onChange.
+ * ghost: show the seated price and track it live, but styled as NOT being
+ *   recorded — for a wheel that follows another until the user opts in. The
+ *   value is still null (nothing is filed); tapping fires onActivate.
+ * onActivate: fired when a ghost wheel is tapped. Spinning one activates it too,
+ *   via onChange. Stable (useCallback), like onChange.
  */
-function OddsWheel({ value, onChange, label, id, seat = DEFAULT_PRICE, onTouch }) {
+function OddsWheel({
+  value, onChange, label, id, seat = DEFAULT_PRICE, onTouch,
+  ghost = false, onActivate,
+}) {
   const ref = useRef(null)
   const settle = useRef(null)
   // Held so programmatic scrolling (seating the initial value) doesn't feed
@@ -71,7 +79,10 @@ function OddsWheel({ value, onChange, label, id, seat = DEFAULT_PRICE, onTouch }
   // so a spin starts somewhere sensible, but nothing is shown as selected and
   // the centre band shows a placeholder — an unset wheel must not read as a
   // chosen price. (Used by the optional BFSP wheel; odds carries a default.)
-  const blank = value == null
+  //
+  // A GHOST wheel is also unset, but deliberately shows the price it is
+  // tracking instead of a placeholder, so `blank` (and its cover) is off.
+  const blank = value == null && !ghost
 
   const index = useMemo(() => {
     const dec = value == null ? (seat ?? DEFAULT_PRICE) : value
@@ -122,12 +133,16 @@ function OddsWheel({ value, onChange, label, id, seat = DEFAULT_PRICE, onTouch }
   return (
     <div className={styles.wheel}>
       <label className={styles.label} htmlFor={id}>{label}</label>
-      <div className={`${styles.viewport} ${blank ? styles.blank : ''}`}>
+      <div className={`${styles.viewport} ${blank ? styles.blank : ''} ${ghost ? styles.ghost : ''}`}>
         <div className={styles.selection} aria-hidden="true" />
         <div
           className={styles.scroller}
           ref={ref}
           onScroll={onScroll}
+          /* A tap on a ghost wheel opts it in at the price it is already
+             tracking — the whole point of the ghost state. A spin activates it
+             too, through onChange. */
+          onClick={ghost ? onActivate : undefined}
           id={id}
           role="listbox"
           aria-label={label}
@@ -140,7 +155,9 @@ function OddsWheel({ value, onChange, label, id, seat = DEFAULT_PRICE, onTouch }
               key={t.label}
               className={`${styles.row} ${i === index && !blank ? styles.on : ''}`}
               role="option"
-              aria-selected={i === index && !blank}
+              /* Nothing is SELECTED while ghosting — the row is merely the one
+                 being tracked — even though it carries the (dimmed) .on look. */
+              aria-selected={i === index && !blank && !ghost}
               aria-label={`${t.label}, decimal ${t.dec.toFixed(2)}`}
             >
               <span className={styles.frac}>{t.label}</span>

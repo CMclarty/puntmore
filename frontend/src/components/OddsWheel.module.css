@@ -44,6 +44,20 @@
 }
 .viewport.blank .placeholder { display: flex; }
 
+/* Ghost state: the wheel SHOWS a price and tracks it live, but has not been
+   activated, so that price is not being recorded. It must not read as either
+   blank (there IS a price to see) or selected (nothing is filed yet) — hence a
+   dashed, unfilled band and a dimmed value, both of which resolve the moment
+   the wheel is tapped. */
+.viewport.ghost { border-style: dashed; }
+.viewport.ghost .selection {
+  background: none;
+  border-style: dashed;
+  border-color: var(--line-strong);
+}
+.viewport.ghost .row.on { color: var(--muted); opacity: 0.7; }
+.viewport.ghost .row.on .frac { font-weight: 500; }
+
 /* The centre band the value snaps into — an outlined box so the selection reads
    clearly. The pale accent-soft fill alone was nearly invisible on paper. */
 .selection {
