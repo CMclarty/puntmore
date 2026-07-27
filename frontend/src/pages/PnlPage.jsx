@@ -37,9 +37,27 @@ const fmtDay = d => d.getDate() + ' ' + d.toLocaleString('en-GB', { month: 'shor
 // Price taken against Betfair SP, as a percentage of the SP. +5% means the
 // price taken was 5% longer than the SP that bet eventually returned.
 const vsSpPct = (price, sp) => (price / sp - 1) * 100
-const vsSp = (price, sp) => {
-  const p = vsSpPct(price, sp)
-  return (p > 0 ? '+' : p < 0 ? '−' : '') + Math.abs(p).toFixed(1) + '%'
+const pctSigned = p => (p > 0 ? '+' : p < 0 ? '−' : '') + Math.abs(p).toFixed(1) + '%'
+const vsSp = (price, sp) => pctSigned(vsSpPct(price, sp))
+
+/**
+ * The price-vs-BFSP running mean, anchored to the bet it was measured ON.
+ *
+ * Returns [cumIndex, meanSoFar] pairs, where cumIndex is the bet's position in
+ * the FULL ledger (+1, since index 0 is the pre-first-bet start point) — not its
+ * position among priced bets. That distinction is the whole point: indexing by
+ * measured order, as the old separate sparkline did, drew the first priced bet
+ * at the far left of the chart however late in the ledger it actually happened.
+ */
+function spSeries(bets) {
+  const out = []
+  let sum = 0, n = 0
+  bets.forEach((b, i) => {
+    if (b.price_taken == null || b.bfsp == null) return
+    sum += vsSpPct(b.price_taken, b.bfsp); n += 1
+    out.push([i + 1, sum / n])
+  })
+  return out
 }
 
 function niceStep(range) {
@@ -47,14 +65,21 @@ function niceStep(range) {
   return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag
 }
 
-export default function PnlPage() {
+export default function PnlPage({ category = 'dogs' }) {
   const [bets, setBets] = useState([])
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const chartRef = useRef(null)
   const tipRef = useRef(null)
 
-  useEffect(() => { getBets().then(setBets).catch(e => setError(e.message)) }, [])
+  // Which of the two ledgers this instance is, and the other one to hop to.
+  const label = category === 'virtuals' ? 'Virtuals' : 'Dogs'
+  const other = category === 'virtuals' ? 'dogs' : 'virtuals'
+  const otherLabel = category === 'virtuals' ? 'Dogs' : 'Virtuals'
+
+  // Re-fetch when the ledger changes. Each route mounts a fresh page with a
+  // fixed category, but keeping it in the deps is correct and future-proof.
+  useEffect(() => { getBets(category).then(setBets).catch(e => setError(e.message)) }, [category])
 
   // Derived figures — cumulative total, month to date, win rate.
   const cum = [0]
@@ -82,12 +107,25 @@ export default function PnlPage() {
   const stakedProfit = staked.reduce((s, b) => s + b.amount, 0)
   const roi = turnover > 0 ? (stakedProfit / turnover * 100).toFixed(1) + '%' : null
 
+  // Price vs BFSP — the figures behind the dashed line on the chart. Only bets
+  // carrying BOTH prices count; it measures the price, not the money, so a bet
+  // can lose and still have beaten SP.
+  const measured = bets.filter(b => b.price_taken != null && b.bfsp != null)
+  const spMean = measured.length
+    ? measured.reduce((s, b) => s + vsSpPct(b.price_taken, b.bfsp), 0) / measured.length
+    : null
+  const spBeat = measured.filter(b => vsSpPct(b.price_taken, b.bfsp) > 0).length
+
   const renderChart = useCallback(() => {
     const svg = chartRef.current
     if (!svg) return
     const r = svg.getBoundingClientRect(), W = r.width, H = r.height
     if (!W || !H) return
-    const pad = { t: 16, r: 46, b: 30, l: 8 }
+    const spPts = spSeries(bets)
+    const hasSp = spPts.length > 0
+    // The % axis needs a left gutter; without a BFSP series there's nothing to
+    // label, so the money curve keeps the full width it had.
+    const pad = { t: 16, r: 46, b: 30, l: hasSp ? 36 : 8 }
     const cumArr = [0]; let acc = 0
     for (const b of bets) { acc += b.amount; cumArr.push(acc) }
     const n = cumArr.length
@@ -129,6 +167,35 @@ export default function PnlPage() {
       }
     }
 
+    // ── price vs BFSP, overlaid on its own % scale ───────────────────────────
+    // A second scale on one chart, so the two are read together: the money
+    // curve answers "am I up", this answers "am I taking the right prices".
+    let spLayer = ''
+    const spAt = {}
+    if (hasSp) {
+      const vals = spPts.map(p => p[1])
+      let slo = Math.min(0, ...vals), shi = Math.max(0, ...vals)
+      // The SAME 14% breathing room the money scale gets. The old sparkline had
+      // none, so whichever point was the extreme sat flush on the frame — which
+      // is what made the line look like it began at the floor.
+      const ssp = (shi - slo) || 10
+      slo -= ssp * 0.14; shi += ssp * 0.14
+      const SY = v => pad.t + (H - pad.t - pad.b) * (1 - (v - slo) / (shi - slo))
+      const sstep = niceStep(shi - slo)
+      const dp = sstep < 1 ? 1 : 0
+      for (let g = Math.ceil(slo / sstep) * sstep; g <= shi; g += sstep) {
+        spLayer += `<text x="${(pad.l - 6).toFixed(1)}" y="${SY(g).toFixed(1)}" dy="3.5" text-anchor="end" font-size="9" font-family="var(--font-mono)" fill="var(--amber)" opacity="0.8">${(g > 0 ? '+' : '') + g.toFixed(dp)}%</text>`
+      }
+      // One measured bet is a dot, not a line — a single reading is not a trend,
+      // and drawing it as one is exactly the false start this replaces.
+      const d = spPts.map((p, i) => (i ? 'L' : 'M') + X(p[0]).toFixed(1) + ' ' + SY(p[1]).toFixed(1)).join(' ')
+      const last = spPts[spPts.length - 1]
+      spLayer +=
+        `<path d="${d}" fill="none" stroke="var(--amber)" stroke-width="1.6" stroke-dasharray="4 3" stroke-linejoin="round" stroke-linecap="round"/>` +
+        `<circle cx="${X(last[0]).toFixed(1)}" cy="${SY(last[1]).toFixed(1)}" r="3" fill="var(--amber)" stroke="var(--paper)" stroke-width="1.5"/>`
+      for (const [i, v] of spPts) spAt[i] = v
+    }
+
     const cur = cumArr[n - 1], endCol = cur >= 0 ? 'var(--accent)' : 'var(--red)'
     svg.innerHTML = `
       <defs>
@@ -141,8 +208,9 @@ export default function PnlPage() {
       <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
       ${xaxis}
       <circle cx="${X(n - 1).toFixed(1)}" cy="${Y(cur).toFixed(1)}" r="4.5" fill="${endCol}" stroke="var(--paper)" stroke-width="2"/>
+      ${spLayer}
       <g class="pnlHover" style="opacity:0"><circle class="pnlHdot" r="4" fill="var(--ink)" stroke="var(--paper)" stroke-width="1.5"/></g>`
-    svg._pts = pts; svg._cum = cumArr; svg._dates = dates
+    svg._pts = pts; svg._cum = cumArr; svg._dates = dates; svg._spAt = spAt
   }, [bets])
 
   useEffect(() => { renderChart() }, [renderChart])
@@ -199,7 +267,12 @@ export default function PnlPage() {
       }
       if (hv && hd) { hv.style.opacity = 1; hd.setAttribute('cx', pts[bi][0]); hd.setAttribute('cy', pts[bi][1]) }
       tip.style.opacity = 1; tip.style.left = pts[bi][0] + 'px'; tip.style.top = pts[bi][1] + 'px'
-      tip.textContent = (bi === 0 ? 'Start' : fmtDay(dates[bi])) + '  ' + signed(cumA[bi])
+      // The SP mean only exists on bets that carried both prices, so the tooltip
+      // gains a second figure exactly where the dashed line has a point.
+      const spv = svg._spAt ? svg._spAt[bi] : undefined
+      tip.textContent =
+        (bi === 0 ? 'Start' : fmtDay(dates[bi])) + '  ' + signed(cumA[bi]) +
+        (spv === undefined ? '' : '  ·  ' + pctSigned(spv) + ' SP')
     }
 
     const move = e => {
@@ -233,7 +306,7 @@ export default function PnlPage() {
     if (!payload || busy) return
     setBusy(true); setError(null)
     try {
-      const bet = await addBet(payload)
+      const bet = await addBet(category, payload)
       setBets(bs => [...bs, bet])
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
@@ -243,7 +316,7 @@ export default function PnlPage() {
     const last = bets[bets.length - 1]
     setBusy(true); setError(null)
     try {
-      await deleteBet(last.id)
+      await deleteBet(category, last.id)
       setBets(bs => bs.slice(0, -1))
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
@@ -252,7 +325,7 @@ export default function PnlPage() {
     <div className={styles.page}>
       <section className={styles.top}>
         <div className={styles.eyebrow}>
-          <span>Total profit</span><span className={styles.me}>Private</span>
+          <span>Total profit · {label}</span><span className={styles.me}>Private</span>
         </div>
         <div className={styles.stats}>
           <div className={styles.stat}>
@@ -268,15 +341,22 @@ export default function PnlPage() {
         <div className={styles.subline}>
           <span><b>{winrate}</b> win</span>
           {roi !== null && <span><b>{roi}</b> ROI on {money(turnover)}</span>}
+          {/* Doubles as the chart's legend — the dash matches the overlaid line. */}
+          {spMean !== null && (
+            <span className={styles.spTag}>
+              <b>{pctSigned(spMean)}</b> SP · {spBeat}/{measured.length}
+            </span>
+          )}
           <span>last <b>{bets.length ? signed(bets[bets.length - 1].amount) : '—'}</b></span>
-          {/* Same ledger, same API — just wearing a different skin. */}
-          <Link className={styles.battle} to="/pnl/battle">battle</Link>
+          {/* Hop to the other ledger, and to the alternate skin of this one. */}
+          <Link className={styles.battle} to={`/pnl/${other}`}>{otherLabel}</Link>
+          <Link className={styles.battle} to={`/pnl/${category}/battle`}>battle</Link>
           {bets.length > 0 && (
             <>
               {/* A plain link, not a fetch: the session cookie rides along and
                   the browser handles the download, so there is no blob to build
                   or object URL to revoke. */}
-              <a className={styles.export} href="/api/pnl/bets.csv" download>csv</a>
+              <a className={styles.export} href={`/api/pnl/${category}/bets.csv`} download>csv</a>
               <button className={styles.undo} onClick={undoLast} disabled={busy}>undo last</button>
             </>
           )}
@@ -288,70 +368,8 @@ export default function PnlPage() {
         </div>
       </section>
 
-      <SpSeries bets={bets} />
       <PnlEntry onAdd={handleAdd} busy={busy} />
     </div>
-  )
-}
-
-/**
- * Price taken vs Betfair SP — its own series, deliberately kept out of the P&L
- * figures above. It measures the price, not the money: a bet can lose and still
- * have beaten SP. Only bets carrying BOTH prices appear here.
- *
- * The line is the running mean, so it reads as "where my average price stands
- * after n bets" rather than as per-bet noise.
- */
-function SpSeries({ bets }) {
-  const measured = bets.filter(b => b.price_taken != null && b.bfsp != null)
-  if (!measured.length) return null
-
-  const pcts = measured.map(b => vsSpPct(b.price_taken, b.bfsp))
-  const running = []
-  let sum = 0
-  pcts.forEach((p, i) => { sum += p; running.push(sum / (i + 1)) })
-  const mean = running[running.length - 1]
-  const beat = measured.filter(b => vsSpPct(b.price_taken, b.bfsp) > 0).length
-  const coverage = Math.round(100 * measured.length / bets.length)
-
-  const W = 100, H = 28
-  const lo = Math.min(0, ...running), hi = Math.max(0, ...running)
-  const span = (hi - lo) || 1
-  const X = i => running.length === 1 ? W / 2 : (W * i) / (running.length - 1)
-  const Y = v => H - ((v - lo) / span) * H
-  const path = running.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ')
-  const col = mean > 0 ? 'var(--accent)' : mean < 0 ? 'var(--red)' : 'var(--muted)'
-
-  return (
-    <section className={styles.spBlock}>
-      <div className={styles.eyebrow}>
-        <span>Price vs BFSP</span>
-        <span className={styles.me}>{measured.length} of {bets.length} priced · {coverage}%</span>
-      </div>
-      <div className={styles.spRow}>
-        <div className={styles.spFigures}>
-          <div className={`${styles.spMean} ${mean < 0 ? styles.neg : styles.pos}`}>
-            {(mean > 0 ? '+' : mean < 0 ? '−' : '') + Math.abs(mean).toFixed(1) + '%'}
-          </div>
-          <div className={styles.spSub}>
-            beat SP on <b>{beat}</b>/{measured.length}
-          </div>
-        </div>
-        <svg
-          className={styles.spSpark}
-          viewBox={`0 0 ${W} ${H}`}
-          preserveAspectRatio="none"
-          aria-label={`Running mean price versus starting price, currently ${mean.toFixed(1)} percent`}
-        >
-          <line x1="0" x2={W} y1={Y(0)} y2={Y(0)} stroke="var(--line-strong)" strokeWidth="0.6" strokeDasharray="2 2" vectorEffect="non-scaling-stroke" />
-          <path
-            d={path} fill="none" stroke={col} strokeWidth="1.6"
-            strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke"
-          />
-          <circle cx={X(running.length - 1)} cy={Y(mean)} r="2.4" fill={col} vectorEffect="non-scaling-stroke" />
-        </svg>
-      </div>
-    </section>
   )
 }
 
@@ -375,12 +393,27 @@ function sanitizeAmount(v) {
 // never the chart above — which is what caused the input lag.
 function PnlEntry({ onAdd, busy }) {
   const [stake, setStake] = useState('')
-  // Odds taken defaults to 2/1 and is always recorded — what the wheel shows is
-  // what gets filed, so there's no extra tap on the common path.
+  // The odds wheel rests on 2/1, but that seat is NOT a price the user chose.
+  // `oddsTouched` separates the two: until the wheel is actually spun nothing is
+  // filed, because recording the untouched default as a real price produced
+  // vs-SP readings measured against odds that were never taken.
   const [odds, setOdds] = useState(DEFAULT_PRICE)
-  // BFSP is optional: blank until set, so an untouched wheel files nothing.
+  const [oddsTouched, setOddsTouched] = useState(false)
+  // The BFSP has three reachable states, and the note under the wheel is the
+  // one control that moves between them — no extra tap on the common path:
+  //   spKnown && bsp == null  MATCHING  wheel tracks the odds taken and files it
+  //   spKnown && bsp != null  SET       spun to its own price, files that
+  //   !spKnown                UNKNOWN   blank, files nothing
+  // Matching is the default because "the SP came back at my price" is the usual
+  // outcome. UNKNOWN exists because BFSP is only knowable after the off: without
+  // it, a bet filed before checking would assert a measurement never made — the
+  // same fiction as recording an untouched wheel.
   const [bsp, setBsp] = useState(null)
-  const [result, setResult] = useState(null)   // 'win' | 'lose' | 'push'
+  const [spKnown, setSpKnown] = useState(true)
+  // Losses are the common outcome, so the wheel starts on 'lose' — a losing bet
+  // is then just stake + Add, no result tap. Any edit still re-reads for a big
+  // swing, and win/push are one tap away.
+  const [result, setResult] = useState('lose')   // 'win' | 'lose' | 'push'
   const [confirming, setConfirming] = useState(false)
 
   // Any edit invalidates a pending confirmation — you must re-read the figure
@@ -391,7 +424,26 @@ function PnlEntry({ onAdd, busy }) {
   // an inline `edit(setOdds)` is a new function every render and would re-render
   // both wheels' 130 rows on each keystroke, which is the lag this removes.
   const onOddsChange = useCallback(v => { setConfirming(false); setOdds(v) }, [])
-  const onBspChange = useCallback(v => { setConfirming(false); setBsp(v) }, [])
+  const onOddsTouch = useCallback(() => { setOddsTouched(true) }, [])
+  // Spinning the wheel IS the assertion that you know the price, so it lifts
+  // UNKNOWN on its own rather than needing the note tapped first.
+  const onBspChange = useCallback(v => { setConfirming(false); setBsp(v); setSpKnown(true) }, [])
+
+  // What the BFSP wheel shows: the odds taken while matching (so the match is
+  // visible, not something you have to know happens), its own price once spun,
+  // blank when unknown.
+  const bspShown = spKnown ? (bsp ?? odds) : null
+
+  // One tap, and the label always names what that tap will do.
+  const spNote = !spKnown ? 'not recorded · tap to match'
+    : bsp == null ? 'matching odds · tap if unknown'
+    : 'clear · match odds'
+  function cycleSp() {
+    setConfirming(false)
+    if (!spKnown) { setSpKnown(true); setBsp(null) }
+    else if (bsp == null) setSpKnown(false)
+    else setBsp(null)
+  }
 
   const stakeV = parseFloat(stake)
   const hasStake = stake !== '' && stakeV > 0
@@ -414,13 +466,20 @@ function PnlEntry({ onAdd, busy }) {
     // A four-figure swing is almost always a slipped decimal on a phone keypad,
     // and the ledger has no edit — only undo-last. Make it deliberate.
     if (big && !confirming) { setConfirming(true); return }
+    // An untouched odds wheel files NEITHER price: its 2/1 seat is a resting
+    // position, not a price taken, and a BFSP "matching" it would inherit the
+    // same fiction. A spun BFSP still files on its own — that is a real reading
+    // the user entered, and the API takes either price independently.
+    const price = oddsTouched ? odds : null
+    const sp = !spKnown ? null : (bsp != null ? bsp : price)
     onAdd({
       stake: Math.round(stakeV * 100) / 100,
       returned: Math.round(returned * 100) / 100,
-      price_taken: odds,
-      ...(bsp != null ? { bfsp: bsp } : {}),
+      ...(price != null ? { price_taken: price } : {}),
+      ...(sp != null ? { bfsp: sp } : {}),
     })
-    setStake(''); setOdds(DEFAULT_PRICE); setBsp(null); setResult(null); setConfirming(false)
+    setStake(''); setOdds(DEFAULT_PRICE); setOddsTouched(false)
+    setBsp(null); setSpKnown(true); setResult('lose'); setConfirming(false)
   }
 
   const onEnterKey = e => { if (e.key === 'Enter') submit() }
@@ -447,25 +506,24 @@ function PnlEntry({ onAdd, busy }) {
 
       <div className={styles.wheels}>
         <div className={styles.wheelCol}>
-          <OddsWheel id="pnlOdds" label="Odds" value={odds} onChange={onOddsChange} />
+          <OddsWheel
+            id="pnlOdds" label="Odds" value={odds}
+            onChange={onOddsChange} onTouch={onOddsTouch}
+          />
         </div>
         <div className={styles.wheelCol}>
-          <OddsWheel id="pnlBsp" label="BFSP" value={bsp} onChange={onBspChange} />
-          {/* From blank, commit the value the wheel already shows so 2/1 can be
-              filed without a spin; once set, clear it back to blank. */}
-          <button
-            type="button"
-            className={styles.wNote}
-            onClick={() => edit(setBsp)(bsp == null ? DEFAULT_PRICE : null)}
-          >
-            {bsp == null ? 'optional · tap or spin to set' : 'clear'}
-          </button>
+          {/* Matched by default: the wheel moves with the odds taken, so the
+              common "SP matched my price" case files with no tap at all. A spin
+              decouples it (starting from the odds, a nudge not a hunt); the note
+              cycles matching → unknown → matching. */}
+          <OddsWheel id="pnlBsp" label="BFSP" value={bspShown} onChange={onBspChange} seat={odds} />
+          <button type="button" className={styles.wNote} onClick={cycleSp}>{spNote}</button>
         </div>
       </div>
 
-      {bsp != null && (
+      {bspShown != null && (
         <div className={styles.vsSpLine}>
-          vs SP <b className={odds > bsp ? styles.pos : odds < bsp ? styles.neg : ''}>{vsSp(odds, bsp)}</b>
+          vs SP <b className={odds > bspShown ? styles.pos : odds < bspShown ? styles.neg : ''}>{vsSp(odds, bspShown)}</b>
         </div>
       )}
 

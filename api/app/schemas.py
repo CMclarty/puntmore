@@ -115,6 +115,7 @@ class CardFeedItem(BaseModel):
 # recorded", not zero.
 class BetOut(BaseModel):
     id: int
+    category: str
     amount: float
     stake: float | None = None
     returned: float | None = None

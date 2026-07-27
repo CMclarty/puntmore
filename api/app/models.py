@@ -161,6 +161,13 @@ class Bet(Base):
 
     id = Column(Integer, primary_key=True)
     user = Column(String, nullable=False, index=True)
+    # Which ledger this bet belongs to: "dogs" (greyhounds) or "virtuals"
+    # (virtual racing). Two independent P&L instances share one table, split by
+    # this column — every query is scoped to (user, category). server_default
+    # backfills rows written before the split (they land in the dogs ledger).
+    category = Column(
+        String, nullable=False, default="dogs", server_default="dogs", index=True
+    )
     amount = Column(Float, nullable=False)          # net change, + win / − loss
     stake = Column(Float)                           # NULL on flat entries
     returned = Column(Float)                        # NULL on flat entries

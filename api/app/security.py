@@ -357,6 +357,19 @@ def ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE bets ADD COLUMN price_taken FLOAT"))
             if "bfsp" not in bcols:
                 conn.execute(text("ALTER TABLE bets ADD COLUMN bfsp FLOAT"))
+            # Two-ledger split: bets are scoped to a category ("dogs" /
+            # "virtuals"). Rows written before the split had no category, so the
+            # SQL DEFAULT files them under "dogs" — the ledger that existed until
+            # now. The matching index mirrors the model's index=True so a fresh
+            # DB and a migrated one end up identical.
+            if "category" not in bcols:
+                conn.execute(text(
+                    "ALTER TABLE bets ADD COLUMN category VARCHAR "
+                    "NOT NULL DEFAULT 'dogs'"
+                ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_bets_category ON bets (category)"
+            ))
 
     # V5 status remap: pending|live -> processing|confirmed. Existing coupons
     # were all past the old review gate, so 'pending' rows are stale uploads

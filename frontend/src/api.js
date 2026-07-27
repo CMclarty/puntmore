@@ -107,13 +107,14 @@ export const getCardsFeed = (minEdge = -0.02) =>
 // the scheduler near kickoff and stored, so this just reads the current set.
 export const getGoalscorerFeed = () => get('/goalscorers/feed')
 
-// Private P&L bet tracker (per-user ledger).
-export const getBets = () => get('/pnl/bets')
+// Private P&L bet tracker (per-user ledger). Each user has two independent
+// ledgers, `category` = "dogs" | "virtuals", carried as a path segment.
+export const getBets = (category) => get(`/pnl/${category}/bets`)
 // Two entry modes — flat net result `{ amount }`, or `{ stake, returned }`
 // when both figures are to hand. Pass exactly one shape; the API rejects both.
-export const addBet = (payload) => post('/pnl/bets', payload)
-export async function deleteBet(id) {
-  const res = await fetch(`${BASE}/pnl/bets/${id}`, { method: 'DELETE' })
+export const addBet = (category, payload) => post(`/pnl/${category}/bets`, payload)
+export async function deleteBet(category, id) {
+  const res = await fetch(`${BASE}/pnl/${category}/bets/${id}`, { method: 'DELETE' })
   if (res.status === 401) { redirectToLogin(); throw new Error('Not authenticated') }
-  if (!res.ok && res.status !== 204) throw new Error(`DELETE /pnl/bets/${id} → ${res.status}`)
+  if (!res.ok && res.status !== 204) throw new Error(`DELETE /pnl/${category}/bets/${id} → ${res.status}`)
 }

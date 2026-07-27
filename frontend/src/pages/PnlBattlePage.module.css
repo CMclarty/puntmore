@@ -1,6 +1,9 @@
-/* Pokémon Yellow skin for the P&L tracker. Same sections as /pnl, dressed
-   differently. It commits to Gen 1's look rather than following the app's
-   paper theme — that is the point of the skin, not an omission.
+/* Pokémon Yellow skin for the P&L tracker. Same layout as /pnl, recoloured —
+   deliberately a light skin, not a recreation of a Game Boy battle screen. The
+   structure (soft cards, 1px rules, rounded corners, flat fills) matches the
+   plain tracker; only the palette and font change. The heavy 8-bit chrome —
+   scanline ground, thick black frames with hard offset shadows, the ▶ move
+   pointer, the cartridge-plate button — was pared back so it stays a skin.
 
    The block below REDEFINES the global tokens on this page's root. Shared
    components styled through those tokens — OddsWheel in particular — pick the
@@ -8,17 +11,12 @@
    here leaks into the rest of the app. */
 
 .page {
-  /* --- skin tokens: Pokémon Yellow ---
-     Gen 1 rendered its interface as pure black line art on white — the colour
-     lived in the cartridge and the box, not the menus. So the ground is Pikachu
-     yellow, the panels stay white with heavy black rules, and the only other
-     hues are the cheek red and the logo blue, used sparingly. */
+  /* --- skin tokens: Pokémon Yellow --- */
   --pika: #ffcb05;         /* Pikachu / logo yellow            */
-  --pika-deep: #e5a900;    /* its shadow side                  */
+  --pika-soft: #fff3c4;    /* pale wash for grounds and fills  */
   --cheek: #e3350d;        /* cheek red — losses, endpoints    */
-  --logo-blue: #2a75bb;    /* the logo's outline blue          */
+  --logo-blue: #2a75bb;    /* the logo's outline blue (focus)  */
   --bone: #ffffff;
-  --bone-shade: #e8e2cb;
   --rule: #1b1b1b;         /* Gen 1 drew everything in black   */
   --gb-green: #2f7d3f;
   --gb-red: var(--cheek);
@@ -29,7 +27,7 @@
   --ink: #1b1b1b;
   --muted: #5b5851;
   --faint: #8d8a80;
-  --line: #2b2b2b;
+  --line: #cdbf83;         /* soft inked rule, not full black  */
   --line-strong: #1b1b1b;
   --accent: #1b1b1b;       /* the wheel's selection rule       */
   --accent-soft: #ffe47a;  /* ...over pale yellow              */
@@ -41,17 +39,14 @@
   min-height: 0;
   padding: 8px 9px 10px;
   gap: 8px;
-  background: var(--pika);
-  /* a soft vignette to the deeper yellow, so the ground is not one flat fill */
-  background-image:
-    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.028) 0 2px, transparent 2px 4px),
-    radial-gradient(120% 90% at 50% 0%, #ffd93d 0%, var(--pika) 46%, var(--pika-deep) 100%);
+  /* A calm yellow wash — the skin's identity — without the game-screen vignette
+     or scanlines that made it read as a console rather than a tint. */
+  background: linear-gradient(180deg, #fff6d6 0%, #ffedb0 100%);
   font-family: var(--font-mono);
-  color: var(--rule);
+  color: var(--ink);
 }
 
-/* Section heading — black on the yellow ground, lifted with a light shadow so
-   it doesn't sit flat against the fill. */
+/* Section heading — plain black on the yellow ground, no lift. */
 .eyebrow {
   display: flex;
   align-items: baseline;
@@ -60,23 +55,20 @@
   padding: 0 3px 4px;
   font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--rule);
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+  color: var(--muted);
 }
 .me { color: #6b5a12; font-weight: 700; letter-spacing: 0.08em; }
 
-/* Gen 1's dialogue box: white fill, one heavy black rule, and a hard offset
-   shadow — no bevels or gradients, which is what makes it read as the 8-bit
-   original rather than a later console. */
+/* Cards: white fill, one thin inked rule, rounded — same weight as the plain
+   tracker's blocks, just outlined in the skin's ink. No offset shadows. */
 .panel,
 .frame,
 .chartFrame {
-  border: 3px solid var(--rule);
-  border-radius: 6px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
   background: var(--bone);
-  box-shadow: 3px 3px 0 rgba(27, 27, 27, 0.32);
   color: var(--ink);
 }
 .panel { padding: 8px 10px 9px; }
@@ -120,25 +112,24 @@
   gap: 9px;
   margin-top: 7px;
   padding-top: 6px;
-  border-top: 2px solid var(--bone-shade);
+  border-top: 1px solid var(--line);
   font-size: 10px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 .subline b { color: var(--ink); font-weight: 700; }
 
-/* chunky little menu chips */
+/* Small nav chips — the plain tracker's chip, outlined in the skin's ink. */
 .chip {
-  border: 2px solid var(--rule);
-  border-radius: 3px;
-  background: var(--pika);
-  box-shadow: 1px 1px 0 rgba(27, 27, 27, 0.4);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: none;
   font: inherit;
   font-size: 9px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--ink);
+  color: var(--muted);
   text-decoration: none;
   padding: 2px 6px;
   cursor: pointer;
@@ -148,17 +139,13 @@
 
 .error {
   margin: 6px 0 0;
-  padding: 4px 7px;
-  border: 2px solid var(--rule);
-  border-radius: 4px;
-  background: var(--cheek);
-  color: #fff;
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  font-size: 12px;
+  color: var(--cheek);
+  letter-spacing: 0.02em;
 }
 
-/* The chart is black line art on white, like every Gen 1 screen — the yellow
-   is the fill under the curve, not a backdrop behind it. */
+/* The chart is black line art on white; the yellow lives in the fill under the
+   curve (drawn in the canvas), not in a frame around it. */
 .chartFrame {
   flex: 1;
   min-height: 88px;
@@ -167,14 +154,19 @@
 }
 .chart { display: block; width: 100%; height: 100%; }
 
-/* ── price vs BFSP ──────────────────────────────────────────── */
-.spBlock { flex: 0 0 auto; }
-.spRow { display: flex; align-items: center; gap: 12px; }
-.spFigures { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.spMean { font-variant-numeric: tabular-nums; font-size: 17px; font-weight: 700; line-height: 1; }
-.spSub { font-size: 9.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.spSub b { color: var(--ink); font-weight: 700; }
-.spSpark { flex: 1; min-width: 0; height: 24px; display: block; }
+/* ── price vs BFSP ──────────────────────────────────────────────
+   The series rides on the main chart as a dashed blue line on its own % scale;
+   this is its readout in the subline, and the leading dash is the legend. */
+.spTag { color: var(--logo-blue); white-space: nowrap; }
+.spTag b { color: var(--logo-blue); font-weight: 700; }
+.spTag::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  border-top: 2px dashed var(--logo-blue);
+  vertical-align: middle;
+  margin-right: 5px;
+}
 
 /* ── entry pad ──────────────────────────────────────────────── */
 .pad { flex: 0 0 auto; }
@@ -192,17 +184,17 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  height: 42px;
-  padding: 0 10px;
+  height: 44px;
+  padding: 0 12px;
   background: #ffffff;
-  border: 2px solid var(--rule);
-  border-radius: 4px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
   font-size: 20px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
-.slotBox:focus-within { background: #fff; box-shadow: inset 0 0 0 2px var(--pika); }
+.slotBox:focus-within { border-color: var(--rule); box-shadow: 0 0 0 1px var(--rule); }
 .slotBox input {
   flex: 1;
   min-width: 0;
@@ -240,47 +232,31 @@
 }
 .vsSpLine b { font-size: 12.5px; font-weight: 700; }
 
-/* result menu — the ▶ pointer marks the highlighted option */
+/* result: lose / push / win — plain toggle buttons in the skin's palette, no
+   ▶ pointer or inset bevels. Selected fills with a tint, like the plain page. */
 .menu { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 7px; }
 .opt {
-  position: relative;
   height: 40px;
-  padding-left: 15px;
   display: flex;
   align-items: center;
+  justify-content: center;
   background: #ffffff;
-  border: 3px solid var(--rule);
-  border-radius: 4px;
-  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.09);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
   font: inherit;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ink);
+  color: var(--muted);
   cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
 }
-.opt::before {
-  content: "▶";
-  position: absolute;
-  left: 4px;
-  font-size: 8px;
-  color: var(--cheek);
-  opacity: 0;
-}
-.opt[aria-pressed="true"]::before { opacity: 1; }
-/* Selected fills with yellow rather than gaining an inner ring — on a white
-   button a yellow ring is barely visible, and Gen 1 marked a choice by
-   inverting the cell, not outlining it. */
-.opt[aria-pressed="true"] {
-  background: var(--pika);
-  box-shadow: inset 0 -3px 0 rgba(27, 27, 27, 0.2);
-}
-.win[aria-pressed="true"] { color: var(--gb-green); }
-.lose[aria-pressed="true"] { color: var(--gb-red); }
-/* Focus takes the logo blue — the one hue that reads against both the white
-   button and the yellow ground. */
-.opt:focus-visible { outline: 3px solid var(--logo-blue); outline-offset: 2px; }
+.opt[aria-pressed="true"] { background: var(--pika-soft); color: var(--ink); }
+.lose[aria-pressed="true"] { background: rgba(227, 53, 13, 0.10); border-color: var(--gb-red); color: var(--gb-red); }
+.push[aria-pressed="true"] { background: var(--pika-soft); border-color: var(--rule); color: var(--ink); }
+.win[aria-pressed="true"] { background: rgba(47, 125, 63, 0.12); border-color: var(--gb-green); color: var(--gb-green); }
+.opt:focus-visible { outline: 2px solid var(--logo-blue); outline-offset: 2px; }
 
 .netLine {
   display: flex;
@@ -295,56 +271,56 @@
 }
 .netLine b { font-size: 16px; font-weight: 700; color: var(--ink); letter-spacing: 0; }
 
+/* Primary button: Pikachu yellow with black lettering — the skin's one filled
+   accent — but a plain rounded button, not the black cartridge plate. */
 .confirm {
   width: 100%;
-  height: 44px;
-  background: var(--rule);
-  border: 3px solid var(--rule);
-  border-radius: 4px;
-  box-shadow: 2px 2px 0 rgba(27, 27, 27, 0.35);
-  /* Black plate, yellow lettering — the cartridge, essentially. */
-  color: var(--pika);
+  height: 46px;
+  background: var(--pika);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  color: var(--rule);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   cursor: pointer;
+  transition: background 0.12s, transform 0.06s;
 }
 .confirm:disabled {
-  background: #cbc5b2;
-  border-color: #9c9686;
-  color: #f2efe4;
+  background: #efe6c8;
+  border-color: #cfc9b3;
+  color: #b3ad9a;
   cursor: not-allowed;
-  box-shadow: none;
 }
-.confirm:not(:disabled):active { transform: translateY(2px); box-shadow: none; }
+.confirm:not(:disabled):active { transform: translateY(1px); }
 
 /* four-figure guard, in place rather than as a modal */
 .confirmBox {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  padding: 8px 9px;
-  border: 3px solid var(--rule);
-  border-radius: 4px;
+  padding: 9px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
   background: #fff;
 }
 .confirmQ { margin: 0; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
 .confirmQ b { font-size: 16px; font-variant-numeric: tabular-nums; }
 .confirmBtns { display: grid; grid-template-columns: 1fr 1.4fr; gap: 7px; }
-.confirmBtns .confirm { height: 38px; font-size: 12px; }
+.confirmBtns .confirm { height: 40px; font-size: 12px; }
 .cancel {
-  height: 38px;
-  border: 3px solid var(--rule);
-  border-radius: 4px;
+  height: 40px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
   background: #ffffff;
   font: inherit;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ink);
+  color: var(--muted);
   cursor: pointer;
 }
 
@@ -353,7 +329,7 @@
   .total { font-size: 25px; }
   .mtd { font-size: 15px; }
   .chartFrame { min-height: 66px; }
-  .slotBox { height: 38px; font-size: 18px; }
+  .slotBox { height: 40px; font-size: 18px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

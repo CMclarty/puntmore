@@ -25,7 +25,7 @@ const TOOLS = [
     ),
   },
   {
-    tool: 'pnl', name: 'P&L', to: '/pnl', sub: 'Ledger', priv: true,
+    tool: 'pnl', name: 'P&L', to: '/pnl/dogs', sub: 'Ledger', priv: true,
     matches: (p) => p.startsWith('/pnl'),
     icon: (
       <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">

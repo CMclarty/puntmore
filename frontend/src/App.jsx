@@ -83,9 +83,16 @@ export default function App() {
           <Route path="/" element={protectTool(<TrackerPage />, 'coupons')} />
           <Route path="/upload" element={protectTool(<UploadPage user={user} />, 'coupons')} />
           <Route path="/goalscorers" element={protectTool(<GoalscorersPage />, 'goalscorers')} />
-          <Route path="/pnl" element={protectTool(<PnlPage />, 'pnl')} />
-          {/* Same ledger, same API — a skin, behind its own path. */}
-          <Route path="/pnl/battle" element={protectTool(<PnlBattlePage />, 'pnl')} />
+          {/* Two independent ledgers, one per racing category. Bare /pnl (and
+              the old /pnl/battle) land on dogs, the ledger that existed before
+              the split. */}
+          <Route path="/pnl" element={<Navigate to="/pnl/dogs" replace />} />
+          <Route path="/pnl/dogs" element={protectTool(<PnlPage category="dogs" />, 'pnl')} />
+          <Route path="/pnl/virtuals" element={protectTool(<PnlPage category="virtuals" />, 'pnl')} />
+          {/* Same ledgers, same API — a skin, behind its own path. */}
+          <Route path="/pnl/battle" element={<Navigate to="/pnl/dogs/battle" replace />} />
+          <Route path="/pnl/dogs/battle" element={protectTool(<PnlBattlePage category="dogs" />, 'pnl')} />
+          <Route path="/pnl/virtuals/battle" element={protectTool(<PnlBattlePage category="virtuals" />, 'pnl')} />
           <Route path="/accabonus" element={protectTool(<AccaBonusPage />, 'accabonus')} />
           <Route path="/tennis" element={<Navigate to="/accabonus" replace />} />
           <Route path="/cards" element={protectTool(<CardsPage />, 'cards')} />

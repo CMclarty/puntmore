@@ -1,9 +1,13 @@
-"""Private P&L bet tracker — a per-user ledger of settled bets.
+"""Private P&L bet tracker — per-user ledgers of settled bets.
 
 Router-gated by require_tool("pnl") (main.py), and every row is scoped to the
 session user, so a user only ever sees and edits their own bets. The API is
 deliberately thin: it stores/returns raw bets and the frontend derives the
 cumulative total, month-to-date and the chart from them.
+
+There are two independent ledgers per user — "dogs" (greyhounds) and "virtuals"
+(virtual racing) — kept in one table and split by the {category} path segment.
+Every query filters on (user, category), so the two never bleed into each other.
 """
 import csv
 import io
@@ -22,6 +26,17 @@ router = APIRouter(prefix="/pnl", tags=["pnl"])
 
 
 LIMIT = 1_000_000
+
+# The two ledgers. A request for anything else is a 404, not a silently-empty
+# third ledger — a typo'd path should fail loudly rather than swallow bets.
+CATEGORIES = ("dogs", "virtuals")
+
+
+def valid_category(category: str) -> str:
+    """Resolve and validate the {category} path segment to a known ledger."""
+    if category not in CATEGORIES:
+        raise HTTPException(status_code=404, detail="Unknown ledger")
+    return category
 
 
 class BetIn(BaseModel):
@@ -63,20 +78,25 @@ class BetIn(BaseModel):
         return round(round(self.returned, 2) - round(self.stake, 2), 2)
 
 
-@router.get("/bets", response_model=list[BetOut])
-def list_bets(db: Session = Depends(get_db), user: str = Depends(require_user)):
-    """This user's bets, oldest first — the order the chart accumulates in."""
+@router.get("/{category}/bets", response_model=list[BetOut])
+def list_bets(
+    category: str = Depends(valid_category),
+    db: Session = Depends(get_db),
+    user: str = Depends(require_user),
+):
+    """This ledger's bets, oldest first — the order the chart accumulates in."""
     return (
         db.query(Bet)
-        .filter(Bet.user == user)
+        .filter(Bet.user == user, Bet.category == category)
         .order_by(Bet.created_at.asc(), Bet.id.asc())
         .all()
     )
 
 
-@router.post("/bets", response_model=BetOut)
+@router.post("/{category}/bets", response_model=BetOut)
 def add_bet(
     body: BetIn,
+    category: str = Depends(valid_category),
     db: Session = Depends(get_db),
     user: str = Depends(require_user),
 ):
@@ -87,6 +107,7 @@ def add_bet(
         raise HTTPException(status_code=400, detail="A bet result cannot be zero")
     bet = Bet(
         user=user,
+        category=category,
         amount=body.net(),
         stake=None if body.stake is None else round(body.stake, 2),
         returned=None if body.returned is None else round(body.returned, 2),
@@ -105,15 +126,16 @@ CSV_COLUMNS = [
 ]
 
 
-@router.get("/bets.csv")
+@router.get("/{category}/bets.csv")
 def export_bets_csv(
+    category: str = Depends(valid_category),
     db: Session = Depends(get_db),
     user: str = Depends(require_user),
 ):
-    """This user's full history as CSV, oldest first.
+    """This ledger's full history as CSV, oldest first.
 
-    Scoped to the session user like every other route here — there is no way to
-    export someone else's ledger, by design.
+    Scoped to the session user and category like every other route here — there
+    is no way to export someone else's ledger, or to mix the two, by design.
 
     Empty cells mean "not recorded", never zero: a flat win/loss entry has no
     stake, and vs_sp_pct exists only where both prices were captured. Writing 0
@@ -122,7 +144,7 @@ def export_bets_csv(
     """
     bets = (
         db.query(Bet)
-        .filter(Bet.user == user)
+        .filter(Bet.user == user, Bet.category == category)
         .order_by(Bet.created_at.asc(), Bet.id.asc())
         .all()
     )
@@ -146,7 +168,7 @@ def export_bets_csv(
         ])
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
-    filename = f"puntmore-pnl-{user}-{stamp}.csv"
+    filename = f"puntmore-pnl-{category}-{user}-{stamp}.csv"
     return Response(
         content=buf.getvalue(),
         media_type="text/csv; charset=utf-8",
@@ -154,14 +176,19 @@ def export_bets_csv(
     )
 
 
-@router.delete("/bets/{bet_id}", status_code=204)
+@router.delete("/{category}/bets/{bet_id}", status_code=204)
 def delete_bet(
     bet_id: int,
+    category: str = Depends(valid_category),
     db: Session = Depends(get_db),
     user: str = Depends(require_user),
 ):
-    """Remove a bet — used to undo a mistaken entry. Scoped to the owner."""
-    bet = db.query(Bet).filter(Bet.id == bet_id, Bet.user == user).first()
+    """Remove a bet — used to undo a mistaken entry. Scoped to owner + ledger."""
+    bet = (
+        db.query(Bet)
+        .filter(Bet.id == bet_id, Bet.user == user, Bet.category == category)
+        .first()
+    )
     if bet is None:
         raise HTTPException(status_code=404, detail="Bet not found")
     db.delete(bet)

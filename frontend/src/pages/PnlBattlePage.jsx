@@ -35,16 +35,23 @@ const exact = v =>
 
 const BIG_ENTRY = 1000
 
-export default function PnlBattlePage() {
+export default function PnlBattlePage({ category = 'dogs' }) {
   const [bets, setBets] = useState([])
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const chartRef = useRef(null)
 
-  useEffect(() => { getBets().then(setBets).catch(e => setError(e.message)) }, [])
+  // Which of the two ledgers this skin is showing, and the other to hop to.
+  const other = category === 'virtuals' ? 'dogs' : 'virtuals'
+  const otherLabel = category === 'virtuals' ? 'Dogs' : 'Virtuals'
+
+  useEffect(() => { getBets(category).then(setBets).catch(e => setError(e.message)) }, [category])
 
   // ── derived figures, same as the plain tracker ────────────────────────────
-  const { cum, total, mtd, mtdCount, winrate, turnover, roi } = useMemo(() => {
+  const {
+    cum, total, mtd, mtdCount, winrate, turnover, roi,
+    spPts, spMean, spBeat, measuredCount,
+  } = useMemo(() => {
     const arr = [0]
     let t = 0
     for (const b of bets) { t += b.amount; arr.push(t) }
@@ -58,6 +65,18 @@ export default function PnlBattlePage() {
     const staked = bets.filter(b => b.stake != null)
     const to = staked.reduce((s, b) => s + b.stake, 0)
     const sp = staked.reduce((s, b) => s + b.amount, 0)
+
+    // Price-vs-BFSP running mean, anchored to the bet it was measured ON — the
+    // bet's index in the FULL ledger, not its index among priced bets, so the
+    // line starts where that bet actually sits on the money curve's axis.
+    const pts = []
+    let ssum = 0, sn = 0
+    bets.forEach((b, i) => {
+      if (b.price_taken == null || b.bfsp == null) return
+      ssum += vsSpPct(b.price_taken, b.bfsp); sn += 1
+      pts.push([i + 1, ssum / sn])
+    })
+
     return {
       cum: arr,
       total: t,
@@ -66,6 +85,12 @@ export default function PnlBattlePage() {
       winrate: settled.length ? Math.round(100 * wins / settled.length) + '%' : '0%',
       turnover: to,
       roi: to > 0 ? (sp / to * 100).toFixed(1) + '%' : null,
+      spPts: pts,
+      spMean: sn ? ssum / sn : null,
+      spBeat: bets.filter(b =>
+        b.price_taken != null && b.bfsp != null && vsSpPct(b.price_taken, b.bfsp) > 0
+      ).length,
+      measuredCount: sn,
     }
   }, [bets])
 
@@ -81,7 +106,8 @@ export default function PnlBattlePage() {
     const g = c.getContext('2d')
     g.setTransform(dpr, 0, 0, dpr, 0, 0)
     const W = rect.width, H = rect.height
-    const padL = 4, padR = 42, padT = 8, padB = 16
+    // Left gutter only when there's a % axis to put in it.
+    const padL = spPts.length ? 30 : 4, padR = 42, padT = 8, padB = 16
 
     g.clearRect(0, 0, W, H)
     if (cum.length < 2) return
@@ -112,7 +138,7 @@ export default function PnlBattlePage() {
     g.beginPath()
     cum.forEach((v, i) => (i ? g.lineTo(X(i), Y(v)) : g.moveTo(X(i), Y(v))))
     g.lineTo(X(cum.length - 1), Y(0)); g.lineTo(X(0), Y(0)); g.closePath()
-    g.fillStyle = total < 0 ? 'rgba(227,53,13,.20)' : 'rgba(255,203,5,.62)'
+    g.fillStyle = total < 0 ? 'rgba(227,53,13,.16)' : 'rgba(255,203,5,.34)'
     g.fill()
 
     g.beginPath()
@@ -123,7 +149,42 @@ export default function PnlBattlePage() {
     // endpoint block — square, not a dot. Pikachu's cheek red.
     g.fillStyle = '#e3350d'
     g.fillRect(X(cum.length - 1) - 3, Y(cum[cum.length - 1]) - 3, 6, 6)
-  }, [cum, total])
+
+    // ── price vs BFSP, overlaid on its own % scale ──────────────────────────
+    // Logo blue, dashed — distinct from the black money curve at a glance.
+    if (spPts.length) {
+      const vals = spPts.map(p => p[1])
+      let slo = Math.min(0, ...vals), shi = Math.max(0, ...vals)
+      // Same breathing room the money scale gets, so the extreme point never
+      // sits flush on the frame and read as "the line starts at the floor".
+      const ssp = (shi - slo) || 10
+      slo -= ssp * 0.12; shi += ssp * 0.12
+      const SY = v => padT + (H - padT - padB) * (1 - (v - slo) / (shi - slo))
+
+      g.fillStyle = 'rgba(42,117,187,.75)'
+      g.textAlign = 'right'
+      const sstep = niceStep(shi - slo)
+      const dp = sstep < 1 ? 1 : 0
+      for (let v = Math.ceil(slo / sstep) * sstep; v <= shi; v += sstep) {
+        g.fillText(`${v > 0 ? '+' : ''}${v.toFixed(dp)}%`, padL - 4, SY(v))
+      }
+      g.textAlign = 'left'
+
+      // One reading is a dot, not a trend — drawing a line through it is the
+      // false start this replaces.
+      g.strokeStyle = '#2a75bb'
+      g.lineWidth = 2
+      g.setLineDash([4, 3])
+      g.beginPath()
+      spPts.forEach((p, i) => (i ? g.lineTo(X(p[0]), SY(p[1])) : g.moveTo(X(p[0]), SY(p[1]))))
+      g.stroke()
+      g.setLineDash([])
+
+      const last = spPts[spPts.length - 1]
+      g.fillStyle = '#2a75bb'
+      g.fillRect(X(last[0]) - 2.5, SY(last[1]) - 2.5, 5, 5)
+    }
+  }, [cum, total, spPts])
 
   useEffect(() => { drawChart() }, [drawChart])
   useEffect(() => {
@@ -148,7 +209,7 @@ export default function PnlBattlePage() {
   async function handleAdd(payload) {
     setBusy(true); setError(null)
     try {
-      const bet = await addBet(payload)
+      const bet = await addBet(category, payload)
       setBets(bs => [...bs, bet])
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
@@ -157,7 +218,7 @@ export default function PnlBattlePage() {
     if (!bets.length || busy) return
     setBusy(true); setError(null)
     try {
-      await deleteBet(bets[bets.length - 1].id)
+      await deleteBet(category, bets[bets.length - 1].id)
       setBets(bs => bs.slice(0, -1))
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
@@ -190,11 +251,18 @@ export default function PnlBattlePage() {
           <div className={styles.subline}>
             <span><b>{winrate}</b> win</span>
             {roi !== null && <span><b>{roi}</b> ROI on {money(turnover)}</span>}
+            {/* Doubles as the chart's legend — the dash matches the overlaid line. */}
+            {spMean !== null && (
+              <span className={styles.spTag}>
+                <b>{pct(spMean)}</b> SP · {spBeat}/{measuredCount}
+              </span>
+            )}
             <span>last <b>{bets.length ? signed(bets[bets.length - 1].amount) : '—'}</b></span>
-            <Link className={styles.chip} to="/pnl">plain</Link>
+            <Link className={styles.chip} to={`/pnl/${other}/battle`}>{otherLabel}</Link>
+            <Link className={styles.chip} to={`/pnl/${category}`}>plain</Link>
             {bets.length > 0 && (
               <>
-                <a className={styles.chip} href="/api/pnl/bets.csv" download>csv</a>
+                <a className={styles.chip} href={`/api/pnl/${category}/bets.csv`} download>csv</a>
                 <button className={styles.chip} onClick={undoLast} disabled={busy}>undo</button>
               </>
             )}
@@ -212,7 +280,6 @@ export default function PnlBattlePage() {
         </div>
       </section>
 
-      <SpSeries bets={bets} />
       <BattleEntry onAdd={handleAdd} busy={busy} />
     </div>
   )
@@ -225,64 +292,38 @@ function niceStep(range) {
   return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag
 }
 
-/** Price taken vs Betfair SP — measured bets only, same rule as the plain page. */
-function SpSeries({ bets }) {
-  const measured = bets.filter(b => b.price_taken != null && b.bfsp != null)
-  if (!measured.length) return null
-
-  const pcts = measured.map(b => vsSpPct(b.price_taken, b.bfsp))
-  // Index from map, NOT indexOf — two bets can share a percentage, and indexOf
-  // would divide both by the first one's position.
-  let sum = 0
-  const running = pcts.map((p, i) => (sum += p) / (i + 1))
-  const mean = running[running.length - 1]
-  const beat = pcts.filter(p => p > 0).length
-  const coverage = Math.round(100 * measured.length / bets.length)
-
-  const W = 100, H = 24
-  const lo = Math.min(0, ...running), hi = Math.max(0, ...running)
-  const span = (hi - lo) || 1
-  const X = i => (running.length === 1 ? W / 2 : (W * i) / (running.length - 1))
-  const Y = v => H - ((v - lo) / span) * H
-  const path = running.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ')
-
-  return (
-    <section className={styles.spBlock}>
-      <div className={styles.eyebrow}>
-        <span>Price vs BFSP</span>
-        <span className={styles.me}>{measured.length}/{bets.length} · {coverage}%</span>
-      </div>
-      <div className={styles.panel}>
-        <div className={styles.spRow}>
-          <div className={styles.spFigures}>
-            <div className={`${styles.spMean} ${mean < 0 ? styles.neg : styles.pos}`}>{pct(mean)}</div>
-            <div className={styles.spSub}>beat SP on <b>{beat}</b>/{measured.length}</div>
-          </div>
-          <svg
-            className={styles.spSpark}
-            viewBox={`0 0 ${W} ${H}`}
-            preserveAspectRatio="none"
-            aria-label={`Running mean price versus starting price, currently ${mean.toFixed(1)} percent`}
-          >
-            <line x1="0" x2={W} y1={Y(0)} y2={Y(0)} stroke="rgba(27,27,27,.35)" strokeWidth="0.6" strokeDasharray="2 2" vectorEffect="non-scaling-stroke" />
-            <path d={path} fill="none" stroke={mean < 0 ? '#e3350d' : '#1b1b1b'} strokeWidth="1.8" strokeLinejoin="miter" vectorEffect="non-scaling-stroke" />
-          </svg>
-        </div>
-      </div>
-    </section>
-  )
-}
-
 /** Same flow as the plain tracker: stake, odds, optional BFSP, lose/push/win. */
 function BattleEntry({ onAdd, busy }) {
   const [stake, setStake] = useState('')
+  // The 2/1 seat is where the wheel rests, not a price the user chose —
+  // `oddsTouched` keeps the two apart so an unspun wheel files nothing.
   const [odds, setOdds] = useState(DEFAULT_PRICE)
+  const [oddsTouched, setOddsTouched] = useState(false)
+  // Three states, one control (see PnlPage): matching (tracks the odds taken
+  // and files it), set (spun to its own price), unknown (blank, files nothing —
+  // BFSP is only knowable after the off).
   const [bsp, setBsp] = useState(null)
-  const [result, setResult] = useState(null)
+  const [spKnown, setSpKnown] = useState(true)
+  // Losses are the common outcome, so start on 'lose': a losing bet is stake +
+  // Add, no result tap. Win/push are one tap away.
+  const [result, setResult] = useState('lose')
   const [confirming, setConfirming] = useState(false)
 
   const onOddsChange = useCallback(v => { setConfirming(false); setOdds(v) }, [])
-  const onBspChange = useCallback(v => { setConfirming(false); setBsp(v) }, [])
+  const onOddsTouch = useCallback(() => { setOddsTouched(true) }, [])
+  // A spin is itself the assertion that the price is known.
+  const onBspChange = useCallback(v => { setConfirming(false); setBsp(v); setSpKnown(true) }, [])
+
+  const bspShown = spKnown ? (bsp ?? odds) : null
+  const spNote = !spKnown ? 'not recorded · tap to match'
+    : bsp == null ? 'matching odds · tap if unknown'
+    : 'clear · match odds'
+  function cycleSp() {
+    setConfirming(false)
+    if (!spKnown) { setSpKnown(true); setBsp(null) }
+    else if (bsp == null) setSpKnown(false)
+    else setBsp(null)
+  }
 
   const stakeV = parseFloat(stake)
   const hasStake = stake !== '' && stakeV > 0
@@ -298,13 +339,18 @@ function BattleEntry({ onAdd, busy }) {
   function submit() {
     if (!canAdd) return
     if (big && !confirming) { setConfirming(true); return }
+    // An untouched odds wheel files NEITHER price — its 2/1 seat is not a price
+    // taken, and a BFSP "matching" it would inherit the same fiction.
+    const price = oddsTouched ? odds : null
+    const sp = !spKnown ? null : (bsp != null ? bsp : price)
     onAdd({
       stake: Math.round(stakeV * 100) / 100,
       returned: Math.round(returned * 100) / 100,
-      price_taken: odds,
-      ...(bsp != null ? { bfsp: bsp } : {}),
+      ...(price != null ? { price_taken: price } : {}),
+      ...(sp != null ? { bfsp: sp } : {}),
     })
-    setStake(''); setOdds(DEFAULT_PRICE); setBsp(null); setResult(null); setConfirming(false)
+    setStake(''); setOdds(DEFAULT_PRICE); setOddsTouched(false)
+    setBsp(null); setSpKnown(true); setResult('lose'); setConfirming(false)
   }
 
   return (
@@ -331,21 +377,21 @@ function BattleEntry({ onAdd, busy }) {
         </label>
 
         <div className={styles.wheels}>
-          <OddsWheel id="gbOdds" label="Odds" value={odds} onChange={onOddsChange} />
+          <OddsWheel
+            id="gbOdds" label="Odds" value={odds}
+            onChange={onOddsChange} onTouch={onOddsTouch}
+          />
           <div className={styles.wheelCol}>
-            <OddsWheel id="gbBsp" label="BFSP" value={bsp} onChange={onBspChange} />
-            <button
-              type="button"
-              className={styles.wNote}
-              onClick={() => { setConfirming(false); setBsp(bsp == null ? DEFAULT_PRICE : null) }}
-            >{bsp == null ? 'optional · tap to set' : 'clear'}</button>
+            {/* Matched by default — the wheel moves with the odds taken. */}
+            <OddsWheel id="gbBsp" label="BFSP" value={bspShown} onChange={onBspChange} seat={odds} />
+            <button type="button" className={styles.wNote} onClick={cycleSp}>{spNote}</button>
           </div>
         </div>
 
-        {bsp != null && (
+        {bspShown != null && (
           <div className={styles.vsSpLine}>
-            vs SP <b className={odds > bsp ? styles.pos : odds < bsp ? styles.neg : ''}>
-              {pct(vsSpPct(odds, bsp))}
+            vs SP <b className={odds > bspShown ? styles.pos : odds < bspShown ? styles.neg : ''}>
+              {pct(vsSpPct(odds, bspShown))}
             </b>
           </div>
         )}

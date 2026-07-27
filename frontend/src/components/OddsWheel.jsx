@@ -52,24 +52,32 @@ export function nearestTick(v) {
  * and stays usable with a trackpad or a mouse wheel on the desktop.
  *
  * value: decimal odds or null. onChange: (price) => void.
+ * seat: the row a BLANK wheel rests on, so a spin starts near the likely price.
+ *   Defaults to 2/1; the BFSP wheel passes the current odds so it tracks the
+ *   price taken and a set is a short nudge, not a spin from scratch.
+ * onTouch: fired once per settled USER spin, before onChange and regardless of
+ *   whether the value changed. Lets a caller tell "the user chose this price"
+ *   from "nobody moved it off the default" — including the case where a spin
+ *   lands back on the value it started from, which onChange stays silent about.
+ *   Must be stable (useCallback), like onChange.
  */
-function OddsWheel({ value, onChange, label, id }) {
+function OddsWheel({ value, onChange, label, id, seat = DEFAULT_PRICE, onTouch }) {
   const ref = useRef(null)
   const settle = useRef(null)
   // Held so programmatic scrolling (seating the initial value) doesn't feed
   // itself back through onChange as if the user had spun it.
   const quiet = useRef(false)
-  // A null value is BLANK, not 2/1. The wheel still SEATS on the 2/1 row so a
-  // spin starts somewhere sensible, but nothing is shown as selected and the
-  // centre band shows a placeholder — an unset wheel must not read as a chosen
-  // price. (Used by the optional BFSP wheel; odds carries a default.)
+  // A null value is BLANK, not a price. The wheel still SEATS on the `seat` row
+  // so a spin starts somewhere sensible, but nothing is shown as selected and
+  // the centre band shows a placeholder — an unset wheel must not read as a
+  // chosen price. (Used by the optional BFSP wheel; odds carries a default.)
   const blank = value == null
 
   const index = useMemo(() => {
-    const dec = value == null ? DEFAULT_PRICE : value
+    const dec = value == null ? (seat ?? DEFAULT_PRICE) : value
     const i = LADDER.findIndex(t => t.dec === dec)
     return i === -1 ? LADDER.findIndex(t => t.dec === nearestTick(dec)) : i
-  }, [value])
+  }, [value, seat])
 
   // Seat the wheel on the selected row whenever the value changes from outside
   // (including the reset after a bet is filed, which returns it to blank). Mark
@@ -82,8 +90,14 @@ function OddsWheel({ value, onChange, label, id }) {
     if (!el) return
     const target = index * ROW
     if (Math.abs(el.scrollTop - target) < 1) return
+    const before = el.scrollTop
     quiet.current = true
     el.scrollTop = target
+    // If the assignment didn't move anything — the list isn't laid out yet, so
+    // the browser clamps it — no scroll event follows to clear `quiet`, and a
+    // stuck flag silently swallows the user's NEXT genuine spin. Clear it here
+    // instead of waiting for an event that will never arrive.
+    if (el.scrollTop === before) quiet.current = false
   }, [index])
 
   const onScroll = useCallback(() => {
@@ -97,10 +111,11 @@ function OddsWheel({ value, onChange, label, id }) {
       // absorb it (clear the flag, commit nothing) so seating never reads as a
       // pick. Every settle after is a genuine user spin.
       if (quiet.current) { quiet.current = false; return }
+      onTouch?.()
       const i = Math.max(0, Math.min(LADDER.length - 1, Math.round(el.scrollTop / ROW)))
       if (LADDER[i].dec !== value) onChange(LADDER[i].dec)
     }, 90)
-  }, [onChange, value])
+  }, [onChange, onTouch, value])
 
   useEffect(() => () => clearTimeout(settle.current), [])
 
