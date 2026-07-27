@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getBets, addBet, deleteBet } from '../api'
-import OddsWheel, { DEFAULT_PRICE } from '../components/OddsWheel'
+import OddsWheel, { DEFAULT_PRICE, TERMS_LADDER, DEFAULT_TERMS } from '../components/OddsWheel'
 import styles from './PnlPage.module.css'
 
 /**
@@ -376,17 +376,6 @@ export default function PnlPage({ category = 'dogs' }) {
 // A net swing at or beyond this asks for confirmation before it's written.
 const BIG_ENTRY = 1000
 
-// Place terms for an each-way bet, as a fraction of the odds taken. These are
-// the standard boards; 1/4 is the default because it's the commonest, but the
-// terms are a property of the race, so they're one tap to change.
-const EW_TERMS = [
-  { label: '1/5', v: 0.2 },
-  { label: '1/4', v: 0.25 },
-  { label: '1/3', v: 1 / 3 },
-  { label: '1/2', v: 0.5 },
-]
-const DEFAULT_TERMS = 0.25
-
 /**
  * What a bet returns, for both ledgers' entry shapes.
  *
@@ -468,6 +457,7 @@ function PnlEntry({ onAdd, busy, category }) {
   // activates on its own rather than needing the tap first.
   const onBspChange = useCallback(v => { setConfirming(false); setBsp(v); setSpOn(true) }, [])
   const onBspActivate = useCallback(() => { setConfirming(false); setSpOn(true) }, [])
+  const onTermsChange = useCallback(v => { setConfirming(false); setTerms(v) }, [])
 
   // What the BFSP wheel shows — the odds taken until spun — is the same whether
   // it is tracking or recording. Only `spOn` decides whether it is FILED, and
@@ -557,46 +547,42 @@ function PnlEntry({ onAdd, busy, category }) {
         </div>
       )}
 
-      <div className={styles.wheels}>
+      {/* Win-only vs each-way decides both the outlay and which results can
+          happen, so it sits above the wheels rather than beside them. */}
+      {isVirtuals && (
+        <div className={styles.ewToggle} role="group" aria-label="Each way">
+          <button
+            type="button"
+            className={`${styles.res} ${!ew ? styles.on : ''}`}
+            aria-pressed={!ew}
+            onClick={() => { setConfirming(false); setEw(false); if (result === 'place') setResult('lose') }}
+          >Win only</button>
+          <button
+            type="button"
+            className={`${styles.res} ${ew ? styles.on : ''}`}
+            aria-pressed={ew}
+            onClick={() => { setConfirming(false); setEw(true) }}
+          >E/W</button>
+        </div>
+      )}
+
+      <div className={isVirtuals && !ew ? styles.wheelsOne : styles.wheels}>
         <div className={styles.wheelCol}>
           <OddsWheel
             id="pnlOdds" label="Odds" value={odds}
             onChange={onOddsChange} onTouch={onOddsTouch}
           />
         </div>
-        {isVirtuals ? (
+        {isVirtuals ? (ew && (
           <div className={styles.wheelCol}>
-            <span className={styles.fieldLabel}>Each way</span>
-            <div className={styles.ewToggle} role="group" aria-label="Each way">
-              <button
-                type="button"
-                className={`${styles.res} ${!ew ? styles.on : ''}`}
-                aria-pressed={!ew}
-                onClick={() => { setConfirming(false); setEw(false); if (result === 'place') setResult('lose') }}
-              >Win only</button>
-              <button
-                type="button"
-                className={`${styles.res} ${ew ? styles.on : ''}`}
-                aria-pressed={ew}
-                onClick={() => { setConfirming(false); setEw(true) }}
-              >E/W</button>
-            </div>
-            {/* Place terms — a property of the race, printed on the slip. */}
-            {ew && (
-              <div className={styles.terms} role="group" aria-label="Place terms">
-                {EW_TERMS.map(t => (
-                  <button
-                    key={t.label}
-                    type="button"
-                    className={`${styles.term} ${Math.abs(terms - t.v) < 1e-9 ? styles.on : ''}`}
-                    aria-pressed={Math.abs(terms - t.v) < 1e-9}
-                    onClick={() => { setConfirming(false); setTerms(t.v) }}
-                  >{t.label}</button>
-                ))}
-              </div>
-            )}
+            {/* Terms are a property of the race, printed on the slip — almost
+                always 1/4, which is where the wheel rests. */}
+            <OddsWheel
+              id="pnlTerms" label="Place terms" value={terms}
+              onChange={onTermsChange} ladder={TERMS_LADDER}
+            />
           </div>
-        ) : (
+        )) : (
         <div className={styles.wheelCol}>
           {/* Tracks the odds taken from the start so the price is always in
               place; one tap on the wheel records it, which covers the common
@@ -660,7 +646,7 @@ function PnlEntry({ onAdd, busy, category }) {
             Record <b className={net > 0 ? styles.pos : styles.neg}>{signedExact(net)}</b>?
             <span className={styles.confirmSub}>
               {exact(outlay)} at {odds.toFixed(2)} · {result}
-              {isVirtuals && ew ? ` · e/w ${EW_TERMS.find(t => Math.abs(terms - t.v) < 1e-9)?.label ?? ''}` : ''}
+              {isVirtuals && ew ? ` · e/w ${TERMS_LADDER.find(t => t.dec === terms)?.label ?? ''}` : ''}
             </span>
           </p>
           <div className={styles.confirmBtns}>

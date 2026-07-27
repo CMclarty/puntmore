@@ -239,27 +239,16 @@
 }
 .netLine b { font-size: 17px; font-weight: 600; color: var(--ink); text-transform: none; }
 
-/* Each-way (virtuals): sits where the BFSP wheel does on the dogs ledger, so
-   the two entry pads keep the same shape. Reuses .res for the pair of buttons
-   and adds a compact row of place-terms chips underneath. */
-.ewToggle { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.ewToggle .res { height: 44px; font-size: 11px; }
+/* Each-way (virtuals). The toggle spans the pad because it changes both the
+   outlay and the result set; the place terms are a wheel beside the odds, so
+   the pad keeps the two-wheel shape the dogs ledger has. */
+.ewToggle { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ewToggle .res { height: 36px; }
 .ewToggle .res.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
-.terms { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 2px; }
-.term {
-  height: 26px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--paper);
-  font: inherit;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 0;
-}
-.term.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+/* Win-only has no terms to pick, so the odds wheel takes the full width
+   instead of leaving a hole where the second wheel would be. */
+.wheelsOne { display: grid; grid-template-columns: 1fr; gap: 8px; align-items: start; }
 
 /* result: lose / push / win — the return is derived from this + stake + odds */
 .results { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }

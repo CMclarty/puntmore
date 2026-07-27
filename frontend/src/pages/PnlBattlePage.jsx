@@ -13,7 +13,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { getBets, addBet, deleteBet } from '../api'
-import OddsWheel, { DEFAULT_PRICE } from '../components/OddsWheel'
+import OddsWheel, { DEFAULT_PRICE, TERMS_LADDER, DEFAULT_TERMS } from '../components/OddsWheel'
 import styles from './PnlBattlePage.module.css'
 
 const parseDate = s => new Date(/[Z+]/.test(s) ? s : s + 'Z')
@@ -34,15 +34,6 @@ const exact = v =>
   Math.abs(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 const BIG_ENTRY = 1000
-
-// Place terms for an each-way bet, as a fraction of the odds taken (virtuals).
-const EW_TERMS = [
-  { label: '1/5', v: 0.2 },
-  { label: '1/4', v: 0.25 },
-  { label: '1/3', v: 1 / 3 },
-  { label: '1/2', v: 0.5 },
-]
-const DEFAULT_TERMS = 0.25
 
 /** Shared with the plain tracker: each-way is two bets, so the outlay doubles
  *  and the place part pays unit × (1 + (odds − 1) × terms). */
@@ -342,6 +333,7 @@ function BattleEntry({ onAdd, busy, category }) {
   // A spin is itself the assertion that the price is known.
   const onBspChange = useCallback(v => { setConfirming(false); setBsp(v); setSpOn(true) }, [])
   const onBspActivate = useCallback(() => { setConfirming(false); setSpOn(true) }, [])
+  const onTermsChange = useCallback(v => { setConfirming(false); setTerms(v) }, [])
 
   const bspShown = bsp ?? odds
   const spNote = !spOn ? 'tracking odds · tap to record'
@@ -406,37 +398,32 @@ function BattleEntry({ onAdd, busy, category }) {
           </span>
         </label>
 
-        <div className={styles.wheels}>
+        {isVirtuals && (
+          <div className={styles.ewToggle} role="group" aria-label="Each way">
+            <button
+              type="button" className={styles.opt} aria-pressed={!ew}
+              onClick={() => { setConfirming(false); setEw(false); if (result === 'place') setResult('lose') }}
+            >Win only</button>
+            <button
+              type="button" className={styles.opt} aria-pressed={ew}
+              onClick={() => { setConfirming(false); setEw(true) }}
+            >E/W</button>
+          </div>
+        )}
+
+        <div className={isVirtuals && !ew ? styles.wheelsOne : styles.wheels}>
           <OddsWheel
             id="gbOdds" label="Odds" value={odds}
             onChange={onOddsChange} onTouch={onOddsTouch}
           />
-          {isVirtuals ? (
+          {isVirtuals ? (ew && (
             <div className={styles.wheelCol}>
-              <span className={styles.fieldLabel}>Each way</span>
-              <div className={styles.ewToggle} role="group" aria-label="Each way">
-                <button
-                  type="button" className={styles.opt} aria-pressed={!ew}
-                  onClick={() => { setConfirming(false); setEw(false); if (result === 'place') setResult('lose') }}
-                >Win only</button>
-                <button
-                  type="button" className={styles.opt} aria-pressed={ew}
-                  onClick={() => { setConfirming(false); setEw(true) }}
-                >E/W</button>
-              </div>
-              {ew && (
-                <div className={styles.terms} role="group" aria-label="Place terms">
-                  {EW_TERMS.map(t => (
-                    <button
-                      key={t.label} type="button" className={styles.term}
-                      aria-pressed={Math.abs(terms - t.v) < 1e-9}
-                      onClick={() => { setConfirming(false); setTerms(t.v) }}
-                    >{t.label}</button>
-                  ))}
-                </div>
-              )}
+              <OddsWheel
+                id="gbTerms" label="Place terms" value={terms}
+                onChange={onTermsChange} ladder={TERMS_LADDER}
+              />
             </div>
-          ) : (
+          )) : (
           <div className={styles.wheelCol}>
             {/* Tracks the odds taken; one tap records that price. */}
             <OddsWheel

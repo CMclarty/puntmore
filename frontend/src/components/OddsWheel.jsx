@@ -35,14 +35,30 @@ export const LADDER = FRACTIONS.map(([n, d]) => ({
 // Where a wheel sits before it's touched.
 export const DEFAULT_PRICE = LADDER.find(t => t.n === 2 && t.d === 1).dec   // 2/1
 
+/**
+ * Each-way place terms, as a fraction of the odds taken. A second ladder for
+ * the same wheel — the rungs are the terms boards actually run, so there is
+ * nothing between 1/4 and 1/5.
+ *
+ * `dec` is the fraction ITSELF (0.25 = quarter odds), NOT a price, and is left
+ * unrounded: 1/3 must stay 0.333… or a placed third-odds bet settles a penny
+ * light. The display rounds; the stored value doesn't.
+ */
+export const TERMS_LADDER = [[1, 6], [1, 5], [1, 4], [1, 3], [1, 2]].map(([n, d]) => ({
+  n, d, label: `${n}/${d}`, dec: n / d,
+}))
+
+// Almost every board is quarter odds, so that is where the wheel rests.
+export const DEFAULT_TERMS = TERMS_LADDER.find(t => t.d === 4).dec
+
 const ROW = 34   // px per row; must match .row height in the CSS
 
-// Nearest rung to an arbitrary decimal — seats a value that came from somewhere
-// other than this wheel, including bets recorded against the old Betfair ladder.
-export function nearestTick(v) {
+// Nearest rung to an arbitrary value — seats one that came from somewhere other
+// than this wheel, including bets recorded against the old Betfair ladder.
+export function nearestTick(v, rungs = LADDER) {
   if (!Number.isFinite(v)) return null
-  let best = LADDER[0]
-  for (const t of LADDER) if (Math.abs(t.dec - v) < Math.abs(best.dec - v)) best = t
+  let best = rungs[0]
+  for (const t of rungs) if (Math.abs(t.dec - v) < Math.abs(best.dec - v)) best = t
   return best.dec
 }
 
@@ -60,6 +76,9 @@ export function nearestTick(v) {
  *   from "nobody moved it off the default" — including the case where a spin
  *   lands back on the value it started from, which onChange stays silent about.
  *   Must be stable (useCallback), like onChange.
+ * ladder: which rungs the wheel offers — the odds board by default, or
+ *   TERMS_LADDER for each-way place terms. Every rung is {label, dec}; `dec` is
+ *   the value stored and reported.
  * ghost: show the seated price and track it live, but styled as NOT being
  *   recorded — for a wheel that follows another until the user opts in. The
  *   value is still null (nothing is filed); tapping fires onActivate.
@@ -68,7 +87,7 @@ export function nearestTick(v) {
  */
 function OddsWheel({
   value, onChange, label, id, seat = DEFAULT_PRICE, onTouch,
-  ghost = false, onActivate,
+  ghost = false, onActivate, ladder = LADDER,
 }) {
   const ref = useRef(null)
   const settle = useRef(null)
@@ -86,9 +105,9 @@ function OddsWheel({
 
   const index = useMemo(() => {
     const dec = value == null ? (seat ?? DEFAULT_PRICE) : value
-    const i = LADDER.findIndex(t => t.dec === dec)
-    return i === -1 ? LADDER.findIndex(t => t.dec === nearestTick(dec)) : i
-  }, [value, seat])
+    const i = ladder.findIndex(t => t.dec === dec)
+    return i === -1 ? ladder.findIndex(t => t.dec === nearestTick(dec, ladder)) : i
+  }, [value, seat, ladder])
 
   // Seat the wheel on the selected row whenever the value changes from outside
   // (including the reset after a bet is filed, which returns it to blank). Mark
@@ -123,10 +142,10 @@ function OddsWheel({
       // pick. Every settle after is a genuine user spin.
       if (quiet.current) { quiet.current = false; return }
       onTouch?.()
-      const i = Math.max(0, Math.min(LADDER.length - 1, Math.round(el.scrollTop / ROW)))
-      if (LADDER[i].dec !== value) onChange(LADDER[i].dec)
+      const i = Math.max(0, Math.min(ladder.length - 1, Math.round(el.scrollTop / ROW)))
+      if (ladder[i].dec !== value) onChange(ladder[i].dec)
     }, 90)
-  }, [onChange, onTouch, value])
+  }, [onChange, onTouch, value, ladder])
 
   useEffect(() => () => clearTimeout(settle.current), [])
 
@@ -150,7 +169,7 @@ function OddsWheel({
         >
           {/* Spacers let the first and last prices reach the centre line. */}
           <div className={styles.spacer} />
-          {LADDER.map((t, i) => (
+          {ladder.map((t, i) => (
             <div
               key={t.label}
               className={`${styles.row} ${i === index && !blank ? styles.on : ''}`}

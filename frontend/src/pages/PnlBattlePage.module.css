@@ -234,22 +234,10 @@
 
 /* Each-way (virtuals): sits where the BFSP wheel does on dogs, so both entry
    pads keep the same shape. Reuses .opt for the pair, chips for the terms. */
-.ewToggle { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.ewToggle .opt { height: 44px; font-size: 11px; }
-.terms { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 2px; }
-.term {
-  height: 26px;
-  border: 1px solid var(--rule);
-  border-radius: 7px;
-  background: #fff;
-  font: inherit;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 0;
-}
-.term[aria-pressed="true"] { background: var(--pika-soft); color: var(--ink); }
+.ewToggle { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.ewToggle .opt { height: 36px; }
+/* Win-only has no terms to pick, so the odds wheel takes the full width. */
+.wheelsOne { display: grid; grid-template-columns: 1fr; gap: 8px; align-items: start; }
 
 /* result: lose / push / win — plain toggle buttons in the skin's palette, no
    ▶ pointer or inset bevels. Selected fills with a tint, like the plain page. */
