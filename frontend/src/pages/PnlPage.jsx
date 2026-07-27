@@ -41,9 +41,13 @@ const pctSigned = p => (p > 0 ? '+' : p < 0 ? '−' : '') + Math.abs(p).toFixed(
 const vsSp = (price, sp) => pctSigned(vsSpPct(price, sp))
 
 /**
- * The price-vs-BFSP running mean, anchored to the bet it was measured ON.
+ * Price-vs-BFSP, ACCUMULATED — each bet's edge over SP added to the last, so
+ * the line climbs while you keep beating SP, falls while you don't, and its
+ * slope is the edge you're getting per bet. It was a running mean, which
+ * converges and then barely moves however you price the next hundred bets;
+ * this reads like the money curve beside it, which is the point of the pairing.
  *
- * Returns [cumIndex, meanSoFar] pairs, where cumIndex is the bet's position in
+ * Returns [cumIndex, totalSoFar] pairs, where cumIndex is the bet's position in
  * the FULL ledger (+1, since index 0 is the pre-first-bet start point) — not its
  * position among priced bets. That distinction is the whole point: indexing by
  * measured order, as the old separate sparkline did, drew the first priced bet
@@ -51,11 +55,11 @@ const vsSp = (price, sp) => pctSigned(vsSpPct(price, sp))
  */
 function spSeries(bets) {
   const out = []
-  let sum = 0, n = 0
+  let sum = 0
   bets.forEach((b, i) => {
     if (b.price_taken == null || b.bfsp == null) return
-    sum += vsSpPct(b.price_taken, b.bfsp); n += 1
-    out.push([i + 1, sum / n])
+    sum += vsSpPct(b.price_taken, b.bfsp)
+    out.push([i + 1, sum])
   })
   return out
 }
@@ -109,11 +113,13 @@ export default function PnlPage({ category = 'dogs' }) {
 
   // Price vs BFSP — the figures behind the dashed line on the chart. Only bets
   // carrying BOTH prices count; it measures the price, not the money, so a bet
-  // can lose and still have beaten SP.
+  // can lose and still have beaten SP. The headline is the ACCUMULATED edge, so
+  // it equals where the line ends rather than describing it.
   const measured = bets.filter(b => b.price_taken != null && b.bfsp != null)
-  const spMean = measured.length
-    ? measured.reduce((s, b) => s + vsSpPct(b.price_taken, b.bfsp), 0) / measured.length
+  const spTotal = measured.length
+    ? measured.reduce((s, b) => s + vsSpPct(b.price_taken, b.bfsp), 0)
     : null
+  const spMean = spTotal === null ? null : spTotal / measured.length
   const spBeat = measured.filter(b => vsSpPct(b.price_taken, b.bfsp) > 0).length
 
   const renderChart = useCallback(() => {
@@ -342,9 +348,9 @@ export default function PnlPage({ category = 'dogs' }) {
           <span><b>{winrate}</b> win</span>
           {roi !== null && <span><b>{roi}</b> ROI on {money(turnover)}</span>}
           {/* Doubles as the chart's legend — the dash matches the overlaid line. */}
-          {spMean !== null && (
+          {spTotal !== null && (
             <span className={styles.spTag}>
-              <b>{pctSigned(spMean)}</b> SP · {spBeat}/{measured.length}
+              <b>{pctSigned(spTotal)}</b> SP · {pctSigned(spMean)}/bet · {spBeat}/{measured.length}
             </span>
           )}
           <span>last <b>{bets.length ? signed(bets[bets.length - 1].amount) : '—'}</b></span>

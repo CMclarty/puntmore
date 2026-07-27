@@ -64,7 +64,7 @@ export default function PnlBattlePage({ category = 'dogs' }) {
   // ── derived figures, same as the plain tracker ────────────────────────────
   const {
     cum, total, mtd, mtdCount, winrate, turnover, roi,
-    spPts, spMean, spBeat, measuredCount,
+    spPts, spTotal, spMean, spBeat, measuredCount,
   } = useMemo(() => {
     const arr = [0]
     let t = 0
@@ -80,15 +80,18 @@ export default function PnlBattlePage({ category = 'dogs' }) {
     const to = staked.reduce((s, b) => s + b.stake, 0)
     const sp = staked.reduce((s, b) => s + b.amount, 0)
 
-    // Price-vs-BFSP running mean, anchored to the bet it was measured ON — the
+    // Price-vs-BFSP ACCUMULATED, anchored to the bet it was measured ON — the
     // bet's index in the FULL ledger, not its index among priced bets, so the
-    // line starts where that bet actually sits on the money curve's axis.
+    // line starts where that bet actually sits on the money curve's axis. Each
+    // edge adds to the last, so the slope is the edge per bet and the line
+    // reads like the money curve beside it (a running mean converges and then
+    // stops moving, hiding how the recent hundred were priced).
     const pts = []
     let ssum = 0, sn = 0
     bets.forEach((b, i) => {
       if (b.price_taken == null || b.bfsp == null) return
       ssum += vsSpPct(b.price_taken, b.bfsp); sn += 1
-      pts.push([i + 1, ssum / sn])
+      pts.push([i + 1, ssum])
     })
 
     return {
@@ -100,6 +103,7 @@ export default function PnlBattlePage({ category = 'dogs' }) {
       turnover: to,
       roi: to > 0 ? (sp / to * 100).toFixed(1) + '%' : null,
       spPts: pts,
+      spTotal: sn ? ssum : null,
       spMean: sn ? ssum / sn : null,
       spBeat: bets.filter(b =>
         b.price_taken != null && b.bfsp != null && vsSpPct(b.price_taken, b.bfsp) > 0
@@ -266,9 +270,9 @@ export default function PnlBattlePage({ category = 'dogs' }) {
             <span><b>{winrate}</b> win</span>
             {roi !== null && <span><b>{roi}</b> ROI on {money(turnover)}</span>}
             {/* Doubles as the chart's legend — the dash matches the overlaid line. */}
-            {spMean !== null && (
+            {spTotal !== null && (
               <span className={styles.spTag}>
-                <b>{pct(spMean)}</b> SP · {spBeat}/{measuredCount}
+                <b>{pct(spTotal)}</b> SP · {pct(spMean)}/bet · {spBeat}/{measuredCount}
               </span>
             )}
             <span>last <b>{bets.length ? signed(bets[bets.length - 1].amount) : '—'}</b></span>
