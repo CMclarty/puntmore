@@ -34,6 +34,17 @@ const TOOLS = [
     ),
   },
   {
+    tool: 'kelly', name: 'Kelly', to: '/kelly', sub: 'Staking',
+    matches: (p) => p.startsWith('/kelly'),
+    icon: (
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="5" y="2.5" width="12" height="17" rx="2"/><line x1="8" y1="6" x2="14" y2="6"/>
+        <circle cx="8.5" cy="11" r="0.7" fill="currentColor" stroke="none"/><circle cx="13.5" cy="11" r="0.7" fill="currentColor" stroke="none"/>
+        <circle cx="8.5" cy="14.5" r="0.7" fill="currentColor" stroke="none"/><circle cx="13.5" cy="14.5" r="0.7" fill="currentColor" stroke="none"/>
+      </svg>
+    ),
+  },
+  {
     tool: 'accabonus', name: 'AccaBonus', to: '/accabonus', sub: 'Arbs', muted: true,
     matches: (p) => p.startsWith('/accabonus') || p.startsWith('/tennis'),
     icon: (
