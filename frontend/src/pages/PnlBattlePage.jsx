@@ -68,18 +68,22 @@ export default function PnlBattlePage({ category = 'dogs' }) {
 
   // ── derived figures, same as the plain tracker ────────────────────────────
   const {
-    cum, total, mtd, mtdCount, winrate, turnover, roi,
+    cum, total, wagerCount, mtd, mtdCount, winrate, turnover, roi,
     spPts, evTotal, spBeat, measuredCount,
   } = useMemo(() => {
     const arr = [0]
     let t = 0
     for (const b of bets) { t += b.amount; arr.push(t) }
+    // Tips are cash out of the till, not bets: they move the total but never the
+    // bet count or win rate (see the plain tracker). Cash figures use `bets`,
+    // counted figures use `wagers`.
+    const wagers = bets.filter(b => !b.is_tip)
     const now = new Date()
     const inMonth = bets.filter(b => {
       const d = parseDate(b.created_at)
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
     })
-    const settled = bets.filter(b => b.amount !== 0)
+    const settled = wagers.filter(b => b.amount !== 0)
     const wins = settled.filter(b => b.amount > 0).length
     const staked = bets.filter(b => b.stake != null)
     const to = staked.reduce((s, b) => s + b.stake, 0)
@@ -101,8 +105,9 @@ export default function PnlBattlePage({ category = 'dogs' }) {
     return {
       cum: arr,
       total: t,
+      wagerCount: wagers.length,
       mtd: inMonth.reduce((s, b) => s + b.amount, 0),
-      mtdCount: inMonth.length,
+      mtdCount: inMonth.filter(b => !b.is_tip).length,
       winrate: settled.length ? Math.round(100 * wins / settled.length) + '%' : '0%',
       turnover: to,
       roi: to > 0 ? (sp / to * 100).toFixed(1) + '%' : null,
@@ -245,7 +250,7 @@ export default function PnlBattlePage({ category = 'dogs' }) {
               <div className={`${styles.figure} ${styles.total} ${total < 0 ? styles.neg : styles.pos}`}>
                 {signed(total)}
               </div>
-              <div className={styles.statCount}>{bets.length} bet{bets.length === 1 ? '' : 's'}</div>
+              <div className={styles.statCount}>{wagerCount} bet{wagerCount === 1 ? '' : 's'}</div>
             </div>
             <div className={styles.stat}>
               <div className={styles.statLabel}>Month to date</div>

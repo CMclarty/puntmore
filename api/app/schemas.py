@@ -125,6 +125,8 @@ class BetOut(BaseModel):
     bfsp: float | None = None
     each_way: bool = False
     place_fraction: float | None = None
+    is_tip: bool = False
+    boosted_from: float | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

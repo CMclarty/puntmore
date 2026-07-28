@@ -56,6 +56,17 @@ const evOf = b => b.stake * (b.price_taken / b.bfsp - 1)
 const hasEv = b => b.price_taken != null && b.bfsp != null && b.stake != null
 
 /**
+ * The value a price boost added, in POUNDS — the boost analogue of EV.
+ *
+ * A boosted bet was struck at price_taken but boosted UP from boosted_from, so
+ * stake × (price_taken/boosted_from − 1) is the extra expected return the boost
+ * bought, on the same £ footing as the money curve. Drives its own overlaid
+ * line on the virtuals chart, the way the BFSP EV line does on dogs.
+ */
+const boostOf = b => b.stake * (b.price_taken / b.boosted_from - 1)
+const hasBoost = b => b.price_taken != null && b.boosted_from != null && b.stake != null
+
+/**
  * Accumulated EV, anchored to the bet it was earned ON.
  *
  * Returns [cumIndex, totalSoFar] pairs, where cumIndex is the bet's position in
@@ -64,16 +75,21 @@ const hasEv = b => b.price_taken != null && b.bfsp != null && b.stake != null
  * measured order, as the old separate sparkline did, drew the first priced bet
  * at the far left of the chart however late in the ledger it actually happened.
  */
-function spSeries(bets) {
+function cumSeries(bets, has, val) {
   const out = []
   let sum = 0
   bets.forEach((b, i) => {
-    if (!hasEv(b)) return
-    sum += evOf(b)
+    if (!has(b)) return
+    sum += val(b)
     out.push([i + 1, sum])
   })
   return out
 }
+
+// EV (price vs BFSP, dogs) and boost value (price vs boosted-from, virtuals):
+// the same accumulation, anchored to each bet's slot in the full ledger.
+const spSeries = bets => cumSeries(bets, hasEv, evOf)
+const boostSeries = bets => cumSeries(bets, hasBoost, boostOf)
 
 function niceStep(range) {
   const raw = range / 4, mag = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / mag
@@ -97,20 +113,24 @@ export default function PnlPage({ category = 'dogs' }) {
   useEffect(() => { getBets(category).then(setBets).catch(e => setError(e.message)) }, [category])
 
   // Derived figures — cumulative total, month to date, win rate.
+  // Tips are real money out of the till, so they move every CASH figure (total,
+  // month to date, the chart) exactly like a loss — but they are not bets, so
+  // the bet count, win rate, turnover and EV all read `wagers`, never tips.
+  const wagers = bets.filter(b => !b.is_tip)
   const cum = [0]
   let t = 0
   for (const b of bets) { t += b.amount; cum.push(t) }
   const total = t
   const now = new Date()
-  const mtdBets = bets.filter(b => {
+  const inMonth = b => {
     const d = parseDate(b.created_at)
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-  })
-  const mtd = mtdBets.reduce((s, b) => s + b.amount, 0)
-  const mtdCount = mtdBets.length
+  }
+  const mtd = bets.filter(inMonth).reduce((s, b) => s + b.amount, 0)
+  const mtdCount = wagers.filter(inMonth).length
   // Pushes (stake returned exactly) are neither win nor loss, so they leave the
-  // win rate alone rather than counting against it.
-  const settled = bets.filter(b => b.amount !== 0)
+  // win rate alone rather than counting against it. Tips never enter it at all.
+  const settled = wagers.filter(b => b.amount !== 0)
   const wins = settled.filter(b => b.amount > 0).length
   const winrate = settled.length ? Math.round(100 * wins / settled.length) + '%' : '0%'
 
@@ -130,6 +150,11 @@ export default function PnlPage({ category = 'dogs' }) {
   const evTotal = measured.length ? measured.reduce((s, b) => s + evOf(b), 0) : null
   const spBeat = measured.filter(b => b.price_taken > b.bfsp).length
 
+  // Boost value — the virtuals analogue of EV, behind the violet line. Counts
+  // only bets that recorded a boosted-from price.
+  const boosted = bets.filter(hasBoost)
+  const boostTotal = boosted.length ? boosted.reduce((s, b) => s + boostOf(b), 0) : null
+
   const renderChart = useCallback(() => {
     const svg = chartRef.current
     if (!svg) return
@@ -137,6 +162,8 @@ export default function PnlPage({ category = 'dogs' }) {
     if (!W || !H) return
     const spPts = spSeries(bets)
     const hasSp = spPts.length > 0
+    const boostPts = boostSeries(bets)
+    const hasBoostLine = boostPts.length > 0
     const pad = { t: 16, r: 46, b: 30, l: 8 }
     const cumArr = [0]; let acc = 0
     for (const b of bets) { acc += b.amount; cumArr.push(acc) }
@@ -147,7 +174,9 @@ export default function PnlPage({ category = 'dogs' }) {
     // how much of the profit was earned in the price, and how much was variance.
     // Its range therefore has to sit inside the domain as well.
     const evVals = spPts.map(p => p[1])
-    let lo = Math.min(0, ...cumArr, ...evVals), hi = Math.max(0, ...cumArr, ...evVals)
+    const boostVals = boostPts.map(p => p[1])
+    let lo = Math.min(0, ...cumArr, ...evVals, ...boostVals)
+    let hi = Math.max(0, ...cumArr, ...evVals, ...boostVals)
     const sp = (hi - lo) || 100; lo -= sp * 0.14; hi += sp * 0.14
     const X = i => pad.l + (W - pad.l - pad.r) * (n <= 1 ? 0.5 : i / (n - 1))
     const Y = v => pad.t + (H - pad.t - pad.b) * (1 - (v - lo) / (hi - lo))
@@ -205,6 +234,21 @@ export default function PnlPage({ category = 'dogs' }) {
       for (const [i, v] of spPts) spAt[i] = v
     }
 
+    // ── Boost value, same treatment in violet ────────────────────────────────
+    // The virtuals ledger's version of the EV line: how much the price boosts
+    // added. Shares the money scale for the same reason, and rides as its own
+    // overlaid line so it reads against the P&L without a second axis.
+    let boostLayer = ''
+    const boostAt = {}
+    if (hasBoostLine) {
+      const d = boostPts.map((p, i) => (i ? 'L' : 'M') + X(p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1)).join(' ')
+      const last = boostPts[boostPts.length - 1]
+      boostLayer +=
+        `<path d="${d}" fill="none" stroke="var(--violet)" stroke-width="1.6" stroke-dasharray="4 3" stroke-linejoin="round" stroke-linecap="round"/>` +
+        `<circle cx="${X(last[0]).toFixed(1)}" cy="${Y(last[1]).toFixed(1)}" r="3" fill="var(--violet)" stroke="var(--paper)" stroke-width="1.5"/>`
+      for (const [i, v] of boostPts) boostAt[i] = v
+    }
+
     const cur = cumArr[n - 1], endCol = cur >= 0 ? 'var(--accent)' : 'var(--red)'
     svg.innerHTML = `
       <defs>
@@ -218,8 +262,9 @@ export default function PnlPage({ category = 'dogs' }) {
       ${xaxis}
       <circle cx="${X(n - 1).toFixed(1)}" cy="${Y(cur).toFixed(1)}" r="4.5" fill="${endCol}" stroke="var(--paper)" stroke-width="2"/>
       ${spLayer}
+      ${boostLayer}
       <g class="pnlHover" style="opacity:0"><circle class="pnlHdot" r="4" fill="var(--ink)" stroke="var(--paper)" stroke-width="1.5"/></g>`
-    svg._pts = pts; svg._cum = cumArr; svg._dates = dates; svg._spAt = spAt
+    svg._pts = pts; svg._cum = cumArr; svg._dates = dates; svg._spAt = spAt; svg._boostAt = boostAt
   }, [bets])
 
   useEffect(() => { renderChart() }, [renderChart])
@@ -283,9 +328,11 @@ export default function PnlPage({ category = 'dogs' }) {
       // The SP mean only exists on bets that carried both prices, so the tooltip
       // gains a second figure exactly where the dashed line has a point.
       const spv = svg._spAt ? svg._spAt[bi] : undefined
+      const bv = svg._boostAt ? svg._boostAt[bi] : undefined
       tip.textContent =
         (bi === 0 ? 'Start' : fmtDay(dates[bi])) + '  ' + signed(cumA[bi]) +
-        (spv === undefined ? '' : '  ·  ' + signed(spv) + ' EV')
+        (spv === undefined ? '' : '  ·  ' + signed(spv) + ' EV') +
+        (bv === undefined ? '' : '  ·  ' + signed(bv) + ' boost')
     }
 
     const move = e => {
@@ -343,7 +390,7 @@ export default function PnlPage({ category = 'dogs' }) {
         <div className={styles.stats}>
           <div className={styles.stat}>
             <div className={`${styles.figure} ${styles.total} ${total < 0 ? styles.neg : styles.pos}`}>{signed(total)}</div>
-            <div className={styles.statCount}>{bets.length} bet{bets.length === 1 ? '' : 's'}</div>
+            <div className={styles.statCount}>{wagers.length} bet{wagers.length === 1 ? '' : 's'}</div>
           </div>
           <div className={styles.stat}>
             <div className={styles.statLabel}>Month to date</div>
@@ -360,7 +407,13 @@ export default function PnlPage({ category = 'dogs' }) {
               <b>{signed(evTotal)}</b> EV · {spBeat}/{measured.length}
             </span>
           )}
-          <span>last <b>{bets.length ? signed(bets[bets.length - 1].amount) : '—'}</b></span>
+          {/* The violet line's readout — value the boosts added (virtuals). */}
+          {boostTotal !== null && (
+            <span className={styles.boostTag}>
+              <b>{signed(boostTotal)}</b> boost · {boosted.length}
+            </span>
+          )}
+          <span>last <b>{wagers.length ? signed(wagers[wagers.length - 1].amount) : '—'}</b></span>
           {/* Actions ride in their own group so they anchor right as a unit and
               wrap together, rather than each fighting for the auto margin. */}
           <div className={styles.actions}>
@@ -442,14 +495,15 @@ function PnlEntry({ onAdd, busy, category }) {
   // vs-SP readings measured against odds that were never taken.
   const [odds, setOdds] = useState(DEFAULT_PRICE)
   const [oddsTouched, setOddsTouched] = useState(false)
-  // The BFSP wheel TRACKS the odds wheel from the start — it always shows the
+  // The second wheel TRACKS the odds wheel from the start — it always shows the
   // price it would record — but does not record anything until it is activated:
   //   !spOn                 TRACKING  ghosted, follows the odds, files nothing
   //   spOn && bsp == null   MATCHED   tap to record, keeps following the odds
   //   spOn && bsp != null   SET       spun to its own price, files that
-  // Tracking is the default because the BFSP is only knowable after the off, so
-  // a bet filed before checking must not assert a measurement never made. One
-  // tap covers the common "SP came back at my price" case with no spinning.
+  // One tap covers the common "same as the odds" case with no spinning. On dogs
+  // it is the BFSP (only knowable after the off, so tracking is the safe
+  // default); on virtuals the SAME wheel is the boosted-from price — identical
+  // machinery, it just files into a different column at submit.
   const [bsp, setBsp] = useState(null)
   const [spOn, setSpOn] = useState(false)
   // Virtuals only: each-way and the place terms it pays at.
@@ -460,6 +514,9 @@ function PnlEntry({ onAdd, busy, category }) {
   // swing, and win/push are one tap away.
   const [result, setResult] = useState('lose')   // 'win' | 'lose' | 'push'
   const [confirming, setConfirming] = useState(false)
+  // Staff tip (virtuals): its own amount, kept apart from the bet fields so a
+  // tip can never pick up a stake, odds or result.
+  const [tip, setTip] = useState('')
 
   // Any edit invalidates a pending confirmation — you must re-read the figure
   // you're agreeing to, or a changed entry could ride through on a stale yes.
@@ -512,23 +569,42 @@ function PnlEntry({ onAdd, busy, category }) {
     // and the ledger has no edit — only undo-last. Make it deliberate.
     if (big && !confirming) { setConfirming(true); return }
     // An untouched odds wheel files NEITHER price: its 2/1 seat is a resting
-    // position, not a price taken, and a BFSP "matching" it would inherit the
-    // same fiction. A spun BFSP still files on its own — that is a real reading
-    // the user entered, and the API takes either price independently.
-    const price = oddsTouched ? odds : null
-    const sp = isVirtuals || !spOn ? null : (bsp != null ? bsp : price)
+    // position, not a price taken, and a second wheel "matching" it would
+    // inherit the same fiction. A spun second wheel still files on its own —
+    // that is a real reading the user entered.
+    const priceRaw = oddsTouched ? odds : null
+    // The second wheel: BFSP on dogs, boosted-from on virtuals. Same value,
+    // different column.
+    const secondVal = spOn ? (bsp != null ? bsp : priceRaw) : null
+    const sp = isVirtuals ? null : secondVal
+    const boostFrom = isVirtuals ? secondVal : null
+    // Recording a boosted-from asserts the odds shown WERE the (boosted) price
+    // taken, so file price_taken alongside it even if the wheel sat on default —
+    // the boost line needs both prices to mean anything.
+    const price = (boostFrom != null && priceRaw == null) ? odds : priceRaw
     const isEw = isVirtuals && ew
     onAdd({
       stake: Math.round(outlay * 100) / 100,
       returned: Math.round(returned * 100) / 100,
       ...(price != null ? { price_taken: price } : {}),
       ...(sp != null ? { bfsp: sp } : {}),
+      ...(boostFrom != null ? { boosted_from: boostFrom } : {}),
       ...(isEw ? { each_way: true, place_fraction: terms } : {}),
     })
     setStake(''); setOdds(DEFAULT_PRICE); setOddsTouched(false)
     setBsp(null); setSpOn(false); setResult('lose'); setConfirming(false)
     // Each-way and its terms persist across entries — a session of virtuals is
     // usually all EW or all not, so re-toggling per bet would be pure friction.
+  }
+
+  // A staff tip: real money out of the till, filed as a negative cash amount
+  // flagged is_tip — it moves the total but is never counted as a bet.
+  const tipV = parseFloat(tip)
+  const canTip = !busy && tip !== '' && tipV > 0
+  function submitTip() {
+    if (!canTip) return
+    onAdd({ amount: -Math.round(tipV * 100) / 100, is_tip: true })
+    setTip('')
   }
 
   const onEnterKey = e => { if (e.key === 'Enter') submit() }
@@ -583,14 +659,29 @@ function PnlEntry({ onAdd, busy, category }) {
         </div>
       )}
 
-      <div className={isVirtuals && !ew ? styles.wheelsOne : styles.wheels}>
+      {/* Odds + the tracking wheel (BFSP on dogs, boosted-from on virtuals),
+          plus the place-terms wheel when a virtuals bet is each-way. */}
+      <div className={isVirtuals && ew ? styles.wheelsThree : styles.wheels}>
         <div className={styles.wheelCol}>
           <OddsWheel
             id="pnlOdds" label="Odds" value={odds}
             onChange={onOddsChange} onTouch={onOddsTouch}
           />
         </div>
-        {isVirtuals ? (ew && (
+        <div className={styles.wheelCol}>
+          {/* Tracks the odds taken from the start so the price is always in
+              place; one tap on the wheel records it, which covers the common
+              "same as the odds" case without a spin. Ghosted until then, because
+              a tracked price is not a measured one. */}
+          <OddsWheel
+            id="pnlBsp" label={isVirtuals ? 'Boosted from' : 'BFSP'}
+            value={spOn ? bspShown : null} seat={odds}
+            ghost={!spOn} onActivate={onBspActivate}
+            onChange={onBspChange}
+          />
+          <button type="button" className={styles.wNote} onClick={cycleSp}>{spNote}</button>
+        </div>
+        {isVirtuals && ew && (
           <div className={styles.wheelCol}>
             {/* Terms are a property of the race, printed on the slip — almost
                 always 1/4, which is where the wheel rests. */}
@@ -599,26 +690,14 @@ function PnlEntry({ onAdd, busy, category }) {
               onChange={onTermsChange} ladder={TERMS_LADDER}
             />
           </div>
-        )) : (
-        <div className={styles.wheelCol}>
-          {/* Tracks the odds taken from the start so the price is always in
-              place; one tap on the wheel records it, which covers the common
-              "SP came back at my price" case without a spin. Ghosted until
-              then, because a tracked price is not a measured one. */}
-          <OddsWheel
-            id="pnlBsp" label="BFSP"
-            value={spOn ? bspShown : null} seat={odds}
-            ghost={!spOn} onActivate={onBspActivate}
-            onChange={onBspChange}
-          />
-          <button type="button" className={styles.wNote} onClick={cycleSp}>{spNote}</button>
-        </div>
         )}
       </div>
 
-      {!isVirtuals && spOn && (
+      {/* The tracking wheel's readout: how the price taken sits against the SP
+          (dogs) or the price it was boosted from (virtuals). Same arithmetic. */}
+      {spOn && (
         <div className={styles.vsSpLine}>
-          vs SP <b className={odds > bspShown ? styles.pos : odds < bspShown ? styles.neg : ''}>{vsSp(odds, bspShown)}</b>
+          {isVirtuals ? 'boost' : 'vs SP'} <b className={odds > bspShown ? styles.pos : odds < bspShown ? styles.neg : ''}>{vsSp(odds, bspShown)}</b>
         </div>
       )}
 
@@ -675,6 +754,33 @@ function PnlEntry({ onAdd, busy, category }) {
         <button type="button" className={styles.enter} onClick={submit} disabled={!canAdd}>
           {big ? `Enter ${signedExact(net)}…` : 'Enter'}
         </button>
+      )}
+
+      {/* Staff tip — a cash loss, not a bet. Its own amount and button, kept
+          clear of the bet entry so it can't inherit a stake, odds or result. */}
+      {isVirtuals && (
+        <div className={styles.tipRow}>
+          <label className={styles.tipField}>
+            <span className={styles.fieldLabel}>Staff tip</span>
+            <div className={styles.display}>
+              <span className={styles.currency}>£</span>
+              <input
+                className={styles.amountInput}
+                value={tip}
+                onChange={e => setTip(sanitizeAmount(e.target.value))}
+                onKeyDown={e => { if (e.key === 'Enter') submitTip() }}
+                inputMode="decimal"
+                type="text"
+                placeholder="0.00"
+                aria-label="Staff tip amount"
+                autoComplete="off"
+              />
+            </div>
+          </label>
+          <button type="button" className={styles.tipBtn} onClick={submitTip} disabled={!canTip}>
+            Tip
+          </button>
+        </div>
       )}
     </section>
   )

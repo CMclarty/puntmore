@@ -380,6 +380,17 @@ def ensure_schema() -> None:
                 ))
             if "place_fraction" not in bcols:
                 conn.execute(text("ALTER TABLE bets ADD COLUMN place_fraction FLOAT"))
+            # Staff tips (virtuals): a cash loss that is not a bet. Every
+            # pre-existing row is a real bet, which is what the DEFAULT 0 records.
+            if "is_tip" not in bcols:
+                conn.execute(text(
+                    "ALTER TABLE bets ADD COLUMN is_tip BOOLEAN "
+                    "NOT NULL DEFAULT 0"
+                ))
+            # Boosted-from price — the pre-boost odds, paired with price_taken.
+            # NULL on every bet logged before it existed and on any un-boosted bet.
+            if "boosted_from" not in bcols:
+                conn.execute(text("ALTER TABLE bets ADD COLUMN boosted_from FLOAT"))
 
     # V5 status remap: pending|live -> processing|confirmed. Existing coupons
     # were all past the old review gate, so 'pending' rows are stale uploads

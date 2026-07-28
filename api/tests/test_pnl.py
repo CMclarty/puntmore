@@ -221,9 +221,9 @@ def test_csv_carries_each_way_columns():
     })
     client.post("/pnl/virtuals/bets", json={"stake": 10, "returned": 0})
     rows = list(csv.reader(io.StringIO(client.get("/pnl/virtuals/bets.csv").text)))
-    assert rows[0][-2:] == ["each_way", "place_fraction"]
-    assert rows[1][-2:] == ["1", "0.2000"]
-    assert rows[2][-2:] == ["0", ""]     # win-only: flag off, no terms
+    assert rows[0][8:10] == ["each_way", "place_fraction"]
+    assert rows[1][8:10] == ["1", "0.2000"]
+    assert rows[2][8:10] == ["0", ""]     # win-only: flag off, no terms
 
 
 def test_unknown_ledger_is_a_404():
@@ -268,6 +268,7 @@ def test_csv_export_contains_the_full_history():
     assert rows[0] == [
         "id", "created_at", "amount", "stake", "returned",
         "price_taken", "bfsp", "vs_sp_pct", "each_way", "place_fraction",
+        "is_tip", "boosted_from",
     ]
     assert len(rows) == 3   # header + 2 bets, oldest first
     assert rows[1][2] == "45.00"
@@ -281,8 +282,9 @@ def test_csv_leaves_unrecorded_fields_empty_not_zero():
     client.post("/pnl/dogs/bets", json={"amount": 45})
     rows = list(csv.reader(io.StringIO(client.get("/pnl/dogs/bets.csv").text)))
     # stake, returned, price_taken, bfsp, vs_sp_pct all blank; each_way is a
-    # real "0" (the bet WAS win-only) and its terms are correctly absent.
-    assert rows[1][3:] == ["", "", "", "", "", "0", ""]
+    # real "0" (the bet WAS win-only) and its terms are correctly absent, and
+    # so is the (non-tip) is_tip flag and the un-boosted boosted_from.
+    assert rows[1][3:] == ["", "", "", "", "", "0", "", "0", ""]
 
 
 def test_csv_export_is_scoped_to_its_owner():
@@ -317,3 +319,48 @@ def test_pnl_router_requires_the_pnl_tool():
         assert client.get("/pnl/dogs/bets").status_code == 403
     finally:
         app.dependency_overrides[user_permissions] = lambda: "*"
+
+
+# --- Staff tips (a cash loss that is not a bet) ---
+
+def test_tip_is_stored_as_a_flagged_cash_loss():
+    client = TestClient(app)
+    r = client.post("/pnl/virtuals/bets", json={"amount": -15, "is_tip": True})
+    assert r.status_code == 200
+    b = r.json()
+    assert b["is_tip"] is True and b["amount"] == -15
+    # A tip carries no bet detail.
+    assert b["stake"] is None and b["price_taken"] is None and b["boosted_from"] is None
+
+
+def test_tip_amount_must_be_a_loss():
+    client = TestClient(app)
+    # Zero or positive isn't money out of the till.
+    assert client.post("/pnl/virtuals/bets", json={"amount": 20, "is_tip": True}).status_code == 422
+    assert client.post("/pnl/virtuals/bets", json={"amount": 0, "is_tip": True}).status_code == 422
+    # A tip that tries to carry bet detail is rejected outright.
+    assert client.post(
+        "/pnl/virtuals/bets",
+        json={"amount": -10, "is_tip": True, "stake": 10, "returned": 0},
+    ).status_code == 422
+
+
+# --- Boosted-from price (the virtuals EV analogue) ---
+
+def test_boosted_from_is_stored_with_the_price_taken():
+    client = TestClient(app)
+    r = client.post("/pnl/virtuals/bets", json={
+        "stake": 10, "returned": 0, "price_taken": 3.0, "boosted_from": 2.5,
+    })
+    assert r.status_code == 200
+    b = r.json()
+    assert b["price_taken"] == 3.0 and b["boosted_from"] == 2.5
+
+
+def test_boosted_from_needs_the_price_taken():
+    client = TestClient(app)
+    # A pre-boost price on its own measures nothing.
+    r = client.post("/pnl/virtuals/bets", json={
+        "stake": 10, "returned": 0, "boosted_from": 2.5,
+    })
+    assert r.status_code == 422
