@@ -159,24 +159,8 @@
   margin-right: 5px;
 }
 
-/* ---- Boost value (price taken vs boosted-from, virtuals) ----
-   The violet twin of .spTag: its own dashed line on the money scale, with the
-   leading dash as the legend. Violet so it never reads as the amber EV line. */
-.boostTag { color: var(--violet); white-space: nowrap; }
-.boostTag b { color: var(--violet); font-weight: 700; }
-.boostTag::before {
-  content: "";
-  display: inline-block;
-  width: 12px;
-  border-top: 1.6px dashed var(--violet);
-  vertical-align: middle;
-  margin-right: 5px;
-}
-
 /* odds wheels in the entry pad — price taken (always filed) + optional BFSP */
 .wheels { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: start; }
-/* Virtuals each-way: odds + boosted-from + place terms all fit on one row. */
-.wheelsThree { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; align-items: start; }
 .wheelCol { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 /* Note under each wheel: tap to set/clear. The blank/selected look lives in the
    wheel itself (OddsWheel handles the placeholder); this is the affordance. */
@@ -271,6 +255,10 @@
 .ewToggle { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ewToggle .res { height: 36px; }
 .ewToggle .res.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+/* Win-only has no terms to pick, so the odds wheel takes the full width
+   instead of leaving a hole where the second wheel would be. */
+.wheelsOne { display: grid; grid-template-columns: 1fr; gap: 8px; align-items: start; }
 
 /* Staff tip — its own amount field + button, divided off from the bet entry so
    it never reads as part of a wager. */

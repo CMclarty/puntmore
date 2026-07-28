@@ -189,11 +189,6 @@ class Bet(Base):
     # stake/price columns stay NULL. server_default backfills existing rows as
     # ordinary bets (0), which is what every row before this column was.
     is_tip = Column(Boolean, nullable=False, default=False, server_default="0")
-    # The price a boosted bet was boosted FROM — the original, pre-boost odds.
-    # Pairs with price_taken (the boosted price actually struck) the way bfsp
-    # does, and drives its own overlaid line: stake × (price_taken/boosted_from −
-    # 1) is the value the boost added. NULL unless the bet was boosted.
-    boosted_from = Column(Float)
     created_at = Column(DateTime, default=utcnow, index=True)
 
 

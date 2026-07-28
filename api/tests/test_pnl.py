@@ -268,7 +268,7 @@ def test_csv_export_contains_the_full_history():
     assert rows[0] == [
         "id", "created_at", "amount", "stake", "returned",
         "price_taken", "bfsp", "vs_sp_pct", "each_way", "place_fraction",
-        "is_tip", "boosted_from",
+        "is_tip",
     ]
     assert len(rows) == 3   # header + 2 bets, oldest first
     assert rows[1][2] == "45.00"
@@ -282,9 +282,9 @@ def test_csv_leaves_unrecorded_fields_empty_not_zero():
     client.post("/pnl/dogs/bets", json={"amount": 45})
     rows = list(csv.reader(io.StringIO(client.get("/pnl/dogs/bets.csv").text)))
     # stake, returned, price_taken, bfsp, vs_sp_pct all blank; each_way is a
-    # real "0" (the bet WAS win-only) and its terms are correctly absent, and
-    # so is the (non-tip) is_tip flag and the un-boosted boosted_from.
-    assert rows[1][3:] == ["", "", "", "", "", "0", "", "0", ""]
+    # real "0" (the bet WAS win-only) and its terms are correctly absent, as is
+    # the (non-tip) is_tip flag.
+    assert rows[1][3:] == ["", "", "", "", "", "0", "", "0"]
 
 
 def test_csv_export_is_scoped_to_its_owner():
@@ -330,7 +330,7 @@ def test_tip_is_stored_as_a_flagged_cash_loss():
     b = r.json()
     assert b["is_tip"] is True and b["amount"] == -15
     # A tip carries no bet detail.
-    assert b["stake"] is None and b["price_taken"] is None and b["boosted_from"] is None
+    assert b["stake"] is None and b["price_taken"] is None
 
 
 def test_tip_amount_must_be_a_loss():
@@ -343,24 +343,3 @@ def test_tip_amount_must_be_a_loss():
         "/pnl/virtuals/bets",
         json={"amount": -10, "is_tip": True, "stake": 10, "returned": 0},
     ).status_code == 422
-
-
-# --- Boosted-from price (the virtuals EV analogue) ---
-
-def test_boosted_from_is_stored_with_the_price_taken():
-    client = TestClient(app)
-    r = client.post("/pnl/virtuals/bets", json={
-        "stake": 10, "returned": 0, "price_taken": 3.0, "boosted_from": 2.5,
-    })
-    assert r.status_code == 200
-    b = r.json()
-    assert b["price_taken"] == 3.0 and b["boosted_from"] == 2.5
-
-
-def test_boosted_from_needs_the_price_taken():
-    client = TestClient(app)
-    # A pre-boost price on its own measures nothing.
-    r = client.post("/pnl/virtuals/bets", json={
-        "stake": 10, "returned": 0, "boosted_from": 2.5,
-    })
-    assert r.status_code == 422
