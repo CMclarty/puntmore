@@ -69,7 +69,7 @@ export default function PnlBattlePage({ category = 'dogs' }) {
   // ── derived figures, same as the plain tracker ────────────────────────────
   const {
     cum, total, mtd, mtdCount, winrate, turnover, roi,
-    spPts, evTotal, evPerBet, spBeat, measuredCount,
+    spPts, evTotal, spBeat, measuredCount,
   } = useMemo(() => {
     const arr = [0]
     let t = 0
@@ -108,7 +108,6 @@ export default function PnlBattlePage({ category = 'dogs' }) {
       roi: to > 0 ? (sp / to * 100).toFixed(1) + '%' : null,
       spPts: pts,
       evTotal: sn ? ssum : null,
-      evPerBet: sn ? ssum / sn : null,
       spBeat: bets.filter(b => hasEv(b) && b.price_taken > b.bfsp).length,
       measuredCount: sn,
     }
@@ -263,7 +262,7 @@ export default function PnlBattlePage({ category = 'dogs' }) {
             {/* Doubles as the chart's legend — the dash matches the overlaid line. */}
             {evTotal !== null && (
               <span className={styles.spTag}>
-                <b>{signed(evTotal)}</b> EV · {signed(evPerBet)}/bet · {spBeat}/{measuredCount}
+                <b>{signed(evTotal)}</b> EV · {spBeat}/{measuredCount}
               </span>
             )}
             <span>last <b>{bets.length ? signed(bets[bets.length - 1].amount) : '—'}</b></span>

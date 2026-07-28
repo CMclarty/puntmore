@@ -128,7 +128,6 @@ export default function PnlPage({ category = 'dogs' }) {
   // it. Needs a stake, so flat entries sit this out.
   const measured = bets.filter(hasEv)
   const evTotal = measured.length ? measured.reduce((s, b) => s + evOf(b), 0) : null
-  const evPerBet = evTotal === null ? null : evTotal / measured.length
   const spBeat = measured.filter(b => b.price_taken > b.bfsp).length
 
   const renderChart = useCallback(() => {
@@ -358,22 +357,26 @@ export default function PnlPage({ category = 'dogs' }) {
           {/* Doubles as the chart's legend — the dash matches the overlaid line. */}
           {evTotal !== null && (
             <span className={styles.spTag}>
-              <b>{signed(evTotal)}</b> EV · {signed(evPerBet)}/bet · {spBeat}/{measured.length}
+              <b>{signed(evTotal)}</b> EV · {spBeat}/{measured.length}
             </span>
           )}
           <span>last <b>{bets.length ? signed(bets[bets.length - 1].amount) : '—'}</b></span>
-          {/* Hop to the other ledger, and to the alternate skin of this one. */}
-          <Link className={styles.battle} to={`/pnl/${other}`}>{otherLabel}</Link>
-          <Link className={styles.battle} to={`/pnl/${category}/battle`}>battle</Link>
-          {bets.length > 0 && (
-            <>
-              {/* A plain link, not a fetch: the session cookie rides along and
-                  the browser handles the download, so there is no blob to build
-                  or object URL to revoke. */}
-              <a className={styles.export} href={`/api/pnl/${category}/bets.csv`} download>csv</a>
-              <button className={styles.undo} onClick={undoLast} disabled={busy}>undo last</button>
-            </>
-          )}
+          {/* Actions ride in their own group so they anchor right as a unit and
+              wrap together, rather than each fighting for the auto margin. */}
+          <div className={styles.actions}>
+            {/* Hop to the other ledger, and to the alternate skin of this one. */}
+            <Link className={styles.battle} to={`/pnl/${other}`}>{otherLabel}</Link>
+            <Link className={styles.battle} to={`/pnl/${category}/battle`}>battle</Link>
+            {bets.length > 0 && (
+              <>
+                {/* A plain link, not a fetch: the session cookie rides along and
+                    the browser handles the download, so there is no blob to build
+                    or object URL to revoke. */}
+                <a className={styles.export} href={`/api/pnl/${category}/bets.csv`} download>csv</a>
+                <button className={styles.undo} onClick={undoLast} disabled={busy}>undo last</button>
+              </>
+            )}
+          </div>
         </div>
         {error && <p className={styles.error}>{error}</p>}
         <div className={styles.chartWrap}>

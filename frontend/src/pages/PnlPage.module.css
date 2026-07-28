@@ -67,12 +67,28 @@
   margin-top: 7px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  column-gap: 12px;
+  row-gap: 6px;
   font-variant-numeric: tabular-nums;
 }
+/* Each metric stays whole and drops to the next line as a unit, rather than
+   shrinking and wrapping its own text into a crushed stack on a phone. */
+.subline > span { white-space: nowrap; }
 .subline b { color: var(--ink); font-weight: 600; }
+
+/* The action controls travel together and anchor to the right; when the row is
+   too narrow the whole group wraps to its own line instead of colliding with
+   the metrics. */
+.actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .export {
-  margin-left: auto;
   border: 1px solid var(--line);
   border-radius: 5px;
   font-size: 10px;
@@ -83,10 +99,8 @@
   padding: 2px 7px;
 }
 
-/* The battle skin's way in. Takes the auto margin so it anchors the right-hand
-   group; csv and undo then sit alongside it. */
+/* The battle skin's way in, and the hop to the other ledger. */
 .battle {
-  margin-left: auto;
   border: 1px solid var(--line);
   border-radius: 5px;
   font-size: 10px;
@@ -96,12 +110,8 @@
   text-decoration: none;
   padding: 2px 7px;
 }
-
-/* Whichever of these comes first takes the auto margin; the rest sit next to it. */
-.battle + .export, .export + .undo { margin-left: 0; }
 
 .undo {
-  margin-left: auto;
   border: 1px solid var(--line);
   border-radius: 5px;
   background: none;
