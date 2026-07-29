@@ -12,6 +12,7 @@ from ..coupon_periods import COUPON_PERIODS
 from ..coupon_types import COUPON_TYPES
 from ..schemas import (
     CouponOut, CouponTypeOut, CouponPeriodOut, LegOut, LegEditRequest,
+    TypePeriodOut,
 )
 from ..pricing.legs import price_legs
 from ..security import require_user
@@ -71,6 +72,40 @@ def list_coupon_types(db: Session = Depends(get_db)):
         .group_by(Coupon.type_code)
         .all()
     )
+
+    # Per-issue rollup for the landing page. One query for the whole board
+    # rather than one per type, then grouped in Python — the row count here is
+    # the number of COUPONS, which is small.
+    per_coupon = (
+        db.query(
+            Coupon,
+            func.count(Leg.id).label("legs"),
+            func.count(Leg.fair_odds).label("priced"),
+        )
+        .outerjoin(Leg, Leg.coupon_id == Coupon.id)
+        .group_by(Coupon.id)
+        .all()
+    )
+    periods_by_type: dict[str, list[TypePeriodOut]] = {}
+    for coupon, legs, priced in per_coupon:
+        # A finished window is history — the landing page is about what is
+        # live or still to come.
+        if coupon.period_status == "past":
+            continue
+        periods_by_type.setdefault(coupon.type_code, []).append(TypePeriodOut(
+            coupon_id=coupon.id,
+            period=coupon.period,
+            label=coupon.period_label,
+            status=coupon.period_status,
+            match_day=coupon.match_day,
+            period_ends=coupon.period_ends,
+            leg_count=legs,
+            priced_count=priced,
+        ))
+    for rows in periods_by_type.values():
+        # Soonest window first, so the set closest to going off leads.
+        rows.sort(key=lambda r: (r.match_day, r.coupon_id))
+
     out = []
     for t in COUPON_TYPES:
         best = None
@@ -103,6 +138,7 @@ def list_coupon_types(db: Session = Depends(get_db)):
             prices_each_selection=t.prices_each_selection,
             pays_ladder=t.pays_ladder,
             period_codes=list(t.period_codes),
+            periods=periods_by_type.get(t.code, []),
             best_combination=best,
         ))
     return out

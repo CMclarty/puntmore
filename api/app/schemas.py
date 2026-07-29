@@ -44,6 +44,23 @@ class CouponOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TypePeriodOut(BaseModel):
+    """One issue of a coupon type, as the landing page needs it.
+
+    A type can have SEVERAL of these live at once — the windows overlap by
+    design (Mon–Wed and Wed–Fri both contain Wednesday) — which is exactly what
+    the landing page has to show.
+    """
+    coupon_id: int
+    period: Optional[str] = None
+    label: Optional[str] = None          # "Mon–Wed"
+    status: Optional[str] = None         # "active" | "upcoming" | "past"
+    match_day: date
+    period_ends: Optional[date] = None
+    leg_count: int = 0
+    priced_count: int = 0                # legs carrying fair odds
+
+
 class CouponTypeOut(BaseModel):
     """One of the seven coupon types — a top-level entity, not an accumulator."""
     code: str
@@ -55,6 +72,9 @@ class CouponTypeOut(BaseModel):
     prices_each_selection: bool = True
     pays_ladder: bool = False
     period_codes: list[str] = Field(default_factory=list)
+    # Every issue of this type that is live or still to come, newest window
+    # first. Drives the landing page's status and its select buttons.
+    periods: list[TypePeriodOut] = Field(default_factory=list)
     # Best rung of the ladder for the latest issue: {"picks", "payout", "fair",
     # "value"}. The only value that means anything on a ladder coupon.
     best_combination: Optional[dict] = None

@@ -8,7 +8,7 @@ import styles from './BottomNav.module.css'
 const TOOLS = [
   {
     tool: 'coupons', name: 'Coupon', to: '/', sub: 'Tracker',
-    matches: (p) => p === '/' || p.startsWith('/upload'),
+    matches: (p) => p === '/' || p.startsWith('/t/') || p.startsWith('/upload'),
     icon: (
       <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
         <rect x="4" y="2" width="14" height="18" rx="2"/><line x1="7" y1="7" x2="15" y2="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="7" y1="15" x2="11" y2="15"/>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, memo, Fragment } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getCouponTypes, getTypeSelections, editLeg } from '../api'
 import { FRACTIONAL_LADDER, fractionToDecimal, nearestFraction } from '../odds'
 import styles from './TrackerPage.module.css'
@@ -157,6 +157,83 @@ function groupLegsByPeriod(legs) {
   return out
 }
 
+const STATUS_LABEL = { active: 'Live now', upcoming: 'Next set', past: 'Ended' }
+
+/** Short date range, e.g. "29–31 Jul". */
+function fmtWindow(from, to) {
+  if (!from) return ''
+  const d = s => new Date(s + 'T00:00:00')
+  const a = d(from)
+  const mon = s => s.toLocaleString('en-GB', { month: 'short' })
+  if (!to || to === from) return `${a.getDate()} ${mon(a)}`
+  const b = d(to)
+  return a.getMonth() === b.getMonth()
+    ? `${a.getDate()}–${b.getDate()} ${mon(b)}`
+    : `${a.getDate()} ${mon(a)} – ${b.getDate()} ${mon(b)}`
+}
+
+/**
+ * The tracker's front door: every coupon type, and for each the issues that are
+ * live or still to come.
+ *
+ * Two windows of one type can be live at once (Mon–Wed and Wed–Fri both contain
+ * Wednesday), so each issue is its own row with its own status — that is the
+ * thing the old dropdown could not show, since it named only the type.
+ */
+function TrackerLanding({ types, loading, onOpen }) {
+  if (loading) return <p className={styles.loading}>Loading…</p>
+
+  const withCoupons = types.filter(t => t.periods.length > 0)
+  const empty = types.filter(t => t.periods.length === 0)
+
+  return (
+    <div className={styles.page}>
+      <div className={styles.landingHead}>
+        <span className={styles.landingTitle}>COUPONS</span>
+        <Link to="/upload" className={styles.landingUpload}>Upload</Link>
+      </div>
+
+      <div className={styles.landingList}>
+        {withCoupons.map(t => (
+          <button key={t.code} className={styles.typeCard} onClick={() => onOpen(t.code)}>
+            <span className={styles.typeTop}>
+              <span className={styles.typeName}>{t.label}</span>
+              <span className={`${styles.typeCount} ${styles.mono}`}>{t.selection_count}</span>
+            </span>
+            <span className={styles.typePeriods}>
+              {t.periods.map(p => (
+                <span key={p.coupon_id} className={styles.periodChip}>
+                  {/* Status in WORDS as well as colour — a dot alone says
+                      nothing on a phone in daylight. */}
+                  <span className={`${styles.chipStatus} ${styles['st_' + (p.status ?? 'none')]}`}>
+                    {STATUS_LABEL[p.status] ?? 'Unscheduled'}
+                  </span>
+                  <span className={styles.chipLabel}>{p.label ?? '—'}</span>
+                  <span className={styles.chipWindow}>{fmtWindow(p.match_day, p.period_ends)}</span>
+                  <span className={`${styles.chipCount} ${styles.mono}`} title="priced / total selections">
+                    {p.priced_count}/{p.leg_count}
+                  </span>
+                </span>
+              ))}
+            </span>
+          </button>
+        ))}
+
+        {empty.length > 0 && (
+          <div className={styles.landingEmpty}>
+            <span className={styles.landingEmptyHead}>No live coupon</span>
+            {empty.map(t => (
+              <button key={t.code} className={styles.emptyRow} onClick={() => onOpen(t.code)}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /**
  * The inline edit form. Its draft lives HERE, not on the page, so typing
  * re-renders only this one card — holding it on the page re-rendered all 74
@@ -291,8 +368,15 @@ const LegCard = memo(function LegCard({
 export default function TrackerPage() {
   // The seven coupon types are the entities. Each is its own filtered fixture
   // list; an upload is just how selections got into one.
+  //
+  // The tracker OPENS on the landing page (no code in the URL): which coupons
+  // exist, which of their windows are live, and a button into each. Picking one
+  // pushes /t/<code>, so the browser back button returns to the landing page
+  // and a set can be linked to directly.
+  const { code: routeCode } = useParams()
+  const navigate = useNavigate()
+  const activeCode = routeCode ?? null
   const [types, setTypes] = useState([])
-  const [activeCode, setActiveCode] = useState(null)
   const [legs, setLegs] = useState([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -303,12 +387,10 @@ export default function TrackerPage() {
   const [savingId, setSavingId] = useState(null)
   const [error, setError] = useState(null)
 
-  useEffect(() => {
-    getCouponTypes().then(ts => {
-      setTypes(ts)
-      if (ts.length > 0) setActiveCode(ts[0].code)
-    }).finally(() => setLoading(false))
-  }, [])
+  const loadTypes = useCallback(
+    () => getCouponTypes().then(setTypes).finally(() => setLoading(false)), [],
+  )
+  useEffect(() => { loadTypes() }, [loadTypes])
 
   const loadSelections = useCallback(async (code) => {
     if (!code) { setLegs([]); return }
@@ -325,8 +407,8 @@ export default function TrackerPage() {
   const legGroups = useMemo(() => groupLegsByPeriod(legs), [legs])
 
   function selectType(code) {
-    setActiveCode(code)
     setPickerOpen(false)
+    navigate(`/t/${code}`)
   }
 
   async function handleRefresh() {
@@ -380,9 +462,16 @@ export default function TrackerPage() {
     }
   }, [])
 
+  // No coupon chosen: the landing page. Which coupons exist, which of their
+  // windows are live right now, and a way into each.
+  if (!activeCode) {
+    return <TrackerLanding types={types} loading={loading} onOpen={selectType} />
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
+        <Link to="/" className={styles.backBtn} aria-label="All coupons">‹</Link>
         <button className={styles.couponPill} onClick={() => setPickerOpen(true)}>
           <span className={styles.pillKey}>COUPON</span>
           <span className={styles.pillName}>{activeType?.label ?? '—'}</span>

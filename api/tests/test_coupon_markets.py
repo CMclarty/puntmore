@@ -383,3 +383,42 @@ def test_unreadable_ladder_rungs_are_dropped_not_guessed():
         {"picks": 5, "fractional": "1/0"},
     ]) == {3: 5.5}
     assert _parse_ladder(None) == {}
+
+
+# --- landing page: which issues of a type are live ---
+
+def test_types_report_their_live_and_upcoming_issues(db_session_factory=None):
+    """The landing page needs per-ISSUE status, not just per-type. Two windows
+    of one type can be live at once, which is the whole point."""
+    from datetime import date, timedelta
+    from app.models import Coupon, Leg
+
+    from tests.test_coupons import TestSession, test_engine  # reuse the harness
+    from app.database import Base
+    Base.metadata.create_all(bind=test_engine)
+    db = TestSession()
+    try:
+        today = date.today()
+        # Mon–Wed ending today and Wed–Fri starting today — BOTH live.
+        a = Coupon(type_code="TTS2", period="MON_WED", match_day=today - timedelta(days=2),
+                   period_ends=today, status="confirmed")
+        b = Coupon(type_code="TTS2", period="WED_FRI", match_day=today,
+                   period_ends=today + timedelta(days=2), status="confirmed")
+        old = Coupon(type_code="TTS2", period="SAT", match_day=today - timedelta(days=9),
+                     period_ends=today - timedelta(days=9), status="confirmed")
+        db.add_all([a, b, old])
+        db.flush()
+        db.add_all([
+            Leg(coupon_id=a.id, match_name="A vs B", pick="x", odds=2.0, fair_odds=1.9, rank=0),
+            Leg(coupon_id=b.id, match_name="C vs D", pick="y", odds=2.0, rank=0),
+        ])
+        db.commit()
+
+        assert a.period_status == "active"
+        assert b.period_status == "active"
+        assert old.period_status == "past"
+        # A leg reads its window straight off its coupon — one definition.
+        assert db.query(Leg).filter(Leg.coupon_id == a.id).one().period_status == "active"
+    finally:
+        db.close()
+        Base.metadata.drop_all(bind=test_engine)

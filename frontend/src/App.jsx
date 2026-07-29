@@ -81,7 +81,9 @@ export default function App() {
             path="/login"
             element={user ? <Navigate to="/" replace /> : <LoginPage onLogin={setUser} />}
           />
+          {/* The tracker opens on its landing page; /t/<code> is one coupon. */}
           <Route path="/" element={protectTool(<TrackerPage />, 'coupons')} />
+          <Route path="/t/:code" element={protectTool(<TrackerPage />, 'coupons')} />
           <Route path="/upload" element={protectTool(<UploadPage user={user} />, 'coupons')} />
           <Route path="/goalscorers" element={protectTool(<GoalscorersPage />, 'goalscorers')} />
           {/* Two independent ledgers, one per racing category. Bare /pnl (and

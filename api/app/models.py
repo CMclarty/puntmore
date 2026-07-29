@@ -42,6 +42,36 @@ class Coupon(Base):
         return len(self.legs)
 
     @property
+    def period_label(self) -> str | None:
+        """Human label of this coupon's period, e.g. "Mon–Wed"."""
+        from .coupon_periods import get as get_period
+        if not self.period:
+            return None
+        p = get_period(self.period)
+        return p.label if p else self.period
+
+    @property
+    def period_status(self) -> str | None:
+        """Where today sits in this coupon's window: "active" (contains today),
+        "upcoming" (not started), "past" (ended), or None when the window is
+        unknown (a variable coupon not yet resolved from its fixtures).
+
+        Windows OVERLAP by design — Mon–Wed and Wed–Fri both contain Wednesday —
+        so more than one coupon of a type can be active at once.
+        """
+        from datetime import date
+        if self.match_day is None:
+            return None
+        start = self.match_day
+        end = self.period_ends or start
+        today = date.today()
+        if today < start:
+            return "upcoming"
+        if today > end:
+            return "past"
+        return "active"
+
+    @property
     def ladder(self) -> dict[int, float]:
         """Payout ladder as {picks: decimal}. Empty when the coupon prices rows."""
         if not self.payout_ladder:
@@ -88,29 +118,13 @@ class Leg(Base):
     @property
     def period_label(self) -> str | None:
         """Human label of this selection's coupon period, e.g. "Mon–Wed"."""
-        from .coupon_periods import get as get_period
-        if not self.coupon or not self.coupon.period:
-            return None
-        p = get_period(self.coupon.period)
-        return p.label if p else self.coupon.period
+        return self.coupon.period_label if self.coupon else None
 
     @property
     def period_status(self) -> str | None:
-        """Where today sits in this selection's coupon window:
-        "active" (window contains today), "upcoming" (not started yet — the next
-        set to upload), or "past" (window ended). None when the window is
-        unknown (variable coupon not yet resolved from its fixtures)."""
-        from datetime import date
-        if not self.coupon or self.coupon.match_day is None:
-            return None
-        start = self.coupon.match_day
-        end = self.coupon.period_ends or start
-        today = date.today()
-        if today < start:
-            return "upcoming"
-        if today > end:
-            return "past"
-        return "active"
+        """Where today sits in this selection's coupon window — see
+        Coupon.period_status, which is the single definition of "active"."""
+        return self.coupon.period_status if self.coupon else None
 
 
 class GoalscorerAlert(Base):
