@@ -48,7 +48,19 @@ def normalise_team(name: str) -> str:
     name = _SUFFIX_RE.sub(' ', name)
     name = _PUNCT_RE.sub(' ', name)
     name = _SPACE_RE.sub(' ', name).strip().lower()
-    return ' '.join(_ABBREVS.get(w, w) for w in name.split())
+    name = ' '.join(_ABBREVS.get(w, w) for w in name.split())
+    # Alias LAST, on the already-normalised form, so both the coupon's name and
+    # the board's name land on the same canonical string no matter which side
+    # of the pair each came from.
+    return _TEAM_ALIASES.get(name, name)
+
+
+def normalise_sides(match_name: str) -> tuple[str, str] | None:
+    """The two sides of a fixture, normalised. None if it isn't an "A v B"."""
+    sides = split_sides(match_name)
+    if sides is None:
+        return None
+    return normalise_team(sides[0]), normalise_team(sides[1])
 
 
 def split_sides(match_name: str) -> tuple[str, str] | None:

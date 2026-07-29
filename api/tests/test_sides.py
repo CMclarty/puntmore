@@ -129,3 +129,38 @@ def test_side_comes_from_the_pick_not_the_match_name():
     # Both sides ride along on every result regardless of which was picked.
     assert home.fair_odds_home == away.fair_odds_home
     assert home.fair_odds_away == away.fair_odds_away
+
+
+# --- Fixture matching: alias table + per-side comparison ---
+
+def test_alias_canonicalises_both_directions():
+    """The coupon's English exonym and the board's local name must land on the
+    same string — no amount of fuzzy matching bridges Red Star / Crvena Zvezda."""
+    from app.normalise import normalise_team
+    assert normalise_team("Red Star Belgrade") == normalise_team("Crvena Zvezda")
+    assert normalise_team("Sangju") == normalise_team("Gimcheon Sangmu")
+    assert normalise_team("MP Mikkeli") == normalise_team("Mikkelin Palloilijat")
+
+
+def test_per_side_rescues_a_one_sided_name_difference():
+    """Whole-string averages a perfect side into a mismatched one and loses the
+    fixture. Scoring side-by-side keeps it."""
+    from app.providers.bettingiscool import BettingIsCoolProvider as P
+    board = ["Crvena Zvezda vs Larne", "Some Other vs Fixture"]
+    got = P._best_match("Red Star Belgrade v Larne", board)
+    assert got is not None and got[0] == "Crvena Zvezda vs Larne"
+
+
+def test_per_side_takes_the_weaker_side_so_one_match_cannot_carry_it():
+    """min(), not max() or mean: both teams must independently look right, or a
+    coincidental overlap on one name drags in an unrelated fixture."""
+    from app.providers.bettingiscool import BettingIsCoolProvider as P
+    # Away side identical, home side unrelated -> the weak side governs.
+    assert P._pair_score(("arsenal", "larne"), ("chelsea", "larne")) < 0.5
+
+
+def test_unrelated_fixtures_are_still_rejected():
+    """The guard that matters most: never invent a match."""
+    from app.providers.bettingiscool import BettingIsCoolProvider as P
+    board = ["Newmarket vs North Lakes United", "Crvena Zvezda vs Larne"]
+    assert P._best_match("Nonexistent FC vs Fake United", board) is None

@@ -41,7 +41,7 @@ import time
 import httpx
 
 from .base import OddsProvider, MatchQuery, OddsResult
-from ..normalise import normalise_match
+from ..normalise import normalise_match, normalise_sides
 from ..odds.utils import devigd_multi
 from ..pricing.grid import (
     fit_grid, score_grid, p_win_and_over, p_btts, p_gg_no_draw, p_win_to_nil,
@@ -451,15 +451,44 @@ class BettingIsCoolProvider(OddsProvider):
         return bool(_WIN_RE.search(key) or _TTS_RE.search(key))
 
     @staticmethod
+    def _pair_score(q_sides, c_sides) -> float:
+        """Similarity of two fixtures compared SIDE BY SIDE.
+
+        Scored as the WEAKER of the two sides (home vs home, away vs away).
+        Taking the weaker one is what makes this safer than comparing the whole
+        string, not looser: both teams must independently look right, so a
+        coincidental overlap on one name cannot carry an unrelated fixture over
+        the line. It is also what a single-word difference does not destroy —
+        whole-string matching averages a perfect side into a mismatched one and
+        loses real fixtures, e.g. "Red Star Belgrade v Larne" against
+        "Crvena Zvezda vs Larne" (0.59, below the bar) even though Larne is
+        exact and the alias table canonicalises the other side.
+        """
+        if q_sides is None or c_sides is None:
+            return 0.0
+        home = difflib.SequenceMatcher(None, q_sides[0], c_sides[0]).ratio()
+        away = difflib.SequenceMatcher(None, q_sides[1], c_sides[1]).ratio()
+        return min(home, away)
+
+    @staticmethod
     def _best_match(query: str, candidates: list[str]) -> tuple[str, float] | None:
         q_norm = normalise_match(query)
+        q_sides = normalise_sides(query)
         norm_to_orig: dict[str, str] = {}
         for c in candidates:
             norm_to_orig.setdefault(normalise_match(c), c)
-        scored = [
-            (difflib.SequenceMatcher(None, q_norm, c_norm).ratio(), orig)
-            for c_norm, orig in norm_to_orig.items()
-        ]
+
+        scored = []
+        for c_norm, orig in norm_to_orig.items():
+            whole = difflib.SequenceMatcher(None, q_norm, c_norm).ratio()
+            # Best of the two views. Per-side rescues fixtures whose names
+            # differ on one side only; the whole-string score still carries
+            # anything that is not an "A v B" pair.
+            per_side = BettingIsCoolProvider._pair_score(
+                q_sides, normalise_sides(orig)
+            )
+            scored.append((max(whole, per_side), orig))
+
         scored.sort(reverse=True)
         if scored and scored[0][0] >= MATCH_THRESHOLD:
             return scored[0][1], scored[0][0]
