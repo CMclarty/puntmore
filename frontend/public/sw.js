@@ -6,7 +6,10 @@
 // it evicts any already-poisoned v2 cache on the next visit.
 // v4: forced eviction so the P&L four-figure guard lands on every device on the
 // next visit rather than whenever the old shell happened to be replaced.
-const SHELL_CACHE = 'puntmore-shell-v4'
+// v5: the worker no longer touches non-GET /api/ requests — it was silently
+// stripping the body off coupon uploads on iOS (see the fetch handler). Bumped
+// so any device still running v4 replaces it on the next visit.
+const SHELL_CACHE = 'puntmore-shell-v5'
 
 self.addEventListener('install', e => {
   e.waitUntil(
@@ -28,8 +31,22 @@ self.addEventListener('fetch', e => {
   const req = e.request
   const { pathname } = new URL(req.url)
 
-  // API: network-first, fall back to empty JSON array (offline tolerance).
+  // API. Only GETs are handled here, and that exemption is load-bearing.
+  //
+  // Re-issuing an intercepted request with `fetch(req)` DROPS THE BODY on
+  // WebKit/iOS for methods that carry one. A coupon upload then reached the
+  // server as a POST with no multipart body at all, and FastAPI answered 422
+  // "field required" for type_code, period and file — the three errors that
+  // showed on the phone as "[object Object],[object Object],[object Object]".
+  // Uploads worked on desktop and in every test, because neither runs this
+  // worker. Returning early leaves the browser to make the request itself,
+  // body intact.
+  //
+  // The empty-array fallback is likewise GET-only: answering a FAILED upload
+  // or delete with "[]" and a 200 reports success for something that never
+  // happened.
   if (pathname.startsWith('/api/')) {
+    if (req.method !== 'GET') return
     e.respondWith(
       fetch(req).catch(() =>
         new Response('[]', { headers: { 'Content-Type': 'application/json' } })
