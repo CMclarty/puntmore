@@ -41,7 +41,7 @@ import time
 import httpx
 
 from .base import OddsProvider, MatchQuery, OddsResult
-from ..normalise import normalise_match, normalise_sides
+from ..normalise import normalise_match, normalise_sides, split_sides, team_similarity
 from ..odds.utils import devigd_multi
 from ..pricing.grid import (
     fit_grid, score_grid, p_win_and_over, p_btts, p_gg_no_draw, p_win_to_nil,
@@ -466,28 +466,39 @@ class BettingIsCoolProvider(OddsProvider):
         """
         if q_sides is None or c_sides is None:
             return 0.0
-        home = difflib.SequenceMatcher(None, q_sides[0], c_sides[0]).ratio()
-        away = difflib.SequenceMatcher(None, q_sides[1], c_sides[1]).ratio()
+        # team_similarity, not a raw character ratio: the two sources disagree
+        # by shortening ("Paide" / "Paide Linnameeskond") and word order
+        # ("ETO Gyor" / "Gyori ETO"), which characters alone punish.
+        home = team_similarity(q_sides[0], c_sides[0])
+        away = team_similarity(q_sides[1], c_sides[1])
         return min(home, away)
 
     @staticmethod
     def _best_match(query: str, candidates: list[str]) -> tuple[str, float] | None:
         q_norm = normalise_match(query)
-        q_sides = normalise_sides(query)
+        q_sides = split_sides(query)
         norm_to_orig: dict[str, str] = {}
         for c in candidates:
             norm_to_orig.setdefault(normalise_match(c), c)
 
         scored = []
         for c_norm, orig in norm_to_orig.items():
-            whole = difflib.SequenceMatcher(None, q_norm, c_norm).ratio()
-            # Best of the two views. Per-side rescues fixtures whose names
-            # differ on one side only; the whole-string score still carries
-            # anything that is not an "A v B" pair.
-            per_side = BettingIsCoolProvider._pair_score(
-                q_sides, normalise_sides(orig)
-            )
-            scored.append((max(whole, per_side), orig))
+            c_sides = split_sides(orig)
+            if q_sides and c_sides:
+                # BOTH sides must stand up on their own. The whole-string score
+                # is deliberately NOT considered here: when one team's name is
+                # long and shared, it carries a fixture over the line despite
+                # the other team being someone else entirely — which is how
+                # "Horsens v Nordsjaelland" priced off "Brondby vs
+                # Nordsjaelland", and "Brommapojkarna v Hammarby" off
+                # "Brommapojkarna vs Malmo". Both were confident wrong prices.
+                score = BettingIsCoolProvider._pair_score(q_sides, c_sides)
+            else:
+                # Not a fixture pair (shouldn't happen for a coupon leg, but a
+                # malformed name must still be comparable) — fall back to the
+                # whole string.
+                score = difflib.SequenceMatcher(None, q_norm, c_norm).ratio()
+            scored.append((score, orig))
 
         scored.sort(reverse=True)
         if scored and scored[0][0] >= MATCH_THRESHOLD:

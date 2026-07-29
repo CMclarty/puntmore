@@ -164,3 +164,69 @@ def test_unrelated_fixtures_are_still_rejected():
     from app.providers.bettingiscool import BettingIsCoolProvider as P
     board = ["Newmarket vs North Lakes United", "Crvena Zvezda vs Larne"]
     assert P._best_match("Nonexistent FC vs Fake United", board) is None
+
+
+# --- Team-name normalisation: accents, city names, club forms, squads ---
+
+def test_accents_and_non_decomposing_letters_fold():
+    """Coupons print ASCII; boards carry the real spelling. Ø, Æ, Ł and friends
+    are distinct letters that NFKD leaves alone, so they need folding by hand."""
+    from app.normalise import normalise_team as n
+    assert n("Gyori ETO") == n("Győri ETO")
+    assert n("Bodo/Glimt") == n("Bodø/Glimt")
+    assert n("Malmo FF") == n("Malmö FF")
+    assert n("Legia Warsaw") == n("Legia Warszawa")
+
+
+def test_city_names_translate():
+    """The club word is shared and only the city differs — one token map fixes a
+    whole family of clubs rather than one alias each."""
+    from app.normalise import normalise_team as n
+    assert n("Sparta Prague") == n("Sparta Praha")
+    assert n("Rapid Vienna") == n("Rapid Wien")
+    assert n("Bayern Munich") == n("Bayern München")
+    assert n("Dynamo Kiev") == n("Dynamo Kyiv")
+
+
+def test_shortened_names_match_by_containment():
+    """One source prints the short name, the other the full one."""
+    from app.normalise import team_similarity as t
+    assert t("Paide", "Paide Linnameeskond") >= 0.9
+    assert t("Sutjeska", "Sutjeska Niksic") >= 0.9
+    assert t("AGF Aarhus", "AGF") >= 0.9          # three-letter club identity
+    assert t("AaB Aalborg", "AaB") >= 0.9
+
+
+def test_word_order_does_not_break_a_match():
+    from app.normalise import team_similarity as t
+    assert t("ETO Gyor", "Gyori ETO") >= 0.9
+
+
+def test_reserve_sides_never_match_the_first_team():
+    """A B/reserve/youth side has its own, much longer prices. Matching a first
+    team against one produced a confident wrong price on a live coupon."""
+    from app.normalise import team_similarity as t
+    assert t("Wisla Krakow", "Wisla Krakow II") == 0.0
+    assert t("AaB Aalborg", "AaB II") == 0.0
+    assert t("Real Madrid", "Real Madrid B") == 0.0
+    assert t("Ajax", "Ajax U21") == 0.0
+
+
+def test_different_clubs_sharing_a_name_stay_apart():
+    from app.normalise import team_similarity as t
+    assert t("Dinamo Zagreb", "Dinamo Tbilisi") < 0.72
+    assert t("Inter Milan", "Inter Turku") < 0.72
+    assert t("AGF Aarhus", "AGF Odense") < 0.72
+
+
+def test_one_matching_side_cannot_carry_a_fixture():
+    """The bug this replaced: a long shared name dragged the whole-string score
+    over the line while the OTHER team was someone else entirely."""
+    from app.providers.bettingiscool import BettingIsCoolProvider as P
+    board = ["Brondby vs FC Nordsjaelland", "Brommapojkarna vs Malmo"]
+    assert P._best_match("Horsens v Nordsjaelland", board) is None
+    assert P._best_match("Brommapojkarna v Hammarby", board) is None
+    # ...but the right fixture still matches when it is present.
+    board.append("AC Horsens vs FC Nordsjaelland")
+    got = P._best_match("Horsens v Nordsjaelland", board)
+    assert got and got[0] == "AC Horsens vs FC Nordsjaelland"

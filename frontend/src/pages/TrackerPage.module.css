@@ -435,3 +435,21 @@
   background: #21603f;
   box-shadow: none;
 }
+
+/* Reveals the rows collapsed for being under the EV floor or unpriced. Full
+   width so it reads as part of the list, not a floating control. */
+.expandRow {
+  display: block;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: var(--zebra);
+  font: inherit;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  text-align: center;
+  cursor: pointer;
+}
+.expandRow:hover { color: var(--ink); }

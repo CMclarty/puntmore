@@ -15,6 +15,29 @@ const LADDER_OPTIONS = FRACTIONAL_LADDER.map(f => (
   <option key={f} value={f}>{f} · {fractionToDecimal(f).toFixed(2)}</option>
 ))
 
+/**
+ * Rows worth looking at are shown; the rest collapse behind one button.
+ *
+ * The EV column is an index where 100 is break-even, so 95 is "5% worse than
+ * fair". A long coupon is ~156 rows and most of them are priced against you or
+ * unpriced altogether — scrolling past them to reach the handful above the line
+ * is the whole cost of the list.
+ *
+ * An UNPRICED row (no fair odds, so no EV) collapses too: it carries no result
+ * to read. It is still one tap away, which matters because unpriced usually
+ * means an unmatched fixture worth correcting.
+ */
+const EV_FLOOR = 95
+
+function evIndex(leg) {
+  return leg.value == null ? null : 100 + leg.value * 100
+}
+
+function isAboveFloor(leg) {
+  const ev = evIndex(leg)
+  return ev != null && ev >= EV_FLOOR
+}
+
 function valueTier(v) {
   if (v == null) return 'none'
   if (v >= 0.06) return 'hi'
@@ -245,6 +268,8 @@ export default function TrackerPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [editingId, setEditingId] = useState(null)
+  // Which period sections have had their below-the-line rows revealed.
+  const [expanded, setExpanded] = useState({})
   const [savingId, setSavingId] = useState(null)
   const [error, setError] = useState(null)
 
@@ -390,19 +415,40 @@ export default function TrackerPage() {
                 )}
                 <span className={`${styles.phCount} ${styles.mono}`}>{g.legs.length}</span>
               </div>
-              {g.legs.map((leg, i) => (
-                <LegCard
-                  key={leg.id}
-                  leg={leg}
-                  rank={i + 1}
-                  editing={editingId === leg.id}
-                  saving={savingId === leg.id}
-                  onStartEdit={startEdit}
-                  onCancelEdit={cancelEdit}
-                  onSave={saveEdit}
-                  onOddsChange={handleOddsChange}
-                />
-              ))}
+              {(() => {
+                // A ladder coupon has no per-row EV to filter on — its rows
+                // show fair odds instead — so it is never collapsed.
+                const filterable = activeType?.prices_each_selection !== false
+                const shown = (!filterable || expanded[g.status ?? 'none'])
+                  ? g.legs
+                  : g.legs.filter(isAboveFloor)
+                const hidden = g.legs.length - shown.length
+                return (
+                  <>
+                    {shown.map((leg, i) => (
+                      <LegCard
+                        key={leg.id}
+                        leg={leg}
+                        rank={i + 1}
+                        editing={editingId === leg.id}
+                        saving={savingId === leg.id}
+                        onStartEdit={startEdit}
+                        onCancelEdit={cancelEdit}
+                        onSave={saveEdit}
+                        onOddsChange={handleOddsChange}
+                      />
+                    ))}
+                    {hidden > 0 && (
+                      <button
+                        className={styles.expandRow}
+                        onClick={() => setExpanded(e => ({ ...e, [g.status ?? 'none']: true }))}
+                      >
+                        Show {hidden} more — under {EV_FLOOR} EV or unpriced
+                      </button>
+                    )}
+                  </>
+                )
+              })()}
             </Fragment>
           ))}
         </div>
