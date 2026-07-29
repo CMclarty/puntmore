@@ -1,4 +1,4 @@
-from .base import OCRProvider, ExtractedRow, ExtractedCoupon
+from .base import OCRProvider, ExtractedRow, ExtractedCoupon, OcrHint
 
 
 class MockOCRProvider(OCRProvider):
@@ -10,7 +10,9 @@ class MockOCRProvider(OCRProvider):
     stop reflecting anything.
     """
 
-    def extract(self, image_bytes: bytes, media_type: str) -> ExtractedCoupon:
+    def extract(
+        self, image_bytes: bytes, media_type: str, hint: OcrHint | None = None
+    ) -> ExtractedCoupon:
         return ExtractedCoupon(
             rows=[
                 ExtractedRow("Arsenal vs Chelsea", "Arsenal Win and Over 2.5",

@@ -12,12 +12,24 @@ from ..database import get_db
 from ..models import Coupon, Leg
 from ..schemas import UploadInitResponse
 from ..config import settings
-from .. import coupon_types, coupon_periods
+from .. import coupon_types, coupon_periods, normalise
 from ..images import normalise_orientation
 from ..pricing.legs import price_legs
+from ..providers.base import OcrHint
 from ..security import require_user
 
 logger = logging.getLogger("uvicorn.error")
+
+
+def _selection_for(ctype, team: str | None) -> str:
+    """This coupon's selection text, with the team filled in when it names one.
+
+    The template is "{team} to Score 1"; a coupon whose market applies to the
+    whole fixture (GG) has no placeholder and formats to itself.
+    """
+    if team is None or "{team}" not in ctype.selection:
+        return ctype.selection
+    return ctype.selection.format(team=team)
 
 
 def _build_legs(coupon_id, extracted, ctype, reference: date) -> list[Leg]:
@@ -27,20 +39,47 @@ def _build_legs(coupon_id, extracted, ctype, reference: date) -> list[Leg]:
     the market (known from WHICH coupon was photographed, so it is never
     guessed from the header) and the kickoff date (coupons print a weekday
     only, resolved forward from the upload).
+
+    A TWO-SIDED priced coupon prints an H and an A price per fixture, and each
+    is its own bet ("Kairat to Score 1" and "Omonia Nicosia to Score 1"), so
+    such a row yields TWO legs. Value can be on either side, and collapsing
+    them to one would discard half the coupon. A side whose price was
+    unreadable is skipped rather than stored priceless — on a priced coupon a
+    leg with no odds has nothing to value.
     """
     legs = []
-    for rank, row in enumerate(extracted.rows):
+    rank = 0
+    for row in extracted.rows:
         kickoff = coupon_periods.parse_kickoff(row.kickoff_text, reference)
+        sides = normalise.split_sides(row.match) if ctype.two_sided else None
+
+        if ctype.two_sided and sides and (row.home_odds or row.away_odds):
+            home, away = sides
+            for team, odds in ((home, row.home_odds), (away, row.away_odds)):
+                if odds is None:
+                    continue
+                legs.append(Leg(
+                    coupon_id=coupon_id,
+                    match_name=row.match,
+                    pick=row.market or _selection_for(ctype, team),
+                    odds=odds,
+                    kickoff=kickoff,
+                    rank=rank,
+                ))
+                rank += 1
+            continue
+
         legs.append(Leg(
             coupon_id=coupon_id,
             match_name=row.match,
-            pick=row.market or ctype.selection,
+            pick=row.market or _selection_for(ctype, None),
             # Only priced coupons carry a per-fixture price; a ladder coupon
             # prints none and any number here would be invented.
             odds=row.your_odds if ctype.prices_each_selection else None,
             kickoff=kickoff,
             rank=rank,
         ))
+        rank += 1
     return legs
 
 
@@ -68,6 +107,16 @@ def _apply_coupon_window(coupon, extracted, ctype, period, reference, legs) -> N
                 "Coupon %s: payout ladder unreadable, using the configured "
                 "default. Verify it against the printed coupon.", coupon.id,
             )
+
+
+def _hint_for(ctype) -> OcrHint:
+    """What to tell OCR about the sheet being read. The type is chosen on the
+    upload form, so which market block to read is known rather than guessed."""
+    return OcrHint(
+        priced=ctype.prices_each_selection,
+        two_sided=ctype.two_sided,
+        board_label=ctype.board_label,
+    )
 
 
 def _coupon_name(ctype, period, coupon) -> str:
@@ -150,7 +199,7 @@ async def upload_coupon(
 
     ocr = request.app.state.ocr_provider
     try:
-        extracted = ocr.extract(image_bytes, media_type)
+        extracted = ocr.extract(image_bytes, media_type, _hint_for(ctype))
     except Exception:
         # Log the cause: a bare 502 hid a plain AttributeError for a full day.
         logger.exception("OCR extraction failed (%s)", type(ocr).__name__)
@@ -211,9 +260,10 @@ def rescan_coupon(
     with open(coupon.image_path, "rb") as f:
         image_bytes = f.read()
 
+    ctype = coupon_types.get(coupon.type_code)
     ocr = request.app.state.ocr_provider
     try:
-        extracted = ocr.extract(image_bytes, media_type)
+        extracted = ocr.extract(image_bytes, media_type, _hint_for(ctype))
     except Exception:
         logger.exception("OCR re-scan failed (%s)", type(ocr).__name__)
         raise HTTPException(status_code=502, detail="OCR extraction failed")
@@ -230,7 +280,6 @@ def rescan_coupon(
     # OCR rows are positional — row i is the i-th line of the coupon. A rank a
     # human has already corrected is skipped outright rather than re-added
     # alongside the edit, which would duplicate that leg.
-    ctype = coupon_types.get(coupon.type_code)
     reference = coupon.match_day or date.today()
     fresh = [
         leg for rank, leg in enumerate(

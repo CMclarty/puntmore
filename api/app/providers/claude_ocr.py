@@ -1,9 +1,10 @@
 import base64
 import json
+import re
 
 import anthropic
 
-from .base import OCRProvider, ExtractedRow, ExtractedCoupon
+from .base import OCRProvider, ExtractedRow, ExtractedCoupon, OcrHint
 
 # Sonnet 5 (not Haiku 4.5) for the resolution: Haiku caps images at 1568px on
 # the long edge, Sonnet 5 accepts 2576px. Coupon photos are dense small print —
@@ -15,9 +16,16 @@ SYSTEM_PROMPT = """You read printed bookmaker football coupons.
 Return ONLY valid JSON — no markdown, no prose, no explanation.
 
 A coupon is a printed LIST OF FIXTURES for ONE market (e.g. "GG BONUS" = both
-teams to score). Most list coupons print NO odds beside each fixture. Instead
-they pay a fixed price for getting N selections correct, printed as a ladder
-("All 3 correct 9/2", "All 4 correct 9/1", ...).
+teams to score). Coupons come in two shapes:
+
+  LADDER coupons print NO odds beside each fixture. They pay a fixed price for
+  getting N selections correct, printed as a ladder ("All 3 correct 9/2", ...).
+
+  PRICED coupons print odds beside every fixture, usually as a GRID: the
+  fixtures run down the left, and each market has its own labelled column block
+  across the page (e.g. "TEAM TO SCORE 1 OR MORE GOALS", then "2 OR MORE", then
+  "3 OR MORE"). Most such blocks are split into an "H" and an "A" sub-column —
+  the price for the HOME team and for the AWAY team of that row's fixture.
 
 Return exactly this shape:
 {
@@ -25,19 +33,33 @@ Return exactly this shape:
   "period_text": string or null,
   "payout_ladder": [ {"picks": 3, "fractional": "9/2"}, ... ],
   "selections": [
-    {"match": "...", "kickoff": "...", "market": null, "your_odds": null}, ...
+    {"match": "...", "kickoff": "...", "market": null,
+     "your_odds": null, "home_odds": null, "away_odds": null}, ...
   ]
 }
 
 Rules:
-- Extract EVERY fixture row, in reading order. Coupons are usually laid out in
-  TWO COLUMNS — read the left column fully, then the right. Do not stop early
-  and do not summarise; a partial list is worse than none.
+- Extract EVERY fixture row, in reading order — including rows under a date
+  sub-heading ("Wednesday 29th July"), which are part of the same list. A long
+  coupon runs to 78 rows. Do not stop early and do not summarise; a partial
+  list is worse than none.
 - "match": the fixture exactly as printed, e.g. "Mariehamn v Lahti".
-- "kickoff": day and time exactly as printed, e.g. "MON 17:00". Null if absent.
-- "your_odds": the decimal odds printed beside THAT fixture, or null. Most list
-  coupons have none — return null rather than inventing a price or copying one
-  from the payout ladder.
+- "kickoff": ALWAYS "DAY HH:MM" with a three-letter day, e.g. "MON 17:00".
+  Long lists group rows under a date sub-heading ("Wednesday 29th July") and
+  print only a time on each row — carry that heading's day down onto every row
+  beneath it, so a 16:00 row under "Wednesday 29th July" is "WED 16:00". Null
+  only if no time is printed at all.
+- ODDS ARE PRINTED AS FRACTIONS and often use a HYPHEN, not a slash: "6-4"
+  means 6/4, "4-11" means 4/11, "10-1" means 10/1. "EVS" means evens (1/1).
+  Copy them EXACTLY as printed, as strings — do NOT convert to decimal.
+- "home_odds" / "away_odds": for a PRICED grid, the price under the "H" and the
+  "A" sub-column of the REQUESTED market block for that fixture's row. Read
+  straight across the row and take care not to drift into a neighbouring
+  market's columns — they look alike.
+- "your_odds": only for a priced coupon that prints ONE price per fixture (no
+  H/A split). Otherwise null.
+- Return null for any price you cannot read rather than guessing or copying a
+  neighbouring row. A missing price is recoverable; a wrong one is not.
 - "market": only when a per-fixture selection is printed beside the fixture
   (e.g. a named team). Null otherwise — the market is known from which coupon
   this is, so do not guess it from the header.
@@ -52,13 +74,77 @@ USER_PROMPT = (
 )
 
 
+def build_user_prompt(hint: OcrHint | None) -> str:
+    """The per-upload instruction. The coupon TYPE is chosen on the upload form,
+    so which market block to read is known — telling the model narrows a grid of
+    look-alike columns to the one that was actually photographed for."""
+    if hint is None or not hint.priced:
+        return USER_PROMPT
+    parts = [
+        "Read this coupon. Return EVERY fixture row (a long coupon has 78), "
+        "plus the date range."
+    ]
+    if hint.board_label:
+        parts.append(
+            f"This is a PRICED grid and the market to read is the column block "
+            f'headed "{hint.board_label}". Ignore every other market block on '
+            f"the sheet."
+        )
+    else:
+        parts.append("This is a PRICED coupon: read the price beside each fixture.")
+    if hint.two_sided:
+        parts.append(
+            "That block has an H and an A sub-column: put the H price in "
+            '"home_odds" and the A price in "away_odds", exactly as printed '
+            '(fractions such as "6-4", "4-11", or "EVS").'
+        )
+    else:
+        parts.append('Put each fixture\'s price in "your_odds", exactly as printed.')
+    return " ".join(parts)
+
+
 def _fractional_to_decimal(fraction: str) -> float | None:
-    """"9/2" -> 5.5. Ladders are printed as fractions, priced as decimals."""
+    """"9/2" -> 5.5. Ladders are printed as fractions, priced as decimals.
+
+    Boards print the separator as a slash OR a hyphen ("6-4" is 6/4, not a
+    range), and evens as "EVS"/"EVENS". All three are the same price to us.
+    """
+    if fraction is None:
+        return None
+    text = str(fraction).strip().upper().replace(",", "")
+    if not text:
+        return None
+    if text in ("EVS", "EVENS", "EVEN", "1-1", "1/1"):
+        return 2.0
     try:
-        num, den = fraction.replace(",", "").split("/")
+        num, den = re.split(r"[/\-]", text, maxsplit=1)
         return float(num) / float(den) + 1.0
     except (ValueError, ZeroDivisionError, AttributeError):
         return None
+
+
+def parse_odds(value) -> float | None:
+    """A printed price -> decimal odds, or None if it can't be read.
+
+    Coupons print fractions ("6-4", "4-11", "EVS"); a decimal may still arrive
+    from a differently-shaped sheet or another provider, so both are accepted.
+    Anything unreadable is None — an unpriced leg beats a wrongly priced one,
+    and this used to raise ValueError and 502 the whole upload.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        odds = float(value)
+        return odds if odds > 1.0 else None
+    text = str(value).strip()
+    if not text:
+        return None
+    # A bare number is already decimal odds; anything else is fractional.
+    if re.fullmatch(r"\d+(\.\d+)?", text):
+        odds = float(text)
+        return odds if odds > 1.0 else None
+    decimal = _fractional_to_decimal(text)
+    return round(decimal, 4) if decimal is not None else None
 
 
 def _parse_ladder(raw) -> dict[int, float]:
@@ -79,6 +165,27 @@ def _parse_ladder(raw) -> dict[int, float]:
     return ladder
 
 
+def parse_rows(data: dict) -> list[ExtractedRow]:
+    """The `selections` array -> rows. Shared by every OCR provider so a fix
+    here (fractional odds, H/A prices) lands for all of them at once."""
+    rows = []
+    for row in data.get("selections") or []:
+        match = (row.get("match") or "").strip()
+        if not match:
+            continue  # a row with no fixture cannot be matched or priced
+        rows.append(
+            ExtractedRow(
+                match=match,
+                market=(row.get("market") or None),
+                your_odds=parse_odds(row.get("your_odds")),
+                kickoff_text=(row.get("kickoff") or None),
+                home_odds=parse_odds(row.get("home_odds")),
+                away_odds=parse_odds(row.get("away_odds")),
+            )
+        )
+    return rows
+
+
 def _strip_code_fence(text: str) -> str:
     """Tolerate ```json fences despite the prompt forbidding them.
 
@@ -95,7 +202,9 @@ class ClaudeOCRProvider(OCRProvider):
     def __init__(self, api_key: str):
         self._client = anthropic.Anthropic(api_key=api_key)
 
-    def extract(self, image_bytes: bytes, media_type: str) -> ExtractedCoupon:
+    def extract(
+        self, image_bytes: bytes, media_type: str, hint: OcrHint | None = None
+    ) -> ExtractedCoupon:
         encoded = base64.standard_b64encode(image_bytes).decode("utf-8")
 
         message = self._client.messages.create(
@@ -123,7 +232,7 @@ class ClaudeOCRProvider(OCRProvider):
                                 "data": encoded,
                             },
                         },
-                        {"type": "text", "text": USER_PROMPT},
+                        {"type": "text", "text": build_user_prompt(hint)},
                     ],
                 }
             ],
@@ -155,23 +264,8 @@ class ClaudeOCRProvider(OCRProvider):
         if isinstance(data, list):
             data = {"selections": data}
 
-        rows = []
-        for row in data.get("selections") or []:
-            match = (row.get("match") or "").strip()
-            if not match:
-                continue  # a row with no fixture cannot be matched or priced
-            odds = row.get("your_odds")
-            rows.append(
-                ExtractedRow(
-                    match=match,
-                    market=(row.get("market") or None),
-                    your_odds=float(odds) if odds is not None else None,
-                    kickoff_text=(row.get("kickoff") or None),
-                )
-            )
-
         return ExtractedCoupon(
-            rows=rows,
+            rows=parse_rows(data),
             title=data.get("title") or None,
             period_text=data.get("period_text") or None,
             payout_ladder=_parse_ladder(data.get("payout_ladder")),

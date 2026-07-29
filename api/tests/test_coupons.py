@@ -524,7 +524,7 @@ def gg_client(tmp_path):
     from app.providers.base import ExtractedCoupon, ExtractedRow
 
     class _LadderOCR(OCRProvider):
-        def extract(self, image_bytes, media_type):
+        def extract(self, image_bytes, media_type, hint=None):
             return ExtractedCoupon(
                 rows=[
                     ExtractedRow("Inverness v St Johnstone", None, None, "MON 19:45"),
@@ -636,7 +636,7 @@ def hills_client(tmp_path):
     from app.providers.base import ExtractedCoupon, ExtractedRow
 
     class _HillsOCR(OCRProvider):
-        def extract(self, image_bytes, media_type):
+        def extract(self, image_bytes, media_type, hint=None):
             return ExtractedCoupon(
                 rows=[
                     # 8/4, 6/5, 13/8, 11/8 as printed → decimal. Market stays
@@ -715,3 +715,45 @@ def test_priced_only_coupon_stores_no_ladder(hills_client, db):
     from app.coupon_types import get
     assert get("TTS2").pays_ladder is False
     assert get("TTS2").default_ladder == {}
+
+
+# --- Two-sided priced coupons (William Hill grids) ---
+
+def test_two_sided_row_becomes_one_leg_per_team():
+    """A Hill grid prints an H and an A price per fixture, and each is its own
+    bet — so one row yields TWO priced legs with the team filled into the pick.
+    Collapsing them to one silently discarded half the coupon."""
+    from app.routers.upload import _build_legs
+    from app.providers.base import ExtractedCoupon, ExtractedRow
+    from app import coupon_types
+    from datetime import date
+
+    extracted = ExtractedCoupon(rows=[
+        ExtractedRow("Kairat v Omonia Nicosia", None, None, "WED 16:00",
+                     home_odds=1.3333, away_odds=1.3636),
+    ])
+    legs = _build_legs(1, extracted, coupon_types.get("TTS1"), date(2026, 7, 29))
+
+    assert [l.pick for l in legs] == [
+        "Kairat to Score 1", "Omonia Nicosia to Score 1",
+    ]
+    assert [l.odds for l in legs] == [1.3333, 1.3636]
+    assert [l.rank for l in legs] == [0, 1]          # ranks stay contiguous
+    assert all(l.kickoff.date() == date(2026, 7, 29) for l in legs)
+
+
+def test_two_sided_skips_a_side_it_could_not_read():
+    """An unreadable side is dropped, not stored priceless — on a priced coupon
+    a leg with no odds has nothing to value. The other side still saves."""
+    from app.routers.upload import _build_legs
+    from app.providers.base import ExtractedCoupon, ExtractedRow
+    from app import coupon_types
+    from datetime import date
+
+    extracted = ExtractedCoupon(rows=[
+        ExtractedRow("Kauno v Klaksvik", None, None, "WED 17:00",
+                     home_odds=1.2, away_odds=None),
+    ])
+    legs = _build_legs(1, extracted, coupon_types.get("TTS1"), date(2026, 7, 29))
+    assert len(legs) == 1
+    assert legs[0].pick == "Kauno to Score 1" and legs[0].odds == 1.2

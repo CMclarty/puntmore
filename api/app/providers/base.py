@@ -41,6 +41,21 @@ class OddsProvider(ABC):
 
 
 @dataclass
+class OcrHint:
+    """What the coupon being photographed is, so OCR reads the right thing.
+
+    A priced coupon prints odds beside each fixture; `board_label` names WHICH
+    market's columns to read, because one sheet often prints several side by
+    side (e.g. team-to-score 1+, 2+ and 3+). `two_sided` says that market has a
+    separate Home and an Away price per fixture — both are read, one leg each.
+    A ladder-only coupon prints no per-fixture price and needs no hint.
+    """
+    priced: bool = False
+    two_sided: bool = False
+    board_label: str | None = None
+
+
+@dataclass
 class ExtractedRow:
     match: str
     # None when the coupon prints no per-fixture selection. The market is known
@@ -52,6 +67,11 @@ class ExtractedRow:
     # Kickoff exactly as printed, e.g. "MON 17:00". Resolved to a date against
     # the coupon's window, since the coupon only prints a weekday.
     kickoff_text: str | None = None
+    # Two-sided priced coupons print a price for the home team AND the away team
+    # under one market heading — each becomes its own priced leg. None on any
+    # coupon that prints a single price (your_odds) or none at all.
+    home_odds: float | None = None
+    away_odds: float | None = None
 
 
 @dataclass
@@ -72,5 +92,7 @@ class ExtractedCoupon:
 
 class OCRProvider(ABC):
     @abstractmethod
-    def extract(self, image_bytes: bytes, media_type: str) -> ExtractedCoupon:
+    def extract(
+        self, image_bytes: bytes, media_type: str, hint: OcrHint | None = None
+    ) -> ExtractedCoupon:
         ...

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.providers.claude_ocr import ClaudeOCRProvider, _strip_code_fence
+from app.providers.claude_ocr import ClaudeOCRProvider, _strip_code_fence, parse_odds
 from app.providers.base import ExtractedCoupon
 
 
@@ -84,3 +84,38 @@ def test_truncation_fails_loudly_with_cause():
 def test_strip_code_fence_plain_passthrough():
     assert _strip_code_fence('{"a":1}') == '{"a":1}'
     assert _strip_code_fence('```json\n{"a":1}\n```') == '{"a":1}'
+
+
+# --- Printed odds: fractions with a hyphen, and EVS (William Hill boards) ---
+
+def test_parse_odds_reads_hyphenated_fractions_and_evs():
+    """Hill prints "6-4", not "6/4", and evens as "EVS". These used to reach
+    float() and raise, which 502'd the whole upload and deleted the image."""
+    assert parse_odds("6-4") == 2.5
+    assert parse_odds("4-11") == 1.3636
+    assert parse_odds("1-50") == 1.02
+    assert parse_odds("13-8") == 2.625
+    assert parse_odds("20-1") == 21.0
+    assert parse_odds("EVS") == 2.0
+    assert parse_odds("9/2") == 5.5      # slash form still works
+    assert parse_odds(1.85) == 1.85      # already decimal
+    assert parse_odds("1.85") == 1.85
+
+
+def test_parse_odds_returns_none_rather_than_raising():
+    """An unreadable price must not take the coupon down with it."""
+    for bad in (None, "", "  ", "n/a", "-", "abc", "1-0"):
+        assert parse_odds(bad) is None
+
+
+def test_two_sided_rows_carry_both_prices():
+    body = json.dumps({
+        "selections": [
+            {"match": "Kairat v Omonia Nicosia", "kickoff": "WED 16:00",
+             "home_odds": "1-3", "away_odds": "4-11"},
+        ]
+    })
+    coupon = _provider([_block("text", body)]).extract(b"img", "image/png")
+    row = coupon.rows[0]
+    assert row.home_odds == 1.3333 and row.away_odds == 1.3636
+    assert row.your_odds is None

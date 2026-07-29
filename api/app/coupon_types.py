@@ -54,6 +54,13 @@ class CouponType:
     # Fixtures are only worth listing when the price is short enough to be
     # worth taking. None = no filter, rank on value alone.
     max_fair_odds: float | None = None
+    # The heading of this market's column block on a priced grid sheet, as
+    # printed. One sheet prints several look-alike blocks side by side, so OCR
+    # is told which one was photographed for rather than left to choose.
+    board_label: str | None = None
+    # Does that block print a separate Home and Away price per fixture? Those
+    # coupons yield TWO priced legs per row, one per team.
+    two_sided: bool = False
 
 
 # LADDERS ARE PER BOOKMAKER AND PER ISSUE. Each type carries its own fallback,
@@ -87,11 +94,19 @@ _WH_LADDER = {
 _VARIABLE = ("MIDWEEK", "WEEKEND")
 
 COUPON_TYPES: tuple[CouponType, ...] = (
-    CouponType("TTS1", "Team to Score 1", "{team} to Score 1"),
-    CouponType("TTS2", "Team to Score 2", "{team} to Score 2"),
-    CouponType("TTS3", "Team to Score 3", "{team} to Score 3"),
-    CouponType("WO15", "Win and Over 1.5", "{team} Win and Over 1.5"),
-    CouponType("WO25", "Win and Over 2.5", "{team} Win and Over 2.5"),
+    # The five priced types are all two-sided grids on the William Hill sheets:
+    # one block per market, split into H and A columns (verified against the
+    # 29–31 Jul 2026 "Team to score" and "Match winner" issues).
+    CouponType("TTS1", "Team to Score 1", "{team} to Score 1",
+               board_label="TEAM TO SCORE 1 OR MORE GOALS", two_sided=True),
+    CouponType("TTS2", "Team to Score 2", "{team} to Score 2",
+               board_label="TEAM TO SCORE 2 OR MORE GOALS", two_sided=True),
+    CouponType("TTS3", "Team to Score 3", "{team} to Score 3",
+               board_label="TEAM TO SCORE 3 OR MORE GOALS", two_sided=True),
+    CouponType("WO15", "Win and Over 1.5", "{team} Win and Over 1.5",
+               board_label="WIN & 2 OR MORE GOALS", two_sided=True),
+    CouponType("WO25", "Win and Over 2.5", "{team} Win and Over 2.5",
+               board_label="WIN & 3 OR MORE GOALS", two_sided=True),
     CouponType(
         "GGB", "GG Bonus", "GG Bonus",
         period_codes=_VARIABLE, prices_each_selection=False, pays_ladder=True,

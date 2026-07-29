@@ -24,6 +24,23 @@ def normalise_team(name: str) -> str:
     return ' '.join(_ABBREVS.get(w, w) for w in name.split())
 
 
+def split_sides(match_name: str) -> tuple[str, str] | None:
+    """"Kairat v Omonia Nicosia" -> ("Kairat", "Omonia Nicosia").
+
+    Keeps the names AS PRINTED (no normalising) — they go into a leg's pick
+    text, which a human reads and the fixture matcher normalises itself.
+    Returns None when the fixture isn't a two-sided "A v B", so the caller can
+    decline rather than invent a team.
+    """
+    parts = _VS_RE.split(match_name or "", maxsplit=1)
+    if len(parts) != 2:
+        return None
+    home, away = parts[0].strip(), parts[1].strip()
+    if not home or not away:
+        return None
+    return home, away
+
+
 def normalise_match(match_name: str) -> str:
     parts = _VS_RE.split(match_name, maxsplit=1)
     if len(parts) == 2:
