@@ -240,24 +240,23 @@ single pricing path for direct markets; the derived model (§8) consumes the sam
 devigged probabilities. (This replaces the pre-v4 behaviour where the coupon
 tracker used raw Pinnacle prices as fair — R10 note; that exception is retired.)
 
-### 7.2 OCR handling (auto-confirm + anomaly flags)
+### 7.2 OCR handling (auto-confirm)
 Uploads happen from a phone — there is NO blocking review screen. Instead:
 - OCR rows persist immediately and pricing runs (status: processing →
   confirmed on save).
-- Sanity checks per row, flagged with a ⚠ badge in the legs table (reasons in
-  `legs.flags`): odds outside a plausible range for the market; fuzzy name-match
-  confidence below threshold; computed value beyond a plausibility cap (default
-  ±15%) — large "edges" are usually misread digits.
+- REMOVED July 2026 (Callum's call — rows are checked by hand anyway): the
+  per-row sanity checks, the `legs.flags` column and the ⚠ badge. There is no
+  automated anomaly flagging; the value column is what a bad read shows up in.
 - Every row is editable inline (tap-to-edit: match, pick, your odds); edits
   reprice immediately and set `legs.edited = true`.
 - **Re-scan button**: each coupon can manually re-trigger OCR on the stored
   image. Re-scan replaces UNEDITED rows with the fresh extraction; rows the user
   has edited are preserved (never overwrite a human correction with a machine
-  re-read). Sanity checks and ⚠ badges re-run on the result.
+  re-read).
 - Fixtures that fail name-matching persist as "unmatched" rows with fair odds
   blank (never block the coupon); resolving them is an inline edit.
-- KNOWN TRADE-OFF (accepted): a plausible misread can pass the checks; the
-  value column is the practical tripwire.
+- KNOWN TRADE-OFF (accepted): a misread is not detected automatically; the
+  value column is the practical tripwire and rows are reviewed by hand.
 
 Team-name normalisation (`app/normalise.py`): OCR'd names won't match provider
 fixture names exactly ("Man Utd" vs "Manchester United"). A fuzzy-match layer

@@ -278,11 +278,9 @@ def _process_upload(
         db.commit()
 
         if notifier:
-            flagged = sum(1 for leg in legs if leg.flags)
-            suffix = f", {flagged} flagged for review" if flagged else ""
             notifier.send(
                 f":inbox_tray: New upload: **{coupon.name}** — "
-                f"{len(legs)} selections saved and priced{suffix}."
+                f"{len(legs)} selections saved and priced."
             )
     except Exception:
         logger.exception("Coupon %s failed after upload", coupon_id)

@@ -295,8 +295,8 @@ def ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN matched_fixture VARCHAR"))
             if "notified_tier" not in cols:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN notified_tier VARCHAR"))
-            # V5 migration: auto-confirm OCR — anomaly flags, edit protection,
-            # and the match score behind the low-confidence flag.
+            # V5 migration: auto-confirm OCR — edit protection and the match
+            # score behind the (since-removed) confidence check.
             if "match_score" not in cols:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN match_score FLOAT"))
             if "kickoff" not in cols:
@@ -316,7 +316,14 @@ def ensure_schema() -> None:
             (c for c in inspector.get_columns("legs") if c["name"] == "odds"), None
         )
         if odds_col is not None and not odds_col["nullable"]:
-            carried = [c["name"] for c in inspector.get_columns("legs")]
+            # Only columns the MODEL still has: the rebuilt table is created
+            # from the model, so carrying a column the model has dropped (as
+            # `flags` was) would INSERT into a column that no longer exists.
+            model_cols = set(Base.metadata.tables["legs"].columns.keys())
+            carried = [
+                c["name"] for c in inspector.get_columns("legs")
+                if c["name"] in model_cols
+            ]
             with engine.begin() as conn:
                 # FKs off for the swap, or legs' own FK to coupons blocks the
                 # drop. Re-enabled by the connect listener on the next checkout.
@@ -328,10 +335,10 @@ def ensure_schema() -> None:
                     f"INSERT INTO legs ({cols_sql}) SELECT {cols_sql} FROM legs_old"
                 ))
                 conn.execute(text("DROP TABLE legs_old"))
-            # The rebuilt table already has `flags` and `edited` from the model
-            # (edited carries a SQL server_default so the INSERT above fills it),
-            # so no further ALTERs are needed here — the previous ones ran on a
-            # closed connection and duplicated existing columns.
+            # The rebuilt table already has `edited` from the model (it carries
+            # a SQL server_default so the INSERT above fills it), so no further
+            # ALTERs are needed here — the previous ones ran on a closed
+            # connection and duplicated existing columns.
 
     # Coupons cover a window (Mon–Wed / Wed–Fri / Sat / Sun), not one day.
     if "coupons" in tables:

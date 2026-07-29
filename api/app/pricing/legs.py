@@ -1,10 +1,9 @@
-"""Price a set of legs and (re)compute their sanity flags.
+"""Price a set of legs.
 
 One implementation shared by the upload path, the on-demand coupon refresh and
 the 10-minute scheduler loop, so the three can't drift on what "priced" means.
 All of them read through the odds cache — this never adds vendor calls.
 """
-from .. import checks
 from ..comparison import compute_value
 from ..models import Leg
 from ..providers.base import MatchQuery
@@ -12,11 +11,10 @@ from ..time_utils import utcnow
 
 
 def price_legs(legs: list[Leg], odds_provider) -> list[Leg]:
-    """Update fair odds, value and flags in place. Returns the legs that priced.
+    """Update fair odds and value in place. Returns the legs that priced.
 
     Legs the provider can't price keep their previous fair odds rather than
-    being blanked — a transient miss shouldn't erase a good price. They are
-    still re-flagged, so an unmatched row shows its ⚠ either way.
+    being blanked — a transient miss shouldn't erase a good price.
     """
     if not legs:
         return []
@@ -53,13 +51,5 @@ def price_legs(legs: list[Leg], odds_provider) -> list[Leg]:
             leg.side = (
                 None if result.side is None else ("home" if result.side else "away")
             )
-
-        leg.flags = checks.encode_flags(checks.evaluate_leg(
-            leg.pick,
-            leg.odds,
-            value=leg.value,
-            matched_fixture=leg.matched_fixture,
-            match_score=leg.match_score,
-        ))
 
     return priced

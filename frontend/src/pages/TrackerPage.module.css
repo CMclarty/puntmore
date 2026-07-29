@@ -175,10 +175,6 @@
 
 .legCard:last-child { border-bottom: none; }
 
-/* A flagged row is tinted, not hidden — the syndicate should be able to scan
-   the list and see which rows want a second look. */
-.flagged { background: #FDF6E9; }
-
 .legTop {
   display: flex;
   align-items: flex-start;
@@ -214,12 +210,6 @@
 
 .pickName { font-weight: 700; color: var(--ink); }
 .fixture { color: var(--muted); }
-
-.warnBadge {
-  margin-right: 4px;
-  color: #B8860B;
-  cursor: help;
-}
 
 .editedMark {
   margin-left: 5px;

@@ -4,7 +4,6 @@ from sqlalchemy import (
     Boolean, Column, Integer, String, Float, DateTime, Date, ForeignKey, Text,
 )
 from sqlalchemy.orm import relationship
-from .checks import decode_flags
 from .database import Base
 from .time_utils import utcnow
 
@@ -76,7 +75,6 @@ class Leg(Base):
     fair_odds_away = Column(Float, nullable=True)
     side = Column(String, nullable=True)             # 'home' | 'away' | None (unresolved)
     notified_tier = Column(String, nullable=True)    # last value tier sent to Discord (dedupe)
-    flags = Column(String, nullable=True)            # comma-separated codes (checks.py)
     # True once a human has corrected this row. A re-scan must never overwrite
     # an edited row with a fresh machine read.
     # server_default is REQUIRED, not cosmetic: the ensure_schema legs rebuild
@@ -86,10 +84,6 @@ class Leg(Base):
     edited = Column(Boolean, nullable=False, default=False, server_default="0")
 
     coupon = relationship("Coupon", back_populates="legs")
-
-    @property
-    def flag_list(self) -> list[str]:
-        return decode_flags(self.flags)
 
     @property
     def period_label(self) -> str | None:

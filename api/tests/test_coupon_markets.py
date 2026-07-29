@@ -257,11 +257,20 @@ def test_combination_is_unknowable_if_any_leg_is_unpriced():
 
 
 def test_flat_payout_rows_carry_no_odds_and_no_row_value():
-    """A per-row edge is meaningless with no per-row price."""
-    from app import checks
-    # No odds is normal here, so it must not raise or flag an odds anomaly.
-    flags = checks.evaluate_leg("GG Bonus", None, matched_fixture="A vs B", match_score=0.9)
-    assert checks.FLAG_ODDS_RANGE not in flags
+    """A per-row edge is meaningless with no per-row price.
+
+    A ladder coupon's rows price (fair odds are knowable) but keep value None —
+    the edge lives on the COMBINATION, not the row.
+    """
+    from app.models import Leg
+    from app.pricing.legs import price_legs
+    from app.providers.mock_odds import MockOddsProvider
+
+    leg = Leg(match_name="A vs B", pick="GG Bonus", odds=None, rank=0)
+    leg.id = 1
+    price_legs([leg], MockOddsProvider({("A vs B", "GG Bonus"): 1.80}))
+    assert leg.fair_odds == 1.80
+    assert leg.value is None
 
 
 # --- coupon periods (the fixed weekly schedule) ---

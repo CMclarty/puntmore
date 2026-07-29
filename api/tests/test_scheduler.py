@@ -93,20 +93,13 @@ def test_value_tier_thresholds():
     assert value_tier(None) is None
 
 
-# --- is_compound_pick / Leg.flag_list ---
+# --- is_compound_pick ---
 
 def test_compound_pick_detection():
     assert is_compound_pick("Win and Over 2.5")
     assert is_compound_pick("win & under 3.5")
     assert not is_compound_pick("Over 2.5")
     assert not is_compound_pick("Win")
-
-
-def test_leg_flag_list_round_trips():
-    assert Leg(match_name="x", pick="Win", odds=1.8, flags=None).flag_list == []
-    assert Leg(
-        match_name="x", pick="Win", odds=1.8, flags="odds_range,no_match"
-    ).flag_list == ["odds_range", "no_match"]
 
 
 # --- notification dedupe ---

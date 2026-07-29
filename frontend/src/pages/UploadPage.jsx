@@ -30,7 +30,6 @@ export default function UploadPage() {
 
   // Outcome of the last upload, shown on the done screen
   const [savedCount, setSavedCount] = useState(0)
-  const [flaggedCount, setFlaggedCount] = useState(0)
 
   // Previous uploads list
   const [prevCoupons, setPrevCoupons] = useState([])
@@ -63,7 +62,6 @@ export default function UploadPage() {
       const result = await uploadCoupon(typeCode, period, file)
       const legs = await waitForCoupon(result.coupon_id)
       setSavedCount(legs.length)
-      setFlaggedCount(legs.filter(l => l.flags?.length).length)
       setPhase('done')
       getCoupons().then(setPrevCoupons).catch(() => {})
       setTimeout(() => navigate('/'), 1200)
@@ -130,11 +128,6 @@ export default function UploadPage() {
           <p className={styles.loadingMsg}>
             ✓ {savedCount} leg{savedCount !== 1 ? 's' : ''} saved &amp; priced
           </p>
-          {flaggedCount > 0 && (
-            <p className={styles.loadingSub}>
-              ⚠ {flaggedCount} need{flaggedCount === 1 ? 's' : ''} a look — correct on the tracker.
-            </p>
-          )}
         </div>
       </div>
     )

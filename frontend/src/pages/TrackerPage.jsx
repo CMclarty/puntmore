@@ -15,15 +15,6 @@ const LADDER_OPTIONS = FRACTIONAL_LADDER.map(f => (
   <option key={f} value={f}>{f} · {fractionToDecimal(f).toFixed(2)}</option>
 ))
 
-// Flag codes from api/app/checks.py. Keep in sync — an unknown code falls back
-// to the raw code rather than rendering nothing, so a missed mapping is visible.
-const FLAG_LABELS = {
-  odds_range: 'Odds look out of range for this market — check the OCR read',
-  no_match: 'No fixture matched — this leg is unpriced',
-  low_confidence: 'Fixture matched loosely — check it is the right game',
-  value_implausible: 'Value is implausibly large — likely a bad read or wrong match',
-}
-
 function valueTier(v) {
   if (v == null) return 'none'
   if (v >= 0.06) return 'hi'
@@ -160,7 +151,7 @@ const LegCard = memo(function LegCard({
   leg, rank, editing, saving, onStartEdit, onCancelEdit, onSave, onOddsChange,
 }) {
   return (
-    <div className={`${styles.legCard} ${leg.flags?.length ? styles.flagged : ''}`}>
+    <div className={styles.legCard}>
       {editing ? (
         <LegEditForm leg={leg} saving={saving} onCancel={onCancelEdit} onSave={onSave} />
       ) : (
@@ -169,12 +160,6 @@ const LegCard = memo(function LegCard({
             <span className={`${styles.rank} ${styles.mono}`}>{rank}</span>
             <button className={styles.nameCell} onClick={() => onStartEdit(leg)}>
               <span className={styles.nameLine}>
-                {leg.flags?.length > 0 && (
-                  <span
-                    className={styles.warnBadge}
-                    title={leg.flags.map(f => FLAG_LABELS[f] ?? f).join('\n')}
-                  >⚠</span>
-                )}
                 {/* The full fixture, with the side the value is on in bold and
                     the market stated once. Falls back to pick + fixture when the
                     pick names no team (GG) or matches neither side. */}

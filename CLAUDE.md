@@ -15,7 +15,7 @@ React frontend, behind a shared nginx layer.
 > do not "fix" them. The coupon tracker prices via **bettingiscool**
 > (`COUPON_ODDS_SOURCE=bettingiscool`), de-vigs in-house, and derives
 > Win-and-Over off the fitted score grid. OCR **auto-confirms**: rows save and
-> price on upload, with per-leg ⚠ flags, inline edit and re-scan.
+> price on upload, with inline edit and re-scan.
 
 ```
 bettingtools/
@@ -63,8 +63,9 @@ Both live behind their seams. Core logic never calls a vendor API directly.
   (SPEC §8.4), not assumed. Until measured, use the provisional 8% threshold and
   display the uncertainty band.
 - **Coupon OCR is not blocking-reviewed** (phone uploads). Rows auto-save and
-  price immediately with per-row anomaly ⚠ flags and inline editing (SPEC §7).
-  Never drop the sanity checks or the ⚠ badges. Re-scan preserves human-edited
+  price immediately with inline editing (SPEC §7). The per-row anomaly checks
+  and ⚠ badges were REMOVED (July 2026, Callum's call — the rows are checked by
+  hand anyway); do not reintroduce them. Re-scan preserves human-edited
   rows — never overwrite a correction with a machine re-read.
 - The Odds API free tier (AccaBonus/Cards) is 500 credits/month. The 24-hour
   cache (`Settings.odds_cache_ttl`, `app/odds/client.py`) keeps this safe — do
@@ -108,9 +109,8 @@ internally and returns FAIR odds plus the fixture it fuzzy-matched.
 | `MockOddsProvider` | `providers/mock_odds.py` | no provider key (dev/test) |
 
 Legs are priced through `pricing/legs.py::price_legs` — one implementation
-shared by upload, the on-demand refresh and the scheduler, which also
-recomputes each leg's ⚠ flags (`checks.py`). Don't reintroduce a second
-pricing path; that duplication caused drift before.
+shared by upload, the on-demand refresh and the scheduler. Don't reintroduce a
+second pricing path; that duplication caused drift before.
 
 De-vigging happens in `_fair_h2h_price` / `_fair_totals_price` via
 `odds/utils.py`. **Both require the complete outcome set** — all of 1X2, or both

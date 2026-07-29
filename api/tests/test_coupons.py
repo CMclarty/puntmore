@@ -290,7 +290,7 @@ def test_upload_saves_and_prices_legs_immediately(upload_client, db):
     assert db.query(Leg).filter(Leg.coupon_id == coupon_id).count() == 3
 
 
-def test_upload_flags_unmatched_rows(upload_client):
+def test_upload_keeps_unmatched_rows_unpriced(upload_client):
     body = upload_client.post(
         "/upload",
         data={"type_code": "WO25", "period": "SAT"},
@@ -298,16 +298,16 @@ def test_upload_flags_unmatched_rows(upload_client):
     ).json()
     legs = upload_client.get(f"/coupons/{body['coupon_id']}/legs").json()
 
-    # Only Arsenal is matched by the fixture provider; the rest carry no_match
-    # but still persist with blank fair odds.
+    # Only Arsenal is matched by the fixture provider; the rest still persist,
+    # with blank fair odds rather than being dropped.
     unmatched = [l for l in legs if l["match_name"] != "Arsenal vs Chelsea"]
     assert unmatched
     for leg in unmatched:
-        assert "no_match" in leg["flags"]
         assert leg["fair_odds"] is None
+        assert leg["matched_fixture"] is None
 
     arsenal = next(l for l in legs if l["match_name"] == "Arsenal vs Chelsea")
-    assert arsenal["flags"] == []
+    assert arsenal["fair_odds"] is not None
 
 
 # --- PATCH /coupons/{id}/legs/{leg_id} (inline edit) ---
@@ -330,7 +330,6 @@ def test_edit_leg_reprices_and_marks_edited(db):
     body = resp.json()
     assert body["edited"] is True
     assert body["fair_odds"] == 1.80
-    assert body["flags"] == []
 
 
 def test_edit_leg_404_wrong_coupon(db):
