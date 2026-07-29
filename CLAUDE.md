@@ -205,6 +205,27 @@ operations behind the API key.
 4. Frontend: add a page under `frontend/src/pages/`, a route in `App.jsx`, and a
    tab in `components/NavTabs.jsx`. Reuse `DataTable.module.css` for tables.
 
+## Fresh clone
+Everything except `.env` is in the repo. Verified July 2026 by cloning from
+GitHub and building from nothing: the test suite, the frontend build and the
+Render Docker image all come up clean with NO credentials present.
+
+```
+git clone git@github.com:CMclarty/puntmore.git && cd puntmore
+uv venv api/.venv
+uv pip install -r api/requirements.txt -r api/requirements-dev.txt \
+   --python api/.venv/bin/python3
+(cd frontend && npm install)
+git config core.hooksPath .githooks     # gitleaks pre-commit (needs gitleaks on PATH)
+```
+
+`.env` is the ONLY thing that cannot be cloned — copy it across by hand; every
+variable is documented in `.env.example`. Without it you still get the full test
+suite (321 tests, hermetic: the OCR and odds providers are mocked), the frontend
+build, and deploys. What needs real keys is LIVE verification — running the real
+OCR over a coupon photo and pricing it against the live board — which is what
+catches the bugs unit tests cannot.
+
 ## Commands
 ```
 # Run tests (from api/):
