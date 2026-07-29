@@ -56,6 +56,29 @@ export function reportClientError(message, extra = {}) {
  * detail and error_id) or something else entirely (keep a slice — that slice is
  * how a proxy error page announces itself).
  */
+/**
+ * A FastAPI `detail` rendered as text.
+ *
+ * A 422 sends detail as an ARRAY of {loc, msg, type} objects. Interpolating
+ * that into a string produced "[object Object],[object Object]" on screen —
+ * an error message that says nothing at all, which is worse than the raw
+ * status. Name the offending field and what was wrong with it.
+ */
+function describeDetail(detail) {
+  if (detail == null) return null
+  if (typeof detail === 'string') return detail
+  const items = Array.isArray(detail) ? detail : [detail]
+  const parts = items.map(d => {
+    if (typeof d === 'string') return d
+    if (!d || typeof d !== 'object') return String(d)
+    // loc is like ["body", "type_code"] — the last hop is the field name.
+    const field = Array.isArray(d.loc) ? d.loc[d.loc.length - 1] : null
+    const msg = d.msg || d.message || d.type || 'invalid'
+    return field ? `${field}: ${msg}` : msg
+  }).filter(Boolean)
+  return parts.length ? parts.join(' · ') : null
+}
+
 async function fail(res, path, method) {
   let detail = null, errorId = null, body = null
   const text = await res.text().catch(() => '')
@@ -67,7 +90,7 @@ async function fail(res, path, method) {
     body = text.slice(0, 300)
   }
   const isProxy = res.status === 502 || res.status === 503 || res.status === 504
-  const message = detail
+  const message = describeDetail(detail)
     ?? (isProxy
       ? `The server didn't respond (${res.status}). It may be restarting after a deploy.`
       : `${method} ${path} → ${res.status}`)

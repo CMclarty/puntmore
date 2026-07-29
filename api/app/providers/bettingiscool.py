@@ -398,6 +398,10 @@ class BettingIsCoolProvider(OddsProvider):
 
         # "Team to Score N" = that team's total over N-0.5, DIRECT off the
         # vendor's native home_totals / away_totals (no model error).
+        #
+        # Deliberately NOT derived off the grid when the line is absent. Pinnacle
+        # posts the lines it chooses to, and a line it has not priced is simply
+        # not priced — that is the market, not a gap to fill with a model.
         if tts_m:
             line = float(tts_m.group(1)) - 0.5
             market = "home_totals" if home else "away_totals"

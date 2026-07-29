@@ -7,6 +7,33 @@ _ABBREVS: dict[str, str] = {
     "spurs": "tottenham",
 }
 
+# Clubs the coupon and the odds board call by genuinely different names —
+# usually an English exonym against the local name, which no amount of fuzzy
+# matching can bridge ("Red Star Belgrade" shares almost no characters with
+# "Crvena Zvezda"). Keys and values are already-normalised forms; both sides of
+# a comparison are folded to the SAME canonical name.
+#
+# Only add a pair you have confirmed is the same club on the board — a wrong
+# alias produces a confident wrong price, which is the failure this whole
+# module errs against. Observed on the William Hill sheets, July 2026.
+_TEAM_ALIASES: dict[str, str] = {
+    "red star belgrade": "crvena zvezda",
+    "red star": "crvena zvezda",
+    "sangju": "gimcheon sangmu",
+    "sangju sangmu": "gimcheon sangmu",
+    "gimcheon": "gimcheon sangmu",
+    "mp mikkeli": "mikkelin palloilijat",
+    "mp": "mikkelin palloilijat",
+    "dinamo tbilisi": "dinamo tbilisi",
+    "sheriff tiraspol": "sheriff",
+    "inter turku": "inter turku",
+    "fc copenhagen": "copenhagen",
+    "kobenhavn": "copenhagen",
+    "bodo glimt": "bodo glimt",
+    "the new saints": "new saints",
+    "tns": "new saints",
+}
+
 _SUFFIX_RE = re.compile(
     r'\b(fc|afc|sc|cf|bc|ac|rfc|sk|bk|fk|if|ik|nk|ok|pk|rk)\b',
     re.IGNORECASE,
