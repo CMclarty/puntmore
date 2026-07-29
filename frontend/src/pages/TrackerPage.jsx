@@ -116,15 +116,45 @@ const PERIOD_SECTIONS = [
   { status: null, label: 'Unscheduled' },
 ]
 
+const kickoffMs = leg =>
+  leg.kickoff ? new Date(leg.kickoff + (leg.kickoff.endsWith('Z') ? '' : 'Z')).getTime() : Infinity
+
+/**
+ * Sections for the list: one per (status, coupon window).
+ *
+ * Splitting on the WINDOW as well as the status is what lets two coupons be
+ * live at once. The windows deliberately overlap — Mon–Wed and Wed–Fri both
+ * contain Wednesday, which is how the coupons are issued — so on a Wednesday
+ * both are "active". Grouping on status alone merged them into a single list
+ * with the labels concatenated and the ranks running across both, so there was
+ * no way to see which set a row belonged to or to work one set at a time.
+ *
+ * Within a status the sets are ordered by their soonest remaining kickoff, so
+ * the one closest to going off leads.
+ */
 function groupLegsByPeriod(legs) {
-  return PERIOD_SECTIONS
-    .map(({ status, label }) => {
-      const items = legs.filter(l => (l.period_status ?? null) === status)
-      if (!items.length) return null
-      const windows = [...new Set(items.map(l => l.period_label).filter(Boolean))]
-      return { status, label, windows, legs: items }
-    })
-    .filter(Boolean)
+  const out = []
+  for (const { status, label } of PERIOD_SECTIONS) {
+    const items = legs.filter(l => (l.period_status ?? null) === status)
+    if (!items.length) continue
+
+    const byWindow = new Map()
+    for (const l of items) {
+      const key = l.period_label ?? ''
+      if (!byWindow.has(key)) byWindow.set(key, [])
+      byWindow.get(key).push(l)
+    }
+
+    const groups = [...byWindow.entries()].map(([window, ls]) => ({
+      // Unique per section, so each set's expand state is its own.
+      key: `${status ?? 'none'}|${window}`,
+      status, label, window, legs: ls,
+      soonest: Math.min(...ls.map(kickoffMs)),
+    }))
+    groups.sort((a, b) => a.soonest - b.soonest)
+    out.push(...groups)
+  }
+  return out
 }
 
 /**
@@ -407,19 +437,17 @@ export default function TrackerPage() {
       {legs.length > 0 && (
         <div className={styles.legs}>
           {legGroups.map(g => (
-            <Fragment key={g.status ?? 'none'}>
+            <Fragment key={g.key}>
               <div className={`${styles.periodHead} ${styles['ph_' + (g.status ?? 'none')]}`}>
                 <span className={styles.phStatus}>{g.label}</span>
-                {g.windows.length > 0 && (
-                  <span className={styles.phWindow}>{g.windows.join(' · ')}</span>
-                )}
+                {g.window && <span className={styles.phWindow}>{g.window}</span>}
                 <span className={`${styles.phCount} ${styles.mono}`}>{g.legs.length}</span>
               </div>
               {(() => {
                 // A ladder coupon has no per-row EV to filter on — its rows
                 // show fair odds instead — so it is never collapsed.
                 const filterable = activeType?.prices_each_selection !== false
-                const shown = (!filterable || expanded[g.status ?? 'none'])
+                const shown = (!filterable || expanded[g.key])
                   ? g.legs
                   : g.legs.filter(isAboveFloor)
                 const hidden = g.legs.length - shown.length
@@ -441,7 +469,7 @@ export default function TrackerPage() {
                     {hidden > 0 && (
                       <button
                         className={styles.expandRow}
-                        onClick={() => setExpanded(e => ({ ...e, [g.status ?? 'none']: true }))}
+                        onClick={() => setExpanded(e => ({ ...e, [g.key]: true }))}
                       >
                         Show {hidden} more — under {EV_FLOOR} EV or unpriced
                       </button>
