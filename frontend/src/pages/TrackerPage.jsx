@@ -61,27 +61,33 @@ function fixtureDiffers(leg) {
 const VS_RE = /\s+(?:vs\.?|v\.?|@)\s+/i
 
 /**
- * The OTHER team, when the pick already names one.
+ * Split a leg into the fixture's two sides, which one the value is on, and the
+ * market — so the row can print each thing exactly once.
  *
- * A pick on a two-sided coupon starts with its team ("Kairat to Score 2"), so
- * printing the whole fixture beside it says that team twice — "Kairat to Score
- * 2 – Kairat v Omonia Nicosia". Naming only the opponent keeps the same
- * information in half the width, which matters most on a phone where the line
- * wraps.
+ * A pick on a two-sided coupon repeats its own team ("Kairat to Score 2"
+ * against "Kairat v Omonia Nicosia"), which said the team twice and wrapped to
+ * three lines on a phone. Printing the fixture whole and BOLDING the side the
+ * value is on carries the same information in one line, and keeps the opponent
+ * visible where the old form hid it.
  *
- * Returns null when the pick names no team (GG coupons are a property of the
- * fixture) or when it doesn't line up with either side — an edited row can
- * disagree, and there the full fixture is the honest thing to show.
+ * Returns null when the pick names no team (GG is a property of the fixture,
+ * not a side) or matches neither — a hand-edited row can disagree, and there
+ * the plain pick and fixture are the honest thing to show.
  */
-function opponentOf(leg) {
+function pickParts(leg) {
   const parts = (leg.match_name || '').split(VS_RE)
   if (parts.length !== 2) return null
   const [home, away] = parts.map(s => s.trim())
   if (!home || !away) return null
-  const pick = (leg.pick || '').trim().toLowerCase()
-  if (pick.startsWith(home.toLowerCase())) return away
-  if (pick.startsWith(away.toLowerCase())) return home
-  return null
+  const pick = (leg.pick || '').trim()
+  const lower = pick.toLowerCase()
+  let isHome = null
+  if (lower.startsWith(home.toLowerCase())) isHome = true
+  else if (lower.startsWith(away.toLowerCase())) isHome = false
+  if (isHome === null) return null
+  // Whatever follows the team name is the market ("to Score 2").
+  const market = pick.slice((isHome ? home : away).length).trim()
+  return { home, away, isHome, market }
 }
 
 // Split a type's selections into period sections so the live set reads apart
@@ -167,13 +173,26 @@ const LegCard = memo(function LegCard({
                     title={leg.flags.map(f => FLAG_LABELS[f] ?? f).join('\n')}
                   >⚠</span>
                 )}
-                <span className={styles.pickName}>{leg.pick}</span>
-                {/* Name the opponent, not the whole fixture — the pick already
-                    carries this leg's team. Falls back to the full fixture when
-                    the pick names no team (GG) or doesn't match a side. */}
-                {opponentOf(leg)
-                  ? <span className={styles.fixture}> vs {opponentOf(leg)}</span>
-                  : <span className={styles.fixture}> – {leg.match_name}</span>}
+                {/* The full fixture, with the side the value is on in bold and
+                    the market stated once. Falls back to pick + fixture when the
+                    pick names no team (GG) or matches neither side. */}
+                {(() => {
+                  const p = pickParts(leg)
+                  if (!p) return (
+                    <>
+                      <span className={styles.pickName}>{leg.pick}</span>
+                      <span className={styles.fixture}> – {leg.match_name}</span>
+                    </>
+                  )
+                  return (
+                    <span className={styles.fixture}>
+                      <span className={p.isHome ? styles.pickName : undefined}>{p.home}</span>
+                      {' v '}
+                      <span className={p.isHome ? undefined : styles.pickName}>{p.away}</span>
+                      {p.market ? ` – ${p.market}` : ''}
+                    </span>
+                  )
+                })()}
                 {leg.edited && (
                   <span className={styles.editedMark} title="Edited by hand — a re-scan will not overwrite this row">✎</span>
                 )}
