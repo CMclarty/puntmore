@@ -9,8 +9,10 @@ import styles from './TrackerPage.module.css'
 // elements on a 74-fixture list — and rebuilding those on each render was the
 // bulk of the tracker's render cost. React elements are immutable, so one array
 // can safely back every select.
+// Each rung carries its own decimal, so the control IS the book price — there
+// is no separate "book 1.83" beside it saying the same thing again.
 const LADDER_OPTIONS = FRACTIONAL_LADDER.map(f => (
-  <option key={f} value={f}>{f}</option>
+  <option key={f} value={f}>{f} · {fractionToDecimal(f).toFixed(2)}</option>
 ))
 
 // Flag codes from api/app/checks.py. Keep in sync — an unknown code falls back
@@ -220,7 +222,9 @@ const LegCard = memo(function LegCard({
             {leg.odds != null && (
               <>
                 {/* Native select = scroll wheel on mobile. Prices move during
-                    the day, so this is picked, not typed. */}
+                    the day, so this is picked, not typed. The rung shows its own
+                    decimal, so this control is the book price — printing it
+                    again beside the picker said the same number twice. */}
                 <select
                   className={`${styles.oddsWheel} ${styles.mono}`}
                   value={nearestFraction(leg.odds) ?? ''}
@@ -231,10 +235,6 @@ const LegCard = memo(function LegCard({
                   {LADDER_OPTIONS}
                 </select>
 
-                <span className={styles.oddsPair}>
-                  <span className={styles.oddsLabel}>book</span>
-                  <span className={`${styles.bookOdds} ${styles.mono}`}>{leg.odds.toFixed(2)}</span>
-                </span>
                 <span className={styles.oddsPair}>
                   <span className={styles.oddsLabel}>fair</span>
                   <span className={`${styles.fairOdds} ${styles.mono}`}>

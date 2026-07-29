@@ -311,10 +311,7 @@
   color: var(--faint);
 }
 
-.bookOdds,
-.fairOdds { font-size: 12.5px; font-variant-numeric: tabular-nums; }
-.bookOdds { color: var(--ink); font-weight: 600; }
-.fairOdds { color: var(--muted); }
+.fairOdds { font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--muted); }
 
 /* Inline edit */
 .editCell { display: flex; flex-direction: column; gap: 6px; }
