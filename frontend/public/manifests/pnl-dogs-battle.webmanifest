@@ -1,0 +1,19 @@
+{
+  "name": "Puntmore — P&L Dogs Battle",
+  "short_name": "Dogs Battle",
+  "description": "Betting tools — coupons, tennis arbs, cards & corners",
+  "display": "standalone",
+  "orientation": "portrait",
+  "start_url": "/pnl/dogs/battle",
+  "scope": "/",
+  "theme_color": "#1A1A18",
+  "background_color": "#FCFBF8",
+  "icons": [
+    {
+      "src": "/icons/pnl-dogs-battle.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

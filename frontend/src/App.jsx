@@ -2,6 +2,7 @@ import { useState, useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { getMe, logout as apiLogout } from './api'
 import BottomNav from './components/BottomNav'
+import PageIdentity from './components/PageIdentity'
 import TrackerPage from './pages/TrackerPage'
 import LoginPage from './pages/LoginPage'
 import styles from './App.module.css'
@@ -74,6 +75,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <PageIdentity />
       <main className={`${styles.main} ${IS_FOCUSED ? styles.focused : ''}`}>
         <Suspense fallback={<div className={styles.boot}>Loading…</div>}>
         <Routes>

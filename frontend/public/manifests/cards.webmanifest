@@ -1,0 +1,19 @@
+{
+  "name": "Puntmore — Cards",
+  "short_name": "Cards",
+  "description": "Betting tools — coupons, tennis arbs, cards & corners",
+  "display": "standalone",
+  "orientation": "portrait",
+  "start_url": "/cards",
+  "scope": "/",
+  "theme_color": "#1A1A18",
+  "background_color": "#FCFBF8",
+  "icons": [
+    {
+      "src": "/icons/cards.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
