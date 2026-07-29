@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getCoupons, uploadCoupon, getCouponTypes, getCouponPeriods } from '../api'
+import { getCoupons, getCouponLegs, uploadCoupon, getCouponTypes, getCouponPeriods } from '../api'
 import styles from './UploadPage.module.css'
 
 
@@ -58,16 +58,48 @@ export default function UploadPage() {
     setError(null)
     setPhase('loading')
     try {
+      // Returns as soon as the coupon is SAVED; reading it takes about a minute
+      // and happens server-side, so nothing here holds the connection open.
       const result = await uploadCoupon(typeCode, period, file)
-      setSavedCount(result.legs.length)
-      setFlaggedCount(result.legs.filter(l => l.flags?.length).length)
+      const legs = await waitForCoupon(result.coupon_id)
+      setSavedCount(legs.length)
+      setFlaggedCount(legs.filter(l => l.flags?.length).length)
       setPhase('done')
       getCoupons().then(setPrevCoupons).catch(() => {})
       setTimeout(() => navigate('/'), 1200)
     } catch (e) {
       setError(e.message)
       setPhase('form')
+      // The coupon may well have saved even if the wait failed — the read runs
+      // server-side. Refresh the list so a successful upload is visible rather
+      // than being re-uploaded as a duplicate.
+      getCoupons().then(setPrevCoupons).catch(() => {})
     }
+  }
+
+  /**
+   * Poll a freshly-uploaded coupon until the server has finished reading it.
+   *
+   * The upload response carries no legs — OCR runs after it. "processing" means
+   * still reading; "failed" means the read did not survive. Polling rather than
+   * one long request is what makes this work on a phone: each call is short, so
+   * a dropped connection costs one retry instead of the whole upload.
+   */
+  async function waitForCoupon(couponId, { tries = 90, gapMs = 2000 } = {}) {
+    for (let i = 0; i < tries; i++) {
+      await new Promise(r => setTimeout(r, gapMs))
+      let coupons
+      try {
+        coupons = await getCoupons()
+      } catch {
+        continue   // a blip mid-read is not a failure; keep waiting
+      }
+      const c = Array.isArray(coupons) && coupons.find(x => x.id === couponId)
+      if (!c) continue
+      if (c.status === 'failed') throw new Error('Could not read that coupon. Try a clearer photo.')
+      if (c.status !== 'processing') return await getCouponLegs(couponId)
+    }
+    throw new Error('Still reading — check Previous uploads in a moment.')
   }
 
   function handleDrop(e) {
@@ -82,7 +114,10 @@ export default function UploadPage() {
       <div className={styles.page}>
         <div className={styles.statusScreen}>
           <p className={styles.loadingMsg}>Reading coupon…</p>
-          <p className={styles.loadingSub}>Rows save and price automatically.</p>
+          <p className={styles.loadingSub}>
+            Saved. Reading the coupon takes about a minute — this keeps working
+            if you leave the page.
+          </p>
         </div>
       </div>
     )

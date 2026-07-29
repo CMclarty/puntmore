@@ -62,6 +62,7 @@ def db():
 @pytest.fixture()
 def upload_client(tmp_path):
     app.state.ocr_provider = MockOCRProvider()
+    app.state.session_factory = TestSession
     # Upload now prices inline (auto-confirm), so it needs an odds provider.
     app.state.odds_provider = MockOddsProvider(
         {("Arsenal vs Chelsea", "Arsenal Win and Over 2.5"): 1.80},
@@ -214,8 +215,11 @@ def test_upload_returns_saved_legs(upload_client):
     assert resp.status_code == 200
     body = resp.json()
     assert "coupon_id" in body
-    assert len(body["legs"]) == 3
-    assert body["legs"][0]["pick"] == "Arsenal Win and Over 2.5"
+    # The upload returns as soon as the coupon is SAVED — reading it happens
+    # after the response, so the legs are fetched once it lands.
+    legs = upload_client.get(f"/coupons/{body['coupon_id']}/legs").json()
+    assert len(legs) == 3
+    assert legs[0]["pick"] == "Arsenal Win and Over 2.5"
 
 def test_upload_rejects_bad_mime(upload_client):
     resp = upload_client.post(
@@ -274,8 +278,9 @@ def test_upload_saves_and_prices_legs_immediately(upload_client, db):
     coupon_id = body["coupon_id"]
 
     # Rows persist without a confirm step, and come back priced.
-    assert len(body["legs"]) == 3
-    arsenal = next(l for l in body["legs"] if l["match_name"] == "Arsenal vs Chelsea")
+    legs = upload_client.get(f"/coupons/{coupon_id}/legs").json()
+    assert len(legs) == 3
+    arsenal = next(l for l in legs if l["match_name"] == "Arsenal vs Chelsea")
     assert arsenal["fair_odds"] == 1.80
     assert abs(arsenal["value"] - compute_value(1.85, 1.80)) < 1e-6
 
@@ -291,16 +296,17 @@ def test_upload_flags_unmatched_rows(upload_client):
         data={"type_code": "WO25", "period": "SAT"},
         files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
     ).json()
+    legs = upload_client.get(f"/coupons/{body['coupon_id']}/legs").json()
 
     # Only Arsenal is matched by the fixture provider; the rest carry no_match
     # but still persist with blank fair odds.
-    unmatched = [l for l in body["legs"] if l["match_name"] != "Arsenal vs Chelsea"]
+    unmatched = [l for l in legs if l["match_name"] != "Arsenal vs Chelsea"]
     assert unmatched
     for leg in unmatched:
         assert "no_match" in leg["flags"]
         assert leg["fair_odds"] is None
 
-    arsenal = next(l for l in body["legs"] if l["match_name"] == "Arsenal vs Chelsea")
+    arsenal = next(l for l in legs if l["match_name"] == "Arsenal vs Chelsea")
     assert arsenal["flags"] == []
 
 
@@ -538,6 +544,7 @@ def gg_client(tmp_path):
             )
 
     app.state.ocr_provider = _LadderOCR()
+    app.state.session_factory = TestSession
     app.state.odds_provider = MockOddsProvider(
         {
             ("Inverness v St Johnstone", "GG Bonus"): 1.60,
@@ -569,7 +576,8 @@ def test_ladder_coupon_saves_without_odds(gg_client, db):
     """A GG coupon prints no price; rows must persist anyway."""
     resp = _upload_gg(gg_client)
     assert resp.status_code == 200
-    legs = resp.json()["legs"]
+    # Legs exist once the read finishes, not in the upload response.
+    legs = gg_client.get(f"/coupons/{resp.json()['coupon_id']}/legs").json()
     assert len(legs) == 4
     assert all(l["odds"] is None for l in legs)
     # The market comes from WHICH coupon it is, not from OCR.
@@ -652,6 +660,7 @@ def hills_client(tmp_path):
             )
 
     app.state.ocr_provider = _HillsOCR()
+    app.state.session_factory = TestSession
     app.state.odds_provider = MockOddsProvider(
         {
             ("Aberdeen v Kelty Hearts", "GG No Draw"): 1.60,
@@ -682,7 +691,10 @@ def _upload_hills(client):
 def test_hills_keeps_the_printed_prices(hills_client, db):
     """The bug this type exists to fix: a Hills sheet prints a price on every
     fixture, and the ladder-only model threw every one of them away."""
-    legs = _upload_hills(hills_client).json()["legs"]
+    up = _upload_hills(hills_client).json()
+    legs = hills_client.get(f"/coupons/{up['coupon_id']}/legs").json()
+    # That endpoint orders for the tracker, so read them back in coupon order.
+    legs = sorted(legs, key=lambda l: l["rank"])
     assert [l["odds"] for l in legs] == [3.00, 2.20, 2.63, 2.38]
     # ...and a printed price means a per-row edge, unlike a ladder-only coupon.
     assert all(l["value"] is not None for l in legs)

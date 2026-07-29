@@ -5,10 +5,13 @@ import uuid
 from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request,
+    UploadFile,
+)
 from sqlalchemy.orm import Session
 
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models import Coupon, Leg
 from ..schemas import UploadInitResponse
 from ..config import settings
@@ -142,6 +145,7 @@ ALLOWED_MEDIA_TYPES = {
 @router.post("", response_model=UploadInitResponse)
 async def upload_coupon(
     request: Request,
+    background: BackgroundTasks,
     type_code: str = Form(...),
     period: str = Form(...),
     uploaded_on: date = Form(None),
@@ -194,44 +198,103 @@ async def upload_coupon(
         image_path=image_path,
         uploaded_by=user,
     )
-    db.add(coupon)
-    db.flush()
-
-    ocr = request.app.state.ocr_provider
-    try:
-        extracted = ocr.extract(image_bytes, media_type, _hint_for(ctype))
-    except Exception:
-        # Log the cause: a bare 502 hid a plain AttributeError for a full day.
-        logger.exception("OCR extraction failed (%s)", type(ocr).__name__)
-        db.rollback()
-        if os.path.exists(image_path):
-            os.remove(image_path)
-        raise HTTPException(status_code=502, detail="OCR extraction failed")
-
-    legs = _build_legs(coupon.id, extracted, ctype, reference)
-    db.add_all(legs)
-    db.flush()
-
-    _apply_coupon_window(coupon, extracted, ctype, period, reference, legs)
+    # Provisional name so the row is never nameless in the list while it reads.
+    # The real window is only known once the fixtures are, so the background
+    # task recomputes it below unless the user supplied a name of their own.
     coupon.name = name or _coupon_name(ctype, period, coupon)
-
-    price_legs(legs, request.app.state.odds_provider)
-    coupon.status = "confirmed"
+    db.add(coupon)
     db.commit()
+    db.refresh(coupon)
 
-    flagged = sum(1 for leg in legs if leg.flags)
-    notifier = getattr(request.app.state, "notifier", None)
-    if notifier:
-        suffix = f", {flagged} flagged for review" if flagged else ""
-        notifier.send(
-            f":inbox_tray: New upload: **{coupon.name}** — "
-            f"{len(legs)} selections saved and priced{suffix}."
-        )
-
-    return UploadInitResponse(
+    # Reading a coupon takes ~a minute: a dense sheet is 78 fixtures and the OCR
+    # emits thousands of tokens of JSON for it. Holding the HTTP request open for
+    # that long does not survive a phone — iOS Safari abandons the fetch and the
+    # upload reads as "Load failed" even though the server goes on to finish it,
+    # which invites a duplicate upload of a coupon that actually saved.
+    #
+    # So the request returns NOW, with the coupon saved and status "processing".
+    # The read happens after the response, and the client polls the coupon until
+    # it turns "confirmed" (or "failed"). Navigating away, backgrounding the tab
+    # or losing signal no longer costs anything — the work is already server-side.
+    background.add_task(
+        _process_upload,
         coupon_id=coupon.id,
-        legs=sorted(legs, key=lambda l: l.rank),
+        type_code=type_code,
+        period=period,
+        reference=reference,
+        media_type=media_type,
+        ocr=request.app.state.ocr_provider,
+        odds_provider=request.app.state.odds_provider,
+        user_name=name,
+        notifier=getattr(request.app.state, "notifier", None),
+        # The request's session is closed by the time the task runs, so it opens
+        # its own. Taken from app.state so a test can point it at the same
+        # engine its fixtures use — otherwise this writes to the real database.
+        session_factory=getattr(request.app.state, "session_factory", SessionLocal),
     )
+
+    # No legs yet — they exist only once the read finishes. The client polls.
+    return UploadInitResponse(coupon_id=coupon.id, legs=[])
+
+
+def _process_upload(
+    *, coupon_id, type_code, period, reference, media_type,
+    ocr, odds_provider, notifier, user_name=None, session_factory=None,
+) -> None:
+    """Read and price an already-saved coupon. Runs AFTER the response.
+
+    Owns its own session: the request's is closed by the time this runs. Every
+    exit leaves the coupon in a terminal status, because a row stuck on
+    "processing" is indistinguishable in the UI from one still being read.
+    """
+    db = (session_factory or SessionLocal)()
+    try:
+        coupon = db.get(Coupon, coupon_id)
+        if coupon is None:
+            return
+        ctype = coupon_types.get(type_code)
+        try:
+            with open(coupon.image_path, "rb") as f:
+                image_bytes = f.read()
+            extracted = ocr.extract(image_bytes, media_type, _hint_for(ctype))
+        except Exception:
+            # Log the cause: a bare 502 hid a plain AttributeError for a day.
+            logger.exception("OCR extraction failed (%s)", type(ocr).__name__)
+            coupon.status = "failed"
+            db.commit()
+            return
+
+        legs = _build_legs(coupon.id, extracted, ctype, reference)
+        db.add_all(legs)
+        db.flush()
+        _apply_coupon_window(coupon, extracted, ctype, period, reference, legs)
+        # Now the window is real, so the auto-name can be. A name the user typed
+        # is theirs and is left alone.
+        if not user_name:
+            coupon.name = _coupon_name(ctype, period, coupon)
+
+        price_legs(legs, odds_provider)
+        coupon.status = "confirmed"
+        db.commit()
+
+        if notifier:
+            flagged = sum(1 for leg in legs if leg.flags)
+            suffix = f", {flagged} flagged for review" if flagged else ""
+            notifier.send(
+                f":inbox_tray: New upload: **{coupon.name}** — "
+                f"{len(legs)} selections saved and priced{suffix}."
+            )
+    except Exception:
+        logger.exception("Coupon %s failed after upload", coupon_id)
+        try:
+            coupon = db.get(Coupon, coupon_id)
+            if coupon is not None:
+                coupon.status = "failed"
+                db.commit()
+        except Exception:
+            logger.exception("Could not mark coupon %s failed", coupon_id)
+    finally:
+        db.close()
 
 
 @router.post("/{coupon_id}/rescan", response_model=UploadInitResponse)
