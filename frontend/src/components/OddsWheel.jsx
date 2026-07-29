@@ -137,15 +137,25 @@ function OddsWheel({
     // flick fires a change, and the parent re-renders through the whole spin.
     clearTimeout(settle.current)
     settle.current = setTimeout(() => {
-      // The first settle after a programmatic seat is that seat's scroll —
-      // absorb it (clear the flag, commit nothing) so seating never reads as a
-      // pick. Every settle after is a genuine user spin.
-      if (quiet.current) { quiet.current = false; return }
-      onTouch?.()
       const i = Math.max(0, Math.min(ladder.length - 1, Math.round(el.scrollTop / ROW)))
+      const seating = quiet.current
+      quiet.current = false
+      // A programmatic seat leaves the wheel ON `index` — that is what seating
+      // means — so a settle that ends anywhere ELSE is the user having moved it,
+      // whatever the flag says.
+      //
+      // Trusting the flag alone lost picks. This timer is DEBOUNCED, so when a
+      // spin starts within 90ms of a seat (exactly what happens right after
+      // filing a bet, which reseats the wheel) the seat's own settle never runs
+      // separately — one settle fires at the end of the user's spin, saw the
+      // flag, and swallowed the pick. The wheel then sat visibly on 11/4 while
+      // the bet still priced at the 2/1 default, and it took spinning away and
+      // back to stick.
+      if (seating && i === index) return
+      onTouch?.()
       if (ladder[i].dec !== value) onChange(ladder[i].dec)
     }, 90)
-  }, [onChange, onTouch, value, ladder])
+  }, [onChange, onTouch, value, ladder, index])
 
   useEffect(() => () => clearTimeout(settle.current), [])
 
