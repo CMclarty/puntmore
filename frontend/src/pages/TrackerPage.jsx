@@ -58,6 +58,32 @@ function fixtureDiffers(leg) {
   return leg.matched_fixture.trim().toLowerCase() !== leg.match_name.trim().toLowerCase()
 }
 
+const VS_RE = /\s+(?:vs\.?|v\.?|@)\s+/i
+
+/**
+ * The OTHER team, when the pick already names one.
+ *
+ * A pick on a two-sided coupon starts with its team ("Kairat to Score 2"), so
+ * printing the whole fixture beside it says that team twice — "Kairat to Score
+ * 2 – Kairat v Omonia Nicosia". Naming only the opponent keeps the same
+ * information in half the width, which matters most on a phone where the line
+ * wraps.
+ *
+ * Returns null when the pick names no team (GG coupons are a property of the
+ * fixture) or when it doesn't line up with either side — an edited row can
+ * disagree, and there the full fixture is the honest thing to show.
+ */
+function opponentOf(leg) {
+  const parts = (leg.match_name || '').split(VS_RE)
+  if (parts.length !== 2) return null
+  const [home, away] = parts.map(s => s.trim())
+  if (!home || !away) return null
+  const pick = (leg.pick || '').trim().toLowerCase()
+  if (pick.startsWith(home.toLowerCase())) return away
+  if (pick.startsWith(away.toLowerCase())) return home
+  return null
+}
+
 // Split a type's selections into period sections so the live set reads apart
 // from the next one to bet. Order: active (window contains today), upcoming
 // (the next set), ended, then any whose window isn't known yet.
@@ -142,7 +168,12 @@ const LegCard = memo(function LegCard({
                   >⚠</span>
                 )}
                 <span className={styles.pickName}>{leg.pick}</span>
-                <span className={styles.fixture}> – {leg.match_name}</span>
+                {/* Name the opponent, not the whole fixture — the pick already
+                    carries this leg's team. Falls back to the full fixture when
+                    the pick names no team (GG) or doesn't match a side. */}
+                {opponentOf(leg)
+                  ? <span className={styles.fixture}> vs {opponentOf(leg)}</span>
+                  : <span className={styles.fixture}> – {leg.match_name}</span>}
                 {leg.edited && (
                   <span className={styles.editedMark} title="Edited by hand — a re-scan will not overwrite this row">✎</span>
                 )}
