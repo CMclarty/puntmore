@@ -396,14 +396,6 @@ export default function TrackerPage() {
           list and stay scannable. Nothing scrolls sideways on a phone. */}
       {legs.length > 0 && (
         <div className={styles.legs}>
-          <div className={styles.legsHead}>
-            <span className={styles.hRank}>R</span>
-            <span className={styles.hName}>NAME</span>
-            <span className={styles.hEv}>
-              {activeType?.prices_each_selection === false ? 'FAIR' : 'EV'}
-            </span>
-          </div>
-
           {legGroups.map(g => (
             <Fragment key={g.status ?? 'none'}>
               <div className={`${styles.periodHead} ${styles['ph_' + (g.status ?? 'none')]}`}>

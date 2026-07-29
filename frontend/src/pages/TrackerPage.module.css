@@ -130,21 +130,6 @@
 
 /* Leg cards — laid out on the reference tracker's columns so rank, EV and
    odds line up down the list, without a sideways-scrolling table. */
-.legsHead {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 10px;
-  border-bottom: 1px solid var(--line);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--faint);
-}
-
-.hRank { width: 16px; flex: none; }
-.hName { flex: 1; }
-.hEv { width: 58px; flex: none; text-align: right; }
 
 /* Period section header — separates the live set from the next one. */
 .periodHead {
