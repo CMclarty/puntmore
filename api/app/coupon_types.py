@@ -107,6 +107,10 @@ COUPON_TYPES: tuple[CouponType, ...] = (
                board_label="WIN & 2 OR MORE GOALS", two_sided=True),
     CouponType("WO25", "Win and Over 2.5", "{team} Win and Over 2.5",
                board_label="WIN & 3 OR MORE GOALS", two_sided=True),
+    # The third block on Hill's "Match winner" sheet. Priced off the score grid
+    # (win ∧ opponent scores 0), never moneyline × clean sheet.
+    CouponType("WTN", "Win to Nil", "{team} Win to Nil",
+               board_label="WIN TO NIL", two_sided=True),
     CouponType(
         "GGB", "GG Bonus", "GG Bonus",
         period_codes=_VARIABLE, prices_each_selection=False, pays_ladder=True,

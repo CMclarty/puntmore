@@ -44,7 +44,7 @@ from .base import OddsProvider, MatchQuery, OddsResult
 from ..normalise import normalise_match
 from ..odds.utils import devigd_multi
 from ..pricing.grid import (
-    fit_grid, score_grid, p_win_and_over, p_btts, p_gg_no_draw,
+    fit_grid, score_grid, p_win_and_over, p_btts, p_gg_no_draw, p_win_to_nil,
 )
 
 logger = logging.getLogger("uvicorn.error")
@@ -93,6 +93,10 @@ SIDE_MARGIN = 0.10
 _OVER_RE = re.compile(r"over\s+([\d.]+)", re.IGNORECASE)
 _UNDER_RE = re.compile(r"under\s+([\d.]+)", re.IGNORECASE)
 _WIN_RE = re.compile(r"\bwin\b", re.IGNORECASE)
+# "Win to Nil" also contains "win", so it MUST be tested before the plain
+# moneyline branch or it silently prices as a straight win — a different and
+# much shorter bet.
+_WIN_TO_NIL_RE = re.compile(r"\bwin\b.*\bto\s+nil\b|\bwin\s+to\s+nil\b", re.IGNORECASE)
 # "Team to Score N" means N OR MORE, so the line is N-0.5 (SPEC §3). Getting
 # this off by one misprices every TTS leg.
 _TTS_RE = re.compile(r"to\s+score\s+(\d+)", re.IGNORECASE)
@@ -398,6 +402,13 @@ class BettingIsCoolProvider(OddsProvider):
             line = float(tts_m.group(1)) - 0.5
             market = "home_totals" if home else "away_totals"
             return _fair(self._market_prices(rows, market, line), 1)
+
+        # Before the plain-win branch: "Win to Nil" contains "win" and would
+        # otherwise take the moneyline price. DERIVED off the grid — the result
+        # and the opponent's goals are correlated, so moneyline × clean sheet
+        # overstates it (SPEC §8.5, same trap as Win-and-Over).
+        if _WIN_TO_NIL_RE.search(key):
+            return derived(lambda g: p_win_to_nil(g, home=home))
 
         if has_win and over_m:
             # DERIVED off the fitted score grid (SPEC §8). Never moneyline ×

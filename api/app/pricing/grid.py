@@ -114,6 +114,19 @@ def p_win_and_over(grid, line: float, home: bool = True) -> float:
     return sum(p for (h, a), p in grid.items() if a > h and h + a > line)
 
 
+def p_win_to_nil(grid, home: bool = True) -> float:
+    """P(side wins ∧ concedes nothing) — Win to Nil.
+
+    Derived off the grid for the same reason Win-and-Over is: the result and
+    the opponent's goal count are correlated, so moneyline × P(clean sheet)
+    overstates it. Any win to nil is a win, so this is strictly the h>0,a==0
+    corner of the win region (0-0 is a draw and excluded by h > a).
+    """
+    if home:
+        return sum(p for (h, a), p in grid.items() if h > a and a == 0)
+    return sum(p for (h, a), p in grid.items() if a > h and h == 0)
+
+
 def p_btts(grid) -> float:
     """P(both teams score) — GG. No vendor market for this, so it is derived."""
     return sum(p for (h, a), p in grid.items() if h >= 1 and a >= 1)

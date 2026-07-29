@@ -123,7 +123,7 @@ def test_gg_without_a_grid_is_unpriced():
 def test_types_exist_with_stable_codes():
     from app.coupon_types import COUPON_TYPES
     assert [t.code for t in COUPON_TYPES] == [
-        "TTS1", "TTS2", "TTS3", "WO15", "WO25", "GGB", "GGND", "HILLS",
+        "TTS1", "TTS2", "TTS3", "WO15", "WO25", "WTN", "GGB", "GGND", "HILLS",
     ]
 
 

@@ -132,3 +132,24 @@ def test_rmse_reports_misfit():
     ]
     _, _, _, rmse = fit_grid(bad)
     assert rmse > 0.05
+
+
+def test_win_to_nil_is_a_strict_subset_of_the_win():
+    """Win to Nil must be rarer than the plain win — and is derived off the
+    grid, never moneyline x clean sheet (result and goals conceded correlate)."""
+    from app.pricing.grid import score_grid, p_home_win, p_away_win, p_win_to_nil
+    g = score_grid(1.6, 1.1, 0.0)
+    assert 0 < p_win_to_nil(g, home=True) < p_home_win(g)
+    assert 0 < p_win_to_nil(g, home=False) < p_away_win(g)
+    # 0-0 is a draw, so it belongs to neither side's win-to-nil.
+    assert abs(p_win_to_nil(g, True) - sum(
+        p for (h, a), p in g.items() if h > a and a == 0)) < 1e-12
+
+
+def test_win_to_nil_does_not_price_as_a_plain_win():
+    """The pick text contains "win", so the moneyline branch would have caught
+    it first and returned a much shorter (wrong) price."""
+    from app.providers.bettingiscool import _WIN_TO_NIL_RE, _WIN_RE
+    assert _WIN_TO_NIL_RE.search("kairat win to nil")
+    assert not _WIN_TO_NIL_RE.search("kairat win and over 2.5")
+    assert _WIN_RE.search("kairat win to nil")   # why order matters
