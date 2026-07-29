@@ -62,6 +62,37 @@ def _clip(text: str | None, limit: int = MAX_DETAIL) -> str | None:
     return text if len(text) <= limit else text[:limit] + f"… [{len(text) - limit} more chars]"
 
 
+# How much of a clipped traceback is kept from the front. The rest comes off the
+# BACK — see _clip_traceback.
+_TRACEBACK_HEAD = 1000
+
+
+def _clip_traceback(text: str | None, limit: int = MAX_DETAIL) -> str | None:
+    """Clip a traceback keeping BOTH ends, because both ends carry meaning.
+
+    Python puts the exception itself on the LAST line and the deepest frames
+    just above it, so clipping the front (as _clip does) throws away the actual
+    error and keeps ASGI middleware boilerplate. A real 500 in this app runs to
+    ~40 frames and comfortably exceeds the limit, so that is not a corner case:
+    it happened, and the record read "… [4671 more chars]" exactly where the
+    cause should have been.
+
+    Keeping a slice of the head as well preserves where the request entered.
+    """
+    if text is None:
+        return None
+    text = str(text)
+    if len(text) <= limit:
+        return text
+    tail = limit - _TRACEBACK_HEAD
+    dropped = len(text) - limit
+    return (
+        text[:_TRACEBACK_HEAD]
+        + f"\n… [{dropped} more chars omitted from the middle] …\n"
+        + text[-tail:]
+    )
+
+
 def record(kind: str, **fields) -> str:
     """Store one diagnostic record and mirror it to stdout. Returns its id.
 
@@ -75,7 +106,12 @@ def record(kind: str, **fields) -> str:
         "at": _now(),
         "kind": kind,
         "boot": BOOT_ID,
-        **{k: _clip(v) if isinstance(v, str) else v for k, v in fields.items()},
+        # A traceback is clipped from BOTH ends; everything else from the front.
+        **{
+            k: (_clip_traceback(v) if k == "traceback" else _clip(v))
+            if isinstance(v, str) else v
+            for k, v in fields.items()
+        },
     }
     with _lock:
         _records.append(entry)

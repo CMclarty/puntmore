@@ -151,3 +151,22 @@ def test_unhandled_exception_is_recorded_and_returns_a_reference():
     rec = next(x for x in diagnostics.snapshot()["records"] if x["id"] == ref)
     assert rec["error"] == "RuntimeError" and "kaboom" in rec["message"]
     assert "RuntimeError" in rec["traceback"]
+
+
+def test_a_long_traceback_keeps_the_exception_at_the_end():
+    """The cause lives on the LAST line of a traceback.
+
+    Clipping from the front kept ASGI middleware boilerplate and threw the error
+    away — a real 500 here runs to ~40 frames and overflows the limit, so the
+    record read "… more chars" exactly where the cause should have been.
+    """
+    from app.diagnostics import _clip_traceback, MAX_DETAIL
+    tb = ("Traceback (most recent call last):\n"
+          + "  File \"/a/very/long/path/to/a/frame.py\", line 1, in handler\n    call()\n" * 400
+          + "RuntimeError: the actual cause")
+    assert len(tb) > MAX_DETAIL
+    out = _clip_traceback(tb)
+    assert out.startswith("Traceback (most recent call last):")   # where it entered
+    assert out.rstrip().endswith("RuntimeError: the actual cause")  # and what it was
+    assert "omitted from the middle" in out
+    assert len(out) < len(tb)
