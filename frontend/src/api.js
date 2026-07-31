@@ -121,10 +121,18 @@ async function send(path, init, method) {
   }
 }
 
+/**
+ * A session that lapsed mid-use: bounce to login, remembering where we were.
+ *
+ * This is a FULL page load, so the router's location state can't carry the
+ * path the way the in-app guard does (App.jsx::Protected) — it has to ride in
+ * the URL. Without it, a request that 401s dumps you on the default landing
+ * page and the page you were actually on is lost.
+ */
 function redirectToLogin() {
-  if (window.location.pathname !== '/login') {
-    window.location.href = '/login'
-  }
+  if (window.location.pathname === '/login') return
+  const next = window.location.pathname + window.location.search
+  window.location.href = `/login?next=${encodeURIComponent(next)}`
 }
 
 async function get(path) {

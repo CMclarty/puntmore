@@ -119,8 +119,12 @@ export default function App() {
 function Protected({ user, tool, onLogout, children }) {
   const location = useLocation()
   if (!user) {
-    const from = location.pathname + location.search
-    return <Navigate to="/login" replace state={{ from }} />
+    // In the URL rather than router state: state is lost on a reload, and a
+    // phone reloads a backgrounded page whenever it feels like it. The API
+    // layer's own redirect (api.js) can only use the URL anyway, so one
+    // mechanism serves both.
+    const next = encodeURIComponent(location.pathname + location.search)
+    return <Navigate to={`/login?next=${next}`} replace />
   }
   if (!user.tools?.includes(tool)) return <NoAccess onLogout={onLogout} />
   return children
@@ -130,11 +134,16 @@ function Protected({ user, tool, onLogout, children }) {
  * The login page, and where a signed-in visitor to it goes: back to whatever
  * `Protected` was guarding, or — on a direct visit to /login, where there is no
  * such page — the first tool the account can see.
+ *
+ * The destination rides in `?next=`, set by whichever guard sent you here —
+ * the in-app one (Protected) or the API layer's full page load when a session
+ * lapses mid-use. Both use the URL, so a reload on the login page keeps it.
  */
 function LoginRoute({ user, onLogin }) {
   const location = useLocation()
   if (!user) return <LoginPage onLogin={onLogin} />
-  return <Navigate to={returnTo(location.state?.from) || landingFor(user.tools)} replace />
+  const next = new URLSearchParams(location.search).get('next')
+  return <Navigate to={returnTo(next) || landingFor(user.tools)} replace />
 }
 
 /**
