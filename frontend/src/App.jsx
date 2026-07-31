@@ -17,6 +17,7 @@ const GoalscorersPage = lazy(() => import('./pages/GoalscorersPage'))
 const PnlPage = lazy(() => import('./pages/PnlPage'))
 const PnlBattlePage = lazy(() => import('./pages/PnlBattlePage'))
 const KellyPage = lazy(() => import('./pages/KellyPage'))
+const ShopPage = lazy(() => import('./pages/ShopPage'))
 const AccaBonusPage = lazy(() => import('./pages/AccaBonusPage'))
 const CardsPage = lazy(() => import('./pages/CardsPage'))
 
@@ -99,6 +100,7 @@ export default function App() {
           <Route path="/pnl/dogs/battle" element={protectTool(<PnlBattlePage category="dogs" />, 'pnl')} />
           <Route path="/pnl/virtuals/battle" element={protectTool(<PnlBattlePage category="virtuals" />, 'pnl')} />
           <Route path="/kelly" element={protectTool(<KellyPage />, 'kelly')} />
+          <Route path="/shop" element={protectTool(<ShopPage />, 'shop')} />
           <Route path="/accabonus" element={protectTool(<AccaBonusPage />, 'accabonus')} />
           <Route path="/tennis" element={<Navigate to="/accabonus" replace />} />
           <Route path="/cards" element={protectTool(<CardsPage />, 'cards')} />

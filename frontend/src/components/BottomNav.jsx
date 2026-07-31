@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import styles from './BottomNav.module.css'
 
-// Order here is the fan order. `sub` is a static one-word descriptor (no live
+// Order here is the list order. `sub` is a static one-word descriptor (no live
 // fetch in the nav); `muted` dims a tool with no live data yet; `priv` marks a
 // personal tool. Only tools in the user's grant appear.
 const TOOLS = [
@@ -45,6 +45,15 @@ const TOOLS = [
     ),
   },
   {
+    tool: 'shop', name: 'Shop', to: '/shop', sub: 'Visits', priv: true,
+    matches: (p) => p.startsWith('/shop'),
+    icon: (
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 8h14l-1 11H5z"/><path d="M8 8V5.5a3 3 0 0 1 6 0V8"/>
+      </svg>
+    ),
+  },
+  {
     tool: 'accabonus', name: 'AccaBonus', to: '/accabonus', sub: 'Arbs', muted: true,
     matches: (p) => p.startsWith('/accabonus') || p.startsWith('/tennis'),
     icon: (
@@ -64,42 +73,48 @@ const TOOLS = [
   },
 ]
 
-const SPREAD = 94  // total degrees the fan spans
-
 export default function BottomNav({ tools = [] }) {
   const { pathname } = useLocation()
   const [open, setOpen] = useState(false)
+
+  // Escape closes it, like any other popover. The scrim covers a tap outside;
+  // this covers a keyboard, where there is nothing to tap.
+  useEffect(() => {
+    if (!open) return
+    const onKey = e => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open])
 
   const granted = TOOLS.filter(t => tools.includes(t.tool))
   // One tool (or none) needs no switcher — you're already on it; direct URL works.
   if (granted.length < 2) return null
 
   const active = granted.find(t => t.matches(pathname)) || granted[0]
-  const others = granted.filter(t => t !== active)
 
   return (
     <div className={`${styles.dock} ${open ? styles.open : ''}`}>
       <div className={styles.scrim} onClick={() => setOpen(false)} />
-      <div className={styles.fan} aria-hidden={!open}>
-        {others.map((t, k) => {
-          const rot = others.length === 1 ? 0 : -SPREAD / 2 + (SPREAD / (others.length - 1)) * k
-          return (
-            <Link
-              key={t.tool}
-              to={t.to}
-              tabIndex={open ? 0 : -1}
-              onClick={() => setOpen(false)}
-              className={`${styles.card} ${t.muted ? styles.muted : ''}`}
-              style={{ '--rot': `${rot.toFixed(1)}deg` }}
-            >
-              {t.priv && <span className={styles.priv}>yours</span>}
-              <span className={styles.cardIc}>{t.icon}</span>
-              <span className={styles.cardNm}>{t.name}</span>
-              <span className={styles.cardSub}>{t.sub}</span>
-            </Link>
-          )
-        })}
-      </div>
+      {/* Every granted tool, current one included and marked — a switcher that
+          hides the tool you're on reads as a list with a hole in it, and the
+          row order then shifts depending on where you happen to be. */}
+      <nav className={styles.list} aria-hidden={!open} aria-label="Tools">
+        {granted.map(t => (
+          <Link
+            key={t.tool}
+            to={t.to}
+            tabIndex={open ? 0 : -1}
+            onClick={() => setOpen(false)}
+            aria-current={t === active ? 'page' : undefined}
+            className={`${styles.row} ${t.muted ? styles.muted : ''} ${t === active ? styles.rowOn : ''}`}
+          >
+            <span className={styles.rowIc}>{t.icon}</span>
+            <span className={styles.rowNm}>{t.name}</span>
+            <span className={styles.rowSub}>{t.sub}</span>
+            {t.priv && <span className={styles.priv}>yours</span>}
+          </Link>
+        ))}
+      </nav>
       <button
         type="button"
         className={styles.anchor}
@@ -108,10 +123,7 @@ export default function BottomNav({ tools = [] }) {
         aria-label={`Current tool: ${active.name}. Tap to switch tools.`}
       >
         <span className={styles.anchorIc}>{active.icon}</span>
-        <span className={styles.anchorMeta}>
-          <span className={styles.anchorNm}>{active.name}</span>
-          <span className={styles.anchorSub}>{active.sub}</span>
-        </span>
+        <span className={styles.anchorNm}>{active.name}</span>
         <span className={`${styles.chev} ${open ? styles.chevOpen : ''}`}>
           <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="6,13 11,8 16,13"/>

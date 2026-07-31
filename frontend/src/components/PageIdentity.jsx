@@ -15,6 +15,7 @@ const IDENTITIES = [
   { match: (p) => p === '/pnl/dogs', title: 'P&L — Dogs', icon: '/icons/pnl-dogs.svg', manifest: '/manifests/pnl-dogs.webmanifest' },
   { match: (p) => p === '/pnl/virtuals', title: 'P&L — Virtuals', icon: '/icons/pnl-virtuals.svg', manifest: '/manifests/pnl-virtuals.webmanifest' },
   { match: (p) => p === '/kelly', title: 'Puntmore — Kelly', icon: '/icons/kelly.svg', manifest: '/manifests/kelly.webmanifest' },
+  { match: (p) => p === '/shop', title: 'Puntmore — Shop Visits', icon: '/icons/shop.svg', manifest: '/manifests/shop.webmanifest' },
   { match: (p) => p === '/accabonus', title: 'Puntmore — AccaBonus', icon: '/icons/accabonus.svg', manifest: '/manifests/accabonus.webmanifest' },
   { match: (p) => p === '/cards', title: 'Puntmore — Cards', icon: '/icons/cards.svg', manifest: '/manifests/cards.webmanifest' },
 ]

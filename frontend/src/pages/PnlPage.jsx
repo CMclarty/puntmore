@@ -80,12 +80,48 @@ function niceStep(range) {
   return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag
 }
 
+// Calendar week starts Monday (en-GB), matching the calendar-month semantics
+// "month to date" already uses — both read as "since a fixed point on the
+// calendar", not "the last N days".
+function startOfWeek(d) {
+  const x = new Date(d)
+  x.setDate(x.getDate() - (x.getDay() + 6) % 7)
+  x.setHours(0, 0, 0, 0)
+  return x
+}
+function startOfDay(d) {
+  const x = new Date(d)
+  x.setHours(0, 0, 0, 0)
+  return x
+}
+
+// The chart's own time window, separate from the headline stats. A procession
+// rather than a dropdown: one tap always means "zoom in one step", so there is
+// nothing to open or choose from, just a value to cycle past.
+const CHART_RANGES = ['all', 'month', 'week', 'day']
+const RANGE_LABEL = { all: 'All', month: 'MTD', week: 'Week', day: 'Day' }
+
+function inChartRange(b, range, now) {
+  if (range === 'all') return true
+  const d = parseDate(b.created_at)
+  if (range === 'month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+  if (range === 'week') return d >= startOfWeek(now)
+  return d >= startOfDay(now) // 'day'
+}
+
 export default function PnlPage({ category = 'dogs' }) {
   const [bets, setBets] = useState([])
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const chartRef = useRef(null)
   const tipRef = useRef(null)
+  // The chart's own zoom level — cycled by tapping the small tag in its corner,
+  // never a dropdown. Lives apart from the headline stats below, which always
+  // read all-time / month-to-date regardless of what the chart is showing.
+  const [chartRange, setChartRange] = useState('all')
+  const cycleChartRange = useCallback(() => {
+    setChartRange(r => CHART_RANGES[(CHART_RANGES.indexOf(r) + 1) % CHART_RANGES.length])
+  }, [])
 
   // Which of the two ledgers this instance is, and the other one to hop to.
   const label = category === 'virtuals' ? 'Virtuals' : 'Dogs'
@@ -139,13 +175,17 @@ export default function PnlPage({ category = 'dogs' }) {
     if (!svg) return
     const r = svg.getBoundingClientRect(), W = r.width, H = r.height
     if (!W || !H) return
-    const spPts = spSeries(bets)
+    // Windowed to the chart's own range, not the ledger's: each step zooms the
+    // SAME cumulative curve into a shorter tail, starting fresh from 0 at the
+    // window's edge — so "Day" reads as today's shape, not a slice of the total.
+    const rangedBets = chartRange === 'all' ? bets : bets.filter(b => inChartRange(b, chartRange, new Date()))
+    const spPts = spSeries(rangedBets)
     const hasSp = spPts.length > 0
     const pad = { t: 16, r: 46, b: 30, l: 8 }
     const cumArr = [0]; let acc = 0
-    for (const b of bets) { acc += b.amount; cumArr.push(acc) }
+    for (const b of rangedBets) { acc += b.amount; cumArr.push(acc) }
     const n = cumArr.length
-    const dates = [null, ...bets.map(b => parseDate(b.created_at))]
+    const dates = [null, ...rangedBets.map(b => parseDate(b.created_at))]
     // EV shares the money curve's scale so the two can be read against each
     // other directly — the whole point of putting them together is perspective:
     // how much of the profit was earned in the price, and how much was variance.
@@ -224,7 +264,7 @@ export default function PnlPage({ category = 'dogs' }) {
       ${spLayer}
       <g class="pnlHover" style="opacity:0"><circle class="pnlHdot" r="4" fill="var(--ink)" stroke="var(--paper)" stroke-width="1.5"/></g>`
     svg._pts = pts; svg._cum = cumArr; svg._dates = dates; svg._spAt = spAt
-  }, [bets])
+  }, [bets, chartRange])
 
   useEffect(() => { renderChart() }, [renderChart])
 
@@ -386,6 +426,19 @@ export default function PnlPage({ category = 'dogs' }) {
         <div className={styles.chartWrap}>
           <svg className={styles.chart} ref={chartRef} preserveAspectRatio="none" aria-label="Cumulative profit and loss over time" />
           <div className={styles.tip} ref={tipRef} />
+          {/* Sits in the chart's own empty top-left corner (inside the axis
+              padding) rather than on the drag surface, so it can never eat the
+              hover-scrub gesture the chart itself listens for. A separate
+              element, not a second listener on the svg — no gesture to
+              disambiguate from a drag. */}
+          <button
+            type="button"
+            className={styles.rangeTag}
+            onClick={cycleChartRange}
+            aria-label={`Chart range: ${RANGE_LABEL[chartRange]}. Tap to cycle.`}
+          >
+            {RANGE_LABEL[chartRange]}
+          </button>
         </div>
       </section>
 

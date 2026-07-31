@@ -232,3 +232,17 @@ export async function deleteBet(category, id) {
   if (res.status === 401) { redirectToLogin(); throw new ApiError('Not authenticated', { status: 401, path }) }
   if (!res.ok && res.status !== 204) throw await fail(res, path, 'DELETE')
 }
+
+// Shop visit route tracker (per-user). One GET returns both the route's model
+// (the £500 × 5 × 4 × 40 arithmetic) and every logged visit — the page derives
+// its counters from those, so there is nothing else to fetch.
+export const getShopRoute = () => get('/shop')
+export const logShopVisit = () => post('/shop/visits', {})
+export const deleteShopVisit = (id) => del(`/shop/visits/${id}`)
+export const resetShopRoute = () => del('/shop/visits')
+
+async function del(path) {
+  const res = await send(path, { method: 'DELETE' }, 'DELETE')
+  if (res.status === 401) { redirectToLogin(); throw new ApiError('Not authenticated', { status: 401, path }) }
+  if (!res.ok && res.status !== 204) throw await fail(res, path, 'DELETE')
+}

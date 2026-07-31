@@ -200,6 +200,22 @@ class Bet(Base):
     created_at = Column(DateTime, default=utcnow, index=True)
 
 
+class ShopVisit(Base):
+    """One logged stop on the field route, owned by the user who tapped it.
+
+    Deliberately one row per visit rather than a counter column: the count is
+    `COUNT(*)`, and keeping the timestamps means later questions ("how many
+    yesterday?", "which weeks were slow?") need no migration, only a query. The
+    row carries nothing else — a visit is the event, and the money figures on
+    the page are all `count × a constant` (see routers/shop.py).
+    """
+    __tablename__ = "shop_visits"
+
+    id = Column(Integer, primary_key=True)
+    user = Column(String, nullable=False, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
+
+
 class User(Base):
     __tablename__ = "users"
 

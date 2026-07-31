@@ -150,6 +150,38 @@ class BetOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# Shop visit route tracker
+class ShopVisitOut(BaseModel):
+    id: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ShopModelOut(BaseModel):
+    """The route's target arithmetic, served rather than hardcoded in the app.
+
+    The page shows this sum as its headline, so it has to be one source of
+    truth: two copies drift and the tracker then counts down to a total it no
+    longer displays.
+    """
+    # shops_per_day × days_per_week is week_size, and week_size × weeks is
+    # goal. The factors are sent as well as the products because the page
+    # prints the sum in factored form ("£500/shop × 5/day × 4/wk × 40 wks").
+    shops_per_day: int
+    days_per_week: int
+    week_size: int
+    weeks: int
+    goal: int
+    value_per_shop: float
+    roi_rate: float
+
+
+class ShopStateOut(BaseModel):
+    model: ShopModelOut
+    visits: list[ShopVisitOut]
+
+
 # First-goalscorer value feed (bet365 vs de-vigged Pinnacle)
 class GoalscorerFeedItem(BaseModel):
     match: str

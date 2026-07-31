@@ -35,6 +35,7 @@ from .routers import accabonus
 from .routers import cards as cards_router
 from .routers import goalscorers as goalscorers_router
 from .routers import pnl as pnl_router
+from .routers import shop as shop_router
 from .routers import auth as auth_router
 from .routers import state as state_router
 from .routers import diagnostics as diagnostics_router
@@ -247,6 +248,9 @@ if settings.enable_goalscorers:
     )
 if settings.enable_pnl:
     app.include_router(pnl_router.router, dependencies=[Depends(require_tool("pnl"))])
+# The shop tracker reads and writes only its own rows and calls no vendor API,
+# so there is no flag to gate it on — access is per-user via the grant alone.
+app.include_router(shop_router.router, dependencies=[Depends(require_tool("shop"))])
 
 # /state self-guards with a static API key (machine consumers, no session).
 app.include_router(state_router.router)

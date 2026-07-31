@@ -1,12 +1,14 @@
-/* Tool switcher: the selected tool is the anchor at the bottom; tapping it
-   fans the other granted tools up above it. Pure CSS transforms (one rotate
-   per card) — no blur, no JS animation. */
+/* Tool switcher: a compact button in the bottom-left corner naming the current
+   tool; tapping it opens a plain list of every granted tool directly above it.
+   One opacity/translate transition — no blur, no per-item transform, no JS
+   animation. */
 
 .dock {
   position: relative;
   z-index: 50;
   flex-shrink: 0;
-  padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  display: flex;                 /* keeps the button at its own width, hard left */
+  padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
   background: var(--paper);
   border-top: 1px solid var(--line);
 }
@@ -22,51 +24,55 @@
 }
 .open .scrim { opacity: 1; pointer-events: auto; }
 
-/* ---- fan ---- */
-.fan {
+/* ---- list ---- */
+.list {
   position: absolute;
-  left: 50%;
-  bottom: calc(100% - 8px);    /* pivot just above the anchor */
-  width: 0;
-  height: 0;
-}
-.card {
-  position: absolute;
-  left: -56px;
-  bottom: 0;
-  width: 112px;
-  height: 126px;
-  padding: 11px;
+  left: 16px;                  /* flush with the button below it */
+  bottom: calc(100% - 6px);
+  min-width: 216px;
+  max-width: calc(100vw - 32px);
   display: flex;
   flex-direction: column;
-  text-decoration: none;
-  color: var(--ink);
   background: var(--paper);
   border: 1px solid var(--line-strong);
-  border-radius: 13px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.14);
-  transform-origin: 50% 150px;
-  transform: rotate(0deg);
+  border-radius: 14px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.16);
+  overflow: hidden;            /* clips the rows to the corner radius */
   opacity: 0;
+  transform: translateY(6px);
   pointer-events: none;
-  transition: transform 0.3s ease, opacity 0.2s ease;
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
-.open .card { opacity: 1; pointer-events: auto; transform: rotate(var(--rot)); }
+.open .list { opacity: 1; transform: translateY(0); pointer-events: auto; }
 
-.cardIc {
-  width: 28px; height: 28px; border-radius: 8px;
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;            /* touch target */
+  padding: 9px 12px;
+  text-decoration: none;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+}
+.row:last-child { border-bottom: none; }
+.rowOn { background: var(--accent-soft); }
+
+.rowIc {
+  width: 26px; height: 26px; border-radius: 8px; flex: none;
   display: flex; align-items: center; justify-content: center;
   background: var(--accent-soft); color: var(--accent);
 }
-.cardIc svg, .anchorIc svg { width: 18px; height: 18px; }
-.card.muted .cardIc { background: #EEE9E0; color: var(--muted); }
-.cardNm { font-size: 12.5px; font-weight: 700; margin-top: auto; }
-.cardSub {
-  font-family: var(--font-mono); font-size: 11.5px; color: var(--accent); margin-top: 1px;
+.rowOn .rowIc { background: var(--paper); }
+.rowIc svg, .anchorIc svg { width: 17px; height: 17px; }
+.row.muted .rowIc { background: #EEE9E0; color: var(--muted); }
+.rowNm { font-size: 13px; font-weight: 700; }
+.rowSub {
+  margin-left: auto;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--accent);
 }
-.card.muted .cardSub { color: var(--faint); }
+.row.muted .rowSub { color: var(--faint); }
 .priv {
-  position: absolute; top: 9px; right: 10px;
   font-size: 8px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--faint);
 }
@@ -75,13 +81,13 @@
 .anchor {
   position: relative;
   z-index: 1;
-  width: 100%;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: 9px;
+  min-height: 44px;            /* touch target, though the button reads smaller */
+  padding: 6px 12px 6px 7px;
   border: none;
-  border-radius: 15px;
+  border-radius: 14px;
   background: var(--ink);
   color: var(--paper);
   font: inherit;
@@ -90,17 +96,15 @@
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.20);
 }
 .anchorIc {
-  width: 32px; height: 32px; border-radius: 9px; flex: none;
+  width: 30px; height: 30px; border-radius: 9px; flex: none;
   display: flex; align-items: center; justify-content: center;
   background: rgba(255, 255, 255, 0.12);
 }
-.anchorMeta { display: flex; flex-direction: column; line-height: 1.2; }
-.anchorNm { font-size: 14px; font-weight: 700; }
-.anchorSub {
-  font-family: var(--font-mono); font-size: 12px; color: rgba(255, 255, 255, 0.7);
-}
-.chev { margin-left: auto; color: rgba(255, 255, 255, 0.6); display: flex; transition: transform 0.25s ease; }
-.chev svg { width: 18px; height: 18px; }
+/* Just the tool name — the `sub` descriptor stays in the list, where it
+   distinguishes one row from another. On the button it only added width. */
+.anchorNm { font-size: 13.5px; font-weight: 700; }
+.chev { color: rgba(255, 255, 255, 0.6); display: flex; transition: transform 0.25s ease; }
+.chev svg { width: 16px; height: 16px; }
 .chevOpen { transform: rotate(180deg); }
 
 .anchor:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

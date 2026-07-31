@@ -128,6 +128,31 @@
 
 .chartWrap { position: relative; flex: 1; min-height: 0; margin-top: 4px; }
 .chart { width: 100%; height: 100%; display: block; overflow: visible; }
+
+/* Chart range toggle — All → MTD → Week → Day → All, one tap per step. Sized
+   and coloured to disappear until you go looking for it: same faint tone and
+   letter-spacing as the axis labels beside it, no border or background. The
+   padding/negative-margin pair grows the tap target to a thumb-sized ~44px
+   without growing anything visible, so it stays unobtrusive AND reachable. */
+.rangeTag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: none;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 14px 16px;
+  margin: -14px -16px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.12s;
+}
+.rangeTag:active { color: var(--muted); }
 .tip {
   position: absolute;
   pointer-events: none;
