@@ -73,6 +73,16 @@ const TOOLS = [
   },
 ]
 
+/**
+ * Where an account lands when there's no particular page to return to — the
+ * first tool in nav order that it can actually see. "/" is the coupon tracker,
+ * so an account without that grant must NOT be sent there: it would meet the
+ * no-access notice on login and read as a permissions failure.
+ */
+export function landingFor(tools = []) {
+  return (TOOLS.find(t => tools.includes(t.tool)) || TOOLS[0]).to
+}
+
 export default function BottomNav({ tools = [] }) {
   const { pathname } = useLocation()
   const [open, setOpen] = useState(false)

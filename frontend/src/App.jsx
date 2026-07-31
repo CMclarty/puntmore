@@ -1,7 +1,7 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { getMe, logout as apiLogout } from './api'
-import BottomNav from './components/BottomNav'
+import BottomNav, { landingFor } from './components/BottomNav'
 import PageIdentity from './components/PageIdentity'
 import TrackerPage from './pages/TrackerPage'
 import LoginPage from './pages/LoginPage'
@@ -63,16 +63,9 @@ export default function App() {
   if (loading) return <div className={styles.boot}>Loading…</div>
   if (bootError) return <BootError detail={bootError} />
 
-  const canSee = (tool) => Boolean(user?.tools?.includes(tool))
-
-  // Gate a route on a tool grant: not logged in → login; logged in but not
-  // granted this tool → the no-access notice (never a redirect to another
-  // guarded route, which would loop for a user granted nothing).
-  const protectTool = (el, tool) => {
-    if (!user) return <Navigate to="/login" replace />
-    if (!canSee(tool)) return <NoAccess onLogout={handleLogout} />
-    return el
-  }
+  const protectTool = (el, tool) => (
+    <Protected user={user} tool={tool} onLogout={handleLogout}>{el}</Protected>
+  )
 
   return (
     <BrowserRouter>
@@ -80,10 +73,7 @@ export default function App() {
       <main className={`${styles.main} ${IS_FOCUSED ? styles.focused : ''}`}>
         <Suspense fallback={<div className={styles.boot}>Loading…</div>}>
         <Routes>
-          <Route
-            path="/login"
-            element={user ? <Navigate to="/" replace /> : <LoginPage onLogin={setUser} />}
-          />
+          <Route path="/login" element={<LoginRoute user={user} onLogin={setUser} />} />
           {/* The tracker opens on its landing page; /t/<code> is one coupon. */}
           <Route path="/" element={protectTool(<TrackerPage />, 'coupons')} />
           <Route path="/t/:code" element={protectTool(<TrackerPage />, 'coupons')} />
@@ -110,6 +100,47 @@ export default function App() {
       {user && !IS_FOCUSED && <BottomNav onLogout={handleLogout} username={user.username} tools={user.tools} />}
     </BrowserRouter>
   )
+}
+
+/**
+ * Gate a route on a tool grant: not logged in → login; logged in but not
+ * granted this tool → the no-access notice (never a redirect to another guarded
+ * route, which would loop for a user granted nothing).
+ *
+ * The redirect to /login carries the page that was asked for, because `replace`
+ * drops the history entry it stands on — without this the destination is gone
+ * before the password is typed, and every login ended on the tracker's landing
+ * page no matter which tool was opened.
+ */
+function Protected({ user, tool, onLogout, children }) {
+  const location = useLocation()
+  if (!user) {
+    const from = location.pathname + location.search
+    return <Navigate to="/login" replace state={{ from }} />
+  }
+  if (!user.tools?.includes(tool)) return <NoAccess onLogout={onLogout} />
+  return children
+}
+
+/**
+ * The login page, and where a signed-in visitor to it goes: back to whatever
+ * `Protected` was guarding, or — on a direct visit to /login, where there is no
+ * such page — the first tool the account can see.
+ */
+function LoginRoute({ user, onLogin }) {
+  const location = useLocation()
+  if (!user) return <LoginPage onLogin={onLogin} />
+  return <Navigate to={returnTo(location.state?.from) || landingFor(user.tools)} replace />
+}
+
+/**
+ * A return path is only honoured if it is a path on this site: one leading
+ * slash (`//host` and `https://host` are somewhere else entirely), and not
+ * /login itself, which would bounce straight back here.
+ */
+function returnTo(from) {
+  if (typeof from !== 'string' || !from.startsWith('/') || from.startsWith('//')) return null
+  return from === '/login' || from.startsWith('/login?') ? null : from
 }
 
 // Shown when the app loads but the API doesn't answer healthily — most often
