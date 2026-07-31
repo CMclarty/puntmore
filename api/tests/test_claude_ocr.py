@@ -129,34 +129,68 @@ def test_two_sided_rows_carry_both_prices():
 # described the columns only by their "H"/"A" headers — position is the thing
 # that never changes, so it is what the prompt now instructs on.
 
-def test_prompt_states_the_left_right_rule_for_two_sided_coupons():
+def test_prompt_asks_for_a_positional_pair_not_labelled_sides():
+    """OCR transcribes the pair; the software decides whose price is whose."""
     from app.providers.base import OcrHint
     from app.providers.claude_ocr import build_user_prompt
 
     prompt = build_user_prompt(OcrHint(priced=True, two_sided=True,
                                        board_label="TEAM TO SCORE 2 OR MORE GOALS"))
-    assert "LEFT" in prompt and "HOME" in prompt
-    assert "RIGHT" in prompt and "AWAY" in prompt
-    assert '"home_odds"' in prompt and '"away_odds"' in prompt
-    # The headers must not be the thing it is told to go by.
-    assert "not by the H/A headers" in prompt
+    assert '"odds"' in prompt and "PRINTED order" in prompt
+    # It must not be asked to label the sides at all — that is the judgement
+    # call that put prices on the wrong team.
+    assert "home_odds" not in prompt and "away_odds" not in prompt
+    assert "do not judge which team" in prompt
 
 
-def test_prompt_forbids_swapping_on_plausibility():
-    """The failure mode is a model 'correcting' a price onto the team it looks
-    like it belongs to. An away favourite is not a mistake to fix."""
+def test_prompt_forbids_reordering_the_pair():
     from app.providers.base import OcrHint
     from app.providers.claude_ocr import build_user_prompt
 
     prompt = build_user_prompt(OcrHint(priced=True, two_sided=True))
-    assert "do not swap" in prompt.lower()
+    assert "do not reorder" in prompt.lower()
 
 
-def test_system_prompt_ties_the_fixture_order_to_the_column_order():
+def test_system_prompt_puts_side_assignment_outside_the_model():
     from app.providers.claude_ocr import SYSTEM_PROMPT
-    assert "LEFT sub-column" in SYSTEM_PROMPT and "RIGHT sub-column" in SYSTEM_PROMPT
-    # The fixture's own order is the cross-check the model can apply per row.
-    assert "named first" in SYSTEM_PROMPT
+    assert "DO NOT LABEL THE TWO PRICES" in SYSTEM_PROMPT
+    assert "by the software" in SYSTEM_PROMPT
+
+
+def test_positional_pair_becomes_home_then_away():
+    from app.providers.claude_ocr import parse_rows
+    rows = parse_rows({"selections": [
+        {"match": "Kairat v Omonia Nicosia", "kickoff": "WED 16:00",
+         "odds": ["1-3", "4-11"]},
+    ]})
+    assert rows[0].home_odds == 1.3333    # printed first
+    assert rows[0].away_odds == 1.3636    # printed second
+
+
+def test_a_missing_price_keeps_its_slot():
+    """null in a slot must not shift the other price onto the wrong team."""
+    from app.providers.claude_ocr import parse_rows
+    rows = parse_rows({"selections": [
+        {"match": "A v B", "odds": [None, "4-11"]},
+    ]})
+    assert rows[0].home_odds is None and rows[0].away_odds == 1.3636
+
+
+def test_a_pair_of_the_wrong_length_is_dropped_entirely():
+    """One price with no way to know which sub-column it came from is
+    ambiguous; an unpriced leg beats a leg priced on the wrong team."""
+    from app.providers.claude_ocr import parse_rows
+    rows = parse_rows({"selections": [{"match": "A v B", "odds": ["4-11"]}]})
+    assert rows[0].home_odds is None and rows[0].away_odds is None
+
+
+def test_the_older_labelled_shape_still_parses():
+    """A provider or model answering in the previous shape keeps working."""
+    from app.providers.claude_ocr import parse_rows
+    rows = parse_rows({"selections": [
+        {"match": "A v B", "home_odds": "1-3", "away_odds": "4-11"},
+    ]})
+    assert rows[0].home_odds == 1.3333 and rows[0].away_odds == 1.3636
 
 
 def test_one_sided_coupons_are_not_told_about_columns():

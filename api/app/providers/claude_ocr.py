@@ -26,20 +26,16 @@ teams to score). Coupons come in two shapes:
   across the page (e.g. "TEAM TO SCORE 1 OR MORE GOALS", then "2 OR MORE", then
   "3 OR MORE"). Most such blocks are split into TWO sub-columns.
 
-THE COLUMN ORDER IS ALWAYS THE SAME, ON EVERY COUPON:
+DO NOT LABEL THE TWO PRICES. Copy them into "odds" as a two-item list in the
+order they are PRINTED, left first:
 
-    LEFT sub-column  = the HOME team's price   -> "home_odds"
-    RIGHT sub-column = the AWAY team's price   -> "away_odds"
+    "odds": ["<left sub-column>", "<right sub-column>"]
 
-Use the POSITION of the price on the page. The sub-columns are usually headed
-"H" and "A", but read the left-to-right order, not the letters: a smudged or
-missing header does not change which price is which. The fixture is printed the
-same way round — "Mariehamn v Lahti" means Mariehamn (named first) is at home,
-so Mariehamn's price is the LEFT one of that row's pair.
-
-NEVER swap the pair because one price "looks" like it belongs to the other
-team. A short price on the right is an away favourite, not a mistake to fix.
-Copy the two prices in the order they are printed and nothing else.
+Which team each price belongs to is decided from that order by the software
+reading your output, not by you. The sub-columns are usually headed "H" and
+"A"; ignore the headers, ignore which price looks like a favourite's, and do
+not reorder the pair for any reason. If only one of the two is legible, put
+null in the other slot and keep the positions: ["6-4", null].
 
 Return exactly this shape:
 {
@@ -48,7 +44,7 @@ Return exactly this shape:
   "payout_ladder": [ {"picks": 3, "fractional": "9/2"}, ... ],
   "selections": [
     {"match": "...", "kickoff": "...", "market": null,
-     "your_odds": null, "home_odds": null, "away_odds": null}, ...
+     "your_odds": null, "odds": ["6-4", "4-11"]}, ...
   ]
 }
 
@@ -66,11 +62,10 @@ Rules:
 - ODDS ARE PRINTED AS FRACTIONS and often use a HYPHEN, not a slash: "6-4"
   means 6/4, "4-11" means 4/11, "10-1" means 10/1. "EVS" means evens (1/1).
   Copy them EXACTLY as printed, as strings — do NOT convert to decimal.
-- "home_odds" / "away_odds": for a PRICED grid, the LEFT and the RIGHT price of
-  the REQUESTED market block's pair, on that fixture's row — left into
-  "home_odds", right into "away_odds", always that way round. Read straight
-  across the row and take care not to drift into a neighbouring market's
-  columns — they look alike.
+- "odds": for a PRICED grid, that fixture's two prices from the REQUESTED
+  market block, in printed order: ["left", "right"]. Read straight across the
+  row and take care not to drift into a neighbouring market's columns — they
+  look alike. Transcribe, do not interpret.
 - "your_odds": only for a priced coupon that prints ONE price per fixture (no
   H/A split). Otherwise null.
 - Return null for any price you cannot read rather than guessing or copying a
@@ -108,18 +103,18 @@ def build_user_prompt(hint: OcrHint | None) -> str:
     else:
         parts.append("This is a PRICED coupon: read the price beside each fixture.")
     if hint.two_sided:
-        # Position, not the column letters: the letters are what a smudged or
-        # cropped header takes away, and the left-to-right order is fixed on
-        # every coupon. Reading them as labels is how prices ended up on the
-        # wrong team.
+        # Transcription only. Asking for "home_odds" made the model decide
+        # which team each price belonged to — a judgement it can get wrong on a
+        # smudged header, and one the layout already answers. It reports the
+        # pair in printed order; parse_rows assigns the sides.
         parts.append(
-            "That block has two sub-columns per fixture. The LEFT one is the "
-            'HOME team\'s price and goes in "home_odds"; the RIGHT one is the '
-            'AWAY team\'s and goes in "away_odds". Always that way round — go '
-            "by the left-to-right position, not by the H/A headers, and do not "
-            "swap them because a price looks like it suits the other team. "
-            'Copy them exactly as printed (fractions such as "6-4", "4-11", '
-            'or "EVS").'
+            "That block has two sub-columns per fixture. Put both prices in "
+            '"odds" as a two-item list in PRINTED order, left first: '
+            '["<left>", "<right>"]. Do not label them, do not reorder them, '
+            "and do not judge which team either belongs to — that is decided "
+            "from the order. Copy them exactly as printed (fractions such as "
+            '"6-4", "4-11", or "EVS"), and use null for a price you cannot '
+            "read rather than shifting the other one across."
         )
     else:
         parts.append('Put each fixture\'s price in "your_odds", exactly as printed.')
@@ -188,22 +183,47 @@ def _parse_ladder(raw) -> dict[int, float]:
     return ladder
 
 
+def _sides_from(row: dict) -> tuple[float | None, float | None]:
+    """A row's two prices as (home, away).
+
+    THIS is where a price becomes a team's price, and it is decided by print
+    order alone: coupons are laid out left-to-right, so the first of the pair is
+    the home team's and the second the away team's. OCR reports the pair in
+    "odds" without labelling it — it is a transcription job, and asking a model
+    which team a price belonged to is what crossed prices onto the wrong team.
+
+    A response that still labels the pair itself ("home_odds"/"away_odds") is
+    accepted so a provider or model that answers in the older shape keeps
+    working, but the positional list wins when both are present.
+    """
+    pair = row.get("odds")
+    if isinstance(pair, (list, tuple)):
+        # Exactly two slots, in printed order. A row with the wrong count is
+        # ambiguous about which sub-column is missing, so no price is taken
+        # from it rather than guessing the alignment.
+        if len(pair) != 2:
+            return None, None
+        return parse_odds(pair[0]), parse_odds(pair[1])
+    return parse_odds(row.get("home_odds")), parse_odds(row.get("away_odds"))
+
+
 def parse_rows(data: dict) -> list[ExtractedRow]:
     """The `selections` array -> rows. Shared by every OCR provider so a fix
-    here (fractional odds, H/A prices) lands for all of them at once."""
+    here (fractional odds, the two-sided price pair) lands for all at once."""
     rows = []
     for row in data.get("selections") or []:
         match = (row.get("match") or "").strip()
         if not match:
             continue  # a row with no fixture cannot be matched or priced
+        home_odds, away_odds = _sides_from(row)
         rows.append(
             ExtractedRow(
                 match=match,
                 market=(row.get("market") or None),
                 your_odds=parse_odds(row.get("your_odds")),
                 kickoff_text=(row.get("kickoff") or None),
-                home_odds=parse_odds(row.get("home_odds")),
-                away_odds=parse_odds(row.get("away_odds")),
+                home_odds=home_odds,
+                away_odds=away_odds,
             )
         )
     return rows

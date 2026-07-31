@@ -73,9 +73,10 @@ class ExtractedRow:
     #
     # POSITIONAL, on every coupon: home_odds is the LEFT price of the pair and
     # away_odds the RIGHT one, matching the fixture's own order (the team named
-    # first is at home). The "H"/"A" headers agree with that, but position is
-    # the invariant — reading the letters instead is what put prices on the
-    # wrong team. `_build_legs` pairs these with `normalise.split_sides`, which
+    # first is at home). OCR does NOT decide this — it reports the pair in
+    # printed order and `claude_ocr._sides_from` assigns the sides, because a
+    # model asked which team a price belonged to is a model that can answer
+    # wrong. `_build_legs` pairs these with `normalise.split_sides`, which
     # splits the fixture left-to-right the same way.
     home_odds: float | None = None
     away_odds: float | None = None
