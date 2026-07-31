@@ -34,6 +34,14 @@
   margin-top: 4px;
 }
 
+/* Quiet note under a field — states what the form does that it cannot show. */
+.hint {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--faint);
+  margin: -2px 0 2px;
+}
+
 .select, .input {
   background: var(--paper);
   border: 1px solid var(--line-strong);

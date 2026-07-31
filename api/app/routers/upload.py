@@ -16,9 +16,12 @@ from ..models import Coupon, Leg
 from ..schemas import UploadInitResponse
 from ..config import settings
 from .. import coupon_types, coupon_periods, normalise
+from ..coupon_images import delete_coupon_image
+from ..coupon_types import COUPON_TYPES
 from ..images import normalise_orientation
 from ..pricing.legs import price_legs
 from ..providers.base import OcrHint
+from ..providers.claude_ocr import normalise_board_label
 from ..security import require_user
 
 logger = logging.getLogger("uvicorn.error")
@@ -33,6 +36,44 @@ def _selection_for(ctype, team: str | None) -> str:
     if team is None or "{team}" not in ctype.selection:
         return ctype.selection
     return ctype.selection.format(team=team)
+
+
+def _pair_for(row, ctype) -> tuple[float | None, float | None]:
+    """The (home, away) prices this coupon TYPE takes from a transcribed row.
+
+    A sheet prints several look-alike blocks side by side and OCR transcribes
+    them all, keyed by heading. Choosing between them is a string match done
+    HERE — the model is never asked to find one block and ignore the rest,
+    which is a guess it can get wrong invisibly.
+
+    Falls back to the row's flat pair when the response carried a single block
+    (an older shape, or a coupon photographed as one market).
+    """
+    if row.prices:
+        key = normalise_board_label(ctype.board_label)
+        # No entry for this type's heading = that block is not on this sheet.
+        # Nothing is taken from a neighbouring block to stand in for it.
+        return row.prices.get(key, (None, None))
+    return row.home_odds, row.away_odds
+
+
+def _types_on_sheet(extracted, period: str) -> list:
+    """Every coupon type whose block was transcribed off this photo.
+
+    One sheet carries six markets, so one photo fills six lists. A type only
+    qualifies if it runs the period being uploaded — the window is a property
+    of the sheet, and a type that is not issued for it has no business being
+    created from it.
+    """
+    seen = set()
+    for row in extracted.rows:
+        seen.update(row.prices)
+    return [
+        t for t in COUPON_TYPES
+        if t.board_label
+        and normalise_board_label(t.board_label) in seen
+        and period in t.period_codes
+    ]
 
 
 def _build_legs(coupon_id, extracted, ctype, reference: date) -> list[Leg]:
@@ -55,10 +96,11 @@ def _build_legs(coupon_id, extracted, ctype, reference: date) -> list[Leg]:
     for row in extracted.rows:
         kickoff = coupon_periods.parse_kickoff(row.kickoff_text, reference)
         sides = normalise.split_sides(row.match) if ctype.two_sided else None
+        home_odds, away_odds = _pair_for(row, ctype) if ctype.two_sided else (None, None)
 
-        if ctype.two_sided and sides and (row.home_odds or row.away_odds):
+        if ctype.two_sided and sides and (home_odds or away_odds):
             home, away = sides
-            for team, odds in ((home, row.home_odds), (away, row.away_odds)):
+            for team, odds in ((home, home_odds), (away, away_odds)):
                 if odds is None:
                     continue
                 legs.append(Leg(
@@ -138,13 +180,7 @@ def _supersede_previous(db, coupon) -> int:
         .all()
     )
     for prev in old:
-        if prev.image_path and os.path.exists(prev.image_path):
-            try:
-                os.remove(prev.image_path)
-            except OSError:
-                # A missing or unreadable file must not strand the row: the
-                # pair going out of step is what leaves orphans behind.
-                logger.warning("Could not delete image for coupon %s", prev.id)
+        delete_coupon_image(db, prev)
         db.delete(prev)
     if old:
         logger.info(
@@ -280,6 +316,59 @@ async def upload_coupon(
     return UploadInitResponse(coupon_id=coupon.id, legs=[])
 
 
+def _build_sibling_coupons(
+    db, coupon, extracted, period, reference, odds_provider,
+) -> list[Coupon]:
+    """A coupon for every OTHER market block transcribed off this sheet.
+
+    A Hill sheet prints six markets over one fixture list, and the photo carries
+    all of them. The uploaded type is the one that was asked for; the rest are
+    built from the same read, each with its own legs, window and name, each
+    superseding its own previous issue.
+
+    They SHARE the stored image, so any of them can be re-scanned and the file
+    survives until the last one is deleted (see delete_coupon_image).
+
+    A block that produced no legs is skipped rather than saved empty: an empty
+    coupon on the landing page reads as a failed scan of a real coupon.
+    """
+    made = []
+    for sibling_type in _types_on_sheet(extracted, period):
+        if sibling_type.code == coupon.type_code:
+            continue
+        legs = _build_legs(0, extracted, sibling_type, reference)
+        if not legs:
+            continue
+
+        sibling = Coupon(
+            type_code=sibling_type.code,
+            period=period,
+            match_day=coupon.match_day,
+            period_ends=coupon.period_ends,
+            status="confirmed",
+            image_path=coupon.image_path,
+            uploaded_by=coupon.uploaded_by,
+        )
+        db.add(sibling)
+        db.flush()
+        for leg in legs:
+            leg.coupon_id = sibling.id
+        db.add_all(legs)
+        db.flush()
+        _apply_coupon_window(sibling, extracted, sibling_type, period, reference, legs)
+        sibling.name = _coupon_name(sibling_type, period, sibling)
+
+        price_legs(legs, odds_provider)
+        _supersede_previous(db, sibling)
+        db.commit()
+        made.append(sibling)
+        logger.info(
+            "Sheet %s also filled %s (%d legs)",
+            coupon.id, sibling_type.code, len(legs),
+        )
+    return made
+
+
 def _process_upload(
     *, coupon_id, type_code, period, reference, media_type,
     ocr, odds_provider, notifier, user_name=None, session_factory=None,
@@ -323,14 +412,26 @@ def _process_upload(
         replaced = _supersede_previous(db, coupon) if legs else 0
         db.commit()
 
+        # One sheet, every market on it. The photo was transcribed whole, so the
+        # other blocks are already read — building their coupons costs nothing
+        # more at the vendor and saves photographing the same sheet six times.
+        siblings = _build_sibling_coupons(
+            db, coupon, extracted, period, reference, odds_provider,
+        )
+
         if notifier:
             replaced_note = (
                 f" Replaced the previous {coupon.period_label or coupon.period} upload."
                 if replaced else ""
             )
+            sibling_note = (
+                f" Same sheet also filled {', '.join(s.name for s in siblings)}."
+                if siblings else ""
+            )
             notifier.send(
                 f":inbox_tray: New upload: **{coupon.name}** — "
-                f"{len(legs)} selections saved and priced.{replaced_note}"
+                f"{len(legs)} selections saved and priced."
+                f"{replaced_note}{sibling_note}"
             )
     except Exception:
         logger.exception("Coupon %s failed after upload", coupon_id)

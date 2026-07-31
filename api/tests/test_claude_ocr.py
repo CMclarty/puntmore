@@ -130,17 +130,34 @@ def test_two_sided_rows_carry_both_prices():
 # that never changes, so it is what the prompt now instructs on.
 
 def test_prompt_asks_for_a_positional_pair_not_labelled_sides():
-    """OCR transcribes the pair; the software decides whose price is whose."""
+    """OCR transcribes the pairs; the software decides whose price is whose."""
     from app.providers.base import OcrHint
     from app.providers.claude_ocr import build_user_prompt
 
     prompt = build_user_prompt(OcrHint(priced=True, two_sided=True,
                                        board_label="TEAM TO SCORE 2 OR MORE GOALS"))
-    assert '"odds"' in prompt and "PRINTED order" in prompt
+    assert '"prices"' in prompt and "PRINTED order" in prompt
     # It must not be asked to label the sides at all — that is the judgement
     # call that put prices on the wrong team.
     assert "home_odds" not in prompt and "away_odds" not in prompt
     assert "do not judge which team" in prompt
+
+
+def test_prompt_asks_for_every_block_not_one():
+    """Finding one block among six look-alikes was the other invisible guess.
+
+    The requested heading is still named — as the heading to expect, not as a
+    filter to apply — and the rest are asked for too.
+    """
+    from app.providers.base import OcrHint
+    from app.providers.claude_ocr import build_user_prompt
+
+    prompt = build_user_prompt(OcrHint(priced=True, two_sided=True,
+                                       board_label="TEAM TO SCORE 2 OR MORE GOALS"))
+    assert "Transcribe them ALL" in prompt
+    assert "do not pick one block and do not leave one out" in prompt
+    assert "Ignore every other market block" not in prompt
+    assert "TEAM TO SCORE 2 OR MORE GOALS" in prompt
 
 
 def test_prompt_forbids_reordering_the_pair():

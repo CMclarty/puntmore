@@ -148,6 +148,12 @@ export default function UploadPage() {
             <option key={t.code} value={t.code}>{t.label}</option>
           ))}
         </select>
+        {/* The photo is read whole, so a sheet printing six markets fills six
+            lists. Said here because the form still asks for ONE type and would
+            otherwise imply the rest were thrown away. */}
+        <p className={styles.hint}>
+          Every market printed on the sheet is read — this is the one it opens on.
+        </p>
 
         <label className={styles.label}>Coupon period</label>
         <select className={styles.select} value={period} onChange={e => setPeriod(e.target.value)}>

@@ -62,11 +62,23 @@ Both live behind their seams. Core logic never calls a vendor API directly.
 - Derived-market value thresholds come from MEASURED backtest calibration
   (SPEC §8.4), not assumed. Until measured, use the provisional 8% threshold and
   display the uncertainty band.
-- **Home/away on a two-sided coupon is POSITIONAL: left column = home, right =
-  away**, on every coupon, matching the fixture's own order (team named first is
-  at home). The prompts instruct on position, not on the "H"/"A" headers — going
-  by the letters is what crossed prices onto the wrong team (July 2026). Never
-  let OCR swap a pair because a price "looks" like the other team's.
+- **OCR TRANSCRIBES; the app INTERPRETS.** Coupons are a fixed grid, so nothing
+  about their structure is inferred by the model (July 2026):
+  - It reads EVERY market block on the sheet into `prices`, keyed by the block
+    heading as printed. It is never told to find one block and ignore the rest —
+    picking among six look-alikes is a guess that fails invisibly. The app
+    matches the heading (`normalise_board_label`) and selects (`_pair_for`).
+  - Each block's two prices come back as a positional `["left", "right"]` pair.
+    The model never sees the words home or away: **left = home, right = away**,
+    matching the fixture's own order, assigned in `claude_ocr._sides_from`.
+    Going by the printed "H"/"A" headers is what crossed prices onto the wrong
+    team. Never reintroduce a labelled pair or a "pick this block" instruction.
+- **One photo of a sheet fills every market on it.** The uploaded type is just
+  the one it opens on; `upload.py::_build_sibling_coupons` creates a coupon per
+  block found, each superseding its own previous issue. They SHARE the stored
+  image, so `coupon_images.delete_coupon_image` removes the file only with the
+  LAST coupon referencing it — both the supersede path and the scheduled
+  cleanup go through it.
 - **Coupon OCR is not blocking-reviewed** (phone uploads). Rows auto-save and
   price immediately with inline editing (SPEC §7). The per-row anomaly checks
   and ⚠ badges were REMOVED (July 2026, Callum's call — the rows are checked by

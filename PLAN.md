@@ -49,6 +49,12 @@ stays provisional until the calibration backtest (item 3) measures it.
   is stored naive and read back as UTC everywhere (countdown, kicked-off sweep).
   No local-time conversion — one would shift every kickoff by an hour through
   BST. (July 2026, Callum's call.)
+- **Coupons are structure, not inference.** OCR transcribes the whole grid —
+  every market block, keyed by its printed heading, each pair positional — and
+  the app matches headings and assigns sides in code. The model is never asked
+  which block to read or which team a price belongs to. Consequence: one photo
+  of a sheet fills every market printed on it, sharing one stored image.
+  (July 2026, after a coupon came back with home/away prices crossed.)
 - **One issue per (type, period); the newest upload is the coupon.** A new
   upload replaces the previous one of the same type AND period — row and image
   both — but only once it has read rows, so a failed or empty scan never takes

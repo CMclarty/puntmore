@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 
@@ -80,6 +80,15 @@ class ExtractedRow:
     # splits the fixture left-to-right the same way.
     home_odds: float | None = None
     away_odds: float | None = None
+    # EVERY market block printed on this row, keyed by the block's heading as
+    # printed, each value a (left, right) pair. A sheet prints six look-alike
+    # blocks side by side; transcribing all of them means the software picks the
+    # one it wants by matching the heading, instead of the model being told to
+    # find one block and ignore the rest. Empty when the coupon prints a single
+    # price per fixture, or when the response carried only one pair.
+    prices: dict[str, tuple[float | None, float | None]] = field(
+        default_factory=dict
+    )
 
 
 @dataclass

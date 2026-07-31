@@ -8,6 +8,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_ERROR
 
 from .config import settings
+from .coupon_images import delete_coupon_image
 from .database import SessionLocal
 from .models import Coupon, Leg
 from .comparison import value_tier
@@ -38,10 +39,15 @@ def cleanup_old_coupons(db=None, *, cutoff_days: int = 30, notifier=None) -> int
         count = len(old)
         files_removed = 0
         for c in old:
-            if c.image_path and os.path.exists(c.image_path):
-                os.remove(c.image_path)
+            # One photo of a sheet backs a coupon per market block on it, so the
+            # file goes with the LAST row that points at it, not the first.
+            if delete_coupon_image(db, c):
                 files_removed += 1
             db.delete(c)
+            # Flushed per coupon so the next one's reference count sees this
+            # deletion — otherwise the last sibling still counts the others and
+            # the image is never removed at all.
+            db.flush()
         db.commit()
     finally:
         if close:

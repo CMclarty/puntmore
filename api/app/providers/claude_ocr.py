@@ -26,16 +26,25 @@ teams to score). Coupons come in two shapes:
   across the page (e.g. "TEAM TO SCORE 1 OR MORE GOALS", then "2 OR MORE", then
   "3 OR MORE"). Most such blocks are split into TWO sub-columns.
 
-DO NOT LABEL THE TWO PRICES. Copy them into "odds" as a two-item list in the
-order they are PRINTED, left first:
+TRANSCRIBE EVERY BLOCK, DO NOT CHOOSE ONE. Give each row a "prices" object
+keyed by the block's heading COPIED AS PRINTED, with that block's two prices as
+a two-item list in the order they are printed, left first:
 
-    "odds": ["<left sub-column>", "<right sub-column>"]
+  "prices": {
+    "TEAM TO SCORE 1 OR MORE GOALS": ["1-3", "4-11"],
+    "TEAM TO SCORE 2 OR MORE GOALS": ["6-4", "8-13"],
+    "WIN & 2 OR MORE GOALS":         ["11-8", "9-4"]
+  }
 
-Which team each price belongs to is decided from that order by the software
-reading your output, not by you. The sub-columns are usually headed "H" and
-"A"; ignore the headers, ignore which price looks like a favourite's, and do
-not reorder the pair for any reason. If only one of the two is legible, put
-null in the other slot and keep the positions: ["6-4", null].
+DO NOT LABEL THE TWO PRICES in a pair. Which team each belongs to is decided
+from the print order by the software reading your output, not by you. The
+sub-columns are usually headed "H" and "A"; ignore those headers, ignore which
+price looks like a favourite's, and do not reorder a pair for any reason. If
+only one of the two is legible, put null in the other slot and keep the
+positions: ["6-4", null].
+
+Blocks you cannot read, or that are cut off by the edge of the photo, are left
+OUT of "prices" — never invented, and never filled from a neighbouring block.
 
 Return exactly this shape:
 {
@@ -43,8 +52,8 @@ Return exactly this shape:
   "period_text": string or null,
   "payout_ladder": [ {"picks": 3, "fractional": "9/2"}, ... ],
   "selections": [
-    {"match": "...", "kickoff": "...", "market": null,
-     "your_odds": null, "odds": ["6-4", "4-11"]}, ...
+    {"match": "...", "kickoff": "...", "market": null, "your_odds": null,
+     "prices": {"<BLOCK HEADING AS PRINTED>": ["6-4", "4-11"], ...}}, ...
   ]
 }
 
@@ -62,10 +71,11 @@ Rules:
 - ODDS ARE PRINTED AS FRACTIONS and often use a HYPHEN, not a slash: "6-4"
   means 6/4, "4-11" means 4/11, "10-1" means 10/1. "EVS" means evens (1/1).
   Copy them EXACTLY as printed, as strings — do NOT convert to decimal.
-- "odds": for a PRICED grid, that fixture's two prices from the REQUESTED
-  market block, in printed order: ["left", "right"]. Read straight across the
-  row and take care not to drift into a neighbouring market's columns — they
-  look alike. Transcribe, do not interpret.
+- "prices": for a PRICED grid, one entry per market block on that fixture's
+  row, keyed by the block heading exactly as printed, each a ["left", "right"]
+  pair. Read straight across the row: the blocks look alike, so the heading you
+  file a pair under must be the heading of the columns you actually read it
+  from. Transcribe, do not interpret.
 - "your_odds": only for a priced coupon that prints ONE price per fixture (no
   H/A split). Otherwise null.
 - Return null for any price you cannot read rather than guessing or copying a
@@ -85,39 +95,60 @@ USER_PROMPT = (
 
 
 def build_user_prompt(hint: OcrHint | None) -> str:
-    """The per-upload instruction. The coupon TYPE is chosen on the upload form,
-    so which market block to read is known — telling the model narrows a grid of
-    look-alike columns to the one that was actually photographed for."""
+    """The per-upload instruction.
+
+    A coupon sheet is a fixed grid: the same blocks, in the same order, with the
+    same two sub-columns, every week. So the model is asked to TRANSCRIBE it —
+    every block, keyed by its printed heading, each pair in printed order — and
+    the software picks the block it wants by matching that heading and assigns
+    the sides by position.
+
+    It used to be told which single block to read and to ignore the rest, which
+    made it responsible for finding one of six look-alikes and for saying which
+    team each price belonged to. Both were guesses it could get wrong in ways
+    nothing downstream could see; neither is asked of it now. The hint's
+    board_label is still passed, but only as the heading to expect — not as a
+    filter to apply.
+    """
     if hint is None or not hint.priced:
         return USER_PROMPT
     parts = [
         "Read this coupon. Return EVERY fixture row (a long coupon has 78), "
         "plus the date range."
     ]
-    if hint.board_label:
-        parts.append(
-            f"This is a PRICED grid and the market to read is the column block "
-            f'headed "{hint.board_label}". Ignore every other market block on '
-            f"the sheet."
-        )
-    else:
-        parts.append("This is a PRICED coupon: read the price beside each fixture.")
     if hint.two_sided:
-        # Transcription only. Asking for "home_odds" made the model decide
-        # which team each price belonged to — a judgement it can get wrong on a
-        # smudged header, and one the layout already answers. It reports the
-        # pair in printed order; parse_rows assigns the sides.
         parts.append(
-            "That block has two sub-columns per fixture. Put both prices in "
-            '"odds" as a two-item list in PRINTED order, left first: '
+            "This is a PRICED GRID: each row carries several market blocks "
+            "side by side, each split into two sub-columns. Transcribe them "
+            'ALL into "prices", keyed by each block\'s heading exactly as '
+            "printed — do not pick one block and do not leave one out."
+        )
+        if hint.board_label:
+            parts.append(
+                f'The sheet should include a block headed "{hint.board_label}"; '
+                f"report it under that heading as printed. Return the others "
+                f"too — they are read from the same rows and are not extra work "
+                f"to include."
+            )
+        parts.append(
+            "Each block's pair goes in PRINTED order, left first: "
             '["<left>", "<right>"]. Do not label them, do not reorder them, '
             "and do not judge which team either belongs to — that is decided "
             "from the order. Copy them exactly as printed (fractions such as "
             '"6-4", "4-11", or "EVS"), and use null for a price you cannot '
             "read rather than shifting the other one across."
         )
+    elif hint.board_label:
+        parts.append(
+            f"This is a PRICED coupon. The market to read is the block headed "
+            f'"{hint.board_label}"; read the price beside each fixture into '
+            f'"your_odds", exactly as printed.'
+        )
     else:
-        parts.append('Put each fixture\'s price in "your_odds", exactly as printed.')
+        parts.append(
+            'This is a PRICED coupon: read the price beside each fixture into '
+            '"your_odds", exactly as printed.'
+        )
     return " ".join(parts)
 
 
@@ -183,6 +214,57 @@ def _parse_ladder(raw) -> dict[int, float]:
     return ladder
 
 
+def normalise_board_label(label: str | None) -> str:
+    """A block heading reduced to what identifies it.
+
+    The heading is transcribed from a photo, so case, spacing, punctuation and
+    the "&"/"AND" spelling all vary between reads of the same sheet. Everything
+    that isn't a letter or a digit goes, so "WIN & 2 OR MORE GOALS",
+    "Win and 2 or more goals" and "WIN &  2 OR MORE  GOALS" are one key.
+    """
+    if not label:
+        return ""
+    text = str(label).upper().replace("&", " AND ")
+    return " ".join(re.sub(r"[^A-Z0-9]+", " ", text).split())
+
+
+def _pair_from(value) -> tuple[float | None, float | None]:
+    """A ["left", "right"] pair -> (home, away).
+
+    THIS is where a price becomes a team's price, and print order alone decides
+    it: coupons are laid out left-to-right, so the first is the home team's and
+    the second the away team's.
+
+    A pair that arrives with the wrong number of items yields nothing: one price
+    with no way to know which sub-column it came from is ambiguous, and an
+    unpriced leg beats a leg priced on the wrong team.
+    """
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None, None
+    return parse_odds(value[0]), parse_odds(value[1])
+
+
+def _prices_from(row: dict) -> dict[str, tuple[float | None, float | None]]:
+    """Every market block on a row, keyed by its normalised heading.
+
+    The model transcribes the whole grid; the software chooses. Blocks whose
+    pair is entirely unreadable are dropped — an absent block reads as "not on
+    this sheet", which is what it is.
+    """
+    blocks = row.get("prices")
+    if not isinstance(blocks, dict):
+        return {}
+    out = {}
+    for label, value in blocks.items():
+        key = normalise_board_label(label)
+        if not key:
+            continue
+        pair = _pair_from(value)
+        if pair != (None, None):
+            out[key] = pair
+    return out
+
+
 def _sides_from(row: dict) -> tuple[float | None, float | None]:
     """A row's two prices as (home, away).
 
@@ -193,17 +275,11 @@ def _sides_from(row: dict) -> tuple[float | None, float | None]:
     which team a price belonged to is what crossed prices onto the wrong team.
 
     A response that still labels the pair itself ("home_odds"/"away_odds") is
-    accepted so a provider or model that answers in the older shape keeps
-    working, but the positional list wins when both are present.
+    accepted so a provider or model that answers in an older shape keeps
+    working, but a positional list wins when both are present.
     """
-    pair = row.get("odds")
-    if isinstance(pair, (list, tuple)):
-        # Exactly two slots, in printed order. A row with the wrong count is
-        # ambiguous about which sub-column is missing, so no price is taken
-        # from it rather than guessing the alignment.
-        if len(pair) != 2:
-            return None, None
-        return parse_odds(pair[0]), parse_odds(pair[1])
+    if isinstance(row.get("odds"), (list, tuple)):
+        return _pair_from(row["odds"])
     return parse_odds(row.get("home_odds")), parse_odds(row.get("away_odds"))
 
 
@@ -216,6 +292,10 @@ def parse_rows(data: dict) -> list[ExtractedRow]:
         if not match:
             continue  # a row with no fixture cannot be matched or priced
         home_odds, away_odds = _sides_from(row)
+        prices = _prices_from(row)
+        # A single-block response still fills the flat pair; a grid response
+        # fills `prices` and the flat pair is left for whichever block the
+        # coupon type asks for (upload.py::_pair_for).
         rows.append(
             ExtractedRow(
                 match=match,
@@ -224,6 +304,7 @@ def parse_rows(data: dict) -> list[ExtractedRow]:
                 kickoff_text=(row.get("kickoff") or None),
                 home_odds=home_odds,
                 away_odds=away_odds,
+                prices=prices,
             )
         )
     return rows
