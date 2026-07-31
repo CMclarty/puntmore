@@ -112,6 +112,49 @@ def _apply_coupon_window(coupon, extracted, ctype, period, reference, legs) -> N
             )
 
 
+def _supersede_previous(db, coupon) -> int:
+    """Drop earlier uploads of the same (type, period) — the newest wins.
+
+    Two issues of one type coexist by design (a GG midweek and a GG weekend are
+    two different bets), so the key is type AND period: a re-upload of the
+    weekend issue replaces the weekend issue and leaves midweek alone.
+
+    Called only after the new coupon has read rows. A failed or empty scan must
+    never take the working coupon with it — an old issue beats no issue, and
+    the replacement can be retried.
+
+    Deletes the image file alongside the row, never one without the other
+    (same rule as the scheduled cleanup).
+    """
+    if coupon.period is None:
+        return 0
+    old = (
+        db.query(Coupon)
+        .filter(
+            Coupon.type_code == coupon.type_code,
+            Coupon.period == coupon.period,
+            Coupon.id != coupon.id,
+        )
+        .all()
+    )
+    for prev in old:
+        if prev.image_path and os.path.exists(prev.image_path):
+            try:
+                os.remove(prev.image_path)
+            except OSError:
+                # A missing or unreadable file must not strand the row: the
+                # pair going out of step is what leaves orphans behind.
+                logger.warning("Could not delete image for coupon %s", prev.id)
+        db.delete(prev)
+    if old:
+        logger.info(
+            "Coupon %s (%s %s) superseded %s",
+            coupon.id, coupon.type_code, coupon.period,
+            ", ".join(str(c.id) for c in old),
+        )
+    return len(old)
+
+
 def _hint_for(ctype) -> OcrHint:
     """What to tell OCR about the sheet being read. The type is chosen on the
     upload form, so which market block to read is known rather than guessed."""
@@ -275,12 +318,19 @@ def _process_upload(
 
         price_legs(legs, odds_provider)
         coupon.status = "confirmed"
+        # Only now, with rows read and priced, does this upload replace the
+        # previous issue of the same window — see _supersede_previous.
+        replaced = _supersede_previous(db, coupon) if legs else 0
         db.commit()
 
         if notifier:
+            replaced_note = (
+                f" Replaced the previous {coupon.period_label or coupon.period} upload."
+                if replaced else ""
+            )
             notifier.send(
                 f":inbox_tray: New upload: **{coupon.name}** — "
-                f"{len(legs)} selections saved and priced."
+                f"{len(legs)} selections saved and priced.{replaced_note}"
             )
     except Exception:
         logger.exception("Coupon %s failed after upload", coupon_id)

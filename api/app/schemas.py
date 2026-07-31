@@ -59,6 +59,12 @@ class TypePeriodOut(BaseModel):
     period_ends: Optional[date] = None
     leg_count: int = 0
     priced_count: int = 0                # legs carrying fair odds
+    # This ISSUE's own best ladder rung. Per-issue because the ladder and the
+    # fixture list both belong to an issue: two issues of one type are two
+    # different bets, and a single type-level figure can only ever describe one
+    # of them — which left the live issue's combination unreadable while a
+    # newer one existed.
+    best_combination: Optional[dict] = None
 
 
 class CouponTypeOut(BaseModel):
@@ -75,8 +81,10 @@ class CouponTypeOut(BaseModel):
     # Every issue of this type that is live or still to come, newest window
     # first. Drives the landing page's status and its select buttons.
     periods: list[TypePeriodOut] = Field(default_factory=list)
-    # Best rung of the ladder for the latest issue: {"picks", "payout", "fair",
-    # "value"}. The only value that means anything on a ladder coupon.
+    # Best rung of the ladder for the LATEST issue: {"picks", "payout", "fair",
+    # "value"}. The only value that means anything on a ladder coupon. Every
+    # issue also carries its own in `periods` — read that one when a specific
+    # issue is on screen, since this is only ever the newest.
     best_combination: Optional[dict] = None
 
 

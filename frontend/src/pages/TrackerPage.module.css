@@ -62,6 +62,50 @@
 .live    { color: var(--accent); background: var(--accent-soft); }
 .pending { color: var(--muted);  background: var(--zebra); }
 
+/* One tab per issue of this type, plus "All". Scrolls sideways rather than
+   wrapping — the list below is the page, and this must not push it down. */
+.issueBar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--line);
+}
+.issueBar::-webkit-scrollbar { display: none; }
+
+.issueTab {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.issueTabOn {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.issueTabName { font-weight: 700; }
+.issueTabWindow { font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.issueTabOn .issueTabWindow { color: var(--accent); }
+/* Status as a word, same as the landing chips — colour alone reads as nothing
+   on a phone in daylight. */
+.issueTabDot {
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
 .subheader {
   display: flex;
   align-items: center;
@@ -485,28 +529,51 @@
   gap: 7px;
   width: 100%;
   padding: 12px;
-  border: none;
   border-top: 1px solid var(--line);
+  text-align: left;
+}
+/* The card is a container now — its heading and each issue chip are their own
+   buttons, so an issue opens on its own instead of the whole type. */
+.typeTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  border: none;
   background: none;
+  padding: 0;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.typeCard:active { background: var(--zebra); }
-.typeTop { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.typeTop:active { opacity: 0.65; }
 .typeName { font-size: 15px; font-weight: 700; color: var(--ink); }
 .typeCount { font-size: 12px; color: var(--faint); }
 
 .typePeriods { display: flex; flex-direction: column; gap: 5px; }
 
-/* One live/upcoming issue of this coupon. Several can be live at once. */
+/* One live/upcoming issue of this coupon, and the way into it. Several can be
+   live at once, so each is tappable on its own — 40px min height because it is
+   a real target now, not a caption. */
 .periodChip {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: none;
+  font: inherit;
   font-size: 11.5px;
   color: var(--muted);
+  text-align: left;
+  cursor: pointer;
 }
+.periodChip:active { background: var(--zebra); }
 .chipStatus {
   flex: none;
   min-width: 62px;
@@ -524,6 +591,14 @@
 .chipLabel { font-weight: 600; color: var(--ink); }
 .chipWindow { color: var(--faint); }
 .chipCount { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* This issue's own ladder value, on its own line: it is the reading on a
+   ladder coupon, and it is per issue — two live issues are two different bets. */
+.chipCombo {
+  flex-basis: 100%;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
 
 .landingEmpty { padding: 14px 12px; border-top: 1px solid var(--line); }
 .landingEmptyHead {

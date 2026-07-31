@@ -45,6 +45,15 @@ stays provisional until the calibration backtest (item 3) measures it.
 - **Coupon cleanup window is 8 days**, and deletes BOTH database rows AND the
   stored image files. Never one without the other.
   *(Supersedes the v2-era 30-day window.)*
+- **One issue per (type, period); the newest upload is the coupon.** A new
+  upload replaces the previous one of the same type AND period — row and image
+  both — but only once it has read rows, so a failed or empty scan never takes
+  a working coupon with it. Different periods of one type still coexist: a GG
+  midweek and a GG weekend are two different bets. (July 2026, Callum's call.)
+- **An issue is addressable.** `/t/<code>/<coupon_id>` is one issue; the ladder
+  combination, the fixture list and the counts are all per issue. A type-wide
+  ladder figure could only ever describe the newest upload, which made the live
+  issue's value unreadable the moment the next one landed.
 - **OCR is auto-confirm** — rows auto-save and price immediately with per-row
   anomaly flags and inline editing. *(Supersedes the v2-era rule that OCR always
   passes through a blocking manual-correction step.)*

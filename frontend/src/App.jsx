@@ -77,6 +77,10 @@ export default function App() {
           {/* The tracker opens on its landing page; /t/<code> is one coupon. */}
           <Route path="/" element={protectTool(<TrackerPage />, 'coupons')} />
           <Route path="/t/:code" element={protectTool(<TrackerPage />, 'coupons')} />
+          {/* One ISSUE of a type — the midweek GG Bonus while the weekend one
+              is also up. Without this every issue of a type shared one page
+              and one combination, so only the newest was readable. */}
+          <Route path="/t/:code/:couponId" element={protectTool(<TrackerPage />, 'coupons')} />
           <Route path="/upload" element={protectTool(<UploadPage user={user} />, 'coupons')} />
           <Route path="/goalscorers" element={protectTool(<GoalscorersPage />, 'goalscorers')} />
           {/* Two independent ledgers, one per racing category. Bare /pnl (and

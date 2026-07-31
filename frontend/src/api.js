@@ -179,7 +179,11 @@ export const getCouponTypes = () => get('/coupons/types')
 // Coupons cover a fixed window (Mon–Wed / Wed–Fri / Sat / Sun), not one day.
 export const getCouponPeriods = (typeCode) =>
   get(`/coupons/periods${typeCode ? `?type_code=${typeCode}` : ''}`)
-export const getTypeSelections = (code) => get(`/coupons/types/${code}/selections`)
+// A type's whole fixture list, or ONE issue of it. Two issues of a type can be
+// live at once (a GG midweek and a GG weekend), and an issue is only readable
+// on its own — unscoped, the newer one sits below every row of the live one.
+export const getTypeSelections = (code, couponId = null) =>
+  get(`/coupons/types/${code}/selections${couponId ? `?coupon_id=${couponId}` : ''}`)
 export const refreshCoupon = (id) => post(`/coupons/${id}/refresh`, {})
 
 export async function uploadCoupon(typeCode, period, file, name = null) {

@@ -74,7 +74,15 @@ Both live behind their seams. Core logic never calls a vendor API directly.
   through the odds cache, so it never increases API call frequency. Never make
   it bypass the cache.
 - The coupon cleanup deletes BOTH database rows AND stored image files. Never
-  one without the other.
+  one without the other. The same holds when an upload SUPERSEDES the previous
+  issue of its (type, period) — `upload.py::_supersede_previous`. That runs only
+  after the new coupon has read rows: a failed or empty scan must never delete a
+  working coupon. Two issues of one type still coexist (GG midweek + weekend);
+  the key is type AND period, never type alone.
+- **A ladder combination belongs to an ISSUE, not to a type.** The legs of a
+  fold are struck on one sheet, so never price one across two uploads, and never
+  show a single type-wide figure when a type has more than one live issue — that
+  hid the live coupon's value behind the newest upload's until July 2026.
 
 ## Provider guide — how to swap OCR or odds backends
 

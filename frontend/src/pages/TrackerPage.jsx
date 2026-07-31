@@ -172,15 +172,23 @@ function fmtWindow(from, to) {
     : `${a.getDate()} ${mon(a)} – ${b.getDate()} ${mon(b)}`
 }
 
+/** A combination as one line: "4-fold pays 10 vs 4.11 fair (+143.3%)". */
+function comboText(c) {
+  return `${c.picks}-fold pays ${c.payout} vs ${c.fair.toFixed(2)} fair `
+    + `(${c.value > 0 ? '+' : ''}${(c.value * 100).toFixed(1)}%)`
+}
+
 /**
  * The tracker's front door: every coupon type, and for each the issues that are
  * live or still to come.
  *
  * Two windows of one type can be live at once (Mon–Wed and Wed–Fri both contain
- * Wednesday), so each issue is its own row with its own status — that is the
- * thing the old dropdown could not show, since it named only the type.
+ * Wednesday; a GG midweek and a GG weekend overlap the same way), so each issue
+ * is its own BUTTON, opening that issue alone. It used to be decoration on one
+ * type-wide card, which meant the live issue and the next one shared a list and
+ * a single ladder figure — and only the newest was readable.
  */
-function TrackerLanding({ types, loading, onOpen }) {
+function TrackerLanding({ types, loading, onOpen, onOpenIssue }) {
   if (loading) return <p className={styles.loading}>Loading…</p>
 
   const withCoupons = types.filter(t => t.periods.length > 0)
@@ -195,14 +203,20 @@ function TrackerLanding({ types, loading, onOpen }) {
 
       <div className={styles.landingList}>
         {withCoupons.map(t => (
-          <button key={t.code} className={styles.typeCard} onClick={() => onOpen(t.code)}>
-            <span className={styles.typeTop}>
+          // A div, not a button: the issue chips inside are buttons of their
+          // own, and a button cannot contain one.
+          <div key={t.code} className={styles.typeCard}>
+            <button className={styles.typeTop} onClick={() => onOpen(t.code)}>
               <span className={styles.typeName}>{t.label}</span>
               <span className={`${styles.typeCount} ${styles.mono}`}>{t.selection_count}</span>
-            </span>
+            </button>
             <span className={styles.typePeriods}>
               {t.periods.map(p => (
-                <span key={p.coupon_id} className={styles.periodChip}>
+                <button
+                  key={p.coupon_id}
+                  className={styles.periodChip}
+                  onClick={() => onOpenIssue(t.code, p.coupon_id)}
+                >
                   {/* Status in WORDS as well as colour — a dot alone says
                       nothing on a phone in daylight. */}
                   <span className={`${styles.chipStatus} ${styles['st_' + (p.status ?? 'none')]}`}>
@@ -213,10 +227,18 @@ function TrackerLanding({ types, loading, onOpen }) {
                   <span className={`${styles.chipCount} ${styles.mono}`} title="priced / total selections">
                     {p.priced_count}/{p.leg_count}
                   </span>
-                </span>
+                  {/* Each issue's OWN ladder value. A ladder coupon is bet as a
+                      combination, so this is the whole reading — and it belongs
+                      to the issue, never to the type. */}
+                  {p.best_combination && (
+                    <span className={`${styles.chipCombo} ${p.best_combination.value > 0 ? styles.comboGood : styles.comboBad}`}>
+                      {comboText(p.best_combination)}
+                    </span>
+                  )}
+                </button>
               ))}
             </span>
-          </button>
+          </div>
         ))}
 
         {empty.length > 0 && (
@@ -373,9 +395,11 @@ export default function TrackerPage() {
   // exist, which of their windows are live, and a button into each. Picking one
   // pushes /t/<code>, so the browser back button returns to the landing page
   // and a set can be linked to directly.
-  const { code: routeCode } = useParams()
+  // /t/<code> is the whole type; /t/<code>/<couponId> is ONE issue of it.
+  const { code: routeCode, couponId: routeCouponId } = useParams()
   const navigate = useNavigate()
   const activeCode = routeCode ?? null
+  const activeIssueId = routeCouponId ? Number(routeCouponId) : null
   const [types, setTypes] = useState([])
   const [legs, setLegs] = useState([])
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -392,30 +416,68 @@ export default function TrackerPage() {
   )
   useEffect(() => { loadTypes() }, [loadTypes])
 
-  const loadSelections = useCallback(async (code) => {
+  const loadSelections = useCallback(async (code, issueId) => {
     if (!code) { setLegs([]); return }
-    setLegs(await getTypeSelections(code))
+    setLegs(await getTypeSelections(code, issueId))
   }, [])
 
-  useEffect(() => { loadSelections(activeCode) }, [activeCode, loadSelections])
+  useEffect(() => {
+    setError(null)
+    loadSelections(activeCode, activeIssueId).catch(e => {
+      // A superseded issue's id 404s — its upload has been replaced. Say so
+      // and send them back to the type rather than showing "no fixtures",
+      // which reads as an empty coupon.
+      setLegs([])
+      setError(
+        e?.status === 404
+          ? 'That upload has been replaced by a newer one.'
+          : e.message,
+      )
+    })
+  }, [activeCode, activeIssueId, loadSelections])
 
   // Both derive from state that changes far less often than the page renders.
   const activeType = useMemo(
     () => types.find(t => t.code === activeCode) ?? null,
     [types, activeCode],
   )
+  // The issue on screen, when one is selected — it owns the window and the
+  // ladder combination, which the type cannot speak for once there are two.
+  const activeIssue = useMemo(
+    () => activeType?.periods.find(p => p.coupon_id === activeIssueId) ?? null,
+    [activeType, activeIssueId],
+  )
   const legGroups = useMemo(() => groupLegsByPeriod(legs), [legs])
+  // Which ISSUE the header's combination speaks for. A ladder figure always
+  // belongs to one issue — the legs of a fold are struck on one sheet — so the
+  // header names the issue rather than presenting a type-wide number that can
+  // only ever describe one of them. Null for an issue id that no longer
+  // resolves, so a replaced upload shows no figure at all.
+  const headlineIssue = useMemo(() => {
+    if (activeIssueId) return activeIssue
+    const issues = activeType?.periods ?? []
+    return issues.find(p => p.status === 'active') ?? issues[0] ?? null
+  }, [activeIssueId, activeIssue, activeType])
+  const combo = headlineIssue?.best_combination ?? null
+  // Spanning every issue, the figure needs saying WHOSE it is.
+  const comboLabel =
+    !activeIssueId && (activeType?.periods.length ?? 0) > 1 ? headlineIssue?.label : null
 
   function selectType(code) {
     setPickerOpen(false)
     navigate(`/t/${code}`)
   }
 
+  function selectIssue(code, couponId) {
+    setPickerOpen(false)
+    navigate(`/t/${code}/${couponId}`)
+  }
+
   async function handleRefresh() {
     if (!activeCode || refreshing) return
     setRefreshing(true)
     try {
-      await loadSelections(activeCode)
+      await loadSelections(activeCode, activeIssueId)
     } catch { /* leave existing rows */ } finally {
       setRefreshing(false)
     }
@@ -465,7 +527,14 @@ export default function TrackerPage() {
   // No coupon chosen: the landing page. Which coupons exist, which of their
   // windows are live right now, and a way into each.
   if (!activeCode) {
-    return <TrackerLanding types={types} loading={loading} onOpen={selectType} />
+    return (
+      <TrackerLanding
+        types={types}
+        loading={loading}
+        onOpen={selectType}
+        onOpenIssue={selectIssue}
+      />
+    )
   }
 
   return (
@@ -484,19 +553,46 @@ export default function TrackerPage() {
         )}
       </div>
 
+      {/* Which ISSUE is on screen, and the way back to all of them. Without
+          this the page silently spans every issue of the type, which is how a
+          new upload disappeared underneath the live one. */}
+      {activeType && activeType.periods.length > 0 && (
+        <div className={styles.issueBar}>
+          <button
+            className={`${styles.issueTab} ${!activeIssueId ? styles.issueTabOn : ''}`}
+            onClick={() => selectType(activeCode)}
+          >
+            All
+          </button>
+          {activeType.periods.map(p => (
+            <button
+              key={p.coupon_id}
+              className={`${styles.issueTab} ${p.coupon_id === activeIssueId ? styles.issueTabOn : ''}`}
+              onClick={() => selectIssue(activeCode, p.coupon_id)}
+            >
+              <span className={styles.issueTabName}>{p.label ?? '—'}</span>
+              <span className={`${styles.issueTabWindow} ${styles.mono}`}>
+                {fmtWindow(p.match_day, p.period_ends)}
+              </span>
+              <span className={`${styles.issueTabDot} ${styles['st_' + (p.status ?? 'none')]}`}>
+                {STATUS_LABEL[p.status] ?? 'Unscheduled'}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {activeType && (
         <div className={styles.subheader}>
           <span className={styles.subMeta}>
             {legs.length} fixture{legs.length !== 1 ? 's' : ''}
             {activeType.max_fair_odds != null && ' · shortest first'}
-            {activeType.best_combination && (
+            {combo && (
               <>
                 {' · best '}
-                <span className={activeType.best_combination.value > 0 ? styles.comboGood : styles.comboBad}>
-                  {activeType.best_combination.picks}-fold pays{' '}
-                  {activeType.best_combination.payout} vs{' '}
-                  {activeType.best_combination.fair.toFixed(2)} fair
-                  {' ('}{(activeType.best_combination.value * 100).toFixed(1)}%{')'}
+                {comboLabel && `${comboLabel} `}
+                <span className={combo.value > 0 ? styles.comboGood : styles.comboBad}>
+                  {comboText(combo)}
                 </span>
               </>
             )}
@@ -511,7 +607,9 @@ export default function TrackerPage() {
 
       {error && <p className={styles.error}>{error}</p>}
 
-      {!loading && legs.length === 0 && (
+      {/* Not when an error is already on screen: a replaced upload 404s, and
+          "no fixtures yet · upload one" would contradict the reason given. */}
+      {!loading && !error && legs.length === 0 && (
         <div className={styles.empty}>
           <p>No fixtures on {activeType?.label ?? 'this coupon'} yet.</p>
           <Link to="/upload" className={styles.uploadLink}>

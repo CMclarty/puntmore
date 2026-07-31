@@ -59,6 +59,21 @@ def list_coupon_periods(type_code: str | None = None):
     return out
 
 
+def _best_for_coupon(db: Session, coupon: Coupon, ctype) -> dict | None:
+    """The best ladder rung available on ONE issue.
+
+    The ladder and the fixture list both belong to an issue, so the fair odds
+    fed in are only that coupon's — mixing two issues would price a fold whose
+    legs are spread across two different coupons and could never be struck.
+    """
+    fairs = [
+        row[0] for row in db.query(Leg.fair_odds)
+        .filter(Leg.coupon_id == coupon.id, Leg.fair_odds.isnot(None))
+        .all()
+    ]
+    return coupon_types.best_combination(fairs, coupon.ladder or ctype.default_ladder)
+
+
 @router.get("/types", response_model=list[CouponTypeOut])
 def list_coupon_types(db: Session = Depends(get_db)):
     """The coupon types — the app's top-level entities.
@@ -92,6 +107,7 @@ def list_coupon_types(db: Session = Depends(get_db)):
         # live or still to come.
         if coupon.period_status == "past":
             continue
+        ctype = coupon_types.get(coupon.type_code)
         periods_by_type.setdefault(coupon.type_code, []).append(TypePeriodOut(
             coupon_id=coupon.id,
             period=coupon.period,
@@ -101,6 +117,12 @@ def list_coupon_types(db: Session = Depends(get_db)):
             period_ends=coupon.period_ends,
             leg_count=legs,
             priced_count=priced,
+            # Each issue's own combination — see the schema. Computed here so a
+            # midweek issue's value stays readable while a weekend one is up.
+            best_combination=(
+                _best_for_coupon(db, coupon, ctype)
+                if ctype is not None and ctype.pays_ladder else None
+            ),
         ))
     for rows in periods_by_type.values():
         # Soonest window first, so the set closest to going off leads.
@@ -122,14 +144,7 @@ def list_coupon_types(db: Session = Depends(get_db)):
                 .first()
             )
             if latest is not None:
-                fairs = [
-                    row[0] for row in db.query(Leg.fair_odds)
-                    .filter(Leg.coupon_id == latest.id, Leg.fair_odds.isnot(None))
-                    .all()
-                ]
-                best = coupon_types.best_combination(
-                    fairs, latest.ladder or t.default_ladder
-                )
+                best = _best_for_coupon(db, latest, t)
         out.append(CouponTypeOut(
             code=t.code,
             label=t.label,
@@ -145,22 +160,39 @@ def list_coupon_types(db: Session = Depends(get_db)):
 
 
 @router.get("/types/{type_code}/selections", response_model=list[LegOut])
-def list_type_selections(type_code: str, db: Session = Depends(get_db)):
+def list_type_selections(
+    type_code: str,
+    coupon_id: int | None = None,
+    db: Session = Depends(get_db),
+):
     """One coupon type's filtered fixture list, ranked best-value first.
 
-    Spans every upload of this type — the type is the entity, an upload is just
-    how selections got into it.
+    Spans every upload of this type by default — the type is the entity, an
+    upload is just how selections got into it. `coupon_id` narrows it to ONE
+    issue, which is what makes a second live issue reachable: without it the
+    two are one ranked list and the newer one sits below every row of the live
+    one.
     """
     coupon_type = coupon_types.get(type_code)
     if coupon_type is None:
         raise HTTPException(status_code=404, detail=f"Unknown coupon type: {type_code}")
 
-    selections = (
+    query = (
         db.query(Leg)
         .join(Coupon, Leg.coupon_id == Coupon.id)
         .filter(Coupon.type_code == type_code)
-        .all()
     )
+    if coupon_id is not None:
+        # 404 rather than an empty list: an issue that belongs to another type
+        # (or no longer exists — it may have been superseded) is a stale link,
+        # and the page needs to know to go back rather than show "no fixtures".
+        issue = db.get(Coupon, coupon_id)
+        if issue is None or issue.type_code != type_code:
+            raise HTTPException(
+                status_code=404, detail=f"No {type_code} coupon with id {coupon_id}"
+            )
+        query = query.filter(Leg.coupon_id == coupon_id)
+    selections = query.all()
 
     # A type's own filter (GG Bonus keeps only fixtures priced <= 1.80). Rows
     # that never priced are kept regardless — an unpriced row is something to
