@@ -12,6 +12,30 @@ from .base import OCRProvider, ExtractedRow, ExtractedCoupon, OcrHint
 # Do NOT send resized/compressed images; the fidelity is the whole point.
 MODEL = "claude-sonnet-5"
 
+# The whole sheet is transcribed in one response: 78 fixtures × six market
+# blocks, each a heading and a price pair. That is several times the JSON a
+# single-block read produced, and the old 8192 budget truncated it — which
+# reads downstream as a coupon that was simply shorter than it is.
+#
+# Sonnet 5 allows 128k output tokens; this leaves generous headroom over a
+# full sheet without pretending a bigger number is free (unused budget costs
+# nothing, a truncated read costs the upload). Requests are STREAMED because
+# the SDK times out a non-streaming request long before a response this size
+# finishes.
+MAX_TOKENS = 64000
+
+
+class OCRTruncated(ValueError):
+    """The model hit its output cap mid-JSON, so the read is incomplete.
+
+    A ValueError subclass so existing handling still catches it, but its own
+    type because a partial coupon must never be saved as a whole one:
+    the fixtures that didn't fit are indistinguishable from fixtures the sheet
+    never carried. Callers let this fail the upload — re-scanning is cheap,
+    a silently half-read coupon is not detectable at all.
+    """
+
+
 SYSTEM_PROMPT = """You read printed bookmaker football coupons.
 Return ONLY valid JSON — no markdown, no prose, no explanation.
 
@@ -331,10 +355,13 @@ class ClaudeOCRProvider(OCRProvider):
     ) -> ExtractedCoupon:
         encoded = base64.standard_b64encode(image_bytes).decode("utf-8")
 
-        message = self._client.messages.create(
+        # STREAMED, and the stream is not optional at this budget: the SDK
+        # abandons a non-streaming request that runs past its HTTP timeout, and
+        # a whole-grid read is minutes of generation. Only the final message is
+        # used — nothing here needs the tokens as they arrive.
+        with self._client.messages.stream(
             model=MODEL,
-            # A long list runs to ~75 fixtures; 2048 truncated it mid-array.
-            max_tokens=8192,
+            max_tokens=MAX_TOKENS,
             # Sonnet 5 runs extended thinking BY DEFAULT, and thinking tokens
             # count against max_tokens. On a long coupon the thinking block
             # (~2k tokens) plus the JSON exceeded 8192, truncating the JSON
@@ -360,15 +387,19 @@ class ClaudeOCRProvider(OCRProvider):
                     ],
                 }
             ],
-        )
+        ) as stream:
+            message = stream.get_final_message()
 
         # If the model still hits the cap, the JSON is truncated and will not
         # parse. Fail LOUDLY with the cause rather than as an opaque
-        # JSONDecodeError — a bare 502 hid this exact bug for a long time.
+        # JSONDecodeError — a bare 502 hid this exact bug for a long time. A
+        # short read is recoverable (re-scan); a silently half-read coupon is
+        # not, because the missing fixtures look exactly like fixtures the
+        # sheet never had.
         if message.stop_reason == "max_tokens":
-            raise ValueError(
-                "OCR output truncated (hit max_tokens) — coupon too long for the "
-                "token budget; raise max_tokens"
+            raise OCRTruncated(
+                f"OCR output truncated at max_tokens ({MAX_TOKENS}) — the read is "
+                f"incomplete and has been discarded rather than saved in part"
             )
 
         # Take the first TEXT block, not content[0]: the response can lead with

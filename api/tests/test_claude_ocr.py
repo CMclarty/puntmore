@@ -18,11 +18,32 @@ def _block(kind, text=None):
     return SimpleNamespace(type=kind, text=text)
 
 
+class _FakeStream:
+    """Stands in for the SDK's streaming context manager.
+
+    The read is streamed (a whole-sheet response is far past the SDK's
+    non-streaming timeout), so the double has to be a context manager whose
+    get_final_message() returns the canned message.
+    """
+
+    def __init__(self, message):
+        self._message = message
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def get_final_message(self):
+        return self._message
+
+
 def _provider(content, stop_reason="end_turn"):
     """A provider whose API call returns a canned message with `content` blocks."""
     p = ClaudeOCRProvider(api_key="x")
     fake = SimpleNamespace(content=content, stop_reason=stop_reason)
-    p._client.messages.create = lambda **kw: fake
+    p._client.messages.stream = lambda **kw: _FakeStream(fake)
     return p
 
 
@@ -234,3 +255,49 @@ def test_left_price_becomes_the_home_teams_leg():
     by_pick = {l.pick: l.odds for l in legs}
     assert by_pick["Kairat to Score 2"] == 1.33            # left column
     assert by_pick["Omonia Nicosia to Score 2"] == 4.50    # right column
+
+
+# --- Output budget ----------------------------------------------------------
+#
+# One response now carries the WHOLE sheet: 78 fixtures × six market blocks.
+# That is several times the JSON a single-block read produced, and the budget
+# that comfortably held the old shape truncated the new one — which reads
+# downstream as a coupon that was simply shorter than it really is.
+
+def test_budget_is_sized_for_a_whole_sheet_and_streamed():
+    """A budget this size must be streamed: the SDK abandons a non-streaming
+    request long before a response this large finishes."""
+    from app.providers.claude_ocr import MAX_TOKENS
+    assert MAX_TOKENS >= 32000, "a six-block sheet does not fit in a small budget"
+    assert MAX_TOKENS <= 128000, "Sonnet 5's output ceiling"
+
+
+def test_the_request_uses_the_budget_and_the_stream():
+    captured = {}
+    p = ClaudeOCRProvider(api_key="x")
+
+    def fake_stream(**kw):
+        captured.update(kw)
+        return _FakeStream(SimpleNamespace(
+            content=[_block("text", _VALID)], stop_reason="end_turn",
+        ))
+
+    p._client.messages.stream = fake_stream
+    p.extract(b"img", "image/png")
+
+    from app.providers.claude_ocr import MAX_TOKENS, MODEL
+    assert captured["max_tokens"] == MAX_TOKENS
+    assert captured["model"] == MODEL
+    # Structured extraction: thinking would spend the budget on tokens no one
+    # reads, and thinking counts against the same cap as the JSON.
+    assert captured["thinking"] == {"type": "disabled"}
+
+
+def test_truncated_read_raises_its_own_type():
+    """Not a generic ValueError: a truncated read is the one failure a caller
+    must never mistake for a successful short coupon."""
+    from app.providers.claude_ocr import OCRTruncated
+    with pytest.raises(OCRTruncated):
+        _provider([_block("text", _VALID[:80])], stop_reason="max_tokens").extract(
+            b"img", "image/png"
+        )

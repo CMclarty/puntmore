@@ -5,9 +5,33 @@ import google.genai as genai
 import google.genai.types as gtypes
 
 from .base import OCRProvider, ExtractedCoupon, OcrHint
-from .claude_ocr import SYSTEM_PROMPT, build_user_prompt, _parse_ladder, parse_rows
+from .claude_ocr import (
+    MAX_TOKENS,
+    SYSTEM_PROMPT,
+    OCRTruncated,
+    build_user_prompt,
+    _parse_ladder,
+    parse_rows,
+)
 
 MODEL = "gemini-2.0-flash"
+
+
+def _hit_token_cap(response) -> bool:
+    """Did the response stop because it ran out of output tokens?
+
+    Read defensively: the finish reason is an enum whose spelling has moved
+    between SDK versions, and a truncated read that goes UNDETECTED is the
+    failure this exists to prevent — so match on the name, and treat an absent
+    or unreadable reason as "not truncated" (the JSON parse still fails loudly
+    below).
+    """
+    for candidate in getattr(response, "candidates", None) or []:
+        reason = getattr(candidate, "finish_reason", None)
+        name = getattr(reason, "name", None) or str(reason or "")
+        if "MAX_TOKEN" in name.upper():
+            return True
+    return False
 
 
 class GeminiOCRProvider(OCRProvider):
@@ -19,11 +43,22 @@ class GeminiOCRProvider(OCRProvider):
     ) -> ExtractedCoupon:
         part = gtypes.Part.from_bytes(data=image_bytes, mime_type=media_type)
         # One contract across providers: a second prompt meant a second set of
-        # bugs to find.
+        # bugs to find. Same output budget too — a whole-sheet read is the same
+        # size whoever produces it.
         response = self._client.models.generate_content(
             model=MODEL,
             contents=[part, SYSTEM_PROMPT + "\n\n" + build_user_prompt(hint)],
+            config=gtypes.GenerateContentConfig(max_output_tokens=MAX_TOKENS),
         )
+
+        # Truncation, checked before parsing for the same reason as the Claude
+        # path: half a coupon looks exactly like a short coupon.
+        if _hit_token_cap(response):
+            raise OCRTruncated(
+                f"OCR output truncated at max_output_tokens ({MAX_TOKENS}) — the "
+                f"read is incomplete and has been discarded rather than saved "
+                f"in part"
+            )
 
         raw = response.text.strip()
         # Strip markdown code fences if the model wraps its output
