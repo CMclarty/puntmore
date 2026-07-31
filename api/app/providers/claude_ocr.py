@@ -24,8 +24,22 @@ teams to score). Coupons come in two shapes:
   PRICED coupons print odds beside every fixture, usually as a GRID: the
   fixtures run down the left, and each market has its own labelled column block
   across the page (e.g. "TEAM TO SCORE 1 OR MORE GOALS", then "2 OR MORE", then
-  "3 OR MORE"). Most such blocks are split into an "H" and an "A" sub-column —
-  the price for the HOME team and for the AWAY team of that row's fixture.
+  "3 OR MORE"). Most such blocks are split into TWO sub-columns.
+
+THE COLUMN ORDER IS ALWAYS THE SAME, ON EVERY COUPON:
+
+    LEFT sub-column  = the HOME team's price   -> "home_odds"
+    RIGHT sub-column = the AWAY team's price   -> "away_odds"
+
+Use the POSITION of the price on the page. The sub-columns are usually headed
+"H" and "A", but read the left-to-right order, not the letters: a smudged or
+missing header does not change which price is which. The fixture is printed the
+same way round — "Mariehamn v Lahti" means Mariehamn (named first) is at home,
+so Mariehamn's price is the LEFT one of that row's pair.
+
+NEVER swap the pair because one price "looks" like it belongs to the other
+team. A short price on the right is an away favourite, not a mistake to fix.
+Copy the two prices in the order they are printed and nothing else.
 
 Return exactly this shape:
 {
@@ -52,10 +66,11 @@ Rules:
 - ODDS ARE PRINTED AS FRACTIONS and often use a HYPHEN, not a slash: "6-4"
   means 6/4, "4-11" means 4/11, "10-1" means 10/1. "EVS" means evens (1/1).
   Copy them EXACTLY as printed, as strings — do NOT convert to decimal.
-- "home_odds" / "away_odds": for a PRICED grid, the price under the "H" and the
-  "A" sub-column of the REQUESTED market block for that fixture's row. Read
-  straight across the row and take care not to drift into a neighbouring
-  market's columns — they look alike.
+- "home_odds" / "away_odds": for a PRICED grid, the LEFT and the RIGHT price of
+  the REQUESTED market block's pair, on that fixture's row — left into
+  "home_odds", right into "away_odds", always that way round. Read straight
+  across the row and take care not to drift into a neighbouring market's
+  columns — they look alike.
 - "your_odds": only for a priced coupon that prints ONE price per fixture (no
   H/A split). Otherwise null.
 - Return null for any price you cannot read rather than guessing or copying a
@@ -69,8 +84,8 @@ Rules:
   "Monday 20th - Thursday 23rd July"."""
 
 USER_PROMPT = (
-    "Read this coupon. Return every fixture, both columns, plus the payout "
-    "ladder and date range."
+    "Read this coupon. Return every fixture, both columns (left = home, "
+    "right = away), plus the payout ladder and date range."
 )
 
 
@@ -93,10 +108,18 @@ def build_user_prompt(hint: OcrHint | None) -> str:
     else:
         parts.append("This is a PRICED coupon: read the price beside each fixture.")
     if hint.two_sided:
+        # Position, not the column letters: the letters are what a smudged or
+        # cropped header takes away, and the left-to-right order is fixed on
+        # every coupon. Reading them as labels is how prices ended up on the
+        # wrong team.
         parts.append(
-            "That block has an H and an A sub-column: put the H price in "
-            '"home_odds" and the A price in "away_odds", exactly as printed '
-            '(fractions such as "6-4", "4-11", or "EVS").'
+            "That block has two sub-columns per fixture. The LEFT one is the "
+            'HOME team\'s price and goes in "home_odds"; the RIGHT one is the '
+            'AWAY team\'s and goes in "away_odds". Always that way round — go '
+            "by the left-to-right position, not by the H/A headers, and do not "
+            "swap them because a price looks like it suits the other team. "
+            'Copy them exactly as printed (fractions such as "6-4", "4-11", '
+            'or "EVS").'
         )
     else:
         parts.append('Put each fixture\'s price in "your_odds", exactly as printed.')

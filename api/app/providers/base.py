@@ -70,6 +70,13 @@ class ExtractedRow:
     # Two-sided priced coupons print a price for the home team AND the away team
     # under one market heading — each becomes its own priced leg. None on any
     # coupon that prints a single price (your_odds) or none at all.
+    #
+    # POSITIONAL, on every coupon: home_odds is the LEFT price of the pair and
+    # away_odds the RIGHT one, matching the fixture's own order (the team named
+    # first is at home). The "H"/"A" headers agree with that, but position is
+    # the invariant — reading the letters instead is what put prices on the
+    # wrong team. `_build_legs` pairs these with `normalise.split_sides`, which
+    # splits the fixture left-to-right the same way.
     home_odds: float | None = None
     away_odds: float | None = None
 

@@ -62,6 +62,11 @@ Both live behind their seams. Core logic never calls a vendor API directly.
 - Derived-market value thresholds come from MEASURED backtest calibration
   (SPEC §8.4), not assumed. Until measured, use the provisional 8% threshold and
   display the uncertainty band.
+- **Home/away on a two-sided coupon is POSITIONAL: left column = home, right =
+  away**, on every coupon, matching the fixture's own order (team named first is
+  at home). The prompts instruct on position, not on the "H"/"A" headers — going
+  by the letters is what crossed prices onto the wrong team (July 2026). Never
+  let OCR swap a pair because a price "looks" like the other team's.
 - **Coupon OCR is not blocking-reviewed** (phone uploads). Rows auto-save and
   price immediately with inline editing (SPEC §7). The per-row anomaly checks
   and ⚠ badges were REMOVED (July 2026, Callum's call — the rows are checked by

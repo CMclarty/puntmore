@@ -119,3 +119,67 @@ def test_two_sided_rows_carry_both_prices():
     row = coupon.rows[0]
     assert row.home_odds == 1.3333 and row.away_odds == 1.3636
     assert row.your_odds is None
+
+
+# --- Home/away is POSITIONAL ------------------------------------------------
+#
+# Coupons are always laid out left-to-right: the left price of a pair belongs to
+# the home team, the right to the away team, and the fixture is printed the same
+# way round. A live coupon came back with the sides crossed while the prompt
+# described the columns only by their "H"/"A" headers — position is the thing
+# that never changes, so it is what the prompt now instructs on.
+
+def test_prompt_states_the_left_right_rule_for_two_sided_coupons():
+    from app.providers.base import OcrHint
+    from app.providers.claude_ocr import build_user_prompt
+
+    prompt = build_user_prompt(OcrHint(priced=True, two_sided=True,
+                                       board_label="TEAM TO SCORE 2 OR MORE GOALS"))
+    assert "LEFT" in prompt and "HOME" in prompt
+    assert "RIGHT" in prompt and "AWAY" in prompt
+    assert '"home_odds"' in prompt and '"away_odds"' in prompt
+    # The headers must not be the thing it is told to go by.
+    assert "not by the H/A headers" in prompt
+
+
+def test_prompt_forbids_swapping_on_plausibility():
+    """The failure mode is a model 'correcting' a price onto the team it looks
+    like it belongs to. An away favourite is not a mistake to fix."""
+    from app.providers.base import OcrHint
+    from app.providers.claude_ocr import build_user_prompt
+
+    prompt = build_user_prompt(OcrHint(priced=True, two_sided=True))
+    assert "do not swap" in prompt.lower()
+
+
+def test_system_prompt_ties_the_fixture_order_to_the_column_order():
+    from app.providers.claude_ocr import SYSTEM_PROMPT
+    assert "LEFT sub-column" in SYSTEM_PROMPT and "RIGHT sub-column" in SYSTEM_PROMPT
+    # The fixture's own order is the cross-check the model can apply per row.
+    assert "named first" in SYSTEM_PROMPT
+
+
+def test_one_sided_coupons_are_not_told_about_columns():
+    from app.providers.base import OcrHint
+    from app.providers.claude_ocr import build_user_prompt
+
+    prompt = build_user_prompt(OcrHint(priced=True, two_sided=False))
+    assert '"your_odds"' in prompt
+    assert "home_odds" not in prompt
+
+
+def test_left_price_becomes_the_home_teams_leg():
+    """End to end: the LEFT price must land on the team named first."""
+    from datetime import date
+    from app.coupon_types import BY_CODE
+    from app.providers.base import ExtractedCoupon, ExtractedRow
+    from app.routers.upload import _build_legs
+
+    extracted = ExtractedCoupon(rows=[
+        ExtractedRow("Kairat v Omonia Nicosia", None, None, "WED 16:00",
+                     home_odds=1.33, away_odds=4.50),
+    ])
+    legs = _build_legs(1, extracted, BY_CODE["TTS2"], date(2026, 7, 29))
+    by_pick = {l.pick: l.odds for l in legs}
+    assert by_pick["Kairat to Score 2"] == 1.33            # left column
+    assert by_pick["Omonia Nicosia to Score 2"] == 4.50    # right column
