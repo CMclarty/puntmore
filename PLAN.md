@@ -45,6 +45,10 @@ stays provisional until the calibration backtest (item 3) measures it.
 - **Coupon cleanup window is 8 days**, and deletes BOTH database rows AND the
   stored image files. Never one without the other.
   *(Supersedes the v2-era 30-day window.)*
+- **Coupon kickoff times are GMT.** The time printed on a coupon is GMT, so it
+  is stored naive and read back as UTC everywhere (countdown, kicked-off sweep).
+  No local-time conversion — one would shift every kickoff by an hour through
+  BST. (July 2026, Callum's call.)
 - **One issue per (type, period); the newest upload is the coupon.** A new
   upload replaces the previous one of the same type AND period — row and image
   both — but only once it has read rows, so a failed or empty scan never takes

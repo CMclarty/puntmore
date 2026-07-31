@@ -130,6 +130,12 @@ def suggest_variable(today: date) -> str:
 # Coupons print a weekday and time ("MON 17:00"), never a date — the year and
 # month come from context. Parsed against the upload date so a coupon read on
 # Monday resolves MON to that day, not a week later.
+#
+# THE PRINTED TIME IS GMT (Callum, July 2026). It is therefore stored as-is,
+# naive, and read back as UTC — by the frontend's countdown and by the
+# kicked-off sweep alike. There is deliberately NO local-time conversion here:
+# adding one would shift every kickoff by an hour through British Summer Time
+# and make both of those wrong. Do not "fix" this.
 _WEEKDAY_ABBR = {
     "MON": 0, "TUE": 1, "TUES": 1, "WED": 2, "THU": 3, "THUR": 3, "THURS": 3,
     "FRI": 4, "SAT": 5, "SUN": 6,
