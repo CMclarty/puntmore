@@ -157,8 +157,6 @@ function groupLegsByPeriod(legs) {
   return out
 }
 
-const STATUS_LABEL = { active: 'Live now', upcoming: 'Next set', past: 'Ended' }
-
 /** Short date range, e.g. "29–31 Jul". */
 function fmtWindow(from, to) {
   if (!from) return ''
@@ -172,10 +170,15 @@ function fmtWindow(from, to) {
     : `${a.getDate()} ${mon(a)} – ${b.getDate()} ${mon(b)}`
 }
 
-/** A combination as one line: "4-fold pays 10 vs 4.11 fair (+143.3%)". */
+/**
+ * A combination as the thing you'd act on: "4-fold +29.7%".
+ *
+ * The payout and the fair price are how the edge was arrived at, not the
+ * decision — printing them wrapped the line onto two rows on a phone and
+ * buried the one figure that matters. Colour carries the sign as well.
+ */
 function comboText(c) {
-  return `${c.picks}-fold pays ${c.payout} vs ${c.fair.toFixed(2)} fair `
-    + `(${c.value > 0 ? '+' : ''}${(c.value * 100).toFixed(1)}%)`
+  return `${c.picks}-fold ${c.value > 0 ? '+' : ''}${(c.value * 100).toFixed(1)}%`
 }
 
 /**
@@ -217,11 +220,9 @@ function TrackerLanding({ types, loading, onOpen, onOpenIssue }) {
                   className={styles.periodChip}
                   onClick={() => onOpenIssue(t.code, p.coupon_id)}
                 >
-                  {/* Status in WORDS as well as colour — a dot alone says
-                      nothing on a phone in daylight. */}
-                  <span className={`${styles.chipStatus} ${styles['st_' + (p.status ?? 'none')]}`}>
-                    {STATUS_LABEL[p.status] ?? 'Unscheduled'}
-                  </span>
+                  {/* No "LIVE NOW" badge: the window says it. A set running
+                      29 Jul – 1 Aug is live today by inspection, and the label
+                      was the same width as the fact it was labelling. */}
                   <span className={styles.chipLabel}>{p.label ?? '—'}</span>
                   <span className={styles.chipWindow}>{fmtWindow(p.match_day, p.period_ends)}</span>
                   <span className={`${styles.chipCount} ${styles.mono}`} title="priced / total selections">
@@ -600,9 +601,6 @@ export default function TrackerPage() {
               <span className={`${styles.issueTabWindow} ${styles.mono}`}>
                 {fmtWindow(p.match_day, p.period_ends)}
               </span>
-              <span className={`${styles.issueTabDot} ${styles['st_' + (p.status ?? 'none')]}`}>
-                {STATUS_LABEL[p.status] ?? 'Unscheduled'}
-              </span>
             </button>
           ))}
           {/* Every issue at once. Last, not first: an issue is the default and
@@ -623,7 +621,6 @@ export default function TrackerPage() {
         <div className={styles.subheader}>
           <span className={styles.subMeta}>
             {legs.length} fixture{legs.length !== 1 ? 's' : ''}
-            {activeType.max_fair_odds != null && ' · shortest first'}
             {combo && (
               <>
                 {' · best '}
@@ -662,11 +659,15 @@ export default function TrackerPage() {
         <div className={styles.legs}>
           {legGroups.map(g => (
             <Fragment key={g.key}>
-              <div className={`${styles.periodHead} ${styles['ph_' + (g.status ?? 'none')]}`}>
-                <span className={styles.phStatus}>{g.label}</span>
-                {g.window && <span className={styles.phWindow}>{g.window}</span>}
-                <span className={`${styles.phCount} ${styles.mono}`}>{g.legs.length}</span>
-              </div>
+              {/* Only when the list actually spans more than one set. Viewing a
+                  single issue, this header repeated the tab directly above it. */}
+              {legGroups.length > 1 && (
+                <div className={`${styles.periodHead} ${styles['ph_' + (g.status ?? 'none')]}`}>
+                  <span className={styles.phStatus}>{g.label}</span>
+                  {g.window && <span className={styles.phWindow}>{g.window}</span>}
+                  <span className={`${styles.phCount} ${styles.mono}`}>{g.legs.length}</span>
+                </div>
+              )}
               {(() => {
                 // A ladder coupon has no per-row EV to filter on — its rows
                 // show fair odds instead — so it is never collapsed.

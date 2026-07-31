@@ -97,14 +97,6 @@
 .issueTabName { font-weight: 700; }
 .issueTabWindow { font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .issueTabOn .issueTabWindow { color: var(--accent); }
-/* Status as a word, same as the landing chips — colour alone reads as nothing
-   on a phone in daylight. */
-.issueTabDot {
-  font-size: 8.5px;
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
 
 .subheader {
   display: flex;
@@ -574,20 +566,6 @@
   cursor: pointer;
 }
 .periodChip:active { background: var(--zebra); }
-.chipStatus {
-  flex: none;
-  min-width: 62px;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  padding: 2px 6px;
-  border-radius: 4px;
-  text-align: center;
-}
-.st_active { background: var(--accent-soft); color: var(--accent); }
-.st_upcoming { background: var(--zebra); color: var(--muted); }
-.st_none { background: var(--zebra); color: var(--faint); }
 .chipLabel { font-weight: 600; color: var(--ink); }
 .chipWindow { color: var(--faint); }
 .chipCount { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
