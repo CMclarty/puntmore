@@ -450,11 +450,13 @@ export default function PnlPage({ category = 'dogs' }) {
 // A net swing at or beyond this asks for confirmation before it's written.
 const BIG_ENTRY = 1000
 
-// Virtuals staking is fixed, so the box comes pre-filled with the usual unit:
-// £90 win-only, and £80 a part each-way (which is the £160 total the pad shows).
+// Staking is fixed on both ledgers, so the box comes pre-filled with the usual
+// unit: virtuals £90 win-only and £80 a part each-way (which is the £160 total
+// the pad shows), dogs a flat £100.
 // The box always holds the UNIT — each-way doubles it into the outlay.
 const DEFAULT_STAKE = '90'
 const DEFAULT_STAKE_EW = '80'
+const DEFAULT_STAKE_DOGS = '100'
 
 /**
  * What a bet returns, for both ledgers' entry shapes.
@@ -498,11 +500,11 @@ function PnlEntry({ onAdd, busy, category }) {
   // race) and instead records whether the bet was each-way, which changes both
   // the outlay and the set of results that can happen.
   const isVirtuals = category === 'virtuals'
-  // Virtuals staffs a fixed stake, so the box starts pre-filled; dogs starts
-  // blank as before. `stakeEdited` stops the each-way toggle from overwriting a
-  // figure the user has typed — the pre-fill only follows the toggle while it is
-  // still the default.
-  const [stake, setStake] = useState(isVirtuals ? DEFAULT_STAKE : '')
+  // Both ledgers staff a fixed stake, so the box starts pre-filled — virtuals
+  // with its £90/£80 unit, dogs with £100. `stakeEdited` stops the each-way
+  // toggle from overwriting a figure the user has typed — the pre-fill only
+  // follows the toggle while it is still the default.
+  const [stake, setStake] = useState(isVirtuals ? DEFAULT_STAKE : DEFAULT_STAKE_DOGS)
   const [stakeEdited, setStakeEdited] = useState(false)
   // The odds wheel rests on 2/1, but that seat is NOT a price the user chose.
   // `oddsTouched` separates the two: until the wheel is actually spun nothing is
@@ -538,7 +540,7 @@ function PnlEntry({ onAdd, busy, category }) {
 
   // The pre-fill for the current mode, and the box's own edit handler — typing
   // marks the stake as touched so the toggle stops swapping it.
-  const stakeDefault = isVirtuals ? (ew ? DEFAULT_STAKE_EW : DEFAULT_STAKE) : ''
+  const stakeDefault = isVirtuals ? (ew ? DEFAULT_STAKE_EW : DEFAULT_STAKE) : DEFAULT_STAKE_DOGS
   const onStakeChange = e => {
     setConfirming(false); setStakeEdited(true); setStake(sanitizeAmount(e.target.value))
   }
