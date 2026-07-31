@@ -464,3 +464,103 @@ def test_bic_ignores_asian_lines_as_grid_constraints():
     cons = P._grid_constraints(rows)
     lines = sorted(l for _, l, _ in cons if l is not None)
     assert lines == [2.5]
+
+
+# --- Kicked-off sweep -------------------------------------------------------
+#
+# A coupon covers a WINDOW, so a Monday fixture stays inside a live Mon–Wed
+# coupon until Wednesday: the rows read "active" and show "live" days after the
+# match finished. The kickoff, not the window, says whether a row is still a bet.
+
+def _kickoff_coupon(db, kickoffs):
+    """A confirmed coupon whose legs sit at the given kickoffs (None = unread)."""
+    from app.time_utils import utcnow
+    coupon = Coupon(
+        type_code="TTS2", period="MON_WED", match_day=date.today(),
+        period_ends=date.today(), status="confirmed",
+    )
+    db.add(coupon)
+    db.flush()
+    for i, ko in enumerate(kickoffs):
+        db.add(Leg(coupon_id=coupon.id, match_name=f"Home {i} v Away {i}",
+                   pick="Home to Score 2", odds=1.85, kickoff=ko, rank=i))
+    db.commit()
+    return coupon
+
+
+def test_sweep_clears_legs_past_the_grace_period(db):
+    from datetime import timedelta
+    from app.time_utils import utcnow
+    from app.scheduler import cleanup_kicked_off_legs
+
+    now = utcnow()
+    coupon = _kickoff_coupon(db, [
+        now - timedelta(days=2),        # finished days ago
+        now - timedelta(minutes=31),    # just past the grace period
+    ])
+    assert cleanup_kicked_off_legs(db, grace_minutes=30) == 2
+    assert db.query(Leg).filter(Leg.coupon_id == coupon.id).count() == 0
+
+
+def test_sweep_keeps_a_fixture_inside_the_grace_period(db):
+    """A printed kickoff can be a few minutes out, and a price is sometimes
+    still worth taking on the whistle."""
+    from datetime import timedelta
+    from app.time_utils import utcnow
+    from app.scheduler import cleanup_kicked_off_legs
+
+    now = utcnow()
+    coupon = _kickoff_coupon(db, [now - timedelta(minutes=29), now + timedelta(hours=3)])
+    assert cleanup_kicked_off_legs(db, grace_minutes=30) == 0
+    assert db.query(Leg).filter(Leg.coupon_id == coupon.id).count() == 2
+
+
+def test_sweep_never_clears_a_leg_with_no_kickoff(db):
+    """Unknown is not past — an unparsed kickoff is a row to correct by hand."""
+    from datetime import timedelta
+    from app.time_utils import utcnow
+    from app.scheduler import cleanup_kicked_off_legs
+
+    coupon = _kickoff_coupon(db, [None, utcnow() - timedelta(days=1)])
+    assert cleanup_kicked_off_legs(db, grace_minutes=30) == 1
+    remaining = db.query(Leg).filter(Leg.coupon_id == coupon.id).all()
+    assert [l.kickoff for l in remaining] == [None]
+
+
+def test_sweep_leaves_the_coupon_itself_alone(db):
+    """Only the played rows go; the coupon is still the live issue, and the
+    8-day cleanup owns its lifetime."""
+    from datetime import timedelta
+    from app.time_utils import utcnow
+    from app.scheduler import cleanup_kicked_off_legs
+
+    coupon = _kickoff_coupon(db, [utcnow() - timedelta(days=3)])
+    cleanup_kicked_off_legs(db, grace_minutes=30)
+    assert db.get(Coupon, coupon.id) is not None
+
+
+def test_sweep_grace_defaults_to_the_configured_value(db):
+    from datetime import timedelta
+    from app.config import settings
+    from app.time_utils import utcnow
+    from app.scheduler import cleanup_kicked_off_legs
+
+    assert settings.leg_kickoff_grace_minutes == 30
+    _kickoff_coupon(db, [utcnow() - timedelta(minutes=45)])
+    assert cleanup_kicked_off_legs(db) == 1
+
+
+def test_the_refresh_loop_stops_pricing_a_played_fixture(db):
+    """The point of the sweep: the 10-min loop must not keep pricing — and
+    alerting on — a match that has already been played."""
+    from datetime import timedelta
+    from app.time_utils import utcnow
+    from app.scheduler import cleanup_kicked_off_legs
+
+    _kickoff_coupon(db, [utcnow() - timedelta(days=1)])
+    provider = FixtureOddsProvider({"Home 0 v Away 0": 1.50})
+    notifier = FakeNotifier()
+
+    cleanup_kicked_off_legs(db, grace_minutes=30)
+    assert refresh_all_live_coupons(provider, notifier=notifier, db=db) == 0
+    assert notifier.messages == []

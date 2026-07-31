@@ -55,6 +55,54 @@ def cleanup_old_coupons(db=None, *, cutoff_days: int = 30, notifier=None) -> int
     return count
 
 
+def cleanup_kicked_off_legs(db=None, *, grace_minutes: int | None = None) -> int:
+    """Remove selections whose fixture has kicked off.
+
+    A coupon covers a WINDOW, so a Monday fixture on a Mon–Wed coupon stays
+    inside a live window for two more days: the coupon reads "active" and the
+    row sits in the list long after the match finished, showing "live" because
+    its kickoff is in the past. The window says the coupon is current; only the
+    kickoff says whether a fixture is still bettable.
+
+    The grace period exists because a kickoff read off a coupon is a printed
+    time, not a feed: it can be a few minutes out, and a price is occasionally
+    still worth taking right on the whistle. Past that, the row is history.
+
+    A leg with NO kickoff is never touched — unknown is not the same as past,
+    and an unparsed kickoff is usually a row worth correcting by hand.
+
+    Returns the number of legs removed.
+    """
+    grace = settings.leg_kickoff_grace_minutes if grace_minutes is None else grace_minutes
+    close = False
+    if db is None:
+        db = SessionLocal()
+        close = True
+
+    cutoff = utcnow() - timedelta(minutes=grace)
+    try:
+        stale = (
+            db.query(Leg)
+            .filter(Leg.kickoff.isnot(None), Leg.kickoff < cutoff)
+            .all()
+        )
+        for leg in stale:
+            db.delete(leg)
+        db.commit()
+    finally:
+        if close:
+            db.close()
+
+    if stale:
+        # Logged, never notified: this runs every 10 minutes and would fire a
+        # Discord message after every match day. The interesting event is a
+        # value bet appearing, not a finished fixture leaving.
+        logger.info(
+            "Cleared %d leg(s) more than %d min past kickoff", len(stale), grace,
+        )
+    return len(stale)
+
+
 def refresh_all_live_coupons(odds_provider, notifier=None, db=None) -> int:
     """Refresh fair odds for all legs in live coupons.
 
@@ -186,6 +234,17 @@ def start_scheduler(odds_provider, notifier=None, odds_client=None) -> Backgroun
         id="daily_cleanup",
         replace_existing=True,
         kwargs={"notifier": notifier},
+    )
+
+    # Same 10-minute cadence as the refresh: a row is stale the moment its
+    # fixture kicks off, and the refresh is what would otherwise keep pricing
+    # (and alerting on) a match that has already been played.
+    scheduler.add_job(
+        cleanup_kicked_off_legs,
+        trigger="interval",
+        minutes=10,
+        id="kicked_off_cleanup",
+        replace_existing=True,
     )
 
     scheduler.add_job(

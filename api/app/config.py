@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     # in-play interval of 0 disables the in-play loop (pre-KO scan only).
     goalscorer_inplay_interval: int = 0
     goalscorer_inplay_window: int = 40
+    # Minutes past a fixture's kickoff before its selection is cleared from the
+    # coupon. A coupon's WINDOW stays live for days after an individual fixture
+    # has played, so the kickoff is what decides whether a row is still a bet.
+    # The grace covers a printed kickoff being a few minutes out.
+    leg_kickoff_grace_minutes: int = 30
     # Static API key for GET /state (machine consumers, e.g. dashboards/bots).
     # Sent as the X-API-Key header. Blank = endpoint disabled (503).
     state_api_key: str = ""

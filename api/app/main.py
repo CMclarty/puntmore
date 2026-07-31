@@ -28,7 +28,7 @@ from .providers.claude_ocr import ClaudeOCRProvider
 from .providers.gemini_ocr import GeminiOCRProvider
 from .providers.mock_ocr import MockOCRProvider
 from .notifications.discord import DiscordNotificationProvider, NullNotificationProvider
-from .scheduler import cleanup_old_coupons, start_scheduler
+from .scheduler import cleanup_kicked_off_legs, cleanup_old_coupons, start_scheduler
 from .routers import coupons
 from .routers.upload import router as upload_router
 from .routers import accabonus
@@ -169,8 +169,11 @@ async def lifespan(app: FastAPI):
     else:
         app.state.notifier = NullNotificationProvider()
 
-    # Startup cleanup (catches anything missed while container was down)
+    # Startup cleanup (catches anything missed while container was down) — the
+    # kicked-off sweep especially, since a redeploy is exactly when a coupon
+    # sits unattended through a round of fixtures.
     cleanup_old_coupons(notifier=app.state.notifier)
+    cleanup_kicked_off_legs()
 
     scheduler = start_scheduler(
         odds_provider=app.state.odds_provider,
