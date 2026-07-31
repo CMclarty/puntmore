@@ -50,10 +50,13 @@ stays provisional until the calibration backtest (item 3) measures it.
   both — but only once it has read rows, so a failed or empty scan never takes
   a working coupon with it. Different periods of one type still coexist: a GG
   midweek and a GG weekend are two different bets. (July 2026, Callum's call.)
-- **An issue is addressable.** `/t/<code>/<coupon_id>` is one issue; the ladder
-  combination, the fixture list and the counts are all per issue. A type-wide
-  ladder figure could only ever describe the newest upload, which made the live
-  issue's value unreadable the moment the next one landed.
+- **An issue is addressable, and the newest one is the default.**
+  `/t/<code>/<coupon_id>` is one issue; the ladder combination, the fixture list
+  and the counts are all per issue. A type-wide ladder figure could only ever
+  describe the newest upload, which made the live issue's value unreadable the
+  moment the next one landed. Opening a type resolves to its most recent window
+  (the coupon just photographed); `/t/<code>/all` spans every issue and is
+  reached from the tab row.
 - **OCR is auto-confirm** — rows auto-save and price immediately with per-row
   anomaly flags and inline editing. *(Supersedes the v2-era rule that OCR always
   passes through a blocking manual-correction step.)*

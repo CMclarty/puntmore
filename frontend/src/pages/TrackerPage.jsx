@@ -399,7 +399,11 @@ export default function TrackerPage() {
   const { code: routeCode, couponId: routeCouponId } = useParams()
   const navigate = useNavigate()
   const activeCode = routeCode ?? null
-  const activeIssueId = routeCouponId ? Number(routeCouponId) : null
+  // "all" is the deliberate span-every-issue view. It has its own path because
+  // the bare /t/<code> lands on the newest issue instead — so a tap on "All"
+  // stays put rather than being bounced back to the default.
+  const spanningAll = routeCouponId === 'all'
+  const activeIssueId = routeCouponId && !spanningAll ? Number(routeCouponId) : null
   const [types, setTypes] = useState([])
   const [legs, setLegs] = useState([])
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -448,24 +452,51 @@ export default function TrackerPage() {
     [activeType, activeIssueId],
   )
   const legGroups = useMemo(() => groupLegsByPeriod(legs), [legs])
+
+  /**
+   * The type's DEFAULT issue: the most recent window, which is the coupon you
+   * just photographed. Ties break on the higher id, i.e. the later upload.
+   *
+   * Opening a type used to land on every issue at once, so a freshly uploaded
+   * weekend coupon appeared below the whole of a live midweek one.
+   */
+  const latestIssue = useMemo(() => {
+    const issues = activeType?.periods ?? []
+    return issues.reduce((best, p) => (
+      !best || p.match_day > best.match_day
+        || (p.match_day === best.match_day && p.coupon_id > best.coupon_id)
+        ? p : best
+    ), null)
+  }, [activeType])
+
+  // Bare /t/<code> resolves to that default. `replace`, so back still returns
+  // to the landing page rather than to a URL that immediately redirects again.
+  useEffect(() => {
+    if (activeCode && !routeCouponId && latestIssue) {
+      navigate(`/t/${activeCode}/${latestIssue.coupon_id}`, { replace: true })
+    }
+  }, [activeCode, routeCouponId, latestIssue, navigate])
+
   // Which ISSUE the header's combination speaks for. A ladder figure always
   // belongs to one issue — the legs of a fold are struck on one sheet — so the
   // header names the issue rather than presenting a type-wide number that can
   // only ever describe one of them. Null for an issue id that no longer
   // resolves, so a replaced upload shows no figure at all.
-  const headlineIssue = useMemo(() => {
-    if (activeIssueId) return activeIssue
-    const issues = activeType?.periods ?? []
-    return issues.find(p => p.status === 'active') ?? issues[0] ?? null
-  }, [activeIssueId, activeIssue, activeType])
+  const headlineIssue = activeIssueId ? activeIssue : latestIssue
   const combo = headlineIssue?.best_combination ?? null
   // Spanning every issue, the figure needs saying WHOSE it is.
   const comboLabel =
     !activeIssueId && (activeType?.periods.length ?? 0) > 1 ? headlineIssue?.label : null
 
+  // Opening a type lands on its default issue (the effect above resolves it).
   function selectType(code) {
     setPickerOpen(false)
     navigate(`/t/${code}`)
+  }
+
+  function selectAllIssues(code) {
+    setPickerOpen(false)
+    navigate(`/t/${code}/all`)
   }
 
   function selectIssue(code, couponId) {
@@ -558,12 +589,7 @@ export default function TrackerPage() {
           new upload disappeared underneath the live one. */}
       {activeType && activeType.periods.length > 0 && (
         <div className={styles.issueBar}>
-          <button
-            className={`${styles.issueTab} ${!activeIssueId ? styles.issueTabOn : ''}`}
-            onClick={() => selectType(activeCode)}
-          >
-            All
-          </button>
+          {/* Window order, so the tabs read as the calendar does. */}
           {activeType.periods.map(p => (
             <button
               key={p.coupon_id}
@@ -579,6 +605,17 @@ export default function TrackerPage() {
               </span>
             </button>
           ))}
+          {/* Every issue at once. Last, not first: an issue is the default and
+              this is the deliberate step out of it. Only worth offering when
+              there is more than one issue to span. */}
+          {activeType.periods.length > 1 && (
+            <button
+              className={`${styles.issueTab} ${spanningAll ? styles.issueTabOn : ''}`}
+              onClick={() => selectAllIssues(activeCode)}
+            >
+              All
+            </button>
+          )}
         </div>
       )}
 
