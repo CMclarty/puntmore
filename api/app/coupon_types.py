@@ -125,9 +125,14 @@ COUPON_TYPES: tuple[CouponType, ...] = (
     # string is identical so it prices through exactly the same path — but its
     # own type because the sheet is a different shape: it prints a price on
     # every fixture and its ladder is Hill's, not Betfred's.
+    #
+    # It runs Hill's WEEKLY schedule, not the GG coupons' variable midweek /
+    # weekend issues: it is a Hill sheet like the priced grids above it, and is
+    # issued on the same Mon–Wed / Wed–Fri / Sat / Sun windows. Only the Betfred
+    # GG coupons print their own moving dates.
     CouponType(
-        "HILLS", "Hills", "GG No Draw",
-        period_codes=_VARIABLE, prices_each_selection=True, pays_ladder=True,
+        "HILLS", "Hills GGND", "GG No Draw",
+        prices_each_selection=True, pays_ladder=True,
         default_ladder=_WH_LADDER,
     ),
 )

@@ -679,12 +679,45 @@ def hills_client(tmp_path):
 
 
 def _upload_hills(client):
+    # A Hill sheet runs Hill's weekly windows, not the Betfred GG coupons'
+    # moving midweek/weekend issues — the observed Hills issue was Sat 25 /
+    # Sun 26 July 2026.
     return client.post(
         "/upload",
-        data={"type_code": "HILLS", "period": "WEEKEND",
+        data={"type_code": "HILLS", "period": "SAT",
               "uploaded_on": date(2026, 7, 25).isoformat()},
         files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
     )
+
+
+def test_hills_runs_the_weekly_hill_schedule(hills_client):
+    """It is a Hill sheet, issued like the priced grids beside it. Only the
+    Betfred GG coupons print their own moving dates."""
+    from app.coupon_types import get
+    assert get("HILLS").period_codes == get("TTS2").period_codes
+    assert "MIDWEEK" not in get("HILLS").period_codes
+    # And the periods endpoint offers those windows, with real dates on them.
+    periods = hills_client.get("/coupons/periods?type_code=HILLS").json()
+    assert [p["code"] for p in periods] == ["MON_WED", "WED_FRI", "SAT", "SUN"]
+    assert all(p["starts_on"] for p in periods), "fixed windows resolve to dates"
+    assert not any(p["variable"] for p in periods)
+
+
+def test_hills_is_named_for_the_market_it_is(hills_client):
+    """"Hills" alone said whose coupon it was, not what it bets."""
+    from app.coupon_types import get
+    assert get("HILLS").label == "Hills GGND"
+    assert get("HILLS").selection == get("GGND").selection
+
+
+def test_hills_rejects_a_gg_style_period(hills_client):
+    resp = hills_client.post(
+        "/upload",
+        data={"type_code": "HILLS", "period": "WEEKEND"},
+        files={"file": ("t.png", io.BytesIO(b"img"), "image/png")},
+    )
+    assert resp.status_code == 400
+    assert "does not run" in resp.json()["detail"]
 
 
 def test_hills_keeps_the_printed_prices(hills_client, db):

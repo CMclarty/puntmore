@@ -144,7 +144,17 @@
   border-top: 1px solid var(--line);
   padding-top: 2px;
 }
-.chart { width: 100%; height: 100%; display: block; overflow: visible; }
+/* pan-y: vertical drags still scroll the page, horizontal ones are ours to
+   read as a swipe. Without this the browser claims the horizontal gesture for
+   its own back/forward navigation on some phones and the pointerup never
+   arrives. */
+.chart {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+  touch-action: pan-y;
+}
 
 /* Chart range toggle — All → MTD → Week → Day → All, one tap per step. Sized
    and coloured to disappear until you go looking for it: same faint tone and

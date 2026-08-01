@@ -114,6 +114,12 @@ const RANGE_WINDOW_MS = {
 }
 const RANGE_LABEL = { all: 'All time', month: '30 days', week: '7 days', day: '24 hours' }
 
+// What separates a swipe from a scrub. Far enough to be deliberate, level
+// enough not to be the page scrolling, quick enough to be a flick rather than
+// someone reading values across the chart.
+const SWIPE_MIN_PX = 45
+const SWIPE_MAX_MS = 700
+
 function inChartRange(b, range, now) {
   const window = RANGE_WINDOW_MS[range]
   if (!window) return true
@@ -131,7 +137,7 @@ function inChartRange(b, range, now) {
  * `onCycle` makes the corner tag a button; without it the tag is a plain label
  * and the chart is fixed to its range.
  */
-function PnlChart({ bets, range, label, onCycle }) {
+function PnlChart({ bets, range, label, onCycle, onSwipe }) {
   const chartRef = useRef(null)
   const tipRef = useRef(null)
 
@@ -324,6 +330,48 @@ function PnlChart({ bets, range, label, onCycle }) {
     }
   }, [])
 
+  /**
+   * Horizontal swipe changes the window: right widens it, left narrows it.
+   *
+   * It has to share the surface with the scrub above, which is why this reads
+   * a whole gesture (down → up) rather than reacting to movement: a scrub is a
+   * finger travelling across the chart to read values, and a swipe is the same
+   * motion committed to. Only the release decides, so scrubbing still works
+   * exactly as before — the tooltip follows the finger either way — and a
+   * gesture only counts as a swipe if it went far enough, stayed level enough
+   * to not be a page scroll, and finished quickly enough to be a flick.
+   *
+   * The tooltip is dismissed on a committed swipe: it is pointing at a bet in
+   * the window being left behind.
+   */
+  useEffect(() => {
+    const svg = chartRef.current
+    if (!svg || !onSwipe) return
+    let start = null
+
+    const down = e => { start = { x: e.clientX, y: e.clientY, t: Date.now() } }
+    const up = e => {
+      if (!start) return
+      const dx = e.clientX - start.x
+      const dy = e.clientY - start.y
+      const dt = Date.now() - start.t
+      start = null
+      if (Math.abs(dx) < SWIPE_MIN_PX) return          // a tap, or a scrub that went nowhere
+      if (Math.abs(dy) > Math.abs(dx)) return          // vertical: the page is scrolling
+      if (dt > SWIPE_MAX_MS) return                    // a slow read, not a flick
+      if (tipRef.current) tipRef.current.style.opacity = 0
+      onSwipe(dx > 0 ? 1 : -1)
+    }
+
+    svg.addEventListener('pointerdown', down)
+    svg.addEventListener('pointerup', up)
+    svg.addEventListener('pointercancel', () => { start = null })
+    return () => {
+      svg.removeEventListener('pointerdown', down)
+      svg.removeEventListener('pointerup', up)
+    }
+  }, [onSwipe])
+
   return (
     <div className={styles.chartWrap}>
       <svg className={styles.chart} ref={chartRef} preserveAspectRatio="none"
@@ -362,6 +410,25 @@ export default function PnlPage({ category = 'dogs' }) {
   const [zoom, setZoom] = useState('month')
   const cycleZoom = useCallback(() => {
     setZoom(r => ZOOM_RANGES[(ZOOM_RANGES.indexOf(r) + 1) % ZOOM_RANGES.length])
+  }, [])
+
+  /**
+   * Swipe: right widens the window, left narrows it.
+   *
+   * The direction follows the time axis rather than a carousel — dragging the
+   * chart to the right pulls older history into view, which is what a longer
+   * window is. It CLAMPS at each end instead of wrapping: a swipe carries a
+   * direction, and jumping from 24 hours to 30 days because you flicked once
+   * more would read as the chart losing its place, where a tap that cycles has
+   * no direction to contradict.
+   */
+  const stepZoom = useCallback(dir => {
+    setZoom(r => {
+      // ZOOM_RANGES runs longest → shortest, so a right swipe (dir > 0, "show
+      // me further back") steps DOWN the array, not up.
+      const i = ZOOM_RANGES.indexOf(r) - dir
+      return ZOOM_RANGES[Math.min(Math.max(i, 0), ZOOM_RANGES.length - 1)]
+    })
   }, [])
 
   // Which of the two ledgers this instance is, and the other one to hop to.
@@ -478,12 +545,19 @@ export default function PnlPage({ category = 'dogs' }) {
           </div>
         </div>
         {error && <p className={styles.error}>{error}</p>}
-        {/* Two charts, near and far. The top one zooms — month, week, day — and
-            answers "how is it going right now"; the all-time run underneath is
-            the context that question is asked against, and stays put so the
-            shape of the whole ledger is always on screen. */}
+        {/* Two charts, near and far. The top one zooms — swipe right for a
+            longer window, left for a shorter — and answers "how is it going
+            right now"; the all-time run underneath is the context that question
+            is asked against, and stays put so the shape of the whole ledger is
+            always on screen. */}
         <div className={styles.charts}>
-          <PnlChart bets={bets} range={zoom} label={RANGE_LABEL[zoom]} onCycle={cycleZoom} />
+          <PnlChart
+            bets={bets}
+            range={zoom}
+            label={RANGE_LABEL[zoom]}
+            onCycle={cycleZoom}
+            onSwipe={stepZoom}
+          />
           <PnlChart bets={bets} range="all" label={RANGE_LABEL.all} />
         </div>
       </section>
