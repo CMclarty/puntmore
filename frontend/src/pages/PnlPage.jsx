@@ -33,6 +33,22 @@ const signedExact = v =>
   (v > 0 ? '+' : v < 0 ? '−' : '') + '£' + Math.abs(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const parseDate = s => new Date(/[Z+]/.test(s) ? s : s + 'Z')
 const fmtDay = d => d.getDate() + ' ' + d.toLocaleString('en-GB', { month: 'short' })
+const fmtTime = d => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+
+/**
+ * How to label a tick, given how much time the chart spans.
+ *
+ * Inside a day every tick falls on the same date, so a date label repeats
+ * itself across the axis and says nothing — the 24-hour view read
+ * "31 Jul · 31 Jul · 31 Jul · 31 Jul". Under a day and a half, label the clock
+ * instead; above it, the date is what distinguishes one tick from the next.
+ */
+function tickFormatter(dates) {
+  const real = dates.filter(Boolean)
+  if (real.length < 2) return fmtDay
+  const span = real[real.length - 1] - real[0]
+  return span < 36 * 60 * 60 * 1000 ? fmtTime : fmtDay
+}
 
 // Price taken against Betfair SP, as a percentage of the SP. +5% means the
 // price taken was 5% longer than the SP that bet eventually returned.
@@ -80,95 +96,44 @@ function niceStep(range) {
   return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag
 }
 
-// Calendar week starts Monday (en-GB), matching the calendar-month semantics
-// "month to date" already uses — both read as "since a fixed point on the
-// calendar", not "the last N days".
-function startOfWeek(d) {
-  const x = new Date(d)
-  x.setDate(x.getDate() - (x.getDay() + 6) % 7)
-  x.setHours(0, 0, 0, 0)
-  return x
-}
-function startOfDay(d) {
-  const x = new Date(d)
-  x.setHours(0, 0, 0, 0)
-  return x
-}
-
-// The chart's own time window, separate from the headline stats. A procession
+// The zoom chart's window, separate from the headline stats. A procession
 // rather than a dropdown: one tap always means "zoom in one step", so there is
-// nothing to open or choose from, just a value to cycle past.
-const CHART_RANGES = ['all', 'month', 'week', 'day']
-const RANGE_LABEL = { all: 'All', month: 'MTD', week: 'Week', day: 'Day' }
+// nothing to open or choose from, just a value to cycle past. "All" is not a
+// step in it — that chart is always on screen below.
+//
+// ROLLING windows, not calendar ones. A calendar month-to-date is empty on the
+// 1st and thin on the 2nd, so the chart you look at while betting would go
+// blank once a month through no fault of the ledger; "the last 30 days" always
+// has the same amount of history in it. The MONTH TO DATE figure in the
+// headline stays calendar — that one is an accounting period, not a view.
+const ZOOM_RANGES = ['month', 'week', 'day']
+const RANGE_WINDOW_MS = {
+  month: 30 * 24 * 60 * 60 * 1000,
+  week: 7 * 24 * 60 * 60 * 1000,
+  day: 24 * 60 * 60 * 1000,
+}
+const RANGE_LABEL = { all: 'All time', month: '30 days', week: '7 days', day: '24 hours' }
 
 function inChartRange(b, range, now) {
-  if (range === 'all') return true
-  const d = parseDate(b.created_at)
-  if (range === 'month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-  if (range === 'week') return d >= startOfWeek(now)
-  return d >= startOfDay(now) // 'day'
+  const window = RANGE_WINDOW_MS[range]
+  if (!window) return true
+  return parseDate(b.created_at).getTime() >= now.getTime() - window
 }
 
-export default function PnlPage({ category = 'dogs' }) {
-  const [bets, setBets] = useState([])
-  const [error, setError] = useState(null)
-  const [busy, setBusy] = useState(false)
+/**
+ * One cumulative P&L chart over a given window.
+ *
+ * Extracted so the panel can show TWO of them without a second copy of the
+ * drawing code: a zoomable one on top and the all-time run below it. Each owns
+ * its own svg, resize observer and hover readout — they share no state, so
+ * scrubbing one leaves the other alone.
+ *
+ * `onCycle` makes the corner tag a button; without it the tag is a plain label
+ * and the chart is fixed to its range.
+ */
+function PnlChart({ bets, range, label, onCycle }) {
   const chartRef = useRef(null)
   const tipRef = useRef(null)
-  // The chart's own zoom level — cycled by tapping the small tag in its corner,
-  // never a dropdown. Lives apart from the headline stats below, which always
-  // read all-time / month-to-date regardless of what the chart is showing.
-  const [chartRange, setChartRange] = useState('all')
-  const cycleChartRange = useCallback(() => {
-    setChartRange(r => CHART_RANGES[(CHART_RANGES.indexOf(r) + 1) % CHART_RANGES.length])
-  }, [])
-
-  // Which of the two ledgers this instance is, and the other one to hop to.
-  const label = category === 'virtuals' ? 'Virtuals' : 'Dogs'
-  const other = category === 'virtuals' ? 'dogs' : 'virtuals'
-  const otherLabel = category === 'virtuals' ? 'Dogs' : 'Virtuals'
-
-  // Re-fetch when the ledger changes. Each route mounts a fresh page with a
-  // fixed category, but keeping it in the deps is correct and future-proof.
-  useEffect(() => { getBets(category).then(setBets).catch(e => setError(e.message)) }, [category])
-
-  // Derived figures — cumulative total, month to date, win rate.
-  // Tips are real money out of the till, so they move every CASH figure (total,
-  // month to date, the chart) exactly like a loss — but they are not bets, so
-  // the bet count, win rate, turnover and EV all read `wagers`, never tips.
-  const wagers = bets.filter(b => !b.is_tip)
-  const cum = [0]
-  let t = 0
-  for (const b of bets) { t += b.amount; cum.push(t) }
-  const total = t
-  const now = new Date()
-  const inMonth = b => {
-    const d = parseDate(b.created_at)
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-  }
-  const mtd = bets.filter(inMonth).reduce((s, b) => s + b.amount, 0)
-  const mtdCount = wagers.filter(inMonth).length
-  // Pushes (stake returned exactly) are neither win nor loss, so they leave the
-  // win rate alone rather than counting against it. Tips never enter it at all.
-  const settled = wagers.filter(b => b.amount !== 0)
-  const wins = settled.filter(b => b.amount > 0).length
-  const winrate = settled.length ? Math.round(100 * wins / settled.length) + '%' : '0%'
-
-  // Turnover and ROI only exist for bets logged with a stake — a flat win/loss
-  // entry has no stake, so it contributes to neither. Both are hidden until at
-  // least one staked bet is on the ledger.
-  const staked = bets.filter(b => b.stake != null)
-  const turnover = staked.reduce((s, b) => s + b.stake, 0)
-  const stakedProfit = staked.reduce((s, b) => s + b.amount, 0)
-  const roi = turnover > 0 ? (stakedProfit / turnover * 100).toFixed(1) + '%' : null
-
-  // EV — the figures behind the dashed line on the chart. It measures the PRICE,
-  // not the result: a bet can lose and still have been +EV. The headline is the
-  // accumulated figure, so it equals where the line ends rather than describing
-  // it. Needs a stake, so flat entries sit this out.
-  const measured = bets.filter(hasEv)
-  const evTotal = measured.length ? measured.reduce((s, b) => s + evOf(b), 0) : null
-  const spBeat = measured.filter(b => b.price_taken > b.bfsp).length
 
   const renderChart = useCallback(() => {
     const svg = chartRef.current
@@ -178,7 +143,7 @@ export default function PnlPage({ category = 'dogs' }) {
     // Windowed to the chart's own range, not the ledger's: each step zooms the
     // SAME cumulative curve into a shorter tail, starting fresh from 0 at the
     // window's edge — so "Day" reads as today's shape, not a slice of the total.
-    const rangedBets = chartRange === 'all' ? bets : bets.filter(b => inChartRange(b, chartRange, new Date()))
+    const rangedBets = range === 'all' ? bets : bets.filter(b => inChartRange(b, range, new Date()))
     const spPts = spSeries(rangedBets)
     const hasSp = spPts.length > 0
     const pad = { t: 16, r: 46, b: 30, l: 8 }
@@ -208,6 +173,7 @@ export default function PnlPage({ category = 'dogs' }) {
       grid += `<text x="${W - pad.r + 5}" y="${gy}" dy="3.5" font-size="9.5" font-family="var(--font-mono)" fill="var(--faint)">${money(g)}</text>`
     }
 
+    const fmtTick = tickFormatter(dates)
     let xaxis = `<line x1="${pad.l}" x2="${W - pad.r}" y1="${axisY}" y2="${axisY}" stroke="var(--line-strong)" stroke-width="1"/>`
     const k = Math.min(4, n - 1), seen = new Set()
     for (let j = 0; j < k; j++) {
@@ -216,7 +182,7 @@ export default function PnlPage({ category = 'dogs' }) {
       const tx = X(i).toFixed(1)
       xaxis += `<line x1="${tx}" x2="${tx}" y1="${axisY}" y2="${(H - pad.b + 4).toFixed(1)}" stroke="var(--line-strong)" stroke-width="1"/>`
       const anchor = j === 0 ? 'start' : j === k - 1 ? 'end' : 'middle'
-      xaxis += `<text x="${tx}" y="${(H - pad.b + 15).toFixed(1)}" text-anchor="${anchor}" font-size="9.5" font-family="var(--font-mono)" fill="var(--muted)">${fmtDay(dates[i])}</text>`
+      xaxis += `<text x="${tx}" y="${(H - pad.b + 15).toFixed(1)}" text-anchor="${anchor}" font-size="9.5" font-family="var(--font-mono)" fill="var(--muted)">${fmtTick(dates[i])}</text>`
     }
 
     let months = ''
@@ -264,7 +230,8 @@ export default function PnlPage({ category = 'dogs' }) {
       ${spLayer}
       <g class="pnlHover" style="opacity:0"><circle class="pnlHdot" r="4" fill="var(--ink)" stroke="var(--paper)" stroke-width="1.5"/></g>`
     svg._pts = pts; svg._cum = cumArr; svg._dates = dates; svg._spAt = spAt
-  }, [bets, chartRange])
+    svg._fmt = fmtTick
+  }, [bets, range])
 
   useEffect(() => { renderChart() }, [renderChart])
 
@@ -328,7 +295,7 @@ export default function PnlPage({ category = 'dogs' }) {
       // gains a second figure exactly where the dashed line has a point.
       const spv = svg._spAt ? svg._spAt[bi] : undefined
       tip.textContent =
-        (bi === 0 ? 'Start' : fmtDay(dates[bi])) + '  ' + signed(cumA[bi]) +
+        (bi === 0 ? 'Start' : (svg._fmt || fmtDay)(dates[bi])) + '  ' + signed(cumA[bi]) +
         (spv === undefined ? '' : '  ·  ' + signed(spv) + ' EV')
     }
 
@@ -356,6 +323,94 @@ export default function PnlPage({ category = 'dogs' }) {
       window.removeEventListener('scroll', invalidate, true)
     }
   }, [])
+
+  return (
+    <div className={styles.chartWrap}>
+      <svg className={styles.chart} ref={chartRef} preserveAspectRatio="none"
+           aria-label={`Cumulative profit and loss — ${label}`} />
+      <div className={styles.tip} ref={tipRef} />
+      {/* Sits in the chart's own empty top-left corner (inside the axis
+          padding) rather than on the drag surface, so it can never eat the
+          hover-scrub gesture the chart itself listens for. A separate
+          element, not a second listener on the svg — no gesture to
+          disambiguate from a drag. */}
+      {onCycle ? (
+        <button
+          type="button"
+          className={styles.rangeTag}
+          onClick={onCycle}
+          aria-label={`Chart range: ${label}. Tap to cycle.`}
+        >
+          {label}
+        </button>
+      ) : (
+        <span className={`${styles.rangeTag} ${styles.rangeTagFixed}`}>{label}</span>
+      )}
+    </div>
+  )
+}
+
+export default function PnlPage({ category = 'dogs' }) {
+  const [bets, setBets] = useState([])
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+  // The zoom chart's window — cycled by tapping the small tag in its corner,
+  // never a dropdown. "All" is not in the cycle: the all-time run has its own
+  // chart pinned below, so there is no reason to zoom out to what is already on
+  // screen. Lives apart from the headline stats, which always read all-time /
+  // month-to-date regardless of what the chart shows.
+  const [zoom, setZoom] = useState('month')
+  const cycleZoom = useCallback(() => {
+    setZoom(r => ZOOM_RANGES[(ZOOM_RANGES.indexOf(r) + 1) % ZOOM_RANGES.length])
+  }, [])
+
+  // Which of the two ledgers this instance is, and the other one to hop to.
+  const label = category === 'virtuals' ? 'Virtuals' : 'Dogs'
+  const other = category === 'virtuals' ? 'dogs' : 'virtuals'
+  const otherLabel = category === 'virtuals' ? 'Dogs' : 'Virtuals'
+
+  // Re-fetch when the ledger changes. Each route mounts a fresh page with a
+  // fixed category, but keeping it in the deps is correct and future-proof.
+  useEffect(() => { getBets(category).then(setBets).catch(e => setError(e.message)) }, [category])
+
+  // Derived figures — cumulative total, month to date, win rate.
+  // Tips are real money out of the till, so they move every CASH figure (total,
+  // month to date, the chart) exactly like a loss — but they are not bets, so
+  // the bet count, win rate, turnover and EV all read `wagers`, never tips.
+  const wagers = bets.filter(b => !b.is_tip)
+  const cum = [0]
+  let t = 0
+  for (const b of bets) { t += b.amount; cum.push(t) }
+  const total = t
+  const now = new Date()
+  const inMonth = b => {
+    const d = parseDate(b.created_at)
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+  }
+  const mtd = bets.filter(inMonth).reduce((s, b) => s + b.amount, 0)
+  const mtdCount = wagers.filter(inMonth).length
+  // Pushes (stake returned exactly) are neither win nor loss, so they leave the
+  // win rate alone rather than counting against it. Tips never enter it at all.
+  const settled = wagers.filter(b => b.amount !== 0)
+  const wins = settled.filter(b => b.amount > 0).length
+  const winrate = settled.length ? Math.round(100 * wins / settled.length) + '%' : '0%'
+
+  // Turnover and ROI only exist for bets logged with a stake — a flat win/loss
+  // entry has no stake, so it contributes to neither. Both are hidden until at
+  // least one staked bet is on the ledger.
+  const staked = bets.filter(b => b.stake != null)
+  const turnover = staked.reduce((s, b) => s + b.stake, 0)
+  const stakedProfit = staked.reduce((s, b) => s + b.amount, 0)
+  const roi = turnover > 0 ? (stakedProfit / turnover * 100).toFixed(1) + '%' : null
+
+  // EV — the figures behind the dashed line on the chart. It measures the PRICE,
+  // not the result: a bet can lose and still have been +EV. The headline is the
+  // accumulated figure, so it equals where the line ends rather than describing
+  // it. Needs a stake, so flat entries sit this out.
+  const measured = bets.filter(hasEv)
+  const evTotal = measured.length ? measured.reduce((s, b) => s + evOf(b), 0) : null
+  const spBeat = measured.filter(b => b.price_taken > b.bfsp).length
+
 
   // Only called when a bet is actually submitted — so the chart re-renders once
   // per bet, never per keystroke (the entry lives in its own component below).
@@ -423,22 +478,13 @@ export default function PnlPage({ category = 'dogs' }) {
           </div>
         </div>
         {error && <p className={styles.error}>{error}</p>}
-        <div className={styles.chartWrap}>
-          <svg className={styles.chart} ref={chartRef} preserveAspectRatio="none" aria-label="Cumulative profit and loss over time" />
-          <div className={styles.tip} ref={tipRef} />
-          {/* Sits in the chart's own empty top-left corner (inside the axis
-              padding) rather than on the drag surface, so it can never eat the
-              hover-scrub gesture the chart itself listens for. A separate
-              element, not a second listener on the svg — no gesture to
-              disambiguate from a drag. */}
-          <button
-            type="button"
-            className={styles.rangeTag}
-            onClick={cycleChartRange}
-            aria-label={`Chart range: ${RANGE_LABEL[chartRange]}. Tap to cycle.`}
-          >
-            {RANGE_LABEL[chartRange]}
-          </button>
+        {/* Two charts, near and far. The top one zooms — month, week, day — and
+            answers "how is it going right now"; the all-time run underneath is
+            the context that question is asked against, and stays put so the
+            shape of the whole ledger is always on screen. */}
+        <div className={styles.charts}>
+          <PnlChart bets={bets} range={zoom} label={RANGE_LABEL[zoom]} onCycle={cycleZoom} />
+          <PnlChart bets={bets} range="all" label={RANGE_LABEL.all} />
         </div>
       </section>
 

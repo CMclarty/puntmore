@@ -126,7 +126,24 @@
 
 .error { font-size: 12px; color: var(--red); margin-top: 4px; }
 
-.chartWrap { position: relative; flex: 1; min-height: 0; margin-top: 4px; }
+/* Zoom chart on top, all-time underneath. The pair takes the space the single
+   chart used to, split so the zoomed view — the one being read while entering
+   bets — gets the larger share; the all-time run is context and reads fine
+   shorter. min-height:0 on both so a flex child can actually shrink. */
+.charts {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  margin-top: 4px;
+}
+.chartWrap { position: relative; min-height: 0; }
+.charts > .chartWrap:first-child { flex: 3; }
+.charts > .chartWrap:last-child {
+  flex: 2;
+  border-top: 1px solid var(--line);
+  padding-top: 2px;
+}
 .chart { width: 100%; height: 100%; display: block; overflow: visible; }
 
 /* Chart range toggle — All → MTD → Week → Day → All, one tap per step. Sized
@@ -153,6 +170,9 @@
   transition: color 0.12s;
 }
 .rangeTag:active { color: var(--muted); }
+/* The all-time chart's tag is a label, not a control — same type so the two
+   charts read as a pair, but nothing about it invites a tap. */
+.rangeTagFixed { cursor: default; }
 .tip {
   position: absolute;
   pointer-events: none;
