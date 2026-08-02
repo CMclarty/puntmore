@@ -39,11 +39,18 @@ body {
   min-height: 100dvh;
 }
 
+/* Exactly the viewport, not "at least" it. `.main` is the scroller (App.module
+   .css), and the pages that fit on one screen — the P&L pad especially — flex
+   their chart down to whatever the fixed rows leave. With min-height alone the
+   column had no upper bound, so flex:1 resolved to CONTENT height instead of
+   shrinking: the shell grew past the screen and the Enter button ended up
+   ~70px below the fold on a phone. Bounding the height makes flex:1 mean what
+   the page CSS assumes it means; taller pages still scroll inside .main. */
 #root {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
   max-width: 480px;
   width: 100%;
   margin: 0 auto;

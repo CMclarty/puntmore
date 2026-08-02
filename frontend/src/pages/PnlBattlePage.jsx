@@ -410,6 +410,25 @@ function BattleEntry({ onAdd, busy, category }) {
           </div>
         )}
 
+        {/* Above the wheels for the same reason as the plain tracker: the
+            wheels are the tallest thing here, and underneath them the result
+            row sat in the bottom inch of the screen, where the phone's browser
+            toolbar is. */}
+        <div className={styles.menu} role="group" aria-label="Result">
+          {(isVirtuals && ew
+            ? [['lose', 'Lose'], ['place', 'Place'], ['win', 'Win']]
+            : [['lose', 'Lose'], ['push', 'Push'], ['win', 'Win']]
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className={`${styles.opt} ${styles[key]}`}
+              aria-pressed={result === key}
+              onClick={() => { setConfirming(false); setResult(key) }}
+            >{label}</button>
+          ))}
+        </div>
+
         <div className={isVirtuals && !ew ? styles.wheelsOne : styles.wheels}>
           <OddsWheel
             id="gbOdds" label="Odds" value={odds}
@@ -443,21 +462,6 @@ function BattleEntry({ onAdd, busy, category }) {
             </b>
           </div>
         )}
-
-        <div className={styles.menu} role="group" aria-label="Result">
-          {(isVirtuals && ew
-            ? [['lose', 'Lose'], ['place', 'Place'], ['win', 'Win']]
-            : [['lose', 'Lose'], ['push', 'Push'], ['win', 'Win']]
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              className={`${styles.opt} ${styles[key]}`}
-              aria-pressed={result === key}
-              onClick={() => { setConfirming(false); setResult(key) }}
-            >{label}</button>
-          ))}
-        </div>
 
         <div className={styles.netLine}>
           <span>Net</span>

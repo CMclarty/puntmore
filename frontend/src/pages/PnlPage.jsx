@@ -794,6 +794,41 @@ function PnlEntry({ onAdd, busy, category }) {
         </div>
       )}
 
+      {/* ABOVE the wheels, not below them. The wheels are the tallest thing in
+          the pad, and with the result row under them Lose/Push/Win sat in the
+          bottom inch of the screen — where a phone's browser toolbar is, so
+          reaching for Win hit the toolbar instead. Stake and result are also
+          the two controls every entry touches (Lose is the default, and most
+          bets lose), so they belong together at the top; the wheels are often
+          left alone entirely. */}
+      <div className={styles.results} role="group" aria-label="Result">
+        <button
+          type="button"
+          className={`${styles.res} ${styles.resLose} ${result === 'lose' ? styles.on : ''}`}
+          onClick={() => edit(setResult)('lose')}
+        >Lose</button>
+        {/* An each-way bet can place without winning; a win-only bet can't, so
+            that slot stays the push it was. */}
+        {isVirtuals && ew ? (
+          <button
+            type="button"
+            className={`${styles.res} ${styles.resPush} ${result === 'place' ? styles.on : ''}`}
+            onClick={() => edit(setResult)('place')}
+          >Place</button>
+        ) : (
+        <button
+          type="button"
+          className={`${styles.res} ${styles.resPush} ${result === 'push' ? styles.on : ''}`}
+          onClick={() => edit(setResult)('push')}
+        >Push</button>
+        )}
+        <button
+          type="button"
+          className={`${styles.res} ${styles.resWin} ${result === 'win' ? styles.on : ''}`}
+          onClick={() => edit(setResult)('win')}
+        >Win</button>
+      </div>
+
       <div className={isVirtuals && !ew ? styles.wheelsOne : styles.wheels}>
         <div className={styles.wheelCol}>
           <OddsWheel
@@ -832,34 +867,6 @@ function PnlEntry({ onAdd, busy, category }) {
           vs SP <b className={odds > bspShown ? styles.pos : odds < bspShown ? styles.neg : ''}>{vsSp(odds, bspShown)}</b>
         </div>
       )}
-
-      <div className={styles.results} role="group" aria-label="Result">
-        <button
-          type="button"
-          className={`${styles.res} ${styles.resLose} ${result === 'lose' ? styles.on : ''}`}
-          onClick={() => edit(setResult)('lose')}
-        >Lose</button>
-        {/* An each-way bet can place without winning; a win-only bet can't, so
-            that slot stays the push it was. */}
-        {isVirtuals && ew ? (
-          <button
-            type="button"
-            className={`${styles.res} ${styles.resPush} ${result === 'place' ? styles.on : ''}`}
-            onClick={() => edit(setResult)('place')}
-          >Place</button>
-        ) : (
-        <button
-          type="button"
-          className={`${styles.res} ${styles.resPush} ${result === 'push' ? styles.on : ''}`}
-          onClick={() => edit(setResult)('push')}
-        >Push</button>
-        )}
-        <button
-          type="button"
-          className={`${styles.res} ${styles.resWin} ${result === 'win' ? styles.on : ''}`}
-          onClick={() => edit(setResult)('win')}
-        >Win</button>
-      </div>
 
       <div className={styles.netLine}>
         <span>Net</span>
