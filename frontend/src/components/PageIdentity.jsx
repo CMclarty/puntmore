@@ -10,8 +10,6 @@ import { useLocation } from 'react-router-dom'
 const IDENTITIES = [
   { match: (p) => p === '/upload', title: 'Puntmore — Upload', icon: '/icons/upload.svg', manifest: '/manifests/upload.webmanifest' },
   { match: (p) => p === '/goalscorers', title: 'Puntmore — Goalscorers', icon: '/icons/goalscorers.svg', manifest: '/manifests/goalscorers.webmanifest' },
-  { match: (p) => p === '/pnl/dogs/battle', title: 'P&L Battle — Dogs', icon: '/icons/pnl-dogs-battle.svg', manifest: '/manifests/pnl-dogs-battle.webmanifest' },
-  { match: (p) => p === '/pnl/virtuals/battle', title: 'P&L Battle — Virtuals', icon: '/icons/pnl-virtuals-battle.svg', manifest: '/manifests/pnl-virtuals-battle.webmanifest' },
   { match: (p) => p === '/pnl/dogs', title: 'P&L — Dogs', icon: '/icons/pnl-dogs.svg', manifest: '/manifests/pnl-dogs.webmanifest' },
   { match: (p) => p === '/pnl/virtuals', title: 'P&L — Virtuals', icon: '/icons/pnl-virtuals.svg', manifest: '/manifests/pnl-virtuals.webmanifest' },
   { match: (p) => p === '/kelly', title: 'Puntmore — Kelly', icon: '/icons/kelly.svg', manifest: '/manifests/kelly.webmanifest' },

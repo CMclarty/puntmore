@@ -402,6 +402,10 @@ export default function PnlPage({ category = 'dogs' }) {
   const [bets, setBets] = useState([])
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  // The just-saved confirmation: { amount, key } while it's on screen, null
+  // otherwise. See handleAdd — it exists because the result key files on the
+  // tap, so there is no button state to change and say "that went in".
+  const [flash, setFlash] = useState(null)
   // The zoom chart's window — cycled by tapping the small tag in its corner,
   // never a dropdown. "All" is not in the cycle: the all-time run has its own
   // chart pinned below, so there is no reason to zoom out to what is already on
@@ -439,6 +443,14 @@ export default function PnlPage({ category = 'dogs' }) {
   // Re-fetch when the ledger changes. Each route mounts a fresh page with a
   // fixed category, but keeping it in the deps is correct and future-proof.
   useEffect(() => { getBets(category).then(setBets).catch(e => setError(e.message)) }, [category])
+
+  // Take the confirmation back down on its own. Re-runs per flash, so a second
+  // save restarts the clock rather than inheriting the first one's remainder.
+  useEffect(() => {
+    if (!flash) return
+    const t = setTimeout(() => setFlash(null), FLASH_MS)
+    return () => clearTimeout(t)
+  }, [flash])
 
   // Derived figures — cumulative total, month to date, win rate.
   // Tips are real money out of the till, so they move every CASH figure (total,
@@ -487,6 +499,12 @@ export default function PnlPage({ category = 'dogs' }) {
     try {
       const bet = await addBet(category, payload)
       setBets(bs => [...bs, bet])
+      // Confirm the write. Since the outcome key files on the tap, the pad
+      // clearing is the only other signal that anything happened — and a pad
+      // that resets looks identical whether the bet saved or the tap missed.
+      // Keyed by the new bet's id so two identical entries in a row each get
+      // their own animation instead of the second reusing the first's.
+      setFlash({ amount: bet.amount, key: bet.id })
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
 
@@ -530,9 +548,8 @@ export default function PnlPage({ category = 'dogs' }) {
           {/* Actions ride in their own group so they anchor right as a unit and
               wrap together, rather than each fighting for the auto margin. */}
           <div className={styles.actions}>
-            {/* Hop to the other ledger, and to the alternate skin of this one. */}
-            <Link className={styles.battle} to={`/pnl/${other}`}>{otherLabel}</Link>
-            <Link className={styles.battle} to={`/pnl/${category}/battle`}>battle</Link>
+            {/* Hop to the other ledger. */}
+            <Link className={styles.hop} to={`/pnl/${other}`}>{otherLabel}</Link>
             {bets.length > 0 && (
               <>
                 {/* A plain link, not a fetch: the session cookie rides along and
@@ -563,12 +580,27 @@ export default function PnlPage({ category = 'dogs' }) {
       </section>
 
       <PnlEntry onAdd={handleAdd} busy={busy} category={category} />
+
+      {/* Saved. Centred over the page rather than pinned to the pad so it can't
+          be read as part of the entry — it's a receipt for one that's already
+          gone. pointer-events:none, so it never eats the next tap. */}
+      {flash && (
+        <div className={styles.flash} key={flash.key} role="status" aria-live="polite">
+          <span className={styles.flashTick} aria-hidden="true">✓</span>
+          <b>{signedExact(flash.amount)}</b>
+        </div>
+      )}
     </div>
   )
 }
 
 // A net swing at or beyond this asks for confirmation before it's written.
 const BIG_ENTRY = 1000
+
+// How long the just-saved confirmation stays up. Long enough to register after
+// the eye leaves the key it tapped, short enough that it's gone before the next
+// entry — it must never be something you wait out.
+const FLASH_MS = 700
 
 // Staking is fixed on both ledgers, so the box comes pre-filled with the usual
 // unit: virtuals £90 win-only and £80 a part each-way (which is the £160 total

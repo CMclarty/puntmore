@@ -3,6 +3,45 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* The saved-confirmation pill positions against this. */
+  position: relative;
+}
+
+/* "Saved" — a receipt for a bet already written, up for FLASH_MS and gone.
+   One colour whatever the result: the pill says the write happened, and the
+   signed figure inside says what it was. Tinting it green for a win would make
+   the same event read as two different ones. */
+.flash {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 18px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  /* Never in the way of the next entry — the pad stays tappable underneath. */
+  pointer-events: none;
+  animation: flashPop 0.7s ease forwards;
+}
+.flash b { font-weight: 600; }
+.flashTick { font-size: 13px; opacity: 0.75; }
+
+/* In fast, hold, out — the translate is repeated in every frame because a
+   transform keyframe replaces the whole property, centring included. */
+@keyframes flashPop {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.92); }
+  14%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  70%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
 }
 
 /* ---- top: stats + chart ---- */
@@ -99,8 +138,8 @@
   padding: 2px 7px;
 }
 
-/* The battle skin's way in, and the hop to the other ledger. */
-.battle {
+/* The hop to the other ledger. */
+.hop {
   border: 1px solid var(--line);
   border-radius: 5px;
   font-size: 10px;
@@ -472,4 +511,10 @@
   .field .display { height: 42px; font-size: 19px; }
 }
 
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+  /* The pill still appears and is still cleared on the timer — it just doesn't
+     scale or fade to do it. `forwards` is dropped with the animation, so it
+     stays fully opaque for its whole life instead of ending at opacity 0. */
+  .flash { animation: none; }
+}

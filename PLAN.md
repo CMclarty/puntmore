@@ -255,6 +255,38 @@ Full evidence, including the caveats on that sampling, is in
 `docs/provider-verification.md` — read it before spending credits re-deriving
 this.
 
+### 8. Bring back the P&L battle skin
+Removed in August 2026 (Callum's call) to keep attention on finishing the
+coupon tracker — a second copy of the P&L page meant every entry-flow change
+had to be made twice, and it was made twice for the toolbar fix and again for
+the Enter removal in the same week. Deliberately deferred, not abandoned: this
+is a rebuild-when-the-tracker-is-done item, not a scheduled one.
+
+What was removed: `frontend/src/pages/PnlBattlePage.jsx` and its CSS module
+(both in git history — restore from the commit that deletes them rather than
+rewriting from scratch), the lazy import and three routes in `App.jsx`, the two
+`PageIdentity` entries, and the `battle` chip on the plain page.
+
+What deliberately STAYED, so bringing it back is a smaller job than removing it
+was:
+- `/pnl/battle`, `/pnl/dogs/battle` and `/pnl/virtuals/battle` still resolve —
+  now as redirects to the plain ledger. The skin was installable to a phone's
+  home screen, so an already-installed shortcut must not land on a 404.
+- `public/icons/pnl-{dogs,virtuals}-battle.svg` and the matching
+  `public/manifests/*.webmanifest` are untouched, for the same reason.
+
+**When it comes back, do not re-fork the page.** The two copies drifted apart
+every time the entry flow changed. The entry pad — stake box, result keys, odds
+wheels, the four-figure guard, the saved flash — should be ONE component that
+takes its styles from a CSS module passed in (or from tokens the skin
+redefines), with the skin supplying only the chrome and the palette. The
+skin's canvas chart is genuinely its own thing and can stay separate.
+
+**Definition of done:** `/pnl/dogs/battle` renders the skin again; entering a
+bet on either skin produces an identical payload (same test, run twice with
+different wrappers); and there is exactly one implementation of the entry pad
+in the tree.
+
 ---
 
 ## History

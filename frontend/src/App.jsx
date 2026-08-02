@@ -15,7 +15,6 @@ import styles from './App.module.css'
 const UploadPage = lazy(() => import('./pages/UploadPage'))
 const GoalscorersPage = lazy(() => import('./pages/GoalscorersPage'))
 const PnlPage = lazy(() => import('./pages/PnlPage'))
-const PnlBattlePage = lazy(() => import('./pages/PnlBattlePage'))
 const KellyPage = lazy(() => import('./pages/KellyPage'))
 const ShopPage = lazy(() => import('./pages/ShopPage'))
 const AccaBonusPage = lazy(() => import('./pages/AccaBonusPage'))
@@ -83,16 +82,19 @@ export default function App() {
           <Route path="/t/:code/:couponId" element={protectTool(<TrackerPage />, 'coupons')} />
           <Route path="/upload" element={protectTool(<UploadPage user={user} />, 'coupons')} />
           <Route path="/goalscorers" element={protectTool(<GoalscorersPage />, 'goalscorers')} />
-          {/* Two independent ledgers, one per racing category. Bare /pnl (and
-              the old /pnl/battle) land on dogs, the ledger that existed before
-              the split. */}
+          {/* Two independent ledgers, one per racing category. Bare /pnl lands
+              on dogs, the ledger that existed before the split. */}
           <Route path="/pnl" element={<Navigate to="/pnl/dogs" replace />} />
           <Route path="/pnl/dogs" element={protectTool(<PnlPage category="dogs" />, 'pnl')} />
           <Route path="/pnl/virtuals" element={protectTool(<PnlPage category="virtuals" />, 'pnl')} />
-          {/* Same ledgers, same API — a skin, behind its own path. */}
-          <Route path="/pnl/battle" element={<Navigate to="/pnl/dogs/battle" replace />} />
-          <Route path="/pnl/dogs/battle" element={protectTool(<PnlBattlePage category="dogs" />, 'pnl')} />
-          <Route path="/pnl/virtuals/battle" element={protectTool(<PnlBattlePage category="virtuals" />, 'pnl')} />
+          {/* The Game Boy battle skin is GONE (Aug 2026) — see PLAN.md, it comes
+              back once the tracker itself is finished. Its paths stay as
+              redirects, not 404s: the skin was installable to a phone's home
+              screen, so an already-installed shortcut still opens the ledger it
+              was a skin OF rather than a dead page. */}
+          <Route path="/pnl/battle" element={<Navigate to="/pnl/dogs" replace />} />
+          <Route path="/pnl/dogs/battle" element={<Navigate to="/pnl/dogs" replace />} />
+          <Route path="/pnl/virtuals/battle" element={<Navigate to="/pnl/virtuals" replace />} />
           <Route path="/kelly" element={protectTool(<KellyPage />, 'kelly')} />
           <Route path="/shop" element={protectTool(<ShopPage />, 'shop')} />
           <Route path="/accabonus" element={protectTool(<AccaBonusPage />, 'accabonus')} />
