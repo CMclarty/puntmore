@@ -612,6 +612,32 @@ function sanitizeAmount(v) {
   return v.slice(0, 9)
 }
 
+/**
+ * One outcome key: the word, and under it the exact figure that tapping it
+ * will write to the ledger.
+ *
+ * The figure is the whole reason this is not just a labelled button. Removing
+ * the Enter step removed the moment where you read the net before agreeing to
+ * it, so the net moved onto the keys — you check the number on the thing you
+ * are about to press, rather than on a line somewhere else in the pad.
+ *
+ * Exact to the penny, not abbreviated: this is a figure being checked before
+ * it's committed, and abbreviating hides the digit a slipped decimal moves.
+ */
+function ResultKey({ kind, label, net, onClick, disabled }) {
+  return (
+    <button
+      type="button"
+      className={`${styles.res} ${styles[kind]}`}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      <span className={styles.resLabel}>{label}</span>
+      <span className={styles.resNet}>{net === null ? '—' : signedExact(net)}</span>
+    </button>
+  )
+}
+
 // Own component with local state: typing here re-renders only this small tree,
 // never the chart above — which is what caused the input lag.
 function PnlEntry({ onAdd, busy, category }) {
@@ -645,36 +671,44 @@ function PnlEntry({ onAdd, busy, category }) {
   // Virtuals only: each-way and the place terms it pays at.
   const [ew, setEw] = useState(false)
   const [terms, setTerms] = useState(DEFAULT_TERMS)
-  // Losses are the common outcome, so the wheel starts on 'lose' — a losing bet
-  // is then just stake + Add, no result tap. Any edit still re-reads for a big
-  // swing, and win/push are one tap away.
-  const [result, setResult] = useState('lose')   // 'win' | 'lose' | 'push'
-  const [confirming, setConfirming] = useState(false)
+  // THE RESULT BUTTON IS THE COMMIT. There is no Enter: a bet is stake (already
+  // pre-filled) plus one tap on the outcome, which is the whole entry. Nothing
+  // is "selected" here, so there is no result state to hold — the tapped result
+  // is passed straight through to `record`.
+  //
+  // What that costs is the preview an Enter button bought: you could read the
+  // net before agreeing to it. That is why each button now carries its own
+  // figure — you read what the tap will file ON the thing you're about to tap,
+  // which is a shorter path to the same check.
+  //
+  // `pending` is the four-figure guard's held result, not a selection: a swing
+  // at or beyond BIG_ENTRY stops for a yes/no instead of filing on the tap.
+  const [pending, setPending] = useState(null)   // 'win' | 'lose' | 'push' | 'place'
   // Staff tip (virtuals): its own amount, kept apart from the bet fields so a
   // tip can never pick up a stake, odds or result.
   const [tip, setTip] = useState('')
 
-  // Any edit invalidates a pending confirmation — you must re-read the figure
-  // you're agreeing to, or a changed entry could ride through on a stale yes.
-  const edit = setter => v => { setConfirming(false); setter(v) }
+  // Every setter below clears `pending` for the same reason: an edit invalidates
+  // a pending confirmation — you must re-read the figure you're agreeing to, or
+  // a changed entry could ride through on a stale yes.
 
   // The pre-fill for the current mode, and the box's own edit handler — typing
   // marks the stake as touched so the toggle stops swapping it.
   const stakeDefault = isVirtuals ? (ew ? DEFAULT_STAKE_EW : DEFAULT_STAKE) : DEFAULT_STAKE_DOGS
   const onStakeChange = e => {
-    setConfirming(false); setStakeEdited(true); setStake(sanitizeAmount(e.target.value))
+    setPending(null); setStakeEdited(true); setStake(sanitizeAmount(e.target.value))
   }
 
   // The wheels are memoised, so their onChange must keep a stable identity —
   // an inline `edit(setOdds)` is a new function every render and would re-render
   // both wheels' 130 rows on each keystroke, which is the lag this removes.
-  const onOddsChange = useCallback(v => { setConfirming(false); setOdds(v) }, [])
+  const onOddsChange = useCallback(v => { setPending(null); setOdds(v) }, [])
   const onOddsTouch = useCallback(() => { setOddsTouched(true) }, [])
   // Spinning the wheel is itself an assertion that you know the price, so it
   // activates on its own rather than needing the tap first.
-  const onBspChange = useCallback(v => { setConfirming(false); setBsp(v); setSpOn(true) }, [])
-  const onBspActivate = useCallback(() => { setConfirming(false); setSpOn(true) }, [])
-  const onTermsChange = useCallback(v => { setConfirming(false); setTerms(v) }, [])
+  const onBspChange = useCallback(v => { setPending(null); setBsp(v); setSpOn(true) }, [])
+  const onBspActivate = useCallback(() => { setPending(null); setSpOn(true) }, [])
+  const onTermsChange = useCallback(v => { setPending(null); setTerms(v) }, [])
 
   // What the BFSP wheel shows — the odds taken until spun — is the same whether
   // it is tracking or recording. Only `spOn` decides whether it is FILED, and
@@ -686,7 +720,7 @@ function PnlEntry({ onAdd, busy, category }) {
     : bsp == null ? 'recording · tap to stop'
     : 'set · tap to match odds'
   function cycleSp() {
-    setConfirming(false)
+    setPending(null)
     if (!spOn) setSpOn(true)          // tracking  → record the tracked price
     else if (bsp == null) setSpOn(false)  // matched   → back to tracking
     else setBsp(null)                     // set       → back to matching
@@ -695,22 +729,43 @@ function PnlEntry({ onAdd, busy, category }) {
   const stakeV = parseFloat(stake)
   const hasStake = stake !== '' && stakeV > 0
 
-  // The return is DERIVED from stake, odds and result — no second figure to
-  // type. Each-way doubles the outlay and adds the place part (see settle).
-  const { outlay, returned } = hasStake
-    ? settle({ unit: stakeV, odds, result, ew: isVirtuals && ew, terms })
-    : { outlay: null, returned: null }
+  // Odds always carries a value and the stake is pre-filled, so the only thing
+  // standing between a fresh pad and a filed bet is the outcome tap.
+  const canAdd = !busy && hasStake
+  // What actually leaves the till — the each-way line shows it, since a doubled
+  // outlay is the easiest figure on this page to get wrong.
+  const outlay = hasStake ? (isVirtuals && ew ? stakeV * 2 : stakeV) : null
 
-  // Odds always carries a value, so a bet needs only a stake and a result.
-  const canAdd = !busy && hasStake && result !== null
-  const net = canAdd ? Math.round((returned - outlay) * 100) / 100 : null
-  const big = net !== null && Math.abs(net) >= BIG_ENTRY
+  /**
+   * What tapping `r` would file. Derived from stake, odds and the result — no
+   * second figure to type. Each-way doubles the outlay and adds the place part
+   * (see settle). Returns null when there's no stake to settle against.
+   *
+   * A function rather than a value now: with no Enter button there is no single
+   * "current" result to compute, and every button needs its own figure.
+   */
+  function netFor(r) {
+    if (!hasStake) return null
+    const { outlay, returned } = settle({ unit: stakeV, odds, result: r, ew: isVirtuals && ew, terms })
+    return Math.round((returned - outlay) * 100) / 100
+  }
 
-  function submit() {
+  const pendingNet = pending ? netFor(pending) : null
+
+  /** The tap itself: file it, or stop for a yes on a four-figure swing. */
+  function record(r) {
     if (!canAdd) return
     // A four-figure swing is almost always a slipped decimal on a phone keypad,
-    // and the ledger has no edit — only undo-last. Make it deliberate.
-    if (big && !confirming) { setConfirming(true); return }
+    // and the ledger has no edit — only undo-last. Make it deliberate. The
+    // guard matters MORE now that the outcome tap files straight away: it is
+    // the only thing between a mis-tap and a £2,000 line in the ledger.
+    const net = netFor(r)
+    if (Math.abs(net) >= BIG_ENTRY && pending !== r) { setPending(r); return }
+    file(r)
+  }
+
+  function file(r) {
+    const { outlay, returned } = settle({ unit: stakeV, odds, result: r, ew: isVirtuals && ew, terms })
     // An untouched odds wheel files NEITHER price: its 2/1 seat is a resting
     // position, not a price taken, and a BFSP "matching" it would inherit the
     // same fiction. A spun BFSP still files on its own — that is a real reading
@@ -727,7 +782,7 @@ function PnlEntry({ onAdd, busy, category }) {
     })
     setStake(stakeDefault); setStakeEdited(false)
     setOdds(DEFAULT_PRICE); setOddsTouched(false)
-    setBsp(null); setSpOn(false); setResult('lose'); setConfirming(false)
+    setBsp(null); setSpOn(false); setPending(null)
     // Each-way and its terms persist across entries — a session of virtuals is
     // usually all EW or all not, so re-toggling per bet would be pure friction.
   }
@@ -742,7 +797,11 @@ function PnlEntry({ onAdd, busy, category }) {
     setTip('')
   }
 
-  const onEnterKey = e => { if (e.key === 'Enter') submit() }
+  // Keyboard Enter files a LOSS — which is what it always did, since 'lose' was
+  // the result the pad started on. Most bets lose, so on a desktop keyboard the
+  // whole entry stays "type the stake, press Enter"; the four-figure guard
+  // still applies, so a slipped decimal stops here too.
+  const onEnterKey = e => { if (e.key === 'Enter') record('lose') }
 
   return (
     <section className={styles.pad}>
@@ -783,50 +842,47 @@ function PnlEntry({ onAdd, busy, category }) {
             type="button"
             className={`${styles.res} ${!ew ? styles.on : ''}`}
             aria-pressed={!ew}
-            onClick={() => { setConfirming(false); setEw(false); if (!stakeEdited) setStake(DEFAULT_STAKE); if (result === 'place') setResult('lose') }}
+            onClick={() => { setPending(null); setEw(false); if (!stakeEdited) setStake(DEFAULT_STAKE) }}
           >Win only</button>
           <button
             type="button"
             className={`${styles.res} ${ew ? styles.on : ''}`}
             aria-pressed={ew}
-            onClick={() => { setConfirming(false); setEw(true); if (!stakeEdited) setStake(DEFAULT_STAKE_EW) }}
+            onClick={() => { setPending(null); setEw(true); if (!stakeEdited) setStake(DEFAULT_STAKE_EW) }}
           >E/W</button>
         </div>
       )}
 
-      {/* ABOVE the wheels, not below them. The wheels are the tallest thing in
-          the pad, and with the result row under them Lose/Push/Win sat in the
-          bottom inch of the screen — where a phone's browser toolbar is, so
-          reaching for Win hit the toolbar instead. Stake and result are also
-          the two controls every entry touches (Lose is the default, and most
-          bets lose), so they belong together at the top; the wheels are often
-          left alone entirely. */}
-      <div className={styles.results} role="group" aria-label="Result">
-        <button
-          type="button"
-          className={`${styles.res} ${styles.resLose} ${result === 'lose' ? styles.on : ''}`}
-          onClick={() => edit(setResult)('lose')}
-        >Lose</button>
+      {/* THE ENTRY. Not a selection to be confirmed later — a tap here files the
+          bet, which is why each button carries the figure it will file.
+
+          ABOVE the wheels, not below them: the wheels are the tallest thing in
+          the pad, and with this row under them Lose/Push/Win sat in the bottom
+          inch of the screen — where a phone's browser toolbar is, so reaching
+          for Win hit the toolbar instead. Stake and result are also the only
+          two controls every entry touches; the wheels are often left alone. */}
+      <div className={styles.results} role="group" aria-label="Record result">
+        <ResultKey
+          kind="resLose" label="Lose" net={netFor('lose')}
+          onClick={() => record('lose')} disabled={!canAdd}
+        />
         {/* An each-way bet can place without winning; a win-only bet can't, so
             that slot stays the push it was. */}
         {isVirtuals && ew ? (
-          <button
-            type="button"
-            className={`${styles.res} ${styles.resPush} ${result === 'place' ? styles.on : ''}`}
-            onClick={() => edit(setResult)('place')}
-          >Place</button>
+          <ResultKey
+            kind="resPush" label="Place" net={netFor('place')}
+            onClick={() => record('place')} disabled={!canAdd}
+          />
         ) : (
-        <button
-          type="button"
-          className={`${styles.res} ${styles.resPush} ${result === 'push' ? styles.on : ''}`}
-          onClick={() => edit(setResult)('push')}
-        >Push</button>
+          <ResultKey
+            kind="resPush" label="Push" net={netFor('push')}
+            onClick={() => record('push')} disabled={!canAdd}
+          />
         )}
-        <button
-          type="button"
-          className={`${styles.res} ${styles.resWin} ${result === 'win' ? styles.on : ''}`}
-          onClick={() => edit(setResult)('win')}
-        >Win</button>
+        <ResultKey
+          kind="resWin" label="Win" net={netFor('win')}
+          onClick={() => record('win')} disabled={!canAdd}
+        />
       </div>
 
       <div className={isVirtuals && !ew ? styles.wheelsOne : styles.wheels}>
@@ -868,31 +924,26 @@ function PnlEntry({ onAdd, busy, category }) {
         </div>
       )}
 
-      <div className={styles.netLine}>
-        <span>Net</span>
-        <b className={net === null ? '' : net > 0 ? styles.pos : net < 0 ? styles.neg : ''}>
-          {net === null ? '—' : signedExact(net)}
-        </b>
-      </div>
-
-      {confirming ? (
+      {/* The four-figure guard, and the only thing that ever delays a tap. It
+          appears in place BELOW the buttons rather than as a modal, so the
+          figure you're agreeing to and the row you tapped are both on screen. */}
+      {pending && (
         <div className={styles.confirm} role="alertdialog" aria-live="assertive">
           <p className={styles.confirmQ}>
-            Record <b className={net > 0 ? styles.pos : styles.neg}>{signedExact(net)}</b>?
+            Record <b className={pendingNet > 0 ? styles.pos : styles.neg}>{signedExact(pendingNet)}</b>?
             <span className={styles.confirmSub}>
-              {exact(outlay)} at {odds.toFixed(2)} · {result}
+              {exact(outlay)} at {odds.toFixed(2)} · {pending}
               {isVirtuals && ew ? ` · e/w ${TERMS_LADDER.find(t => t.dec === terms)?.label ?? ''}` : ''}
             </span>
           </p>
           <div className={styles.confirmBtns}>
-            <button type="button" className={styles.cancel} onClick={() => setConfirming(false)}>Cancel</button>
-            <button type="button" className={styles.enter} onClick={submit} disabled={!canAdd}>Yes, record it</button>
+            <button type="button" className={styles.cancel} onClick={() => setPending(null)}>Cancel</button>
+            <button
+              type="button" className={styles.enter}
+              onClick={() => file(pending)} disabled={!canAdd}
+            >Yes, record it</button>
           </div>
         </div>
-      ) : (
-        <button type="button" className={styles.enter} onClick={submit} disabled={!canAdd}>
-          {big ? `Enter ${signedExact(net)}…` : 'Enter'}
-        </button>
       )}
 
       {/* Staff tip — a cash loss, not a bet. Its own amount and button, kept

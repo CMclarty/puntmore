@@ -322,24 +322,25 @@ function BattleEntry({ onAdd, busy, category }) {
   const [spOn, setSpOn] = useState(false)
   const [ew, setEw] = useState(false)
   const [terms, setTerms] = useState(DEFAULT_TERMS)
-  // Losses are the common outcome, so start on 'lose': a losing bet is stake +
-  // Add, no result tap. Win/push are one tap away.
-  const [result, setResult] = useState('lose')
-  const [confirming, setConfirming] = useState(false)
+  // Same entry model as the plain tracker: the outcome key IS the commit, so
+  // there is no result selection and no Enter. `pending` is only the
+  // four-figure guard's held result. Every setter below clears it, because an
+  // edit invalidates a confirmation you haven't answered yet.
+  const [pending, setPending] = useState(null)
 
-  const onOddsChange = useCallback(v => { setConfirming(false); setOdds(v) }, [])
+  const onOddsChange = useCallback(v => { setPending(null); setOdds(v) }, [])
   const onOddsTouch = useCallback(() => { setOddsTouched(true) }, [])
   // A spin is itself the assertion that the price is known.
-  const onBspChange = useCallback(v => { setConfirming(false); setBsp(v); setSpOn(true) }, [])
-  const onBspActivate = useCallback(() => { setConfirming(false); setSpOn(true) }, [])
-  const onTermsChange = useCallback(v => { setConfirming(false); setTerms(v) }, [])
+  const onBspChange = useCallback(v => { setPending(null); setBsp(v); setSpOn(true) }, [])
+  const onBspActivate = useCallback(() => { setPending(null); setSpOn(true) }, [])
+  const onTermsChange = useCallback(v => { setPending(null); setTerms(v) }, [])
 
   const bspShown = bsp ?? odds
   const spNote = !spOn ? 'tracking odds · tap to record'
     : bsp == null ? 'recording · tap to stop'
     : 'set · tap to match odds'
   function cycleSp() {
-    setConfirming(false)
+    setPending(null)
     if (!spOn) setSpOn(true)
     else if (bsp == null) setSpOn(false)
     else setBsp(null)
@@ -347,17 +348,27 @@ function BattleEntry({ onAdd, busy, category }) {
 
   const stakeV = parseFloat(stake)
   const hasStake = stake !== '' && stakeV > 0
-  const { outlay, returned } = hasStake
-    ? settle({ unit: stakeV, odds, result, ew: isVirtuals && ew, terms })
-    : { outlay: null, returned: null }
+  const canAdd = !busy && hasStake
 
-  const canAdd = !busy && hasStake && result !== null
-  const net = canAdd ? Math.round((returned - outlay) * 100) / 100 : null
-  const big = net !== null && Math.abs(net) >= BIG_ENTRY
+  /** What tapping `r` would file. One per key, since there is no selection. */
+  function netFor(r) {
+    if (!hasStake) return null
+    const { outlay, returned } = settle({ unit: stakeV, odds, result: r, ew: isVirtuals && ew, terms })
+    return Math.round((returned - outlay) * 100) / 100
+  }
 
-  function submit() {
+  const pendingNet = pending ? netFor(pending) : null
+
+  function record(r) {
     if (!canAdd) return
-    if (big && !confirming) { setConfirming(true); return }
+    // Four-figure guard: a slipped decimal on a phone keypad, and the ledger has
+    // no edit — only undo-last. It matters more now the key files on the tap.
+    if (Math.abs(netFor(r)) >= BIG_ENTRY && pending !== r) { setPending(r); return }
+    file(r)
+  }
+
+  function file(r) {
+    const { outlay, returned } = settle({ unit: stakeV, odds, result: r, ew: isVirtuals && ew, terms })
     // An untouched odds wheel files NEITHER price — its 2/1 seat is not a price
     // taken, and a BFSP "matching" it would inherit the same fiction.
     const price = oddsTouched ? odds : null
@@ -371,8 +382,13 @@ function BattleEntry({ onAdd, busy, category }) {
       ...(isEw ? { each_way: true, place_fraction: terms } : {}),
     })
     setStake(''); setOdds(DEFAULT_PRICE); setOddsTouched(false)
-    setBsp(null); setSpOn(false); setResult('lose'); setConfirming(false)
+    setBsp(null); setSpOn(false); setPending(null)
   }
+
+  // Keyboard Enter files a LOSS — what it always did, since 'lose' was the
+  // result the pad started on. Most bets lose, so on a desktop keyboard the
+  // entry stays "type the stake, press Enter".
+  const onEnterKey = e => { if (e.key === 'Enter') record('lose') }
 
   return (
     <section className={styles.pad}>
@@ -384,10 +400,10 @@ function BattleEntry({ onAdd, busy, category }) {
             <input
               value={stake}
               onChange={e => {
-                setConfirming(false)
+                setPending(null)
                 setStake(e.target.value.replace(/[^\d.]/g, '').replace(/^0+(?=\d)/, '').slice(0, 9))
               }}
-              onKeyDown={e => { if (e.key === 'Enter') submit() }}
+              onKeyDown={onEnterKey}
               inputMode="decimal"
               type="text"
               placeholder="0.00"
@@ -401,20 +417,21 @@ function BattleEntry({ onAdd, busy, category }) {
           <div className={styles.ewToggle} role="group" aria-label="Each way">
             <button
               type="button" className={styles.opt} aria-pressed={!ew}
-              onClick={() => { setConfirming(false); setEw(false); if (result === 'place') setResult('lose') }}
+              onClick={() => { setPending(null); setEw(false) }}
             >Win only</button>
             <button
               type="button" className={styles.opt} aria-pressed={ew}
-              onClick={() => { setConfirming(false); setEw(true) }}
+              onClick={() => { setPending(null); setEw(true) }}
             >E/W</button>
           </div>
         )}
 
-        {/* Above the wheels for the same reason as the plain tracker: the
-            wheels are the tallest thing here, and underneath them the result
-            row sat in the bottom inch of the screen, where the phone's browser
-            toolbar is. */}
-        <div className={styles.menu} role="group" aria-label="Result">
+        {/* The entry itself — a tap files the bet, so each key carries the
+            figure it will write. Above the wheels for the same reason as the
+            plain tracker: the wheels are the tallest thing here, and underneath
+            them this row sat in the bottom inch of the screen, where the
+            phone's browser toolbar is. */}
+        <div className={styles.menu} role="group" aria-label="Record result">
           {(isVirtuals && ew
             ? [['lose', 'Lose'], ['place', 'Place'], ['win', 'Win']]
             : [['lose', 'Lose'], ['push', 'Push'], ['win', 'Win']]
@@ -423,9 +440,14 @@ function BattleEntry({ onAdd, busy, category }) {
               key={key}
               type="button"
               className={`${styles.opt} ${styles[key]}`}
-              aria-pressed={result === key}
-              onClick={() => { setConfirming(false); setResult(key) }}
-            >{label}</button>
+              onClick={() => record(key)}
+              disabled={!canAdd}
+            >
+              <span className={styles.optLabel}>{label}</span>
+              <span className={styles.optNet}>
+                {netFor(key) === null ? '—' : exact(netFor(key))}
+              </span>
+            </button>
           ))}
         </div>
 
@@ -463,27 +485,22 @@ function BattleEntry({ onAdd, busy, category }) {
           </div>
         )}
 
-        <div className={styles.netLine}>
-          <span>Net</span>
-          <b className={net === null ? '' : net > 0 ? styles.pos : net < 0 ? styles.neg : ''}>
-            {net === null ? '—' : exact(net)}
-          </b>
-        </div>
-
-        {confirming ? (
+        {/* The four-figure guard — the one thing that delays a tap. The Net
+            line that used to sit here is gone: the keys carry their own
+            figures, so it restated one of the three. */}
+        {pending && (
           <div className={styles.confirmBox} role="alertdialog" aria-live="assertive">
             <p className={styles.confirmQ}>
-              Record <b className={net > 0 ? styles.pos : styles.neg}>{exact(net)}</b>?
+              Record <b className={pendingNet > 0 ? styles.pos : styles.neg}>{exact(pendingNet)}</b>?
             </p>
             <div className={styles.confirmBtns}>
-              <button type="button" className={styles.cancel} onClick={() => setConfirming(false)}>Cancel</button>
-              <button type="button" className={styles.confirm} onClick={submit} disabled={!canAdd}>Yes</button>
+              <button type="button" className={styles.cancel} onClick={() => setPending(null)}>Cancel</button>
+              <button
+                type="button" className={styles.confirm}
+                onClick={() => file(pending)} disabled={!canAdd}
+              >Yes</button>
             </div>
           </div>
-        ) : (
-          <button type="button" className={styles.confirm} onClick={submit} disabled={!canAdd}>
-            {busy ? 'Saving…' : big ? `Enter ${exact(net)}…` : 'Enter'}
-          </button>
         )}
       </div>
     </section>

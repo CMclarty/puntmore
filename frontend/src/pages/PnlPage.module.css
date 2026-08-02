@@ -290,25 +290,26 @@
   text-transform: uppercase;
   color: var(--faint);
 }
-.netLine {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--faint);
-  padding: 0 2px;
-}
-.netLine b { font-size: 17px; font-weight: 600; color: var(--ink); text-transform: none; }
+/* (The standalone Net line is gone: with the result keys carrying their own
+   figures, it restated one of the three next to the button that files it.) */
 
 /* Each-way (virtuals). The toggle spans the pad because it changes both the
    outlay and the result set; the place terms are a wheel beside the odds, so
    the pad keeps the two-wheel shape the dogs ledger has. */
 .ewToggle { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.ewToggle .res { height: 36px; }
+/* Reuses .res for its shape, but this IS a two-way selection rather than an
+   action — so it keeps the single-line, uncoloured-until-chosen look the result
+   keys gave up when they became the entry itself. */
+.ewToggle .res {
+  min-height: 36px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  background: var(--paper);
+  border-color: var(--line-strong);
+  color: var(--muted);
+}
 .ewToggle .res.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
 /* Win-only has no terms to pick, so the odds wheel takes the full width
@@ -343,27 +344,51 @@
 }
 .tipBtn:disabled { opacity: 0.5; cursor: default; }
 
-/* result: lose / push / win — the return is derived from this + stake + odds */
+/* Result keys: lose / push / win. These ARE the entry — a tap files the bet —
+   so they're sized as the primary action of the pad, not as a three-way toggle
+   above a separate Enter. Each carries the exact figure it will write, which is
+   why they're two lines tall and permanently coloured: there is no "selected"
+   state to reserve the colour for. */
 .results { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 .res {
-  height: 38px;
+  min-height: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 2px;
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   background: var(--paper);
   font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
   color: var(--muted);
   cursor: pointer;
   /* Named properties, not `all` — `all` animates every animatable property
      including layout ones, so a tap did more work than repainting a colour. */
-  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s, opacity 0.12s;
 }
-.resLose.on { background: rgba(185, 28, 28, 0.09); border-color: var(--red); color: var(--red); }
-.resPush.on { background: var(--zebra); border-color: var(--line-strong); color: var(--ink); }
-.resWin.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.res:active { transform: translateY(1px); }
+.res:disabled { opacity: 0.45; cursor: default; }
+.resLabel {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+/* The figure the tap will file. Mono + tabular so the three read as a column of
+   numbers you can compare at a glance, and smaller than the word so the key is
+   still identified by its label first. */
+.resNet {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  opacity: 0.85;
+}
+.resLose { background: rgba(185, 28, 28, 0.07); border-color: var(--red); color: var(--red); }
+.resPush { background: var(--zebra); border-color: var(--line-strong); color: var(--ink); }
+.resWin { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
 /* Four-figure guard. Replaces the Enter button in place rather than opening a
    modal — the figure stays on screen above it, so you confirm what you can see. */
@@ -438,7 +463,8 @@
   .stats { gap: 20px; margin-top: 5px; }
   .subline { margin-top: 5px; }
   .pad { gap: 7px; padding: 8px 14px 10px; }
-  .res { height: 36px; }
+  .res { min-height: 48px; }
+  .ewToggle .res { min-height: 34px; }
   .enter { height: 44px; }
 }
 @media (max-height: 640px) {
