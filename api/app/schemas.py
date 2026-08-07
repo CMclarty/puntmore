@@ -59,6 +59,12 @@ class TypePeriodOut(BaseModel):
     period_ends: Optional[date] = None
     leg_count: int = 0
     priced_count: int = 0                # legs carrying fair odds
+    # Set ONLY when the grid scan didn't come back whole — a sheet is a
+    # rectangle of fixtures x market blocks, so a read that lost part of it is
+    # measurable (coupon_grid.GridAudit). None means clean, or a coupon read
+    # before the check existed. Deliberately one line for the whole SHEET: the
+    # per-row anomaly badges were removed in July 2026 and stay removed.
+    scan_note: Optional[str] = None
     # This ISSUE's own best ladder rung. Per-issue because the ladder and the
     # fixture list both belong to an issue: two issues of one type are two
     # different bets, and a single type-level figure can only ever describe one

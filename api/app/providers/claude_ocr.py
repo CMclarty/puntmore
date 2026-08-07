@@ -6,6 +6,11 @@ import anthropic
 
 from .base import OCRProvider, ExtractedRow, ExtractedCoupon, OcrHint
 
+# Heading identity lives with the grid rules it belongs to. Re-exported here
+# because this module was its home and both upload.py and the tests import it
+# from this name.
+from ..coupon_grid import normalise_board_label  # noqa: F401
+
 # Sonnet 5 (not Haiku 4.5) for the resolution: Haiku caps images at 1568px on
 # the long edge, Sonnet 5 accepts 2576px. Coupon photos are dense small print —
 # downscaling is where misread odds come from. ~150 images/month is ~£1.50.
@@ -67,8 +72,18 @@ price looks like a favourite's, and do not reorder a pair for any reason. If
 only one of the two is legible, put null in the other slot and keep the
 positions: ["6-4", null].
 
-Blocks you cannot read, or that are cut off by the edge of the photo, are left
-OUT of "prices" — never invented, and never filled from a neighbouring block.
+THE SHEET IS A RECTANGLE, SO EVERY ROW GETS EVERY BLOCK. The same blocks are
+printed on every fixture row. Report all of them on every row, in the same
+order, whether or not you could read them. A block you cannot read is reported
+with nulls in place — never omitted, never invented, and never filled in from a
+neighbouring block or a neighbouring row:
+
+  "WIN & 3 OR MORE GOALS": [null, null]
+
+Leave a block out ONLY if the sheet genuinely does not print it. "I could not
+read it" and "it is not there" are different answers and must not be given the
+same way — the software counts the cells, and an omission tells it the coupon
+is shaped differently rather than that the photo was poor.
 
 Return exactly this shape:
 {
@@ -103,7 +118,11 @@ Rules:
 - "your_odds": only for a priced coupon that prints ONE price per fixture (no
   H/A split). Otherwise null.
 - Return null for any price you cannot read rather than guessing or copying a
-  neighbouring row. A missing price is recoverable; a wrong one is not.
+  neighbouring row. A missing price is recoverable; a wrong one is not. Keep
+  the block and the pair's two positions even when both prices are null.
+- EVERY row carries the SAME set of block headings, spelled the same way on
+  each. If a heading is legible at the top of the page and faint further down,
+  use the spelling you read at the top rather than a partial one.
 - "market": only when a per-fixture selection is printed beside the fixture
   (e.g. a named team). Null otherwise — the market is known from which coupon
   this is, so do not guess it from the header.
@@ -160,7 +179,9 @@ def build_user_prompt(hint: OcrHint | None) -> str:
             "and do not judge which team either belongs to — that is decided "
             "from the order. Copy them exactly as printed (fractions such as "
             '"6-4", "4-11", or "EVS"), and use null for a price you cannot '
-            "read rather than shifting the other one across."
+            "read rather than shifting the other one across. Every row gets "
+            "every block: report an unreadable one as [null, null] rather than "
+            "leaving it out, so each row has the same keys as every other."
         )
     elif hint.board_label:
         parts.append(
@@ -238,58 +259,61 @@ def _parse_ladder(raw) -> dict[int, float]:
     return ladder
 
 
-def normalise_board_label(label: str | None) -> str:
-    """A block heading reduced to what identifies it.
-
-    The heading is transcribed from a photo, so case, spacing, punctuation and
-    the "&"/"AND" spelling all vary between reads of the same sheet. Everything
-    that isn't a letter or a digit goes, so "WIN & 2 OR MORE GOALS",
-    "Win and 2 or more goals" and "WIN &  2 OR MORE  GOALS" are one key.
-    """
-    if not label:
-        return ""
-    text = str(label).upper().replace("&", " AND ")
-    return " ".join(re.sub(r"[^A-Z0-9]+", " ", text).split())
-
-
-def _pair_from(value) -> tuple[float | None, float | None]:
-    """A ["left", "right"] pair -> (home, away).
+def _parse_pair(value) -> tuple[tuple[float | None, float | None], bool]:
+    """A ["left", "right"] pair -> ((home, away), well_formed).
 
     THIS is where a price becomes a team's price, and print order alone decides
     it: coupons are laid out left-to-right, so the first is the home team's and
     the second the away team's.
 
-    A pair that arrives with the wrong number of items yields nothing: one price
-    with no way to know which sub-column it came from is ambiguous, and an
-    unpriced leg beats a leg priced on the wrong team.
+    Anything that is not a two-item list is MALFORMED and yields no prices: one
+    price with no way to know which sub-column it came from is ambiguous, and an
+    unpriced leg beats a leg priced on the wrong team. The flag is what keeps
+    that from being silent — a malformed pair and a pair of illegible prices
+    both produce (None, None), but only one of them means the read went wrong,
+    and downstream has to be able to tell them apart.
     """
     if not isinstance(value, (list, tuple)) or len(value) != 2:
-        return None, None
-    return parse_odds(value[0]), parse_odds(value[1])
+        return (None, None), False
+    return (parse_odds(value[0]), parse_odds(value[1])), True
 
 
-def _prices_from(row: dict) -> dict[str, tuple[float | None, float | None]]:
+def _pair_from(value) -> tuple[float | None, float | None]:
+    """`_parse_pair` without the shape flag, for the flat single-block path."""
+    return _parse_pair(value)[0]
+
+
+def _prices_from(row: dict) -> tuple[dict[str, tuple[float | None, float | None]], int]:
     """Every market block on a row, keyed by its normalised heading.
 
-    The model transcribes the whole grid; the software chooses. Blocks whose
-    pair is entirely unreadable are dropped — an absent block reads as "not on
-    this sheet", which is what it is.
+    Returns (blocks, malformed_count). The model transcribes the whole grid; the
+    software chooses which block a coupon type takes.
+
+    A block whose prices are both unreadable is KEPT, as (None, None). It used
+    to be dropped, on the reasoning that an absent block reads as "not on this
+    sheet" — but that is exactly the confusion this path now exists to remove.
+    The sheet is a rectangle: a cell nobody could read is a hole in a grid that
+    is still fully accounted for, while a block genuinely missing from a row
+    means the read lost a column the sheet has. Collapsing the two made a bad
+    photo indistinguishable from a shorter coupon (see coupon_grid.py).
     """
     blocks = row.get("prices")
     if not isinstance(blocks, dict):
-        return {}
-    out = {}
+        return {}, 0
+    out: dict[str, tuple[float | None, float | None]] = {}
+    malformed = 0
     for label, value in blocks.items():
         key = normalise_board_label(label)
         if not key:
             continue
-        pair = _pair_from(value)
-        if pair != (None, None):
-            out[key] = pair
-    return out
+        pair, ok = _parse_pair(value)
+        if not ok:
+            malformed += 1
+        out[key] = pair
+    return out, malformed
 
 
-def _sides_from(row: dict) -> tuple[float | None, float | None]:
+def _sides_from(row: dict) -> tuple[float | None, float | None, bool]:
     """A row's two prices as (home, away).
 
     THIS is where a price becomes a team's price, and it is decided by print
@@ -298,25 +322,46 @@ def _sides_from(row: dict) -> tuple[float | None, float | None]:
     "odds" without labelling it — it is a transcription job, and asking a model
     which team a price belonged to is what crossed prices onto the wrong team.
 
-    A response that still labels the pair itself ("home_odds"/"away_odds") is
-    accepted so a provider or model that answers in an older shape keeps
-    working, but a positional list wins when both are present.
+    Returns (home, away, positional). A response that still labels the pair
+    itself ("home_odds"/"away_odds") is parsed so a provider or model answering
+    in an older shape keeps working, but it is FLAGGED — those sides are the
+    model's judgement rather than the print order, and `upload.py::_pair_for`
+    refuses them on a two-sided coupon, where being wrong means the away price
+    filed against the home team. A positional list wins when both are present.
     """
     if isinstance(row.get("odds"), (list, tuple)):
-        return _pair_from(row["odds"])
-    return parse_odds(row.get("home_odds")), parse_odds(row.get("away_odds"))
+        home, away = _pair_from(row["odds"])
+        return home, away, True
+    return parse_odds(row.get("home_odds")), parse_odds(row.get("away_odds")), False
 
 
 def parse_rows(data: dict) -> list[ExtractedRow]:
     """The `selections` array -> rows. Shared by every OCR provider so a fix
-    here (fractional odds, the two-sided price pair) lands for all at once."""
+    here (fractional odds, the two-sided price pair) lands for all at once.
+
+    The malformed-pair tally is attached to the returned list via
+    `parse_rows.malformed` — see `read_rows`, which is what callers should use.
+    """
+    rows, _ = read_rows(data)
+    return rows
+
+
+def read_rows(data: dict) -> tuple[list[ExtractedRow], int]:
+    """`parse_rows`, plus how many price pairs arrived in a shape that isn't one.
+
+    Counted rather than ignored: a pair that is not two items is the model
+    departing from a schema the sheet does not depart from, and the coupon's
+    scan audit needs to say so.
+    """
     rows = []
+    malformed = 0
     for row in data.get("selections") or []:
         match = (row.get("match") or "").strip()
         if not match:
             continue  # a row with no fixture cannot be matched or priced
-        home_odds, away_odds = _sides_from(row)
-        prices = _prices_from(row)
+        home_odds, away_odds, positional = _sides_from(row)
+        prices, bad = _prices_from(row)
+        malformed += bad
         # A single-block response still fills the flat pair; a grid response
         # fills `prices` and the flat pair is left for whichever block the
         # coupon type asks for (upload.py::_pair_for).
@@ -328,10 +373,11 @@ def parse_rows(data: dict) -> list[ExtractedRow]:
                 kickoff_text=(row.get("kickoff") or None),
                 home_odds=home_odds,
                 away_odds=away_odds,
+                sides_positional=positional,
                 prices=prices,
             )
         )
-    return rows
+    return rows, malformed
 
 
 def _strip_code_fence(text: str) -> str:
@@ -419,9 +465,11 @@ class ClaudeOCRProvider(OCRProvider):
         if isinstance(data, list):
             data = {"selections": data}
 
+        rows, malformed = read_rows(data)
         return ExtractedCoupon(
-            rows=parse_rows(data),
+            rows=rows,
             title=data.get("title") or None,
             period_text=data.get("period_text") or None,
             payout_ladder=_parse_ladder(data.get("payout_ladder")),
+            malformed_pairs=malformed,
         )

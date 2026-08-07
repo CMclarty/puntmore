@@ -27,6 +27,12 @@ class Coupon(Base):
     # processing = OCR still running; confirmed = rows saved and priced. There
     # is no review state: OCR auto-confirms (SPEC §7).
     status = Column(String, nullable=False, default="processing")
+    # How much of the printed GRID this scan actually recovered, as JSON — see
+    # coupon_grid.GridAudit. A sheet is a rectangle of rows x market blocks, so
+    # the cell count is knowable whether or not every cell could be read, and
+    # this is where that arithmetic is kept. Null on coupons read before the
+    # check existed, and on ladder coupons, which print no grid.
+    scan_audit = Column(Text, nullable=True)
     image_path = Column(Text, nullable=True)         # OCR source image
     uploaded_by = Column(String, nullable=True)
     created_at = Column(DateTime, default=utcnow)

@@ -80,6 +80,17 @@ class ExtractedRow:
     # splits the fixture left-to-right the same way.
     home_odds: float | None = None
     away_odds: float | None = None
+    # Did the pair above arrive POSITIONALLY (a ["left", "right"] list, sides
+    # assigned by us) or LABELLED by the model ("home_odds"/"away_odds")?
+    #
+    # It matters only on a two-sided coupon, where it decides whether the pair
+    # is usable at all: a model asked which team a price belongs to is a model
+    # that can answer wrong, and it did — that is how prices ended up crossed
+    # onto the wrong team. Labelled sides are refused there and the leg goes
+    # unpriced. True by default because a row built directly (a single-block
+    # read, MockOCRProvider, a test) is stating the printed pair, not a
+    # judgement about it; only the parser's labelled fallback sets it False.
+    sides_positional: bool = True
     # EVERY market block printed on this row, keyed by the block's heading as
     # printed, each value a (left, right) pair. A sheet prints six look-alike
     # blocks side by side; transcribing all of them means the software picks the
@@ -105,6 +116,11 @@ class ExtractedCoupon:
     # picks -> decimal return, e.g. {3: 5.5, 4: 10.0}. Empty when the coupon
     # prices each fixture individually instead.
     payout_ladder: dict[int, float] | None = None
+    # Price pairs that came back in a shape that isn't a pair. Carried up rather
+    # than dropped at the parser: a sheet's grid does not vary, so a malformed
+    # cell is the READ going wrong, and the coupon's scan audit has to see it
+    # (coupon_grid.py). Zero on a clean transcription.
+    malformed_pairs: int = 0
 
 
 class OCRProvider(ABC):

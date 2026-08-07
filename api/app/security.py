@@ -354,6 +354,12 @@ def ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE coupons ADD COLUMN period_ends DATE"))
             if "payout_ladder" not in ccols:
                 conn.execute(text("ALTER TABLE coupons ADD COLUMN payout_ladder TEXT"))
+            # Grid scan audit (Aug 2026). NULL on every coupon read before the
+            # check existed — meaningfully so: "not measured" is not "measured
+            # and clean", and backfilling a clean verdict onto an unmeasured
+            # scan would assert something nobody checked.
+            if "scan_audit" not in ccols:
+                conn.execute(text("ALTER TABLE coupons ADD COLUMN scan_audit TEXT"))
 
     # P&L stake/return entry mode: bets logged with both figures carry them
     # alongside the net amount. NULL on every pre-existing (flat) row — that

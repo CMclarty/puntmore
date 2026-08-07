@@ -11,7 +11,7 @@ from .claude_ocr import (
     OCRTruncated,
     build_user_prompt,
     _parse_ladder,
-    parse_rows,
+    read_rows,
 )
 
 MODEL = "gemini-2.0-flash"
@@ -74,9 +74,11 @@ class GeminiOCRProvider(OCRProvider):
 
         # Rows without odds are KEPT: list coupons print none, and dropping
         # them discards the entire coupon.
+        rows, malformed = read_rows(data)
         return ExtractedCoupon(
-            rows=parse_rows(data),
+            rows=rows,
             title=data.get("title") or None,
             period_text=data.get("period_text") or None,
             payout_ladder=_parse_ladder(data.get("payout_ladder")),
+            malformed_pairs=malformed,
         )

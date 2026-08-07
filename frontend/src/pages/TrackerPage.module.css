@@ -106,6 +106,20 @@
   border-bottom: 1px solid var(--line);
 }
 
+/* The scan verdict, and the only thing on this page that reports on the READ
+   rather than on the odds. Amber, not red: the rows below it are still real
+   and still bettable — what it says is that some of the sheet didn't make it,
+   and the fix is a re-scan. Whole-sheet by design; there are no per-row
+   badges, and there are not going to be. */
+.scanNote {
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(180, 120, 20, 0.07);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--amber, #8a6100);
+}
+
 .refreshBtn {
   background: none;
   border: none;

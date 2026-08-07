@@ -1,3 +1,4 @@
+import json
 import math
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -59,6 +60,23 @@ def list_coupon_periods(type_code: str | None = None):
     return out
 
 
+def _scan_note(coupon: Coupon) -> str | None:
+    """One line about this coupon's read, or None when there's nothing to say.
+
+    Only surfaced when the grid came back INCOMPLETE. A clean scan needs no
+    announcement, and an unmeasured one (a coupon read before the check
+    existed) must not be reported as clean — silence covers both, and the two
+    are told apart in the database by NULL, not here.
+    """
+    if not coupon.scan_audit:
+        return None
+    try:
+        scan = json.loads(coupon.scan_audit)
+    except (ValueError, TypeError):
+        return None
+    return None if scan.get("clean") else scan.get("summary")
+
+
 def _best_for_coupon(db: Session, coupon: Coupon, ctype) -> dict | None:
     """The best ladder rung available on ONE issue.
 
@@ -117,6 +135,7 @@ def list_coupon_types(db: Session = Depends(get_db)):
             period_ends=coupon.period_ends,
             leg_count=legs,
             priced_count=priced,
+            scan_note=_scan_note(coupon),
             # Each issue's own combination — see the schema. Computed here so a
             # midweek issue's value stays readable while a weekend one is up.
             best_combination=(

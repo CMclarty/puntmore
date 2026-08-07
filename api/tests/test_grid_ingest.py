@@ -8,6 +8,7 @@ transcribes the whole grid keyed by each block's printed heading, the software
 matches the heading it wants and assigns the sides by print order — and since
 every block has been read anyway, each one becomes its own coupon.
 """
+import json
 import io
 import os
 from datetime import date
@@ -146,13 +147,20 @@ def test_a_row_carries_every_block_it_was_printed_with():
     assert rows[0].prices[normalise_board_label(TTS1)] == (1.3333, 4.5)
 
 
-def test_an_unreadable_block_is_absent_rather_than_empty():
-    """Absent reads as "not on this sheet", which is the honest answer."""
+def test_an_unreadable_block_is_a_hole_not_an_absence():
+    """A cell nobody could read is KEPT, in place, as (None, None).
+
+    It used to be dropped, on the reasoning that absent reads as "not on this
+    sheet". But the sheet is a rectangle, so "I couldn't read it" and "it isn't
+    there" are different facts and collapsing them made a bad photo look like a
+    coupon with fewer markets on it. Both are now countable (see
+    coupon_grid.GridAudit: holes vs absent).
+    """
     rows = parse_rows({"selections": [
         {"match": "A v B", "prices": {TTS1: [None, None], TTS2: ["6-4", "8-1"]}},
     ]})
-    assert normalise_board_label(TTS1) not in rows[0].prices
-    assert normalise_board_label(TTS2) in rows[0].prices
+    assert rows[0].prices[normalise_board_label(TTS1)] == (None, None)
+    assert rows[0].prices[normalise_board_label(TTS2)] == (2.5, 9.0)
 
 
 def test_a_type_takes_only_its_own_block():
@@ -300,3 +308,151 @@ def test_a_single_block_response_still_works(grid_client, db):
     assert db.query(Coupon).count() == 1
     legs = db.query(Leg).filter(Leg.coupon_id == coupon_id).order_by(Leg.rank).all()
     assert [l.odds for l in legs] == [1.30, 4.50]
+
+
+# --- The grid is a solved puzzle ---------------------------------------------
+# A sheet is R fixtures x B blocks. Everything below pins the consequences of
+# treating that count as known, rather than inferring the coupon's shape from
+# whatever the read happened to return.
+
+def _rows(*specs):
+    """specs: (match, {heading: pair}) — a hand-built sheet."""
+    return [ExtractedRow(m, None, None, "SAT 15:00", prices=dict(p)) for m, p in specs]
+
+
+def test_a_row_market_never_names_the_side_on_a_two_sided_coupon(grid_client, db):
+    """A model-supplied "market" is ONE value for a row that yields TWO legs.
+
+    Using it gave both sides the same pick text with different odds — the away
+    price filed under the home team's selection, which is exactly the crossed
+    reading this pipeline exists to prevent. The team comes from split_sides,
+    which splits the fixture in the same left-to-right order as the pair.
+    """
+    from app.coupon_types import BY_CODE
+    from app.routers.upload import _build_legs
+
+    extracted = ExtractedCoupon(rows=[
+        ExtractedRow("Kairat v Omonia Nicosia", "Kairat to Score 2", None, "SAT 15:00",
+                     prices={normalise_board_label(TTS2): (2.50, 8.00)}),
+    ])
+    legs = _build_legs(1, extracted, BY_CODE["TTS2"], date(2026, 8, 1))
+    assert {l.pick: l.odds for l in legs} == {
+        "Kairat to Score 2": 2.50,
+        "Omonia Nicosia to Score 2": 8.00,
+    }
+
+
+def test_model_labelled_sides_are_refused_on_a_two_sided_coupon():
+    """The pair is only usable when WE assigned the sides from print order.
+
+    A response that labels them itself is asserting which team each price
+    belongs to — the one judgement the model is never asked for, because it got
+    it wrong. Unpriced beats priced-on-the-wrong-team.
+    """
+    from app.coupon_types import BY_CODE
+    from app.providers.claude_ocr import read_rows
+    from app.routers.upload import _pair_for
+
+    rows, _ = read_rows({"selections": [
+        {"match": "Kairat v Omonia Nicosia", "home_odds": "6-4", "away_odds": "8-1"},
+    ]})
+    assert rows[0].sides_positional is False
+    assert _pair_for(rows[0], BY_CODE["TTS2"]) == (None, None)
+
+    positional, _ = read_rows({"selections": [
+        {"match": "Kairat v Omonia Nicosia", "odds": ["6-4", "8-1"]},
+    ]})
+    assert positional[0].sides_positional is True
+    assert _pair_for(positional[0], BY_CODE["TTS2"]) == (2.5, 9.0)
+
+
+def test_a_mistranscribed_heading_still_prices_its_block(grid_client, db):
+    """One wrong letter used to cost that row its whole block, silently."""
+    class TypoOCR(OCRProvider):
+        def extract(self, image_bytes, media_type, hint=None):
+            return ExtractedCoupon(rows=_rows(
+                ("Kairat v Omonia Nicosia", {
+                    normalise_board_label(TTS1): (1.30, 4.50),
+                    normalise_board_label(TTS2): (2.50, 8.00)}),
+                ("Mariehamn v Lahti", {
+                    normalise_board_label(TTS1): (1.40, 3.75),
+                    # "MOREE" — a single fumbled letter on the second row.
+                    normalise_board_label("TEAM TO SCORE 2 OR MOREE GOALS"): (2.75, 7.00)}),
+            ), period_text="Saturday 1st August")
+
+    app.state.ocr_provider = TypoOCR()
+    coupon_id = _upload(grid_client, "TTS2")
+    legs = db.query(Leg).filter(Leg.coupon_id == coupon_id).order_by(Leg.rank).all()
+    assert [l.odds for l in legs] == [2.50, 8.00, 2.75, 7.00]
+
+
+def test_the_scan_audit_counts_the_whole_rectangle(grid_client, db):
+    coupon_id = _upload(grid_client, "TTS2")
+    scan = json.loads(db.get(Coupon, coupon_id).scan_audit)
+    assert (scan["rows"], len(scan["blocks"]), scan["cells"]) == (2, 3, 6)
+    assert scan["read"] == 6 and scan["clean"] is True
+
+
+def test_a_lost_block_is_recorded_against_the_coupon(grid_client, db):
+    """The read dropped a column the sheet has. Legs still save — an unpriced
+    row beats a wrongly priced one — but the coupon now says so."""
+    class LossyOCR(OCRProvider):
+        def extract(self, image_bytes, media_type, hint=None):
+            return ExtractedCoupon(rows=_rows(
+                ("Kairat v Omonia Nicosia", {
+                    normalise_board_label(TTS1): (1.30, 4.50),
+                    normalise_board_label(TTS2): (2.50, 8.00),
+                    normalise_board_label(WO15): (3.00, 9.00)}),
+                # WO15 simply not reported on the second row.
+                ("Mariehamn v Lahti", {
+                    normalise_board_label(TTS1): (1.40, 3.75),
+                    normalise_board_label(TTS2): (2.75, 7.00)}),
+            ), period_text="Saturday 1st August")
+
+    app.state.ocr_provider = LossyOCR()
+    coupon_id = _upload(grid_client, "TTS2")
+    scan = json.loads(db.get(Coupon, coupon_id).scan_audit)
+    assert scan["absent"] == 1
+    assert scan["clean"] is False
+    assert "MISSING" in scan["summary"]
+    # The TTS2 block was whole, so its coupon is priced in full regardless.
+    legs = db.query(Leg).filter(Leg.coupon_id == coupon_id).all()
+    assert sorted(l.odds for l in legs) == [2.50, 2.75, 7.00, 8.00]
+
+
+def test_a_repeated_fixture_does_not_become_two_sets_of_legs(grid_client, db):
+    class RepeatOCR(OCRProvider):
+        def extract(self, image_bytes, media_type, hint=None):
+            block = {normalise_board_label(TTS2): (2.50, 8.00)}
+            return ExtractedCoupon(rows=_rows(
+                ("Kairat v Omonia Nicosia", block),
+                ("Kairat v Omonia Nicosia", block),
+            ), period_text="Saturday 1st August")
+
+    app.state.ocr_provider = RepeatOCR()
+    coupon_id = _upload(grid_client, "TTS2")
+    legs = db.query(Leg).filter(Leg.coupon_id == coupon_id).all()
+    assert len(legs) == 2
+    scan = json.loads(db.get(Coupon, coupon_id).scan_audit)
+    assert scan["duplicates"] == ["Kairat v Omonia Nicosia"]
+    assert scan["clean"] is False
+
+
+def test_a_block_nobody_could_read_does_not_mint_an_empty_coupon(grid_client, db):
+    """Reported in place (so the audit sees it) but not offered as a market."""
+    class BlindBlockOCR(OCRProvider):
+        def extract(self, image_bytes, media_type, hint=None):
+            return ExtractedCoupon(rows=_rows(
+                ("Kairat v Omonia Nicosia", {
+                    normalise_board_label(TTS2): (2.50, 8.00),
+                    normalise_board_label(WO15): (None, None)}),
+                ("Mariehamn v Lahti", {
+                    normalise_board_label(TTS2): (2.75, 7.00),
+                    normalise_board_label(WO15): (None, None)}),
+            ), period_text="Saturday 1st August")
+
+    app.state.ocr_provider = BlindBlockOCR()
+    _upload(grid_client, "TTS2")
+    assert {c.type_code for c in db.query(Coupon).all()} == {"TTS2"}
+    scan = json.loads(db.query(Coupon).first().scan_audit)
+    assert scan["holes"] == 2 and scan["absent"] == 0

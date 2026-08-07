@@ -617,6 +617,16 @@ export default function TrackerPage() {
         </div>
       )}
 
+      {/* The sheet is a rectangle of fixtures x market blocks, so a read that
+          lost part of it is measurable — and this is the whole of how that is
+          said. One line, about the SCAN, shown only when something went
+          missing; the per-row anomaly badges are not coming back. */}
+      {headlineIssue?.scan_note && (
+        <div className={styles.scanNote}>
+          Incomplete scan · {headlineIssue.scan_note} · re-scan to re-read the sheet
+        </div>
+      )}
+
       {activeType && (
         <div className={styles.subheader}>
           <span className={styles.subMeta}>

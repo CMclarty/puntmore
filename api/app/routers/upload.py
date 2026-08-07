@@ -16,12 +16,20 @@ from ..models import Coupon, Leg
 from ..schemas import UploadInitResponse
 from ..config import settings
 from .. import coupon_types, coupon_periods, normalise
+from ..coupon_grid import (
+    audit as audit_grid,
+    consensus_blocks,
+    drop_duplicate_fixtures,
+    normalise_board_label,
+    priced_blocks,
+    reconcile,
+    resolve_heading,
+)
 from ..coupon_images import delete_coupon_image
 from ..coupon_types import COUPON_TYPES
 from ..images import normalise_orientation
 from ..pricing.legs import price_legs
 from ..providers.base import OcrHint
-from ..providers.claude_ocr import normalise_board_label
 from ..security import require_user
 
 logger = logging.getLogger("uvicorn.error")
@@ -46,15 +54,63 @@ def _pair_for(row, ctype) -> tuple[float | None, float | None]:
     HERE — the model is never asked to find one block and ignore the rest,
     which is a guess it can get wrong invisibly.
 
+    The heading is resolved through `resolve_heading`, which tolerates a
+    mistranscribed LETTER but never a mistranscribed digit — the six blocks on a
+    Hill sheet differ from one another by one digit, so a fuzzy match loose
+    enough to survive a typo is also loose enough to file a pair under the
+    neighbouring market (see coupon_grid.headings_match).
+
     Falls back to the row's flat pair when the response carried a single block
-    (an older shape, or a coupon photographed as one market).
+    (an older shape, or a coupon photographed as one market) — but on a
+    TWO-SIDED coupon only when that pair came in POSITIONALLY. A pair the model
+    labelled itself ("home_odds"/"away_odds") is its judgement about which team
+    each price belongs to, and a model asked that question is a model that can
+    answer wrong; it did, and that is how away prices ended up filed against
+    home teams. Refused here, so the leg goes unpriced instead.
     """
     if row.prices:
-        key = normalise_board_label(ctype.board_label)
-        # No entry for this type's heading = that block is not on this sheet.
+        key = resolve_heading(ctype.board_label, row.prices)
+        # No entry for this type's heading = that block is not on this row.
         # Nothing is taken from a neighbouring block to stand in for it.
-        return row.prices.get(key, (None, None))
+        return row.prices.get(key, (None, None)) if key else (None, None)
+    if ctype.two_sided and not row.sides_positional:
+        return None, None
     return row.home_odds, row.away_odds
+
+
+def solve_grid(extracted):
+    """Reconcile a read against the rectangle the sheet is, and measure it.
+
+    Called once per photo, BEFORE any legs are built, and it mutates `extracted`
+    so every consumer downstream — this coupon, its siblings, the re-scan — sees
+    the same repaired rows. Three passes, in this order:
+
+      1. Drop repeated fixtures. One line per match is a property of the sheet,
+         so a repeat is the read losing its place, never a coupon printing a
+         match twice.
+      2. Derive the sheet's column set from the rows themselves, then fold
+         near-miss headings onto it. A single mistranscribed letter used to cost
+         that row its whole block, silently, leaving the row priced one market
+         short with nothing to say so.
+      3. Count the cells: read, unreadable, missing.
+
+    Returns the GridAudit. It does NOT change what gets priced — an unreadable
+    cell still yields no leg, because an unpriced leg beats a wrongly priced one
+    — it makes the loss countable, which it was not before.
+    """
+    extracted.rows, dupes = drop_duplicate_fixtures(extracted.rows)
+    blocks = consensus_blocks(extracted.rows)
+    repaired = reconcile(extracted.rows, blocks)
+    scan = audit_grid(
+        extracted.rows, blocks,
+        malformed=getattr(extracted, "malformed_pairs", 0),
+        duplicates=dupes,
+    )
+    if repaired:
+        logger.info("Grid: repaired %d mistranscribed block heading(s)", repaired)
+    log = logger.info if scan.clean else logger.warning
+    log("Grid scan: %s", scan.summary())
+    return scan
 
 
 def _types_on_sheet(extracted, period: str) -> list:
@@ -64,14 +120,19 @@ def _types_on_sheet(extracted, period: str) -> list:
     qualifies if it runs the period being uploaded — the window is a property
     of the sheet, and a type that is not issued for it has no business being
     created from it.
+
+    A block counts only once it has at least ONE readable price across the whole
+    sheet. Since an unreadable block is now reported in place rather than
+    omitted (the sheet is a rectangle — see coupon_grid), a column nobody could
+    read anywhere would otherwise mint a coupon of fixtures with no odds, which
+    reads as a market that priced nothing rather than as a photo that failed.
     """
-    seen = set()
-    for row in extracted.rows:
-        seen.update(row.prices)
+    blocks = consensus_blocks(extracted.rows)
+    seen = priced_blocks(extracted.rows, blocks)
     return [
         t for t in COUPON_TYPES
         if t.board_label
-        and normalise_board_label(t.board_label) in seen
+        and resolve_heading(t.board_label, seen)
         and period in t.period_codes
     ]
 
@@ -106,7 +167,14 @@ def _build_legs(coupon_id, extracted, ctype, reference: date) -> list[Leg]:
                 legs.append(Leg(
                     coupon_id=coupon_id,
                     match_name=row.match,
-                    pick=row.market or _selection_for(ctype, team),
+                    # `row.market` is IGNORED here, deliberately. It is one
+                    # value for the whole row, so using it gave BOTH legs of a
+                    # two-sided fixture the same pick text with different odds —
+                    # the away price filed under the home team's selection. The
+                    # team is known from split_sides, which splits the fixture
+                    # left-to-right exactly as the price pair is ordered, so on
+                    # a two-sided grid it is the only thing that can name a side.
+                    pick=_selection_for(ctype, team),
                     odds=odds,
                     kickoff=kickoff,
                     rank=rank,
@@ -396,10 +464,12 @@ def _process_upload(
             db.commit()
             return
 
+        scan = solve_grid(extracted)
         legs = _build_legs(coupon.id, extracted, ctype, reference)
         db.add_all(legs)
         db.flush()
         _apply_coupon_window(coupon, extracted, ctype, period, reference, legs)
+        coupon.scan_audit = json.dumps(scan.as_dict())
         # Now the window is real, so the auto-name can be. A name the user typed
         # is theirs and is left alone.
         if not user_name:
@@ -479,6 +549,10 @@ def rescan_coupon(
     except Exception:
         logger.exception("OCR re-scan failed (%s)", type(ocr).__name__)
         raise HTTPException(status_code=502, detail="OCR extraction failed")
+
+    # A re-scan is a fresh read of the same sheet, so it gets a fresh verdict —
+    # replacing the old one, which described a scan that no longer stands.
+    coupon.scan_audit = json.dumps(solve_grid(extracted).as_dict())
 
     existing = db.query(Leg).filter(Leg.coupon_id == coupon_id).order_by(Leg.rank).all()
     kept = [leg for leg in existing if leg.edited]

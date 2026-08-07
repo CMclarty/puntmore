@@ -73,6 +73,33 @@ Both live behind their seams. Core logic never calls a vendor API directly.
     matching the fixture's own order, assigned in `claude_ocr._sides_from`.
     Going by the printed "H"/"A" headers is what crossed prices onto the wrong
     team. Never reintroduce a labelled pair or a "pick this block" instruction.
+    A response that *does* label the pair is parsed but flagged
+    (`ExtractedRow.sides_positional`) and **refused on a two-sided coupon** —
+    that pair is the model's judgement about sides, which is the one question
+    it is never asked. On a two-sided coupon `row.market` is ignored outright:
+    it is one value for a row that yields two legs, so using it filed the away
+    price under the home team's selection.
+- **THE SHEET IS A RECTANGLE — a coupon is a solved puzzle** (`coupon_grid.py`,
+  Aug 2026). R fixtures × B market blocks, the same B on every row, so the cell
+  count is knowable whether or not every cell can be READ. Three distinct facts
+  that were previously one silent `(None, None)`:
+  - **hole** — block reported, both prices illegible. Kept in place. An honest
+    coupon and a poor photo; the grid is still solved.
+  - **absent** — the row didn't carry a block the sheet has. The read losing
+    structure. This is the number that means re-scan.
+  - **malformed** — a "pair" that wasn't two items.
+  Do NOT go back to dropping unreadable blocks: collapsing hole and absent is
+  what made a bad photo indistinguishable from a coupon with fewer markets on
+  it. One line per match is enforced too (a repeat is the read losing its
+  place, never a coupon printing a fixture twice).
+  Heading identity is `coupon_grid.headings_match`: **digits exactly, letters
+  fuzzily**. Never a plain similarity score — the six blocks differ by one
+  digit and `difflib` rates "TEAM TO SCORE 1…" vs "…2…" at 0.97, so any
+  threshold loose enough to survive a typo will also file a pair under the
+  neighbouring market.
+  The verdict is stored per coupon (`coupons.scan_audit`) and surfaced as ONE
+  sheet-level line in the tracker. It is not a per-row badge and must not
+  become one — see the auto-confirm rule below.
 - **One photo of a sheet fills every market on it.** The uploaded type is just
   the one it opens on; `upload.py::_build_sibling_coupons` creates a coupon per
   block found, each superseding its own previous issue. They SHARE the stored
