@@ -111,6 +111,21 @@ Both live behind their seams. Core logic never calls a vendor API directly.
   and ⚠ badges were REMOVED (July 2026, Callum's call — the rows are checked by
   hand anyway); do not reintroduce them. Re-scan preserves human-edited
   rows — never overwrite a correction with a machine re-read.
+- **EVERY CACHE MUST BE BOUNDED** (`ttl_cache.py`, Aug 2026). The caches here
+  were plain dicts keyed by fixture id with a timestamp beside each value: the
+  timestamp decided whether a value could be REUSED and never removed the
+  entry, so fed by the 10-minute refresh loop they accumulated every fixture the
+  app had ever priced (~110 KB odds + ~14 KB grid each, measured). That is what
+  ran the Render instance out of memory. Use `TTLCache` — it sweeps expired
+  entries ON WRITE (a fixture stops being queried once it kicks off, so
+  read-triggered eviction never fires) and has a hard ceiling for bursts. Never
+  reintroduce a bare dict cache, and never "fall back to the stale value" on a
+  fetch failure — holding the last good copy for ever is the leak.
+  The same rule covers the request path: uploads are capped
+  (`MAX_UPLOAD_MB`, the body is held in memory) and images above
+  `images.MAX_DECODE_PIXELS` are stored un-rotated rather than decoded, since
+  rotating holds two full-size copies. Never "fix" that by resizing the image —
+  OCR accuracy on small print depends on the full resolution.
 - The Odds API free tier (AccaBonus/Cards) is 500 credits/month. The 24-hour
   cache (`Settings.odds_cache_ttl`, `app/odds/client.py`) keeps this safe — do
   not lower the default. A paid-tier upgrade is an `.env` change only.

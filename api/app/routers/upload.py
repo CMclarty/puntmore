@@ -78,6 +78,39 @@ def _pair_for(row, ctype) -> tuple[float | None, float | None]:
     return row.home_odds, row.away_odds
 
 
+async def _read_capped(file: UploadFile) -> bytes:
+    """The upload's bytes, refusing anything over the size cap.
+
+    `await file.read()` with no argument pulls the WHOLE body into memory
+    whatever its size, which on a 512 MB instance is one large POST away from
+    killing the process — and the body is only the start of it, since the image
+    is then decoded and base64-encoded for the OCR call.
+
+    Read in chunks and stop at the limit, so an oversized upload is refused
+    having allocated the cap rather than the file. A phone photo is 2-6 MB; the
+    default ceiling is several times that, because a resized upload is a worse
+    outcome than a rejected one (OCR accuracy on small print depends on the full
+    resolution).
+    """
+    cap = settings.max_upload_mb * 1024 * 1024
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > cap:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Image is larger than {settings.max_upload_mb} MB",
+            )
+        chunks.append(chunk)
+    if not total:
+        raise HTTPException(status_code=400, detail="Empty upload")
+    return b"".join(chunks)
+
+
 def solve_grid(extracted):
     """Reconcile a read against the rectangle the sheet is, and measure it.
 
@@ -321,7 +354,7 @@ async def upload_coupon(
     # the OCR provider sideways. The stored image is normalised too, so a later
     # re-scan reads the same orientation. Never resize or recompress here: OCR
     # accuracy on small print depends on the full resolution.
-    image_bytes = normalise_orientation(await file.read(), media_type)
+    image_bytes = normalise_orientation(await _read_capped(file), media_type)
 
     upload_dir = Path(settings.upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)

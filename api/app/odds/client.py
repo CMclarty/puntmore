@@ -7,24 +7,32 @@ different sport_key+market combinations, so cache entries are naturally isolated
 and there is no cross-service interference.
 """
 import logging
-import time
 
 import httpx
+
+from ..ttl_cache import MISS, TTLCache
 
 logger = logging.getLogger("uvicorn.error")
 
 BASE_URL = "https://api.the-odds-api.com"
 DEFAULT_CACHE_TTL = 86400  # 24 hours
 
+# Ceilings on the two caches below. The sport/market cache has a naturally tiny
+# key set, but the PER-EVENT one is keyed by event id and was a plain dict that
+# never dropped anything — every fixture ever scanned for first goalscorer stayed
+# in memory until the process died. Bounded now; see ttl_cache.py.
+CACHE_MAX = 128
+EVENT_CACHE_MAX = 256
+
 
 class TheOddsApiClient:
     def __init__(self, api_key: str, cache_ttl: int = DEFAULT_CACHE_TTL):
         self._api_key = api_key
         self._cache_ttl = cache_ttl
-        # keyed by (sport_key, markets, bookmakers) → (fetched_at, events)
-        self._cache: dict[tuple[str, str, str], tuple[float, list]] = {}
+        # keyed by (sport_key, markets, bookmakers)
+        self._cache = TTLCache(cache_ttl, CACHE_MAX)
         # per-event odds cache, keyed by ("__event__", event_id, markets, books)
-        self._event_cache: dict[tuple[str, str, str, str], tuple[float, dict]] = {}
+        self._event_cache = TTLCache(cache_ttl, EVENT_CACHE_MAX)
 
     def fetch(
         self,
@@ -45,12 +53,10 @@ class TheOddsApiClient:
         """
         cache_key = (sport_key, markets, bookmakers or "")
         effective_ttl = self._cache_ttl if ttl is None else ttl
-        now = time.monotonic()
 
-        if cache_key in self._cache:
-            fetched_at, events = self._cache[cache_key]
-            if now - fetched_at < effective_ttl:
-                return events
+        cached = self._cache.get(cache_key, ttl=effective_ttl)
+        if cached is not MISS:
+            return cached
 
         params: dict = {
             "apiKey": self._api_key,
@@ -67,7 +73,7 @@ class TheOddsApiClient:
             timeout=15,
         )
         if resp.status_code == 404:
-            self._cache[cache_key] = (now, [])
+            self._cache.set(cache_key, [])
             return []
         resp.raise_for_status()
         # TheOddsApi reports quota in response headers — log every real call.
@@ -78,7 +84,7 @@ class TheOddsApiClient:
             sport_key, markets, used, remaining,
         )
         events = resp.json()
-        self._cache[cache_key] = (now, events)
+        self._cache.set(cache_key, events)
         return events
 
     def fetch_event(
@@ -101,12 +107,10 @@ class TheOddsApiClient:
         """
         cache_key = ("__event__", event_id, markets, bookmakers or "")
         effective_ttl = self._cache_ttl if ttl is None else ttl
-        now = time.monotonic()
 
-        if cache_key in self._event_cache:
-            fetched_at, event = self._event_cache[cache_key]
-            if now - fetched_at < effective_ttl:
-                return event
+        cached = self._event_cache.get(cache_key, ttl=effective_ttl)
+        if cached is not MISS:
+            return cached
 
         params: dict = {
             "apiKey": self._api_key,
@@ -123,7 +127,7 @@ class TheOddsApiClient:
             timeout=15,
         )
         if resp.status_code == 404:
-            self._event_cache[cache_key] = (now, {})
+            self._event_cache.set(cache_key, {})
             return {}
         resp.raise_for_status()
         remaining = resp.headers.get("x-requests-remaining")
@@ -133,7 +137,7 @@ class TheOddsApiClient:
             sport_key, event_id, markets, used, remaining,
         )
         event = resp.json()
-        self._event_cache[cache_key] = (now, event)
+        self._event_cache.set(cache_key, event)
         return event
 
     def list_events(self, sport_key: str, ttl: int | None = None) -> list[dict]:
@@ -144,12 +148,10 @@ class TheOddsApiClient:
         """
         cache_key = ("__events__", sport_key, "")
         effective_ttl = self._cache_ttl if ttl is None else ttl
-        now = time.monotonic()
 
-        if cache_key in self._cache:
-            fetched_at, events = self._cache[cache_key]
-            if now - fetched_at < effective_ttl:
-                return events
+        cached = self._cache.get(cache_key, ttl=effective_ttl)
+        if cached is not MISS:
+            return cached
 
         resp = httpx.get(
             f"{BASE_URL}/v4/sports/{sport_key}/events",
@@ -157,11 +159,11 @@ class TheOddsApiClient:
             timeout=15,
         )
         if resp.status_code == 404:
-            self._cache[cache_key] = (now, [])
+            self._cache.set(cache_key, [])
             return []
         resp.raise_for_status()
         events = resp.json()
-        self._cache[cache_key] = (now, events)
+        self._cache.set(cache_key, events)
         return events
 
     def list_sports(self) -> list[dict]:
@@ -171,12 +173,10 @@ class TheOddsApiClient:
         but is cached anyway to keep latency down.
         """
         cache_key = ("__sports__", "", "")
-        now = time.monotonic()
 
-        if cache_key in self._cache:
-            fetched_at, sports = self._cache[cache_key]
-            if now - fetched_at < self._cache_ttl:
-                return sports
+        cached = self._cache.get(cache_key)
+        if cached is not MISS:
+            return cached
 
         resp = httpx.get(
             f"{BASE_URL}/v4/sports",
@@ -185,5 +185,5 @@ class TheOddsApiClient:
         )
         resp.raise_for_status()
         sports = resp.json()
-        self._cache[cache_key] = (now, sports)
+        self._cache.set(cache_key, sports)
         return sports

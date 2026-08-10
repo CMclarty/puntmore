@@ -55,6 +55,12 @@ class LoginThrottle:
     this raises the cost of a brute-force attempt, it is not an audit log.
     """
 
+    # Ceiling on tracked (username, IP) pairs. Expired keys are dropped only
+    # when that key is looked at again, so without this a spray across many
+    # IPs — the exact traffic this defends against — grows the dict for as long
+    # as the process lives. Well above any real usage: this app has four users.
+    MAX_KEYS = 4096
+
     def __init__(self, max_attempts: int, lockout_seconds: int):
         self._max = max_attempts
         self._window = lockout_seconds
@@ -69,6 +75,23 @@ class LoginThrottle:
             self._failures.pop(key, None)
         return hits
 
+    def _sweep(self) -> None:
+        """Drop keys whose window has passed, and cap what's left.
+
+        Only runs when the dict is over the ceiling, so the normal path — a
+        handful of keys — never pays for it. Evicting a live counter early is
+        harmless: the worst case is an attacker getting a fresh allowance, and
+        they had to fill 4096 slots to earn it.
+        """
+        if len(self._failures) <= self.MAX_KEYS:
+            return
+        now = time.monotonic()
+        for key, hits in list(self._failures.items()):
+            if not hits or now - hits[-1] >= self._window:
+                self._failures.pop(key, None)
+        while len(self._failures) > self.MAX_KEYS:
+            self._failures.pop(next(iter(self._failures)), None)
+
     def is_locked(self, username: str, ip: str) -> bool:
         return len(self._recent((username, ip))) >= self._max
 
@@ -76,6 +99,7 @@ class LoginThrottle:
         key = (username, ip)
         self._recent(key)
         self._failures.setdefault(key, []).append(time.monotonic())
+        self._sweep()
 
     def reset(self, username: str, ip: str) -> None:
         self._failures.pop((username, ip), None)

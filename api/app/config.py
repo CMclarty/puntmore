@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     discord_webhook_url: str = ""
     upload_dir: str = "uploads"
+    # Largest coupon photo accepted, in MB. A phone photo is 2-6 MB, so this is
+    # generous — it exists because the request body is held in memory and then
+    # decoded and base64-encoded for OCR, so one oversized POST could exhaust a
+    # 512 MB instance. Refusing beats resizing: OCR accuracy on a coupon's small
+    # print depends on the full resolution.
+    max_upload_mb: int = 25
     # Odds API in-memory cache TTL (seconds). Default 24 h keeps the free tier
     # (500 credits/month) safe. Only lower this on a paid Odds API tier —
     # 1 h would burn ~336 credits/day on a single sport.

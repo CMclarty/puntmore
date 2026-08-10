@@ -43,6 +43,7 @@ import httpx
 from .base import OddsProvider, MatchQuery, OddsResult
 from ..normalise import normalise_match, normalise_sides, split_sides, team_similarity
 from ..odds.utils import devigd_multi
+from ..ttl_cache import MISS, TTLCache
 from ..pricing.grid import (
     fit_grid, score_grid, p_win_and_over, p_btts, p_gg_no_draw, p_win_to_nil,
 )
@@ -82,6 +83,17 @@ EXCLUDED_LEAGUE_RE = re.compile(r"\b(corners|bookings|cards)\b", re.IGNORECASE)
 # derive nothing rather than emit a confident wrong price. Measured RMSE on a
 # real fixture with 12 constraints was 0.0117.
 MAX_GRID_RMSE = 0.05
+
+# Ceilings on the two per-fixture caches. Both are keyed by event id and were
+# plain dicts that never dropped anything, so they grew with every fixture the
+# app had ever priced — ~110 KB of odds rows and ~14 KB of fitted grid each,
+# held until the process died. That is what ran the instance out of memory.
+#
+# A live sheet is 50-80 fixtures and only ones still to kick off get priced, so
+# these sit far above the working set: they are a ceiling, not a policy. Worst
+# case is now ~28 MB and ~3.5 MB rather than unbounded.
+ODDS_CACHE_MAX = 256
+GRID_CACHE_MAX = 256
 
 # Resolving which side a pick names. The pick is a fragment ("Lyon Win and
 # Over 2.5") scored against a full runner name, so the bar is lower than
@@ -166,8 +178,18 @@ class BettingIsCoolProvider(OddsProvider):
         self._cache_ttl = cache_ttl or 600
         self._sport_id = sport_id
         self._fixtures_cache: tuple[float, list[dict]] | None = None
-        self._odds_cache: dict[int, tuple[float, list[dict]]] = {}
-        self._grid_cache: dict[int, tuple[float, dict | None]] = {}
+        # BOUNDED, and that is not a detail. These are keyed by fixture id and
+        # fed by the 10-minute refresh loop, so as plain dicts they accumulated
+        # every fixture the app had ever priced — measured at ~110 KB of odds
+        # and ~14 KB of fitted grid per fixture, never freed. That is what
+        # exhausted the instance's memory. See ttl_cache.py.
+        #
+        # The ceilings are set well above the working set (a live sheet is
+        # 50-80 fixtures, and only fixtures still to kick off get priced) so
+        # they never bite in normal use — they exist to make the worst case a
+        # bounded number rather than "however long the process has been up".
+        self._odds_cache = TTLCache(self._cache_ttl, ODDS_CACHE_MAX)
+        self._grid_cache = TTLCache(self._cache_ttl, GRID_CACHE_MAX)
 
     # --- transport ---
 
@@ -235,10 +257,9 @@ class BettingIsCoolProvider(OddsProvider):
         return board
 
     def _odds(self, event_id: int) -> list[dict]:
-        now = time.time()
         cached = self._odds_cache.get(event_id)
-        if cached and now - cached[0] < self._cache_ttl:
-            return cached[1]
+        if cached is not MISS:
+            return cached
         try:
             # NOT main_lines_only: coupons name specific lines ("Over 2.5") and
             # the main line is often something else (2.75 on the fixture this
@@ -246,9 +267,13 @@ class BettingIsCoolProvider(OddsProvider):
             # ~11 and is also what the derived score grid needs.
             rows = self._get("/api/odds", {"event_id": event_id})
         except Exception as exc:
+            # No stale value to fall back on any more — an expired entry is
+            # DELETED rather than kept for this case, which is the whole point.
+            # An empty board prices nothing this pass and retries on the next;
+            # holding the last good copy for ever is what the leak was.
             logger.error("bettingiscool odds fetch failed (%s): %s", event_id, exc)
-            return cached[1] if cached else []
-        self._odds_cache[event_id] = (now, rows)
+            return []
+        self._odds_cache.set(event_id, rows)
         return rows
 
     # --- pricing ---
@@ -325,10 +350,9 @@ class BettingIsCoolProvider(OddsProvider):
 
     def _grid_for(self, event_id: int, rows: list[dict]):
         """Fitted grid for an event, cached — several legs share one fixture."""
-        now = time.time()
         cached = self._grid_cache.get(event_id)
-        if cached and now - cached[0] < self._cache_ttl:
-            return cached[1]
+        if cached is not MISS:
+            return cached
         cons = self._grid_constraints(rows)
         # 3 parameters. Demand headroom so the fit is over-determined and the
         # residual actually means something.
@@ -336,27 +360,27 @@ class BettingIsCoolProvider(OddsProvider):
             logger.warning(
                 "event %s: only %d grid constraints — not fitting", event_id, len(cons)
             )
-            self._grid_cache[event_id] = (now, None)
+            self._grid_cache.set(event_id, None)
             return None
         try:
             lh, la, rho, rmse = fit_grid(cons)
             grid = score_grid(lh, la, rho)
         except Exception as exc:
             logger.error("grid fit failed for event %s: %s", event_id, exc)
-            self._grid_cache[event_id] = (now, None)
+            self._grid_cache.set(event_id, None)
             return None
         if rmse > MAX_GRID_RMSE:
             logger.warning(
                 "event %s: grid rmse %.4f exceeds %.4f — refusing to derive",
                 event_id, rmse, MAX_GRID_RMSE,
             )
-            self._grid_cache[event_id] = (now, None)
+            self._grid_cache.set(event_id, None)
             return None
         logger.info(
             "event %s grid: lh=%.2f la=%.2f rho=%+.3f rmse=%.4f (%d constraints)",
             event_id, lh, la, rho, rmse, len(cons),
         )
-        self._grid_cache[event_id] = (now, grid)
+        self._grid_cache.set(event_id, grid)
         return grid
 
     def _fair_odds_for(
