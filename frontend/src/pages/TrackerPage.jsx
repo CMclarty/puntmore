@@ -225,8 +225,18 @@ function TrackerLanding({ types, loading, onOpen, onOpenIssue }) {
                       was the same width as the fact it was labelling. */}
                   <span className={styles.chipLabel}>{p.label ?? '—'}</span>
                   <span className={styles.chipWindow}>{fmtWindow(p.match_day, p.period_ends)}</span>
-                  <span className={`${styles.chipCount} ${styles.mono}`} title="priced / total selections">
-                    {p.priced_count}/{p.leg_count}
+                  {/* An issue only reaches this list because it still has a
+                      fixture to come — EXCEPT this one, whose selections all
+                      lost their kickoff in the read. Said out loud: it is the
+                      one state where the count below isn't what's bettable. */}
+                  {p.status === 'undated' && (
+                    <span className={styles.chipUndated}>no kickoff read</span>
+                  )}
+                  <span
+                    className={`${styles.chipCount} ${styles.mono}`}
+                    title="still to kick off / total selections"
+                  >
+                    {p.live_count}/{p.leg_count}
                   </span>
                   {/* Each issue's OWN ladder value. A ladder coupon is bet as a
                       combination, so this is the whole reading — and it belongs

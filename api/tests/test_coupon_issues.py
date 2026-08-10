@@ -8,7 +8,7 @@ entirely (row + image), like the scheduled cleanup.
 """
 import io
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -79,14 +79,26 @@ api = TestClient(app)
 
 
 def _issue(db, period, start, end, fairs, type_code="GGB"):
-    """A confirmed coupon with one unpriced-but-fair-odds leg per entry."""
+    """A confirmed coupon with one unpriced-but-fair-odds leg per entry.
+
+    The legs carry KICKOFFS, spread across the coupon's window and ending on
+    its last day. That isn't decoration: an issue is live because it still has
+    a fixture to come, not because today falls inside its printed window (see
+    routers/coupons._issue_status), so a fixture built without kickoffs models
+    a coupon whose times were never read rather than a live one.
+    """
     c = Coupon(type_code=type_code, period=period, match_day=start,
                period_ends=end, status="confirmed")
     db.add(c)
     db.flush()
+    span = max((end - start).days, 0)
     for i, fair in enumerate(fairs):
+        # Last leg on the closing day, the rest walking back from it, so every
+        # window has a fixture still ahead until its final day is done.
+        day = end - timedelta(days=min(span, len(fairs) - 1 - i))
         db.add(Leg(coupon_id=c.id, match_name=f"{period} {i} v Opp {i}",
-                   pick="GG Bonus", odds=None, fair_odds=fair, rank=i))
+                   pick="GG Bonus", odds=None, fair_odds=fair, rank=i,
+                   kickoff=datetime.combine(day, time(19, 45))))
     db.commit()
     return c
 
@@ -266,3 +278,93 @@ def test_replacement_is_reported_on_the_notification(upload_client, db):
 
     assert "Replaced" not in sent[0]
     assert "Replaced the previous Saturday upload." in sent[1]
+
+
+# --- Liveness comes from the FIXTURES, not from the printed window ----------
+
+def _dated_issue(db, period, start, end, kickoffs, type_code="GGB"):
+    """A coupon whose legs sit at explicit kickoff times (None = undated)."""
+    c = Coupon(type_code=type_code, period=period, match_day=start,
+               period_ends=end, status="confirmed")
+    db.add(c)
+    db.flush()
+    for i, ko in enumerate(kickoffs):
+        db.add(Leg(coupon_id=c.id, match_name=f"{period} {i} v Opp {i}",
+                   pick="GG Bonus", odds=None, fair_odds=1.5, rank=i, kickoff=ko))
+    db.commit()
+    return c
+
+
+def _status_of(coupon_id, code="GGB"):
+    t = next(t for t in api.get("/coupons/types").json() if t["code"] == code)
+    return next(
+        (p["status"] for p in t["periods"] if p["coupon_id"] == coupon_id), None
+    )
+
+
+def test_a_played_out_coupon_is_not_live_inside_its_own_window(db):
+    """The reported case: a Betfred weekend GG issue prints Fri-Mon, so on
+    Monday the window still contains today while every match has been played.
+    The window is what the coupon claims; the fixtures are what is left."""
+    now = datetime.utcnow()
+    today = date.today()
+    c = _dated_issue(
+        db, "WEEKEND", today - timedelta(days=3), today,   # window ENDS today
+        [now - timedelta(days=2), now - timedelta(hours=5)],
+    )
+    assert c.period_status == "active", "the printed window still contains today"
+    assert _status_of(c.id) is None, "but nothing is left to bet, so it is gone"
+
+
+def test_one_fixture_still_to_come_keeps_it_live(db):
+    now = datetime.utcnow()
+    today = date.today()
+    c = _dated_issue(
+        db, "WEEKEND", today - timedelta(days=3), today,
+        [now - timedelta(days=2), now + timedelta(hours=4)],
+    )
+    assert _status_of(c.id) == "active"
+
+
+def test_a_fixture_inside_the_cleanup_grace_is_still_live(db):
+    """One definition of gone, shared with the cleanup — otherwise a row would
+    show as finished while still sitting on the coupon."""
+    from app.config import settings
+    now = datetime.utcnow()
+    today = date.today()
+    grace = settings.leg_kickoff_grace_minutes
+    c = _dated_issue(db, "WEEKEND", today, today,
+                     [now - timedelta(minutes=max(grace - 5, 0))])
+    assert _status_of(c.id) == "active"
+
+
+def test_undated_selections_never_hold_a_coupon_open(db):
+    """A leg whose kickoff was never read is preserved by the cleanup (unknown
+    is not past) — but it must not be the thing making a coupon look live."""
+    today = date.today()
+    c = _dated_issue(db, "WEEKEND", today - timedelta(days=3), today, [None, None])
+    assert c.period_status == "active"
+    assert _status_of(c.id) == "undated"
+
+
+def test_an_issue_whose_window_has_not_started_reads_as_upcoming(db):
+    now = datetime.utcnow()
+    today = date.today()
+    c = _dated_issue(db, "WEEKEND", today + timedelta(days=2), today + timedelta(days=4),
+                     [now + timedelta(days=2)])
+    assert _status_of(c.id) == "upcoming"
+
+
+def test_the_landing_reports_what_is_left_to_bet(db):
+    now = datetime.utcnow()
+    today = date.today()
+    c = _dated_issue(
+        db, "WEEKEND", today - timedelta(days=2), today + timedelta(days=1),
+        [now - timedelta(days=1), now + timedelta(hours=3), now + timedelta(hours=9), None],
+    )
+    t = next(t for t in api.get("/coupons/types").json() if t["code"] == "GGB")
+    issue = next(p for p in t["periods"] if p["coupon_id"] == c.id)
+    assert issue["leg_count"] == 4
+    assert issue["live_count"] == 2
+    assert issue["undated_count"] == 1
+    assert issue["next_kickoff"] is not None

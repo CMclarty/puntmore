@@ -59,6 +59,14 @@ class TypePeriodOut(BaseModel):
     period_ends: Optional[date] = None
     leg_count: int = 0
     priced_count: int = 0                # legs carrying fair odds
+    # LIVENESS COMES FROM THE FIXTURES, not from the printed window. A weekend
+    # GG issue prints 7-10 August, so a window test called it live all day
+    # Monday with every match played. `live_count` is selections still to kick
+    # off; `undated_count` is selections whose kickoff was never read, which are
+    # NEVER counted as live — an unread time must not hold a coupon open.
+    live_count: int = 0
+    undated_count: int = 0
+    next_kickoff: Optional[datetime] = None
     # Set ONLY when the grid scan didn't come back whole — a sheet is a
     # rectangle of fixtures x market blocks, so a read that lost part of it is
     # measurable (coupon_grid.GridAudit). None means clean, or a coupon read

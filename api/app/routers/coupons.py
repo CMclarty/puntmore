@@ -2,11 +2,11 @@ import json
 import math
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session, selectinload
 from ..database import get_db
 from ..models import Coupon, Leg
-from datetime import date
+from datetime import date, timedelta
 
 from .. import coupon_types, coupon_periods
 from ..coupon_periods import COUPON_PERIODS
@@ -15,7 +15,9 @@ from ..schemas import (
     CouponOut, CouponTypeOut, CouponPeriodOut, LegOut, LegEditRequest,
     TypePeriodOut,
 )
+from ..config import settings
 from ..pricing.legs import price_legs
+from ..time_utils import utcnow
 from ..security import require_user
 
 router = APIRouter(prefix="/coupons", tags=["coupons"])
@@ -58,6 +60,41 @@ def list_coupon_periods(type_code: str | None = None):
             suggested=(p.code == suggested),
         ))
     return out
+
+
+def _issue_status(coupon: Coupon, legs: int, ahead: int, undated: int) -> str:
+    """Where an issue stands — decided by its FIXTURES, not by its window.
+
+    The printed window is what the coupon claims; the fixtures are what is left
+    to bet, and only the second makes a coupon live. A Betfred weekend GG issue
+    prints 7–10 August, so a pure window test called it live all day Monday with
+    every match already played — which is what this replaces.
+
+      active    at least one fixture still to kick off
+      undated   selections remain, but NOT ONE carries a kickoff. Never "live":
+                an undated row is a row whose time we failed to read, and it
+                must not be the thing holding a finished coupon open. Kept
+                visible rather than dropped, because it means the read lost the
+                times and that is worth seeing.
+      upcoming  no fixture has gone yet and the window hasn't started
+      past      every fixture has kicked off
+
+    The window is still what separates upcoming from past when the fixtures
+    cannot say — a coupon uploaded before its first kickoff has everything ahead
+    of it either way.
+    """
+    if ahead:
+        return "upcoming" if coupon.period_status == "upcoming" else "active"
+    if undated:
+        return "upcoming" if coupon.period_status == "upcoming" else "undated"
+    if legs:
+        # It HAS fixtures and every one of them has kicked off. Finished, and
+        # the window does not get a vote — deferring to it here is precisely the
+        # bug: a Fri–Mon window reads "active" all Monday with nothing to bet.
+        return "past"
+    # No selections at all: nothing to reason from, so the window is all there
+    # is. A coupon still being read, or one whose scan came back empty.
+    return coupon.period_status or "past"
 
 
 def _scan_note(coupon: Coupon) -> str | None:
@@ -109,32 +146,44 @@ def list_coupon_types(db: Session = Depends(get_db)):
     # Per-issue rollup for the landing page. One query for the whole board
     # rather than one per type, then grouped in Python — the row count here is
     # the number of COUPONS, which is small.
+    # Still bettable = kickoff not yet past, on the SAME grace the cleanup uses
+    # (scheduler.cleanup_kicked_off_legs), so a row stays live for exactly as
+    # long as it stays on the coupon. Two definitions here would show a fixture
+    # as gone while its row was still listed, or the reverse.
+    live_from = utcnow() - timedelta(minutes=settings.leg_kickoff_grace_minutes)
     per_coupon = (
         db.query(
             Coupon,
             func.count(Leg.id).label("legs"),
             func.count(Leg.fair_odds).label("priced"),
+            func.count(case((Leg.kickoff >= live_from, 1))).label("ahead"),
+            func.count(case((Leg.kickoff.is_(None), 1))).label("undated"),
+            func.min(case((Leg.kickoff >= live_from, Leg.kickoff))).label("next_ko"),
         )
         .outerjoin(Leg, Leg.coupon_id == Coupon.id)
         .group_by(Coupon.id)
         .all()
     )
     periods_by_type: dict[str, list[TypePeriodOut]] = {}
-    for coupon, legs, priced in per_coupon:
-        # A finished window is history — the landing page is about what is
-        # live or still to come.
-        if coupon.period_status == "past":
+    for coupon, legs, priced, ahead, undated, next_ko in per_coupon:
+        status = _issue_status(coupon, legs, ahead, undated)
+        # Nothing left to bet — the landing page is about what is live or still
+        # to come, and a finished issue is history whatever its window says.
+        if status == "past":
             continue
         ctype = coupon_types.get(coupon.type_code)
         periods_by_type.setdefault(coupon.type_code, []).append(TypePeriodOut(
             coupon_id=coupon.id,
             period=coupon.period,
             label=coupon.period_label,
-            status=coupon.period_status,
+            status=status,
             match_day=coupon.match_day,
             period_ends=coupon.period_ends,
             leg_count=legs,
             priced_count=priced,
+            live_count=ahead,
+            undated_count=undated,
+            next_kickoff=next_ko,
             scan_note=_scan_note(coupon),
             # Each issue's own combination — see the schema. Computed here so a
             # midweek issue's value stays readable while a weekend one is up.
