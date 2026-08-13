@@ -888,3 +888,58 @@ def test_a_coupon_already_stored_with_a_bad_rung_reads_repaired():
     )
     assert coupon.ladder[10] == 301.0
     assert coupon.ladder[8] == 101.0
+
+
+# --- The fold a type is SHOWN at ------------------------------------------
+
+def test_gg_bonus_is_shown_as_a_treble():
+    """It is bet as a treble, so the headline figure answers that question —
+    not "which rung of an 11-rung ladder prices best", which kept advertising
+    a long fold nobody was going to strike."""
+    from app.coupon_types import BY_CODE, best_combination
+
+    ggb = BY_CODE["GGB"]
+    assert ggb.display_picks == 3
+    fairs = [1.66, 1.68, 1.72, 1.72, 1.73] + [1.78] * 37
+    best = best_combination(fairs, ggb.default_ladder, picks=ggb.display_picks)
+    assert best["picks"] == 3
+    assert best["payout"] == 5.5
+    assert best["fair"] == pytest.approx(1.66 * 1.68 * 1.72, abs=1e-3)
+
+
+def test_gg_no_draw_is_shown_as_a_double():
+    from app.coupon_types import BY_CODE
+
+    assert BY_CODE["GGND"].display_picks == 2
+
+
+def test_a_fold_the_ladder_does_not_price_shows_nothing():
+    """The Betfred board starts at "All 3 correct", so there is no 2-rung to
+    value a double against. Returning None is the point: inventing a return for
+    an unpriced fold is how a misread rung produced "+3300%"."""
+    from app.coupon_types import BY_CODE, best_combination
+
+    ggnd = BY_CODE["GGND"]
+    assert 2 not in ggnd.default_ladder
+    assert best_combination([1.5, 1.6, 1.7], ggnd.default_ladder, picks=2) is None
+
+
+def test_a_double_prices_once_the_coupon_prints_a_2_rung():
+    """The mechanism is in place — it needs the printed 2-correct return."""
+    from app.coupon_types import BY_CODE, best_combination
+
+    ladder = {2: 3.0, **BY_CODE["GGND"].default_ladder}
+    best = best_combination([1.5, 1.6, 1.7], ladder, picks=2)
+    assert best["picks"] == 2
+    assert best["fair"] == pytest.approx(2.4, abs=1e-3)
+    assert best["value"] == pytest.approx(0.25, abs=1e-3)
+
+
+def test_types_without_a_fixed_fold_still_scan_the_whole_ladder():
+    """HILLS is bettable at any length, so it keeps the best-rung behaviour."""
+    from app.coupon_types import BY_CODE, best_combination
+
+    hills = BY_CODE["HILLS"]
+    assert hills.display_picks is None
+    best = best_combination([1.5] * 12, hills.default_ladder, picks=hills.display_picks)
+    assert best["picks"] > 3

@@ -141,11 +141,13 @@ def test_each_issue_carries_its_own_combination(db):
     mid_best = periods["MIDWEEK"]["best_combination"]
     wknd_best = periods["WEEKEND"]["best_combination"]
 
-    assert mid_best["picks"] == 4 and wknd_best["picks"] == 4
+    # GG Bonus is shown as a TREBLE — the fold it is bet at — rather than
+    # whichever rung of the ladder happens to price best (CouponType.display_picks).
+    assert mid_best["picks"] == 3 and wknd_best["picks"] == 3
     # Each is priced off its OWN legs, so the shorter midweek book is worth
     # far more than the weekend one — and both are visible at once.
-    assert mid_best["fair"] == pytest.approx(4.1107, abs=1e-3)
-    assert wknd_best["fair"] == pytest.approx(7.7112, abs=1e-3)
+    assert mid_best["fair"] == pytest.approx(2.7405, abs=1e-3)
+    assert wknd_best["fair"] == pytest.approx(4.4064, abs=1e-3)
     assert mid_best["value"] > wknd_best["value"]
 
 

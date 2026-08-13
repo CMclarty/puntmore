@@ -126,7 +126,12 @@ def _best_for_coupon(db: Session, coupon: Coupon, ctype) -> dict | None:
         .filter(Leg.coupon_id == coupon.id, Leg.fair_odds.isnot(None))
         .all()
     ]
-    return coupon_types.best_combination(fairs, coupon.ladder or ctype.default_ladder)
+    return coupon_types.best_combination(
+        fairs,
+        coupon.ladder or ctype.default_ladder,
+        # The fold this type is actually bet at, when it has one.
+        picks=ctype.display_picks,
+    )
 
 
 @router.get("/types", response_model=list[CouponTypeOut])

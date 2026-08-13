@@ -61,6 +61,13 @@ class CouponType:
     # Does that block print a separate Home and Away price per fixture? Those
     # coupons yield TWO priced legs per row, one per team.
     two_sided: bool = False
+    # The fold the tracker SHOWS for this type — 3 for a treble, 2 for a double.
+    # None means "whichever rung of the ladder is worth most", which is the
+    # right answer for a coupon you would bet at any length, and the wrong one
+    # for a coupon you always bet at the same length: it kept advertising a
+    # twelve-fold nobody was going to strike. This is a DISPLAY choice only;
+    # every rung is still stored and still priced.
+    display_picks: int | None = None
 
 
 # LADDERS ARE PER BOOKMAKER AND PER ISSUE. Each type carries its own fallback,
@@ -111,15 +118,22 @@ COUPON_TYPES: tuple[CouponType, ...] = (
     # (win ∧ opponent scores 0), never moneyline × clean sheet.
     CouponType("WTN", "Win to Nil", "{team} Win to Nil",
                board_label="WIN TO NIL", two_sided=True),
+    # Shown as a TREBLE: it is what this coupon is bet at, so the headline
+    # figure is the top three rather than whichever rung happens to price best.
     CouponType(
         "GGB", "GG Bonus", "GG Bonus",
         period_codes=_VARIABLE, prices_each_selection=False, pays_ladder=True,
-        default_ladder=_GG_LADDER, max_fair_odds=1.80,
+        default_ladder=_GG_LADDER, max_fair_odds=1.80, display_picks=3,
     ),
+    # Shown as a DOUBLE. NOTE: the recorded Betfred board starts at "All 3
+    # correct 9/2" — there is no 2-correct rung on it, so until one is read off
+    # a coupon (or added here) this type has nothing to price a double against
+    # and shows no combination at all. That is deliberate: an invented return
+    # is exactly how a misread rung produced a "+3300%" fold.
     CouponType(
         "GGND", "GG No Draw", "GG No Draw",
         period_codes=_VARIABLE, prices_each_selection=False, pays_ladder=True,
-        default_ladder=_GG_LADDER,
+        default_ladder=_GG_LADDER, display_picks=2,
     ),
     # William Hill's "Both score no draw". Same MARKET as GGND — the selection
     # string is identical so it prices through exactly the same path — but its
@@ -218,20 +232,34 @@ def combination_value(fair_odds: list[float], payout: float) -> float | None:
     return round(payout / prod(fair_odds) - 1, 4)
 
 
-def best_combination(fair_odds: list[float], ladder: dict[int, float]) -> dict | None:
-    """The best-value combination available across every rung of the ladder.
+def best_combination(
+    fair_odds: list[float], ladder: dict[int, float], picks: int | None = None
+) -> dict | None:
+    """The best combination on this coupon, at a given fold or across all of them.
 
-    Longer combinations pay more but multiply in more risk, and which wins is
-    not obvious from either side — so every rung the coupon offers is evaluated
-    and the best is returned, rather than assuming the 3-fold.
+    `picks` pins the fold — a treble, a double — and is what the tracker passes
+    for a type that is always bet at one length (CouponType.display_picks). The
+    figure then answers the question actually being asked ("what is the treble
+    worth?") instead of advertising whichever rung priced best, which on a long
+    ladder is a twelve-fold nobody was going to strike.
 
-    `fair_odds` is every priced fixture on the coupon; the best N-fold is always
-    the N SHORTEST, since that minimises the product the fixed return is
-    measured against.
+    Left as None, every rung the coupon offers is evaluated and the best is
+    returned: longer combinations pay more but multiply in more risk, and which
+    wins is not obvious from either side.
+
+    Either way the N-fold is the N SHORTEST prices, since that minimises the
+    product the fixed return is measured against. Returns None when the ladder
+    prints no rung at `picks` — a fold the coupon does not pay for cannot be
+    valued, and inventing a return for it is exactly how a misread rung produced
+    a "+3300%" combination.
     """
     priced = sorted(f for f in fair_odds if f is not None and f > 0)
     if not priced or not ladder:
         return None
+    if picks is not None:
+        ladder = {picks: ladder[picks]} if picks in ladder else {}
+        if not ladder:
+            return None
 
     best = None
     for picks, payout in sorted(ladder.items()):
