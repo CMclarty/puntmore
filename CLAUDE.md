@@ -138,6 +138,16 @@ Both live behind their seams. Core logic never calls a vendor API directly.
   after the new coupon has read rows: a failed or empty scan must never delete a
   working coupon. Two issues of one type still coexist (GG midweek + weekend);
   the key is type AND period, never type alone.
+- **A scanned ladder is CHECKED before it is trusted**
+  (`coupon_types.sanitise_ladder`, Aug 2026). The coupon's own reading still
+  wins — ladders change between issues — but a rung that pays less than a
+  shorter fold, or sits more than `LADDER_MAX_DRIFT` from the type's printed
+  board, is a misread and is replaced by the board's. The ladder is what a
+  combination is BET on, so one fumbled digit doesn't nudge a price, it invents
+  value: a "300/1" rung read as ~7920/1 turned a +34% 8-fold into a "+3300.7%
+  10-fold". Sanitised on the way in (upload) AND on the way out
+  (`Coupon.ladder`), because a coupon already stored with a bad rung will not
+  re-scan itself. Rejected rungs go into `scan_audit`.
 - **A ladder combination belongs to an ISSUE, not to a type.** The legs of a
   fold are struck on one sheet, so never price one across two uploads, and never
   show a single type-wide figure when a type has more than one live issue — that

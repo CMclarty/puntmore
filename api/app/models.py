@@ -79,13 +79,26 @@ class Coupon(Base):
 
     @property
     def ladder(self) -> dict[int, float]:
-        """Payout ladder as {picks: decimal}. Empty when the coupon prices rows."""
+        """Payout ladder as {picks: decimal}. Empty when the coupon prices rows.
+
+        Sanitised against the type's printed board on the way OUT as well as on
+        the way in (upload.py). Reading it here too is what repairs a coupon
+        already stored with a bad rung — the scan that produced it isn't going
+        to run again on its own, and until it does, the combination figure on
+        screen is the one thing the coupon is bet on.
+        """
         if not self.payout_ladder:
             return {}
+        from . import coupon_types  # local: coupon_types has no model imports
         try:
-            return {int(k): float(v) for k, v in json.loads(self.payout_ladder).items()}
+            raw = {int(k): float(v) for k, v in json.loads(self.payout_ladder).items()}
         except (ValueError, TypeError, AttributeError):
             return {}
+        ctype = coupon_types.get(self.type_code)
+        clean, _notes = coupon_types.sanitise_ladder(
+            raw, ctype.default_ladder if ctype else {}
+        )
+        return clean
 
 
 class Leg(Base):

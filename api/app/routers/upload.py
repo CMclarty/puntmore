@@ -229,8 +229,8 @@ def _build_legs(coupon_id, extracted, ctype, reference: date) -> list[Leg]:
     return legs
 
 
-def _apply_coupon_window(coupon, extracted, ctype, period, reference, legs) -> None:
-    """Set the coupon's date window and payout ladder.
+def _apply_coupon_window(coupon, extracted, ctype, period, reference, legs) -> list[str]:
+    """Set the coupon's date window and payout ladder; report rejected rungs.
 
     A variable window (GG midweek/weekend) has no schedule to derive from, so
     it is taken from the fixtures the coupon actually lists. A fixed window
@@ -245,7 +245,17 @@ def _apply_coupon_window(coupon, extracted, ctype, period, reference, legs) -> N
 
     # The coupon's OWN ladder wins: it is printed on each issue and can change.
     # Config is only a floor so a bad scan does not leave it unvaluable.
-    ladder = extracted.payout_ladder or ctype.default_ladder
+    #
+    # But it is checked first. The ladder is what a combination is BET on, so a
+    # single misread rung doesn't nudge a price — it invents value that isn't
+    # there, on the one figure that matters (see coupon_types.sanitise_ladder).
+    notes: list[str] = []
+    if extracted.payout_ladder:
+        ladder, notes = coupon_types.sanitise_ladder(
+            extracted.payout_ladder, ctype.default_ladder
+        )
+    else:
+        ladder = ctype.default_ladder
     if ladder and ctype.pays_ladder:
         coupon.payout_ladder = json.dumps({str(k): v for k, v in ladder.items()})
         if not extracted.payout_ladder:
@@ -253,6 +263,9 @@ def _apply_coupon_window(coupon, extracted, ctype, period, reference, legs) -> N
                 "Coupon %s: payout ladder unreadable, using the configured "
                 "default. Verify it against the printed coupon.", coupon.id,
             )
+        for note in notes:
+            logger.warning("Coupon %s: ladder rung rejected — %s", coupon.id, note)
+    return notes
 
 
 def _supersede_previous(db, coupon) -> int:
@@ -501,8 +514,15 @@ def _process_upload(
         legs = _build_legs(coupon.id, extracted, ctype, reference)
         db.add_all(legs)
         db.flush()
-        _apply_coupon_window(coupon, extracted, ctype, period, reference, legs)
-        coupon.scan_audit = json.dumps(scan.as_dict())
+        ladder_notes = _apply_coupon_window(coupon, extracted, ctype, period, reference, legs)
+        # The ladder is read off the same photo as the grid, so a rejected
+        # rung belongs in the same verdict — it is the sheet's headline figure.
+        audit = scan.as_dict()
+        if ladder_notes:
+            audit["ladder_notes"] = ladder_notes
+            audit["clean"] = False
+            audit["summary"] += f", {len(ladder_notes)} bad ladder rung(s)"
+        coupon.scan_audit = json.dumps(audit)
         # Now the window is real, so the auto-name can be. A name the user typed
         # is theirs and is left alone.
         if not user_name:

@@ -148,6 +148,64 @@ def is_valid(code: str) -> bool:
     return code in BY_CODE
 
 
+# How far a scanned rung may sit from the printed board before it is treated as
+# a misread rather than a change. Ladders DO change between issues, so the
+# coupon's own reading has to win — but they change by a bit, not by an order of
+# magnitude. Observed failure: a "300/1" rung came back as ~7920/1 and turned a
+# +34% eight-fold into a +3300% ten-fold, a figure nothing on the sheet supports.
+LADDER_MAX_DRIFT = 4.0
+
+
+def sanitise_ladder(
+    scanned: dict[int, float], default: dict[int, float]
+) -> tuple[dict[int, float], list[str]]:
+    """A scanned ladder with misread rungs repaired. Returns (ladder, notes).
+
+    The ladder decides what a whole combination pays, so ONE bad rung doesn't
+    make a leg slightly wrong — it invents value out of nothing, on the single
+    figure the coupon is actually bet on. Two things a real ladder cannot do:
+
+      * pay LESS for more selections. Every board rises with the fold.
+      * sit an order of magnitude away from the same coupon's printed board.
+
+    A rung failing either is replaced by the configured one where there is a
+    configured one, and dropped where there isn't — never kept. The rest of the
+    scan is untouched, so a good ladder with one fumbled digit keeps every rung
+    that was read correctly, rather than the whole thing falling back to config.
+    """
+    out: dict[int, float] = {}
+    notes: list[str] = []
+
+    for picks in sorted(scanned):
+        payout = scanned[picks]
+        expected = default.get(picks)
+        if payout is None or payout <= 1:
+            notes.append(f"{picks}: {payout} is not a return")
+        elif expected and not (
+            1 / LADDER_MAX_DRIFT <= payout / expected <= LADDER_MAX_DRIFT
+        ):
+            notes.append(f"{picks}: read {payout:g}, board says {expected:g}")
+            out[picks] = expected
+            continue
+        else:
+            out[picks] = payout
+            continue
+        if expected:
+            out[picks] = expected
+
+    # Monotonic: a longer fold pays more. Applied after the above so a rung
+    # already repaired from the board is judged on its repaired value.
+    cleaned: dict[int, float] = {}
+    highest = 0.0
+    for picks in sorted(out):
+        if out[picks] <= highest:
+            notes.append(f"{picks}: {out[picks]:g} does not beat a shorter fold")
+            continue
+        cleaned[picks] = out[picks]
+        highest = out[picks]
+    return cleaned, notes
+
+
 def combination_value(fair_odds: list[float], payout: float) -> float | None:
     """Edge on a combination: the fixed return against its fair price.
 

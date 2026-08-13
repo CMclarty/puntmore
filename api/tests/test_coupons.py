@@ -801,3 +801,90 @@ def test_two_sided_skips_a_side_it_could_not_read():
     legs = _build_legs(1, extracted, coupon_types.get("TTS1"), date(2026, 7, 29))
     assert len(legs) == 1
     assert legs[0].pick == "Kauno to Score 1" and legs[0].odds == 1.2
+
+
+# --- The ladder decides what a combination pays, so a misread rung is not a
+# --- small error: it invents value on the only figure the coupon is bet on.
+
+def test_a_wildly_wrong_rung_is_replaced_by_the_printed_board():
+    """The reported case. A GG Bonus midweek coupon showed "best 10-fold
+    +3300.7%" — a return nothing on the sheet supports. The fixtures and their
+    fair odds were right; one ladder rung had come back ~26x the printed 300/1,
+    and the ladder is what the whole combination is priced against."""
+    from app.coupon_types import _GG_LADDER, sanitise_ladder
+
+    scanned = dict(_GG_LADDER)
+    scanned[10] = 7920.0                      # printed board says 301.0
+    ladder, notes = sanitise_ladder(scanned, _GG_LADDER)
+
+    assert ladder[10] == 301.0
+    assert any("10:" in n for n in notes)
+    # Every rung that WAS read correctly survives — one fumbled digit must not
+    # throw away a ladder that is otherwise the coupon's own.
+    assert ladder[8] == 101.0 and ladder[13] == 1501.0
+
+
+def test_the_right_answer_comes_back_once_the_rung_is_repaired():
+    """End to end on the screenshot's own numbers: 42 fixtures, the ten
+    shortest fair odds as displayed. With the board's ladder the best
+    combination is an 8-fold at about +34%, not a 10-fold at +3300%."""
+    from app.coupon_types import _GG_LADDER, best_combination, sanitise_ladder
+
+    fairs = [1.66, 1.68, 1.72, 1.72, 1.73, 1.74, 1.74, 1.74, 1.76, 1.76]
+    fairs += [1.78] * 32                       # the rest of the 42
+
+    broken = dict(_GG_LADDER)
+    broken[10] = 7920.0
+    assert best_combination(fairs, broken)["value"] > 30      # the bogus figure
+
+    repaired, _ = sanitise_ladder(broken, _GG_LADDER)
+    best = best_combination(fairs, repaired)
+    assert best["picks"] == 8
+    assert best["value"] == pytest.approx(0.343, abs=0.01)
+
+
+def test_a_ladder_that_pays_less_for_more_is_rejected():
+    """No board does this. A rung that undercuts a shorter fold is a misread."""
+    from app.coupon_types import sanitise_ladder
+
+    ladder, notes = sanitise_ladder({3: 5.5, 4: 10.0, 5: 6.0, 6: 29.0}, {})
+    assert 5 not in ladder
+    assert ladder == {3: 5.5, 4: 10.0, 6: 29.0}
+    assert notes
+
+
+def test_a_genuine_ladder_change_is_left_alone():
+    """Ladders DO change between issues, so the coupon's own reading has to
+    win. Only an order-of-magnitude gap is treated as a misread."""
+    from app.coupon_types import _GG_LADDER, sanitise_ladder
+
+    changed = {k: v * 1.25 for k, v in _GG_LADDER.items()}
+    ladder, notes = sanitise_ladder(changed, _GG_LADDER)
+    assert ladder == changed
+    assert notes == []
+
+
+def test_a_rung_that_is_not_a_return_is_dropped():
+    from app.coupon_types import sanitise_ladder
+
+    ladder, notes = sanitise_ladder({3: 0.5, 4: 10.0}, {})
+    assert ladder == {4: 10.0}
+    assert notes
+
+
+def test_a_coupon_already_stored_with_a_bad_rung_reads_repaired():
+    """No re-scan needed. The bad ladder is already in the database on the
+    coupon that showed +3300.7%, and the scan that wrote it will not run again
+    by itself — so the repair has to happen on the way out too."""
+    import json as _json
+    from app.coupon_types import _GG_LADDER
+    from app.models import Coupon
+
+    broken = dict(_GG_LADDER)
+    broken[10] = 7920.0
+    coupon = Coupon(
+        type_code="GGB", period="MIDWEEK", match_day=date.today(), status="confirmed",
+        payout_ladder=_json.dumps({str(k): v for k, v in broken.items()}),
+    )
+    assert coupon.ladder[10] == 301.0
+    assert coupon.ladder[8] == 101.0
