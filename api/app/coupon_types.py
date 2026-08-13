@@ -70,7 +70,15 @@ class CouponType:
     display_picks: int | None = None
 
 
-# LADDERS ARE PER BOOKMAKER AND PER ISSUE. Each type carries its own fallback,
+# LADDERS ARE PER COUPON, not per bookmaker and not per market family. GG Bonus
+# and GG No Draw are both Betfred and print DIFFERENT boards — No Draw excludes
+# the draw, so it is the harder bet, and it pays from a double where GG Bonus
+# starts at three correct. GGND borrowed this table until August 2026 on the
+# assumption that one Betfred board fits both; it does not, and a borrowed
+# ladder is not a fallback, it is another coupon's prices applied to this one.
+# Only ever record a ladder you have READ off the issue it belongs to.
+#
+# Each type carries its own fallback,
 # and the coupon's own scanned ladder always wins over it — these only stop a
 # bad scan leaving a coupon unvaluable. Never share one between bookmakers: the
 # Hill and Betfred boards below agree at 3 and 4 correct and then diverge to
@@ -125,15 +133,23 @@ COUPON_TYPES: tuple[CouponType, ...] = (
         period_codes=_VARIABLE, prices_each_selection=False, pays_ladder=True,
         default_ladder=_GG_LADDER, max_fair_odds=1.80, display_picks=3,
     ),
-    # Shown as a DOUBLE. NOTE: the recorded Betfred board starts at "All 3
-    # correct 9/2" — there is no 2-correct rung on it, so until one is read off
-    # a coupon (or added here) this type has nothing to price a double against
-    # and shows no combination at all. That is deliberate: an invented return
-    # is exactly how a misread rung produced a "+3300%" fold.
+    # Shown as a DOUBLE — this coupon is bet in twos and its board pays from 2.
+    #
+    # NO DEFAULT LADDER, deliberately, and this is a correction: it used to
+    # borrow _GG_LADDER, which was observed on a GG BONUS coupon and never on
+    # this one. Two different markets — No Draw excludes the draw, so it is the
+    # harder bet and must pay more per leg — and the confirmation is that this
+    # board pays a DOUBLE while the GG Bonus board starts at three correct.
+    # A borrowed ladder is not a fallback, it is the wrong coupon's prices.
+    #
+    # The same rule that keeps Hill's and Betfred's boards apart (see above)
+    # applies one level down, between two coupons from the same bookmaker.
+    # Until this board is read off an issue, the coupon's own scan is the only
+    # source — and where there is no scan there is no combination figure.
     CouponType(
         "GGND", "GG No Draw", "GG No Draw",
         period_codes=_VARIABLE, prices_each_selection=False, pays_ladder=True,
-        default_ladder=_GG_LADDER, display_picks=2,
+        display_picks=2,
     ),
     # William Hill's "Both score no draw". Same MARKET as GGND — the selection
     # string is identical so it prices through exactly the same path — but its

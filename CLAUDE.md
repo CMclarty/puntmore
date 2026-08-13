@@ -138,6 +138,14 @@ Both live behind their seams. Core logic never calls a vendor API directly.
   after the new coupon has read rows: a failed or empty scan must never delete a
   working coupon. Two issues of one type still coexist (GG midweek + weekend);
   the key is type AND period, never type alone.
+- **A ladder belongs to ONE coupon — never borrow another's.** GG Bonus and GG
+  No Draw are both Betfred and print DIFFERENT boards: GGND pays from a DOUBLE,
+  GG Bonus starts at three correct. GGND defaulted to GG Bonus's table until
+  Aug 2026 purely because nobody had read GGND's, which is an assumption wearing
+  a fallback's clothes — and it also fed `sanitise_ladder` the wrong board to
+  validate a correct scan against. GGND now has NO default: its own scan is the
+  only source, and with no default the sanity check applies the monotonic rule
+  alone. Only record a ladder you have READ off the issue it belongs to.
 - **A scanned ladder is CHECKED before it is trusted**
   (`coupon_types.sanitise_ladder`, Aug 2026). The coupon's own reading still
   wins — ladders change between issues — but a rung that pays less than a

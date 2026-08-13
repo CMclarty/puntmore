@@ -146,10 +146,10 @@ def test_priced_and_ladder_are_independent_shapes():
 
 
 def test_hills_carries_its_own_ladder_not_betfreds():
-    """Ladders are per bookmaker. Hill's and Betfred's agree at 3 and 4 correct
-    and then diverge sharply — sharing one default would misprice long folds."""
+    """Ladders are per COUPON. Hill's and Betfred's agree at 3 and 4 correct and
+    then diverge sharply — sharing one default would misprice long folds."""
     from app.coupon_types import get
-    hills, betfred = get("HILLS").default_ladder, get("GGND").default_ladder
+    hills, betfred = get("HILLS").default_ladder, get("GGB").default_ladder
     assert hills[3] == betfred[3] == 5.5
     assert hills[4] == betfred[4] == 10.0
     assert hills[5] == 21.0 and betfred[5] == 17.0
@@ -176,16 +176,37 @@ def test_gg_coupons_pay_off_a_ladder_not_a_single_price():
     """Any N correct pays a printed rung — 3 is just the first of them."""
     from app.coupon_types import get
     for code in ("GGB", "GGND"):
-        t = get(code)
-        assert t.prices_each_selection is False
-        # Observed on the Betfred midweek issue: 9/2, 9/1, 16/1 ...
-        assert t.default_ladder[3] == 5.5
-        assert t.default_ladder[4] == 10.0
-        assert t.default_ladder[8] == 101.0
-        assert len(t.default_ladder) >= 10
+        assert get(code).prices_each_selection is False
+    # Observed on the Betfred GG BONUS midweek issue: 9/2, 9/1, 16/1 ...
+    ggb = get("GGB").default_ladder
+    assert ggb[3] == 5.5 and ggb[4] == 10.0 and ggb[8] == 101.0
+    assert len(ggb) >= 10
     # The other five print a price on every fixture instead.
     assert get("TTS2").prices_each_selection is True
     assert get("TTS2").default_ladder == {}
+
+
+def test_gg_no_draw_does_not_borrow_gg_bonuss_ladder():
+    """A CORRECTION, and the reason it matters.
+
+    GGND used to default to _GG_LADDER, which was read off a GG BONUS coupon and
+    never off this one. They are different markets from the same bookmaker — No
+    Draw excludes the draw, so it is the harder bet — and the proof they print
+    different boards is that GGND pays a DOUBLE while GG Bonus starts at three
+    correct. A borrowed ladder is not a fallback, it is another coupon's prices.
+
+    Empty until this board is read off an issue, so the only source is the
+    coupon's own scan. sanitise_ladder must not be handed the wrong board to
+    validate against either — with no default it applies the monotonic check
+    alone and leaves scanned rungs it cannot source an opinion on.
+    """
+    from app.coupon_types import get, sanitise_ladder
+    assert get("GGND").default_ladder == {}
+
+    scanned = {2: 3.25, 3: 7.0, 4: 15.0}
+    ladder, notes = sanitise_ladder(scanned, get("GGND").default_ladder)
+    assert ladder == scanned, "a scanned board must survive with no default"
+    assert notes == []
 
 
 def test_gg_coupons_run_variable_windows():
