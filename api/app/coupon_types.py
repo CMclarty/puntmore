@@ -68,6 +68,14 @@ class CouponType:
     # twelve-fold nobody was going to strike. This is a DISPLAY choice only;
     # every rung is still stored and still priced.
     display_picks: int | None = None
+    # Phrases that, printed in the sheet's header, mean this is NOT that coupon.
+    # A VETO, not a classifier: the question asked is "does the header contradict
+    # the type that was selected", never "which type is this". So a header that
+    # is unreadable, or generic (both GG sheets say "GOALS GALORE"), lets the
+    # upload through — only a positive contradiction stops it. Blocking a real
+    # upload is worse than missing a mismatch, since a mismatch has other
+    # symptoms and a blocked upload just looks broken.
+    title_conflicts: tuple[str, ...] = ()
 
 
 # LADDERS ARE PER COUPON, not per bookmaker and not per market family. GG Bonus
@@ -78,16 +86,16 @@ class CouponType:
 # ladder is not a fallback, it is another coupon's prices applied to this one.
 # Only ever record a ladder you have READ off the issue it belongs to.
 #
-# Each type carries its own fallback,
-# and the coupon's own scanned ladder always wins over it — these only stop a
-# bad scan leaving a coupon unvaluable. Never share one between bookmakers: the
+# Each type carries its own fallback, and the coupon's own scanned ladder always
+# wins over it — these only stop a bad scan leaving a coupon unvaluable. The
 # Hill and Betfred boards below agree at 3 and 4 correct and then diverge to
 # 3.4x apart by 12, so the wrong default misprices a long fold badly.
 #
-# Ladder observed on the Betfred GG Bonus midweek issue, 20–23 July 2026.
+# Ladder observed on the Betfred GG BONUS midweek issues of 20–23 July and
+# 10–13 August 2026, identical on every rung both printed.
 # Fractional as printed: 9/2, 9/1, 16/1, 28/1, 50/1, 100/1, 175/1, 300/1,
-# 500/1, 800/1, 1500/1. The 14- and 15-fold rungs were cut off by the photo
-# edge and are deliberately absent rather than guessed.
+# 500/1, 800/1, 1500/1, 2500/1, 5000/1 — the August sheet carried the last two,
+# which the July photo had cut off.
 _GG_LADDER = {
     3: 5.5, 4: 10.0, 5: 17.0, 6: 29.0, 7: 51.0,
     8: 101.0, 9: 176.0, 10: 301.0, 11: 501.0, 12: 801.0, 13: 1501.0,
@@ -153,6 +161,11 @@ COUPON_TYPES: tuple[CouponType, ...] = (
         "GGB", "GG Bonus", "GG Bonus",
         period_codes=_VARIABLE, prices_each_selection=False, pays_ladder=True,
         default_ladder=_GG_LADDER, max_fair_odds=1.80, display_picks=3,
+        # The No Draw sheet is printed for the same dates over a near-identical
+        # fixture list, and its header is the only thing that separates them on
+        # sight. Uploading it as this type is what applied an 8000/1 rung to a
+        # coupon paying 300/1.
+        title_conflicts=("NO DRAW",),
     ),
     # Shown as a DOUBLE, which is the sheet's own minimum: "Doubles and upwards
     # accepted", and the first rung is "BOTH correct 11/2".
@@ -164,6 +177,7 @@ COUPON_TYPES: tuple[CouponType, ...] = (
         "GGND", "GG No Draw", "GG No Draw",
         period_codes=_VARIABLE, prices_each_selection=False, pays_ladder=True,
         default_ladder=_GGND_LADDER, display_picks=2,
+        title_conflicts=("GG BONUS",),
     ),
     # William Hill's "Both score no draw". Same MARKET as GGND — the selection
     # string is identical so it prices through exactly the same path — but its
@@ -178,6 +192,9 @@ COUPON_TYPES: tuple[CouponType, ...] = (
         "HILLS", "Hills GGND", "GG No Draw",
         prices_each_selection=True, pays_ladder=True,
         default_ladder=_WH_LADDER,
+        # Hill's own no-draw sheet. A Betfred GG Bonus header on it is the
+        # wrong bookmaker as well as the wrong market.
+        title_conflicts=("GG BONUS",),
     ),
 )
 
@@ -198,6 +215,32 @@ def is_valid(code: str) -> bool:
 # magnitude. Observed failure: a "300/1" rung came back as ~7920/1 and turned a
 # +34% eight-fold into a +3300% ten-fold, a figure nothing on the sheet supports.
 LADDER_MAX_DRIFT = 4.0
+
+
+def title_mismatch(ctype: CouponType, title: str | None) -> str | None:
+    """Why this sheet's header contradicts the type chosen for it, or None.
+
+    The upload form asks which coupon was photographed, and nothing checked the
+    answer. On the ladder coupons that mattered: GG Bonus and GG No Draw are
+    printed for the same dates over near-identical fixture lists, so the header
+    is the only thing separating them on sight — and picking the wrong one
+    applied No Draw's 8000/1 ten-correct rung to a coupon that pays 300/1.
+
+    A VETO, not a classifier. It answers "does the header contradict this type",
+    never "which type is this", so an unreadable or generic header (both GG
+    sheets say "GOALS GALORE") passes. Blocking a genuine upload is the worse
+    error: a mismatch shows up in other ways, a refused upload just looks broken.
+    """
+    if not title or not ctype.title_conflicts:
+        return None
+    from .coupon_grid import normalise_board_label  # same case/punctuation rules
+    seen = normalise_board_label(title)
+    for phrase in ctype.title_conflicts:
+        if normalise_board_label(phrase) in seen:
+            return (
+                f'the sheet reads "{title.strip()}", which is not {ctype.label}'
+            )
+    return None
 
 
 def sanitise_ladder(

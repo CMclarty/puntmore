@@ -510,6 +510,23 @@ def _process_upload(
             db.commit()
             return
 
+        # Does the sheet say it is the coupon that was selected? Checked BEFORE
+        # anything is built from it: a wrong-type upload produces a coupon that
+        # looks entirely normal — real fixtures, real prices — priced against
+        # another coupon's ladder, which is how an 8000/1 rung reached a board
+        # paying 300/1. Nothing else downstream can tell.
+        wrong_sheet = coupon_types.title_mismatch(ctype, extracted.title)
+        if wrong_sheet:
+            logger.error("Coupon %s: %s — not saved", coupon.id, wrong_sheet)
+            coupon.status = "failed"
+            coupon.scan_audit = json.dumps({
+                "clean": False,
+                "summary": f"Wrong sheet for this coupon type — {wrong_sheet}",
+                "title_mismatch": wrong_sheet,
+            })
+            db.commit()
+            return
+
         scan = solve_grid(extracted)
         legs = _build_legs(coupon.id, extracted, ctype, reference)
         db.add_all(legs)
@@ -602,6 +619,13 @@ def rescan_coupon(
     except Exception:
         logger.exception("OCR re-scan failed (%s)", type(ocr).__name__)
         raise HTTPException(status_code=502, detail="OCR extraction failed")
+
+    # Same header check as the upload. A re-scan reads the stored image, so if
+    # the wrong sheet was filed under this type it is still the wrong sheet —
+    # and re-scanning must not be a way to launder it past the check.
+    wrong_sheet = coupon_types.title_mismatch(ctype, extracted.title)
+    if wrong_sheet:
+        raise HTTPException(status_code=409, detail=wrong_sheet.capitalize())
 
     # A re-scan is a fresh read of the same sheet, so it gets a fresh verdict —
     # replacing the old one, which described a scan that no longer stands.

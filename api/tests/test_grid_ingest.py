@@ -456,3 +456,77 @@ def test_a_block_nobody_could_read_does_not_mint_an_empty_coupon(grid_client, db
     assert {c.type_code for c in db.query(Coupon).all()} == {"TTS2"}
     scan = json.loads(db.query(Coupon).first().scan_audit)
     assert scan["holes"] == 2 and scan["absent"] == 0
+
+
+# --- The header must not contradict the type that was selected ---------------
+# GG Bonus and GG No Draw are printed for the same dates over near-identical
+# fixture lists, so the header is the only thing separating them on sight. The
+# upload form asks which one it is and nothing checked the answer — which is how
+# No Draw's 8000/1 ten-correct rung reached a coupon paying 300/1.
+
+def test_the_header_veto_catches_each_gg_sheet_under_the_other_type():
+    from app.coupon_types import BY_CODE, title_mismatch
+
+    ggb, ggnd = BY_CODE["GGB"], BY_CODE["GGND"]
+    assert title_mismatch(ggb, "GG NO DRAW") is not None
+    assert title_mismatch(ggnd, "GG BONUS") is not None
+    # And each sheet under its OWN type passes.
+    assert title_mismatch(ggb, "GG BONUS") is None
+    assert title_mismatch(ggnd, "GG NO DRAW") is None
+
+
+def test_the_header_veto_reads_through_case_and_punctuation():
+    from app.coupon_types import BY_CODE, title_mismatch
+
+    for header in ("gg no draw", "GG  No-Draw", "  NO DRAW & BOTH TEAMS TO SCORE "):
+        assert title_mismatch(BY_CODE["GGB"], header) is not None
+
+
+def test_an_unreadable_or_generic_header_never_blocks_an_upload():
+    """A veto, not a classifier. Both GG sheets print "GOALS GALORE", and a
+    header OCR could not read is not evidence of anything — blocking a genuine
+    upload is worse than missing a mismatch, which has other symptoms."""
+    from app.coupon_types import BY_CODE, title_mismatch
+
+    for header in (None, "", "GOALS GALORE", "BETFRED MIDWEEK"):
+        assert title_mismatch(BY_CODE["GGB"], header) is None
+        assert title_mismatch(BY_CODE["GGND"], header) is None
+
+
+def test_a_wrong_sheet_never_becomes_a_coupon(grid_client, db):
+    """It would otherwise look entirely normal — real fixtures, real prices —
+    and be valued against another coupon's ladder."""
+    class NoDrawSheetOCR(OCRProvider):
+        def extract(self, image_bytes, media_type, hint=None):
+            return ExtractedCoupon(
+                rows=_rows(("Kairat v Omonia Nicosia", {})),
+                title="GG NO DRAW",
+                period_text="Monday 10th - Thursday 13th August",
+                payout_ladder={2: 6.5, 3: 15.0},
+            )
+
+    app.state.ocr_provider = NoDrawSheetOCR()
+    coupon_id = _upload(grid_client, "GGB", period="MIDWEEK")
+
+    coupon = db.get(Coupon, coupon_id)
+    assert coupon.status == "failed"
+    assert db.query(Leg).filter(Leg.coupon_id == coupon_id).count() == 0
+    # The No Draw ladder must not have been stored against a GG Bonus coupon.
+    assert coupon.payout_ladder is None
+    assert "not GG Bonus" in json.loads(coupon.scan_audit)["summary"]
+
+
+def test_the_right_sheet_under_its_own_type_still_saves(grid_client, db):
+    class BonusSheetOCR(OCRProvider):
+        def extract(self, image_bytes, media_type, hint=None):
+            return ExtractedCoupon(
+                rows=_rows(("Kairat v Omonia Nicosia", {}),
+                           ("Mariehamn v Lahti", {})),
+                title="GG BONUS",
+                period_text="Monday 10th - Thursday 13th August",
+            )
+
+    app.state.ocr_provider = BonusSheetOCR()
+    coupon_id = _upload(grid_client, "GGB", period="MIDWEEK")
+    assert db.get(Coupon, coupon_id).status == "confirmed"
+    assert db.query(Leg).filter(Leg.coupon_id == coupon_id).count() == 2

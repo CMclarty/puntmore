@@ -138,6 +138,16 @@ Both live behind their seams. Core logic never calls a vendor API directly.
   after the new coupon has read rows: a failed or empty scan must never delete a
   working coupon. Two issues of one type still coexist (GG midweek + weekend);
   the key is type AND period, never type alone.
+- **The sheet's header must not contradict the selected type**
+  (`coupon_types.title_mismatch`, Aug 2026). The upload form asks which coupon
+  was photographed and nothing checked the answer — and GG Bonus / GG No Draw
+  print for the same dates over near-identical fixture lists, so the header is
+  all that separates them. A wrong-type upload looks completely normal (real
+  fixtures, real prices) while being valued against the other coupon's ladder.
+  Checked BEFORE legs are built, on upload AND re-scan; a mismatch fails the
+  coupon rather than saving it. It is a VETO, not a classifier — an unreadable
+  or generic header ("GOALS GALORE" is on both sheets) passes, because blocking
+  a real upload is worse than missing a mismatch.
 - **A ladder belongs to ONE coupon — never borrow another's.** GG Bonus and GG
   No Draw are both Betfred, print for the same dates over near-identical fixture
   lists, and carry COMPLETELY different boards. Read off the Mon 10 – Thu 13 Aug
