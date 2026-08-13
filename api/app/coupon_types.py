@@ -91,6 +91,27 @@ class CouponType:
 _GG_LADDER = {
     3: 5.5, 4: 10.0, 5: 17.0, 6: 29.0, 7: 51.0,
     8: 101.0, 9: 176.0, 10: 301.0, 11: 501.0, 12: 801.0, 13: 1501.0,
+    # Read off the Mon 10 – Thu 13 August 2026 midweek issue, which printed the
+    # two rungs the July photo cut off. Identical on every other rung.
+    14: 2501.0, 15: 5001.0,
+}
+
+# Ladder read off the Betfred GG NO DRAW midweek issue, Mon 10 – Thu 13 August
+# 2026 ("GOALS GALORE — Both teams to score and NO DRAW").
+# Fractional as printed: BOTH correct 11/2, then 14/1, 40/1, 100/1, 250/1,
+# 600/1, 1500/1, 3500/1, 8000/1. The sheet stops at 10.
+#
+# NOTHING LIKE GG BONUS'S BOARD, which is why borrowing it was so wrong: this
+# one starts at a DOUBLE where GG Bonus starts at a treble, and by 10 correct it
+# pays 8000/1 against GG Bonus's 300/1 — twenty-six times as much. No Draw is
+# the harder market (the draw is excluded as well as both teams scoring), and
+# the prices say so at every rung.
+#
+# The sheet's own words: "Doubles and upwards accepted", "Minimum selection
+# doubles". A reduced single settles at 11/8 (GG Bonus settles one at 8/11).
+_GGND_LADDER = {
+    2: 6.5, 3: 15.0, 4: 41.0, 5: 101.0, 6: 251.0,
+    7: 601.0, 8: 1501.0, 9: 3501.0, 10: 8001.0,
 }
 
 # Ladder printed on the William Hill "Both score no draw" issue of Sat 25 /
@@ -133,23 +154,16 @@ COUPON_TYPES: tuple[CouponType, ...] = (
         period_codes=_VARIABLE, prices_each_selection=False, pays_ladder=True,
         default_ladder=_GG_LADDER, max_fair_odds=1.80, display_picks=3,
     ),
-    # Shown as a DOUBLE — this coupon is bet in twos and its board pays from 2.
+    # Shown as a DOUBLE, which is the sheet's own minimum: "Doubles and upwards
+    # accepted", and the first rung is "BOTH correct 11/2".
     #
-    # NO DEFAULT LADDER, deliberately, and this is a correction: it used to
-    # borrow _GG_LADDER, which was observed on a GG BONUS coupon and never on
-    # this one. Two different markets — No Draw excludes the draw, so it is the
-    # harder bet and must pay more per leg — and the confirmation is that this
-    # board pays a DOUBLE while the GG Bonus board starts at three correct.
-    # A borrowed ladder is not a fallback, it is the wrong coupon's prices.
-    #
-    # The same rule that keeps Hill's and Betfred's boards apart (see above)
-    # applies one level down, between two coupons from the same bookmaker.
-    # Until this board is read off an issue, the coupon's own scan is the only
-    # source — and where there is no scan there is no combination figure.
+    # Its own board, read off the coupon (_GGND_LADDER). It borrowed GG Bonus's
+    # until August 2026 on the assumption that one Betfred board fits both — an
+    # assumption nothing supported, and the real sheets are nothing alike.
     CouponType(
         "GGND", "GG No Draw", "GG No Draw",
         period_codes=_VARIABLE, prices_each_selection=False, pays_ladder=True,
-        display_picks=2,
+        default_ladder=_GGND_LADDER, display_picks=2,
     ),
     # William Hill's "Both score no draw". Same MARKET as GGND — the selection
     # string is identical so it prices through exactly the same path — but its

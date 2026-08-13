@@ -128,6 +128,11 @@ Rules:
   this is, so do not guess it from the header.
 - "payout_ladder": every rung you can read, as printed fractions. Return [] if
   the coupon shows none. Omit rungs cut off or illegible rather than guessing.
+  "picks" is the NUMBER of selections that rung pays for, so a rung headed
+  "BOTH correct" is picks 2 — some boards word the first rung that way instead
+  of numbering it, and dropping it loses the shortest fold the coupon accepts.
+  Read the rungs off THIS sheet only: two coupons printed for the same dates
+  can carry completely different boards.
 - "period_text": the date range printed on the coupon, e.g.
   "Monday 20th - Thursday 23rd July"."""
 

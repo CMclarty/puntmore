@@ -186,26 +186,43 @@ def test_gg_coupons_pay_off_a_ladder_not_a_single_price():
     assert get("TTS2").default_ladder == {}
 
 
-def test_gg_no_draw_does_not_borrow_gg_bonuss_ladder():
-    """A CORRECTION, and the reason it matters.
+def test_gg_no_draw_has_its_own_board_not_gg_bonuss():
+    """Read off the Betfred GG NO DRAW midweek issue, Mon 10 - Thu 13 Aug 2026.
 
-    GGND used to default to _GG_LADDER, which was read off a GG BONUS coupon and
-    never off this one. They are different markets from the same bookmaker — No
-    Draw excludes the draw, so it is the harder bet — and the proof they print
-    different boards is that GGND pays a DOUBLE while GG Bonus starts at three
-    correct. A borrowed ladder is not a fallback, it is another coupon's prices.
-
-    Empty until this board is read off an issue, so the only source is the
-    coupon's own scan. sanitise_ladder must not be handed the wrong board to
-    validate against either — with no default it applies the monotonic check
-    alone and leaves scanned rungs it cannot source an opinion on.
+    GGND defaulted to _GG_LADDER until August 2026, on the assumption that one
+    Betfred board fits both GG coupons. The real sheets are nothing alike: this
+    one pays from a DOUBLE where GG Bonus starts at a treble, and by ten correct
+    it pays 8000/1 against GG Bonus's 300/1. No Draw is the harder market — the
+    draw is excluded as well as both teams scoring — and every rung says so.
     """
+    from app.coupon_types import get
+    ggnd, ggb = get("GGND").default_ladder, get("GGB").default_ladder
+
+    assert ggnd[2] == 6.5, "BOTH correct 11/2 — the fold GG Bonus does not offer"
+    assert 2 not in ggb
+    assert ggnd[3] == 15.0 and ggb[3] == 5.5
+    assert ggnd[10] == 8001.0 and ggb[10] == 301.0
+    assert max(ggnd) == 10, "the GGND sheet stops at ten"
+
+
+def test_the_two_gg_boards_are_far_enough_apart_to_catch_a_crossed_ladder():
+    """The safety net this buys. Since the boards differ by an order of
+    magnitude, one coupon's ladder landing on the other is now caught by
+    sanitise_ladder rather than priced as spectacular value."""
     from app.coupon_types import get, sanitise_ladder
-    assert get("GGND").default_ladder == {}
+
+    ggnd, ggb = get("GGND").default_ladder, get("GGB").default_ladder
+    repaired, notes = sanitise_ladder(dict(ggnd), ggb)   # GGND board on a GGB coupon
+    assert notes, "a crossed ladder must not pass silently"
+    assert repaired[10] == ggb[10] == 301.0
+
+
+def test_a_scanned_board_survives_when_there_is_no_default():
+    from app.coupon_types import sanitise_ladder
 
     scanned = {2: 3.25, 3: 7.0, 4: 15.0}
-    ladder, notes = sanitise_ladder(scanned, get("GGND").default_ladder)
-    assert ladder == scanned, "a scanned board must survive with no default"
+    ladder, notes = sanitise_ladder(scanned, {})
+    assert ladder == scanned
     assert notes == []
 
 
