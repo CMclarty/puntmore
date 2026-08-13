@@ -86,6 +86,12 @@ def _issue_status(coupon: Coupon, legs: int, ahead: int, undated: int) -> str:
     if ahead:
         return "upcoming" if coupon.period_status == "upcoming" else "active"
     if undated:
+        # Undated selections say "we could not read the times", which is only
+        # worth surfacing while the coupon's window could still contain a
+        # fixture. Once the window has ended they say nothing — and letting them
+        # speak anyway kept months of finished coupons on the landing page.
+        if coupon.period_status == "past":
+            return "past"
         return "upcoming" if coupon.period_status == "upcoming" else "undated"
     if legs:
         # It HAS fixtures and every one of them has kicked off. Finished, and
@@ -162,7 +168,14 @@ def list_coupon_types(db: Session = Depends(get_db)):
             func.count(Leg.id).label("legs"),
             func.count(Leg.fair_odds).label("priced"),
             func.count(case((Leg.kickoff >= live_from, 1))).label("ahead"),
-            func.count(case((Leg.kickoff.is_(None), 1))).label("undated"),
+            # `Leg.id.isnot(None)` is load-bearing. This is an OUTER join, so a
+            # coupon with NO legs still produces one row with every Leg column
+            # NULL — and "kickoff IS NULL" is then TRUE, counting a leg that
+            # does not exist. Every empty coupon ever uploaded was classified
+            # "undated" and pinned to the landing page for ever because of it.
+            func.count(
+                case(((Leg.id.isnot(None)) & (Leg.kickoff.is_(None)), 1))
+            ).label("undated"),
             func.min(case((Leg.kickoff >= live_from, Leg.kickoff))).label("next_ko"),
         )
         .outerjoin(Leg, Leg.coupon_id == Coupon.id)

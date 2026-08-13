@@ -225,13 +225,10 @@ function TrackerLanding({ types, loading, onOpen, onOpenIssue }) {
                       was the same width as the fact it was labelling. */}
                   <span className={styles.chipLabel}>{p.label ?? '—'}</span>
                   <span className={styles.chipWindow}>{fmtWindow(p.match_day, p.period_ends)}</span>
-                  {/* An issue only reaches this list because it still has a
-                      fixture to come — EXCEPT this one, whose selections all
-                      lost their kickoff in the read. Said out loud: it is the
-                      one state where the count below isn't what's bettable. */}
-                  {p.status === 'undated' && (
-                    <span className={styles.chipUndated}>no kickoff read</span>
-                  )}
+                  {/* No badges here. This is a list of what has been uploaded
+                      and is still live — the window and the count say it, and
+                      anything else added to a row is noise on the one screen
+                      that has to be readable at a glance. */}
                   <span
                     className={`${styles.chipCount} ${styles.mono}`}
                     title="still to kick off / total selections"

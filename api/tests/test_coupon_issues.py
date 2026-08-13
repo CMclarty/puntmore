@@ -370,3 +370,34 @@ def test_the_landing_reports_what_is_left_to_bet(db):
     assert issue["live_count"] == 2
     assert issue["undated_count"] == 1
     assert issue["next_kickoff"] is not None
+
+
+def test_an_empty_coupon_does_not_pin_itself_to_the_landing_for_ever(db):
+    """The regression that filled the landing page with dead rows.
+
+    The rollup is an OUTER join, so a coupon with NO legs still produces a row
+    with every Leg column NULL — and "kickoff IS NULL" is then TRUE, counting a
+    selection that does not exist. Every empty upload ever made was therefore
+    classified "undated" and shown for ever, marked as if its kickoffs had
+    failed to read.
+    """
+    today = date.today()
+    c = Coupon(type_code="GGB", period="MIDWEEK",
+               match_day=today - timedelta(days=7),
+               period_ends=today - timedelta(days=5), status="confirmed")
+    db.add(c)
+    db.commit()
+    assert _status_of(c.id) is None, "a finished empty coupon is history"
+
+
+def test_undated_selections_do_not_outlive_the_coupons_window(db):
+    """Unread kickoff times are only worth surfacing while the window could
+    still hold a fixture. Afterwards they say nothing, and letting them speak
+    kept months of finished coupons on screen."""
+    today = date.today()
+    live = _dated_issue(db, "MIDWEEK", today - timedelta(days=1),
+                        today + timedelta(days=1), [None, None])
+    done = _dated_issue(db, "WEEKEND", today - timedelta(days=9),
+                        today - timedelta(days=6), [None, None])
+    assert _status_of(live.id) == "undated"
+    assert _status_of(done.id) is None

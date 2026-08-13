@@ -583,20 +583,6 @@
 .chipLabel { font-weight: 600; color: var(--ink); }
 .chipWindow { color: var(--faint); }
 .chipCount { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
-/* The one issue state that isn't self-evident from the window: selections
-   remain but none carries a kickoff, so nothing can say whether they are still
-   to come. Amber, because it is a reading to fix (re-scan), not a coupon to
-   bet. */
-.chipUndated {
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--amber, #8a6100);
-  background: rgba(180, 120, 20, 0.1);
-  border-radius: 4px;
-  padding: 1px 5px;
-}
 /* This issue's own ladder value, on its own line: it is the reading on a
    ladder coupon, and it is per issue — two live issues are two different bets. */
 .chipCombo {
