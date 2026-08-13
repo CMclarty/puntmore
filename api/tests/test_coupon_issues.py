@@ -342,11 +342,12 @@ def test_a_fixture_inside_the_cleanup_grace_is_still_live(db):
 
 def test_undated_selections_never_hold_a_coupon_open(db):
     """A leg whose kickoff was never read is preserved by the cleanup (unknown
-    is not past) — but it must not be the thing making a coupon look live."""
+    is not past) — but it is not a fixture still to come, so it cannot make a
+    coupon live. It is counted and nothing more."""
     today = date.today()
     c = _dated_issue(db, "WEEKEND", today - timedelta(days=3), today, [None, None])
-    assert c.period_status == "active"
-    assert _status_of(c.id) == "undated"
+    assert c.period_status == "active", "its printed window still contains today"
+    assert _status_of(c.id) is None
 
 
 def test_an_issue_whose_window_has_not_started_reads_as_upcoming(db):
@@ -390,14 +391,12 @@ def test_an_empty_coupon_does_not_pin_itself_to_the_landing_for_ever(db):
     assert _status_of(c.id) is None, "a finished empty coupon is history"
 
 
-def test_undated_selections_do_not_outlive_the_coupons_window(db):
-    """Unread kickoff times are only worth surfacing while the window could
-    still hold a fixture. Afterwards they say nothing, and letting them speak
-    kept months of finished coupons on screen."""
+def test_there_is_no_fourth_state(db):
+    """There was briefly an "undated" status, surfaced as a badge on the landing
+    page. It was never asked for and it is what filled that page with dead
+    coupons. A coupon is live, upcoming, or finished."""
     today = date.today()
-    live = _dated_issue(db, "MIDWEEK", today - timedelta(days=1),
-                        today + timedelta(days=1), [None, None])
-    done = _dated_issue(db, "WEEKEND", today - timedelta(days=9),
-                        today - timedelta(days=6), [None, None])
-    assert _status_of(live.id) == "undated"
-    assert _status_of(done.id) is None
+    for start, end in ((today - timedelta(days=1), today + timedelta(days=1)),
+                       (today - timedelta(days=9), today - timedelta(days=6))):
+        c = _dated_issue(db, "MIDWEEK", start, end, [None, None])
+        assert _status_of(c.id) in (None, "active", "upcoming")

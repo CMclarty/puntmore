@@ -71,30 +71,24 @@ def _issue_status(coupon: Coupon, legs: int, ahead: int, undated: int) -> str:
     every match already played — which is what this replaces.
 
       active    at least one fixture still to kick off
-      undated   selections remain, but NOT ONE carries a kickoff. Never "live":
-                an undated row is a row whose time we failed to read, and it
-                must not be the thing holding a finished coupon open. Kept
-                visible rather than dropped, because it means the read lost the
-                times and that is worth seeing.
-      upcoming  no fixture has gone yet and the window hasn't started
-      past      every fixture has kicked off
+      upcoming  nothing has gone and the window hasn't started
+      past      nothing left to bet
 
-    The window is still what separates upcoming from past when the fixtures
-    cannot say — a coupon uploaded before its first kickoff has everything ahead
-    of it either way.
+    Three states, and no more. There was briefly a fourth for "has selections
+    but none of them has a kickoff time", surfaced on the landing page as a
+    badge. It was not asked for, it put internal plumbing on screen, and it is
+    what filled that page with dead coupons — so a fixture with no kickoff now
+    simply isn't a fixture still to come, which is what the rule says on its
+    face. `undated` stays as a COUNT for anything that wants it; it decides
+    nothing.
+
+    The window is still what separates upcoming from past when there are no
+    selections to reason from at all.
     """
     if ahead:
         return "upcoming" if coupon.period_status == "upcoming" else "active"
-    if undated:
-        # Undated selections say "we could not read the times", which is only
-        # worth surfacing while the coupon's window could still contain a
-        # fixture. Once the window has ended they say nothing — and letting them
-        # speak anyway kept months of finished coupons on the landing page.
-        if coupon.period_status == "past":
-            return "past"
-        return "upcoming" if coupon.period_status == "upcoming" else "undated"
     if legs:
-        # It HAS fixtures and every one of them has kicked off. Finished, and
+        # It HAS selections and not one of them is still to come. Finished, and
         # the window does not get a vote — deferring to it here is precisely the
         # bug: a Fri–Mon window reads "active" all Monday with nothing to bet.
         return "past"
