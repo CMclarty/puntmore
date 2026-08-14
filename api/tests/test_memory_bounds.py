@@ -113,31 +113,60 @@ def test_a_locked_out_user_stays_locked_out():
 # --- the request path -------------------------------------------------------
 
 def test_an_enormous_image_is_stored_rather_than_decoded():
-    """Rotating holds two full-size copies. Past the ceiling that is bigger
-    than the whole instance, and a sideways coupon beats a restart."""
+    """A format with no reduced-scale decode has to be materialised whole.
+    Past the ceiling that is bigger than the whole instance, and a sideways
+    coupon beats a restart."""
     from PIL import Image
     import io
 
     from app import images
 
     buf = io.BytesIO()
-    Image.new("RGB", (64, 64), "white").save(buf, format="JPEG")
+    Image.new("RGB", (64, 64), "white").save(buf, format="PNG")
     original = buf.getvalue()
 
     # Claim a huge picture without allocating one.
     class _Huge:
-        format = "JPEG"
+        format = "PNG"
         width = height = 20_000          # 400 MP
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def getexif(self): return {0x0112: 6}    # rotate 90
+        def draft(self, *_a): return None        # PNG has no reduced decode
 
     monkeypatched = images.Image.open
     images.Image.open = lambda *_a, **_k: _Huge()
     try:
-        assert images.normalise_orientation(original, "image/jpeg") is original
+        assert images.prepare_for_ocr(original, "image/png") == (original, "image/png")
     finally:
         images.Image.open = monkeypatched
+
+
+def test_a_phone_photo_never_decodes_at_full_size():
+    """The whole point of the cap: a 48 MP photo used to cost ~500 MB to send.
+    Peak allocation here must stay a small fraction of a 512 MB instance."""
+    import io
+    import tracemalloc
+    from PIL import Image
+
+    from app import images
+
+    # 8064x6048 ≈ 48 MP, a 2026 flagship at full resolution.
+    src = Image.new("RGB", (8064, 6048), "white")
+    buf = io.BytesIO()
+    src.save(buf, format="JPEG", quality=90)
+    src.close()
+    data = buf.getvalue()
+    del buf
+
+    tracemalloc.start()
+    out, _ = images.prepare_for_ocr(data, "image/jpeg")
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    assert max(Image.open(io.BytesIO(out)).size) == images.MAX_LONG_EDGE
+    # Full-size would be ~146 MB per copy, two copies while rotating.
+    assert peak < 80 * 1024 * 1024, f"peak was {peak / 1e6:.0f} MB"
 
 
 def _upload_of(client, size_bytes):

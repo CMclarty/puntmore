@@ -124,8 +124,26 @@ Both live behind their seams. Core logic never calls a vendor API directly.
   The same rule covers the request path: uploads are capped
   (`MAX_UPLOAD_MB`, the body is held in memory) and images above
   `images.MAX_DECODE_PIXELS` are stored un-rotated rather than decoded, since
-  rotating holds two full-size copies. Never "fix" that by resizing the image —
-  OCR accuracy on small print depends on the full resolution.
+  rotating holds two full-size copies.
+- **AN UPLOAD IS CAPPED AT THE VISION API'S OWN RESOLUTION** (`images.py`,
+  Aug 2026). `prepare_for_ocr` caps the long edge at `MAX_LONG_EDGE = 2576` —
+  which is **Claude's high-resolution tier limit**, the size the API downscales
+  everything to before the model sees it. So this is NOT a quality trade-off:
+  past that point the pixels are discarded upstream either way. Sending them
+  cost ~503 MB of peak RSS on a 48 MP photo (measured) on a 512 MB instance —
+  one upload, one restart — and the API would have **rejected** the request
+  anyway, since it refuses any image over 10 MB base64-encoded and a 25 MB JPEG
+  inflates to ~34 MB. Now ~140 MB peak and a ~1 MB payload.
+  Two details are load-bearing and easy to undo by accident:
+  - `draft()` must be passed an **aspect-matched** target, never a square box.
+    It picks its scale from `min(w // want_w, h // want_h)`, so `(2576, 2576)`
+    against a 4:3 photo scores 1 on the short edge and declines to reduce at
+    all — the exact full-size decode it exists to avoid.
+  - **Shrink before rotating.** `exif_transpose` allocates a second copy;
+    doing it second makes that copy the small one.
+  Never LOWER `MAX_LONG_EDGE` to save more memory — below the API's cap it
+  becomes a real loss of detail, and small print is what is being read here.
+  What is stored is what is sent, so a re-scan costs the same nothing.
 - The Odds API free tier (AccaBonus/Cards) is 500 credits/month. The 24-hour
   cache (`Settings.odds_cache_ttl`, `app/odds/client.py`) keeps this safe — do
   not lower the default. A paid-tier upgrade is an `.env` change only.

@@ -27,7 +27,7 @@ from ..coupon_grid import (
 )
 from ..coupon_images import delete_coupon_image
 from ..coupon_types import COUPON_TYPES
-from ..images import normalise_orientation
+from ..images import prepare_for_ocr
 from ..pricing.legs import price_legs
 from ..providers.base import OcrHint
 from ..security import require_user
@@ -362,12 +362,12 @@ async def upload_coupon(
     if media_type not in ALLOWED_MEDIA_TYPES:
         raise HTTPException(status_code=400, detail=f"Unsupported image type: {media_type}")
 
-    # Apply the EXIF orientation tag to the pixels before anything else — phone
-    # cameras record rotation as metadata, so a portrait shot otherwise reaches
-    # the OCR provider sideways. The stored image is normalised too, so a later
-    # re-scan reads the same orientation. Never resize or recompress here: OCR
-    # accuracy on small print depends on the full resolution.
-    image_bytes = normalise_orientation(await _read_capped(file), media_type)
+    # Normalise before anything else: apply the EXIF orientation tag to the
+    # pixels (phone cameras record rotation as metadata, so a portrait shot
+    # otherwise reaches the OCR provider sideways) and cap the long edge at the
+    # vision API's own maximum resolution. What is STORED is what is sent, so a
+    # later re-scan reads the same image and costs the same nothing.
+    image_bytes, media_type = prepare_for_ocr(await _read_capped(file), media_type)
 
     upload_dir = Path(settings.upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
