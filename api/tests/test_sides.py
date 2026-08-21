@@ -230,3 +230,87 @@ def test_one_matching_side_cannot_carry_a_fixture():
     board.append("AC Horsens vs FC Nordsjaelland")
     got = P._best_match("Horsens v Nordsjaelland", board)
     assert got and got[0] == "AC Horsens vs FC Nordsjaelland"
+
+
+# --- The side is resolved from the TEAM, not from the whole pick string ---
+#
+# Live symptom: a coupon came back with selections showing no fair odds at all.
+# An unresolved side is deliberately unpriced, so anything that stops a side
+# resolving stops the leg pricing — and the side was being scored by a raw
+# character ratio over the WHOLE pick. The market suffix is most of that
+# string, so on a short club name it outweighed the name itself.
+
+def test_short_team_names_still_resolve():
+    """"Lyon Win and Over 2.5" is 4 characters of team and 16 of market.
+
+    Scored whole, that is 0.33 against "Lyon" — under any bar that also keeps
+    unrelated names out — so the leg went unpriced. Scored as a team fragment
+    it is an exact match.
+    """
+    assert _side_of("Lyon Win and Over 2.5", "Lyon", "Paris Saint-Germain") is True
+    assert _side_of("Ajax Win and Over 2.5", "Ajax", "Go Ahead Eagles") is True
+    assert _side_of("Nice Win to Nil", "Nice", "Winterthur") is True
+
+
+def test_side_resolution_uses_the_alias_table():
+    """The same names fixture matching bridges must resolve a side.
+
+    The fixture only matched BECAUSE the alias table canonicalises these two,
+    so a side resolver that cannot see the aliases rejects the very fixture the
+    matcher just accepted.
+    """
+    assert _side_of("Red Star Belgrade to Score 2", "Crvena Zvezda", "Larne") is True
+    assert _side_of("Larne to Score 2", "Crvena Zvezda", "Larne") is False
+
+
+def test_side_resolution_survives_shortening_and_word_order():
+    assert _side_of("Paide to Score 1", "Paide Linnameeskond", "Flora Tallinn") is True
+    assert _side_of("ETO Gyor Win and Over 1.5", "Gyori ETO", "Ferencvaros") is True
+
+
+def test_reserve_side_does_not_steal_the_first_team():
+    """team_similarity zeroes a squad-marker mismatch, so this must stay clean
+    even though the two names are otherwise identical."""
+    assert _side_of("Wisla Krakow to Score 1", "Wisla Krakow", "Wisla Krakow II") is True
+
+
+def test_team_fragment_stops_at_the_market():
+    from app.providers.bettingiscool import _team_fragment
+    assert _team_fragment("Lyon Win and Over 2.5") == "Lyon"
+    assert _team_fragment("Kairat Almaty to Score 1") == "Kairat Almaty"
+    assert _team_fragment("Nice Win to Nil") == "Nice"
+    assert _team_fragment("Hannover 96 Win and Over 2.5") == "Hannover 96"
+    # Market words only — names no side, so it must stay unresolved.
+    assert _team_fragment("Win and Over 2.5") == ""
+
+
+def test_a_club_ending_in_a_number_is_not_read_as_a_totals_line():
+    """"Hannover 96" contains "over 96".
+
+    Without a word boundary the over-line regex matched that FIRST, so the leg
+    was derived at a 96-goal line — probability zero, no price, and a leg that
+    looked like a fixture the board did not carry.
+    """
+    from app.providers.bettingiscool import _OVER_RE
+    m = _OVER_RE.search("hannover 96 win and over 2.5")
+    assert m is not None and m.group(1) == "2.5"
+
+
+def test_short_home_name_prices_end_to_end():
+    """The regression as the user saw it: a leg with no fair odds."""
+    fixture = {
+        "event_id": 7, "league_name": "Ligue 1",
+        "runner_home": "Lyon", "runner_away": "Paris Saint-Germain",
+        "starts": "2026-08-22T19:00:00",
+    }
+    rows = [{
+        "period": 0, "market": "moneyline", "line": None,
+        "odds0": 3.60, "odds1": 2.40, "odds2": 2.80,
+    }]
+    p = _StubProvider(fixture, rows)
+    (home,) = p.get_fair_odds([
+        MatchQuery(match_id=1, match_name="Lyon v Paris Saint-Germain",
+                   market="Lyon Win"),
+    ])
+    assert home.side is True
+    assert home.fair_odds is not None

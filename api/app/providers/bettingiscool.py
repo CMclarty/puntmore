@@ -95,15 +95,29 @@ MAX_GRID_RMSE = 0.05
 ODDS_CACHE_MAX = 256
 GRID_CACHE_MAX = 256
 
-# Resolving which side a pick names. The pick is a fragment ("Lyon Win and
-# Over 2.5") scored against a full runner name, so the bar is lower than
-# fixture matching — but the two sides must be clearly separated, hence the
-# margin. Fail to None; an unresolved side is unpriced, never assumed.
-SIDE_THRESHOLD = 0.25
+# Resolving which side a pick names. The TEAM FRAGMENT is compared (see
+# _team_fragment), not the whole pick, so this is a team-name comparison on the
+# same footing as fixture matching — and it is scored with team_similarity, not
+# a raw character ratio, for the same reasons that function exists: the coupon
+# and the board disagree by shortening, word order and outright different names.
+#
+# The bar is MATCH_THRESHOLD's, and that is not arbitrary: a fixture only got
+# here by scoring >= MATCH_THRESHOLD on BOTH sides (_pair_score takes the
+# weaker), and a two-sided coupon builds its pick from the same fixture name it
+# matched on. So the naming side is guaranteed to clear this bar; anything that
+# does not is a pick that no longer resembles either runner. The margin keeps
+# two look-alike runners ("United v United") from resolving on noise.
+# Fail to None; an unresolved side is unpriced, never assumed.
+SIDE_THRESHOLD = MATCH_THRESHOLD
 SIDE_MARGIN = 0.10
 
-_OVER_RE = re.compile(r"over\s+([\d.]+)", re.IGNORECASE)
-_UNDER_RE = re.compile(r"under\s+([\d.]+)", re.IGNORECASE)
+# \b on both, and load-bearing. Without the leading boundary "over\s+[\d.]+"
+# matches inside a club name that ends in a number — "Hannover 96 Win and Over
+# 2.5" found "over 96" FIRST and derived the leg at a 96-goal line, which is
+# p=0, which is no price at all. Every Hannover Win-and-Over leg went unpriced
+# and looked like a fixture the board did not carry.
+_OVER_RE = re.compile(r"\bover\s+([\d.]+)", re.IGNORECASE)
+_UNDER_RE = re.compile(r"\bunder\s+([\d.]+)", re.IGNORECASE)
 _WIN_RE = re.compile(r"\bwin\b", re.IGNORECASE)
 # "Win to Nil" also contains "win", so it MUST be tested before the plain
 # moneyline branch or it silently prices as a straight win — a different and
@@ -131,19 +145,58 @@ def _parse_starts(raw) -> datetime | None:
         return None
 
 
+def _team_fragment(pick: str) -> str:
+    """The team name out of a pick, with the market words cut off.
+
+    A pick reads "{team} {market}" — "Lyon Win and Over 2.5", "Kairat to
+    Score 1" — so the team is everything before the first market keyword.
+
+    Cutting it matters because the market words are NOISE against a runner
+    name, and on a short name they outweigh the signal: "Lyon Win and Over 2.5"
+    is 20 characters of which 4 are the team, so it scored 0.33 against "Lyon"
+    and the side would not resolve at all. Comparing the fragment compares two
+    club names, which is the only comparison that means anything here — and it
+    is what lets team_similarity's alias, containment and word-order handling
+    apply, none of which survives being diluted by a market suffix.
+
+    Returns "" when the pick is market words only ("Win and Over 2.5"), which
+    names no side and must stay unresolved.
+    """
+    key = pick.strip()
+    cut = len(key)
+    for pattern in (
+        _GG_NO_DRAW_RE, _GG_RE, _TTS_RE, _WIN_TO_NIL_RE,
+        _WIN_RE, _OVER_RE, _UNDER_RE,
+    ):
+        m = pattern.search(key)
+        if m:
+            cut = min(cut, m.start())
+    return key[:cut].strip()
+
+
 def _side_of(pick: str, runner_home, runner_away) -> bool | None:
     """Which side a pick names: True home, False away, None unresolved.
 
-    Compares the pick against both runner names on the SAME normalise + fuzzy
-    path used for fixture matching, and requires a clear winner — a pick that
-    scores alike against both ("United v United") is ambiguous, and an ambiguous
-    side must go unpriced rather than default to one.
+    Scores the pick's TEAM FRAGMENT against both runner names with
+    team_similarity — the same function fixture matching uses, so a side
+    resolves through the same alias table, containment and word-order rules
+    that got the fixture matched in the first place. Using a raw character
+    ratio on the whole pick instead is what left short-named ("Lyon", "Ajax")
+    and aliased ("Red Star Belgrade" / "Crvena Zvezda") home selections
+    unresolved — and an unresolved side is an unpriced leg, so a coupon came
+    back with half its selections showing no fair odds.
+
+    Requires a clear winner — a pick that scores alike against both
+    ("United v United") is ambiguous, and an ambiguous side must go unpriced
+    rather than default to one.
     """
     if not isinstance(runner_home, str) or not isinstance(runner_away, str):
         return None
-    p = normalise_match(pick)
-    h = difflib.SequenceMatcher(None, p, normalise_match(runner_home)).ratio()
-    a = difflib.SequenceMatcher(None, p, normalise_match(runner_away)).ratio()
+    team = _team_fragment(pick)
+    if not team:
+        return None
+    h = team_similarity(team, runner_home)
+    a = team_similarity(team, runner_away)
     if max(h, a) < SIDE_THRESHOLD or abs(h - a) < SIDE_MARGIN:
         return None
     return h > a
