@@ -41,6 +41,37 @@ longer the live path**. It has no score grid of its own, so its compound-leg
 pricing is still a naive product — if it is ever made live again, wire it to
 `pricing.grid` first rather than shipping that path.
 
+**The fallback is reached SILENTLY when `BETTINGISCOOL_API_KEY` is unset**, and
+it serves h2h + totals only — no team totals, no grid. So TTS1/2/3, Win to Nil
+and the GG family cannot be priced on it AT ALL, and a coupon of one of those
+types opens with every selection blank. That is indistinguishable from a failed
+scan by looking at it, which is how it went undiagnosed (Aug 2026: a
+"Team to Score 2" sheet, 154 fixtures, 154 blanks). Three things keep it
+diagnosable — do not quietly undo any of them:
+- It **refuses** what it cannot price (`odds_api.unsupported_reason`) rather
+  than approximating. Win to Nil is the one that matters: it contains "win", so
+  it used to fall through and return the STRAIGHT WIN price — a confident wrong
+  price on a much shorter bet.
+- It logs ONE warning per pricing pass naming the market, the count and the
+  missing env var — never one line per leg, and never none.
+- `/api/ready` NAMES the provider (`providers.odds_detail`) with `degraded` and
+  `cannot_price`. It used to report `"live"` for this fallback, which made a
+  deploy that could price nothing look healthy. The diagnostics ring buffer's
+  `boot` record carries the provider name too.
+
+**Reading a pick's market and team is ONE implementation** (`app/picks.py`) —
+`team_fragment`, `side_of`, `is_team_specific` and the market regexes. It was
+duplicated per provider and the copies diverged: the fallback had no word
+boundary on the over-line, no Win-to-Nil branch and no side resolution at all,
+so the same coupon priced correctly or crossed onto the wrong team depending on
+which provider the deploy happened to be running. Same reason `pricing/legs.py`
+is one implementation. A side is resolved from the pick's TEAM FRAGMENT (the
+text before the first market keyword) scored with `team_similarity` — never a
+raw character ratio over the whole pick, which is mostly market words and
+drowns out a short club name ("Lyon" scored 0.33 against "Lyon Win and Over
+2.5"), and never the whole-pick path, which bypasses the alias table that got
+the fixture matched in the first place.
+
 Both live behind their seams. Core logic never calls a vendor API directly.
 
 ## Hard rules (do not violate)

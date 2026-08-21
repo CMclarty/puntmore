@@ -110,3 +110,24 @@ def test_state_includes_coupons_with_legs_sorted_by_value(api_key):
     # Legs sorted best value first, None last
     values = [leg["value"] for leg in c["legs"]]
     assert values == [0.055, 0.02, None]
+
+
+def test_ready_names_the_odds_provider_and_what_it_cannot_price():
+    """"live" was actively misleading.
+
+    A deploy on the TheOddsApi fallback reported providers.odds == "live" while
+    being unable to price six of the nine coupon types — so a tracker showing
+    every selection blank looked perfectly healthy here. The one-request answer
+    to "why is nothing pricing" has to be in this payload.
+    """
+    # Inside the context manager so the lifespan actually assigns a provider —
+    # this payload is only meaningful on a booted app, which is the state a
+    # deploy is in when someone hits /api/ready to ask why nothing prices.
+    with TestClient(app) as booted:
+        body = booted.get("/ready").json()
+    detail = body["providers"]["odds_detail"]
+    assert detail["provider"]           # the class name, not just mock/live
+    assert "source" in detail
+    assert isinstance(detail["degraded"], bool)
+    if detail["degraded"]:
+        assert detail["cannot_price"]   # named, never an unexplained blank

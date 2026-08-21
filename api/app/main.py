@@ -18,6 +18,8 @@ from .security import (
     MIN_PASSWORD_LENGTH,
 )
 from .odds.client import TheOddsApiClient
+from . import coupon_types
+from .providers import odds_api
 from .providers.odds_api import TheOddsApiProvider
 from .providers.bettingiscool import (
     BettingIsCoolProvider,
@@ -136,6 +138,28 @@ async def lifespan(app: FastAPI):
         type(app.state.odds_provider).__name__, source,
         settings.coupon_odds_cache_ttl,
     )
+    # Say OUT LOUD what a degraded provider cannot price. Both fallbacks fail
+    # SILENTLY and identically to a bad photo: the legs save, the coupon opens,
+    # every row simply has no fair odds. A "Team to Score 2" sheet on TheOddsApi
+    # is 154 selections and 154 blanks, which reads as "the scan is broken"
+    # rather than "this deploy has no bettingiscool key" — the actual cause.
+    if isinstance(app.state.odds_provider, MockOddsProvider):
+        logger.warning(
+            "COUPON PRICING IS MOCKED — no odds provider is configured, so "
+            "EVERY selection will show blank fair odds. Set "
+            "BETTINGISCOOL_API_KEY (or ODDS_API_KEY) to price real legs."
+        )
+    elif isinstance(app.state.odds_provider, TheOddsApiProvider):
+        logger.warning(
+            "Coupon pricing is on the TheOddsApi FALLBACK. It serves h2h + "
+            "totals only, so these coupon types cannot price at all and every "
+            "selection on them will be blank: %s. Set BETTINGISCOOL_API_KEY to "
+            "restore them.",
+            ", ".join(
+                t.label for t in coupon_types.COUPON_TYPES
+                if odds_api.unsupported_reason(t.selection) is not None
+            ),
+        )
     # The default TTL suits bettingiscool (500k tokens/DAY). TheOddsApi bills
     # 500 credits/MONTH, where a short cache burns the whole allowance in hours.
     if (
@@ -369,13 +393,32 @@ def ready():
     # Not a readiness failure — the app runs fine on mocks in dev — but it is
     # reported, because a deployment on mock OCR looks healthy while silently
     # ignoring every uploaded image.
+    #
+    # The odds entry NAMES the provider rather than saying "live". "live" was
+    # actively misleading: the TheOddsApi fallback reported live while being
+    # unable to price six of the nine coupon types, so a deploy showing every
+    # selection blank looked healthy here. `degraded` is the one-word answer to
+    # "why is nothing pricing", and `cannot_price` says exactly which coupons
+    # are affected. No secrets — a class name and some coupon labels.
+    odds_provider = getattr(app.state, "odds_provider", None)
+    odds = {
+        "provider": type(odds_provider).__name__ if odds_provider else None,
+        "source": settings.coupon_odds_source,
+        "degraded": isinstance(odds_provider, (MockOddsProvider, TheOddsApiProvider)),
+    }
+    if isinstance(odds_provider, MockOddsProvider):
+        odds["cannot_price"] = ["ALL — no odds provider configured"]
+    elif isinstance(odds_provider, TheOddsApiProvider):
+        odds["cannot_price"] = [
+            t.label for t in coupon_types.COUPON_TYPES
+            if odds_api.unsupported_reason(t.selection) is not None
+        ]
     providers = {
         "ocr": "mock" if isinstance(
             getattr(app.state, "ocr_provider", None), MockOCRProvider
         ) else "live",
-        "odds": "mock" if isinstance(
-            getattr(app.state, "odds_provider", None), MockOddsProvider
-        ) else "live",
+        "odds": "mock" if isinstance(odds_provider, MockOddsProvider) else "live",
+        "odds_detail": odds,
     }
     return JSONResponse(
         status_code=200 if ok else 503,

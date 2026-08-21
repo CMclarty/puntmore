@@ -228,7 +228,12 @@ def _totals_event(home, away, over=1.90, under=1.95, point=2.5, with_under=True)
 
 def test_provider_returns_matched_fixture():
     provider = TheOddsApiProvider(StubClient([_event("Manchester United", "Chelsea")]))
-    results = provider.get_fair_odds([MatchQuery(1, "Man Utd vs Chelsea", "Win")])
+    # The pick NAMES the team. A bare "Win" resolves to no side and is now
+    # refused rather than silently taking the home price — see
+    # test_bare_win_names_no_side_so_it_is_refused below.
+    results = provider.get_fair_odds([
+        MatchQuery(1, "Man Utd vs Chelsea", "Man Utd Win")
+    ])
     assert results[0].matched_fixture == "Manchester United vs Chelsea"
     # De-vigged, NOT the raw 1.85 book price: 1/1.85 + 1/2.10 = 1.0167, so the
     # fair price is higher once the 1.67% overround is removed.
@@ -241,7 +246,9 @@ def test_provider_returns_matched_fixture():
 
 def test_h2h_fair_odds_are_devigged_not_raw():
     provider = TheOddsApiProvider(StubClient([_event("Arsenal", "Spurs")]))
-    fair = provider.get_fair_odds([MatchQuery(1, "Arsenal vs Spurs", "Win")])[0].fair_odds
+    fair = provider.get_fair_odds(
+        [MatchQuery(1, "Arsenal vs Spurs", "Arsenal Win")]
+    )[0].fair_odds
     assert fair > 1.85, "fair odds must exceed the vigged book price"
     # The de-vigged book is fair: implied probabilities sum to 1 (the away
     # side de-vigs to 2.1386 from a raw 2.10).

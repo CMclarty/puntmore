@@ -190,16 +190,22 @@ invalidated several assumptions at once.
   played and were off the board) and 1 matched-but-unpriced.
 
 ### 2a. Price the seven coupon types  *(market definitions in SPEC §3, §8.5, §8.6)*
-Only 2 of the 7 coupon types price today, and both of those have a team bug.
 Ordered so the shared prerequisite lands first.
 
-- [ ] **Resolve the picked team** (SPEC §8.6). The pick matcher reads only
-      `win` / `over N` / `under N` and resolves no team, so moneyline always
-      takes index 1 (home) and `p_win_and_over(..., home=True)` is hardcoded —
-      an away-side Win-and-Over leg is priced as the home side. Match the pick
-      against `runner_home` / `runner_away`; unresolved ⇒ UNPRICED + flag, never
-      default to home. **This is a live mispricing, not just a gap — do it
-      first.**
+> **Aug 2026 — read this before debugging "nothing prices".** These markets all
+> price on **bettingiscool** and NONE of them price on the TheOddsApi fallback,
+> which the app drops to silently when `BETTINGISCOOL_API_KEY` is unset. A TTS
+> coupon on the fallback is 100% blank by construction. Check
+> `/api/ready` → `providers.odds_detail` FIRST: it names the provider and lists
+> what it cannot price. A blank tracker is a config question before it is a
+> pricing question.
+
+- [x] **Resolve the picked team** (SPEC §8.6) — DONE for BOTH providers
+      (Aug 2026). The side comes from the pick's team fragment scored with
+      `team_similarity` (`app/picks.py`); unresolved ⇒ UNPRICED, never home.
+      `TheOddsApiProvider` still hardcoded home until this pass, so which
+      provider a deploy ran decided whether away selections were priced as
+      their opponent.
 - [ ] **TTS1/2/3** → DIRECT off `home_totals` / `away_totals` at line N−0.5.
       Note the off-by-one: "Team to Score 2" is over **1.5**.
 - [ ] **GG No Draw** → derive off the grid: Σ g[h][a] for h≥1, a≥1, h≠a.

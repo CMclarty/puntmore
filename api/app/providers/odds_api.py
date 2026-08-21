@@ -24,6 +24,10 @@ import difflib
 import logging
 
 from .base import OddsProvider, MatchQuery, OddsResult
+from ..picks import (
+    OVER_RE, UNDER_RE, WIN_RE, WIN_TO_NIL_RE, TTS_RE, GG_RE,
+    is_team_specific, side_of,
+)
 from ..normalise import normalise_match
 from ..odds.client import TheOddsApiClient
 from ..odds.utils import devigd, devigd_multi
@@ -48,9 +52,36 @@ SOCCER_SPORT_KEYS = [
     "soccer_uefa_europa_league",
 ]
 
-_OVER_RE = re.compile(r'over\s+([\d.]+)', re.IGNORECASE)
-_UNDER_RE = re.compile(r'under\s+([\d.]+)', re.IGNORECASE)
-_WIN_RE = re.compile(r'\bwin\b', re.IGNORECASE)
+# Reading a pick's market and team is shared with the live provider
+# (app/picks.py). It used to be duplicated here, and the two copies diverged:
+# this one had no word boundary on the over-line, no Win-to-Nil branch and no
+# side resolution at all, so the same coupon priced differently depending on
+# which provider a deploy happened to be running.
+_OVER_RE = OVER_RE
+_UNDER_RE = UNDER_RE
+_WIN_RE = WIN_RE
+
+# What this provider CANNOT price, and why refusing beats approximating.
+#
+# TheOddsApi's free tier serves h2h + totals for the whole fixture. It has no
+# team totals and no score grid, so three of the coupon markets have no honest
+# route to a price here:
+#
+#   TTS1/2/3    needs team totals            -> the vendor does not serve them
+#   Win to Nil  needs the joint distribution -> moneyline x clean sheet is the
+#                                               correlation trap (SPEC 8.5)
+#   GG / GGND   needs the joint distribution -> same trap
+#
+# "Win to Nil" is the dangerous one: it contains "win", so before this it fell
+# through to the moneyline branch and came back with the STRAIGHT WIN price on
+# a materially shorter bet — a confident wrong price, which is the one outcome
+# every rule in this codebase is written to avoid. An unpriced leg is visible
+# and correctable; a wrong one reads as value and fires Discord alerts.
+_UNSUPPORTED = (
+    ("Team to Score", TTS_RE),
+    ("Win to Nil", WIN_TO_NIL_RE),
+    ("GG / both teams to score", GG_RE),
+)
 
 
 def _pick_bookmaker(bookmakers: list[dict]) -> dict | None:
@@ -124,17 +155,48 @@ def _fair_totals_price(bm: dict, side: str, points: float) -> float | None:
     return None
 
 
+def unsupported_reason(market_str: str) -> str | None:
+    """The market this pick names, if this provider cannot honestly price it.
+
+    Returned rather than raised so callers can report it: a leg that is
+    unpriced BECAUSE THE PROVIDER CANNOT PRICE THIS MARKET is a different
+    problem from one whose fixture did not match, and the two looked identical
+    (both simply had no fair odds) until this existed. On a coupon whose whole
+    market is unsupported that is the difference between "every fixture failed
+    to match" and "this deploy is on the fallback provider".
+    """
+    for label, pattern in _UNSUPPORTED:
+        if pattern.search(market_str or ""):
+            return label
+    return None
+
+
 def _extract_fair_odds(event: dict, market_str: str) -> float | None:
     bm = _pick_bookmaker(event.get("bookmakers", []))
     if not bm:
         return None
 
+    # Refuse before parsing anything. Win-to-Nil in particular MUST be caught
+    # here: it contains "win" and would otherwise take the moneyline price.
+    if unsupported_reason(market_str) is not None:
+        return None
+
     home = event.get("home_team", "")
+    away = event.get("away_team", "")
     key = market_str.strip().lower()
 
     has_win = bool(_WIN_RE.search(key))
     over_m = _OVER_RE.search(key)
     under_m = _UNDER_RE.search(key)
+
+    # WHICH TEAM the pick names. This provider used to hardcode the home team,
+    # so "Omonia Nicosia Win" came back with Kairat's price — an away selection
+    # priced as its opponent. Home is usually the favourite, so that overstates
+    # value: it INVENTS edge rather than hiding it. Unresolved stays unpriced.
+    side = side_of(market_str, home, away) if is_team_specific(market_str) else None
+    if is_team_specific(market_str) and side is None:
+        return None
+    team = home if side else away
 
     if has_win and over_m:
         # LEGACY, and NOT the live path — COUPON_ODDS_SOURCE is bettingiscool,
@@ -145,14 +207,14 @@ def _extract_fair_odds(event: dict, market_str: str) -> float | None:
         # (misses value rather than inventing it). This provider now has no
         # grid of its own, so if it is ever made live again, wire it to
         # pricing.grid the way bettingiscool is rather than shipping this.
-        win_price = _fair_h2h_price(bm, home)
+        win_price = _fair_h2h_price(bm, team)
         over_price = _fair_totals_price(bm, "Over", float(over_m.group(1)))
         if win_price is not None and over_price is not None:
             return round(win_price * over_price, 4)
         return None
 
     if has_win and not over_m and not under_m:
-        return _fair_h2h_price(bm, home)
+        return _fair_h2h_price(bm, team)
 
     if over_m:
         return _fair_totals_price(bm, "Over", float(over_m.group(1)))
@@ -212,6 +274,7 @@ class TheOddsApiProvider(OddsProvider):
             name_to_event[key] = e
 
         results = []
+        refused: dict[str, int] = {}
         for q in queries:
             fair = None
             fixture = None
@@ -224,7 +287,23 @@ class TheOddsApiProvider(OddsProvider):
                         score, q.match_name, fixture,
                     )
                 fair = _extract_fair_odds(name_to_event[fixture], q.market)
+            if fair is None:
+                reason = unsupported_reason(q.market)
+                if reason is not None:
+                    refused[reason] = refused.get(reason, 0) + 1
             results.append(
                 OddsResult(match_id=q.match_id, fair_odds=fair, matched_fixture=fixture)
+            )
+
+        # ONE line per pricing pass, not one per leg. A coupon of 154 legs in an
+        # unsupported market is 154 identical failures, and the useful fact is
+        # the market and the count — the thing that says "this deploy is on the
+        # fallback provider", which every other symptom hides.
+        for reason, count in refused.items():
+            logger.warning(
+                "TheOddsApi cannot price %s — %d selection(s) left unpriced. "
+                "This provider serves h2h + totals only; %s needs the live "
+                "bettingiscool source (set BETTINGISCOOL_API_KEY).",
+                reason, count, reason,
             )
         return results
