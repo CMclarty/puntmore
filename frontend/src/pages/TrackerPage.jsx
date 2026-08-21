@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, memo, Fragment } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { getCouponTypes, getTypeSelections, editLeg } from '../api'
+import { getCouponTypes, getTypeSelections, getTypeBundles, editLeg } from '../api'
 import { FRACTIONAL_LADDER, fractionToDecimal, nearestFraction } from '../odds'
 import styles from './TrackerPage.module.css'
 
@@ -178,7 +178,10 @@ function fmtWindow(from, to) {
  * buried the one figure that matters. Colour carries the sign as well.
  */
 function comboText(c) {
-  return `${c.picks}-fold ${c.value > 0 ? '+' : ''}${(c.value * 100).toFixed(1)}%`
+  // A ladder rung is identified by its fold ("3-fold"); a bundle by its printed
+  // name ("BUNDLE 2"), because that is what you ask for at the counter.
+  const what = c.name ?? `${c.picks}-fold`
+  return `${what} ${c.value > 0 ? '+' : ''}${(c.value * 100).toFixed(1)}%`
 }
 
 /**
@@ -238,11 +241,17 @@ function TrackerLanding({ types, loading, onOpen, onOpenIssue }) {
                   {/* Each issue's OWN ladder value. A ladder coupon is bet as a
                       combination, so this is the whole reading — and it belongs
                       to the issue, never to the type. */}
-                  {p.best_combination && (
-                    <span className={`${styles.chipCombo} ${p.best_combination.value > 0 ? styles.comboGood : styles.comboBad}`}>
-                      {comboText(p.best_combination)}
-                    </span>
-                  )}
+                  {(p.best_combination ?? p.best_bundle) && (() => {
+                    // Same slot, two sources: a ladder type's best rung or a
+                    // bundle type's best acca. Both are "the best bet on this
+                    // issue", which is the only thing this chip ever said.
+                    const best = p.best_combination ?? p.best_bundle
+                    return (
+                      <span className={`${styles.chipCombo} ${best.value > 0 ? styles.comboGood : styles.comboBad}`}>
+                        {comboText(best)}
+                      </span>
+                    )
+                  })()}
                 </button>
               ))}
             </span>
@@ -395,6 +404,58 @@ const LegCard = memo(function LegCard({
   )
 })
 
+/**
+ * One ready-made accumulator off a bundle sheet.
+ *
+ * The unit here is the BET, not the selection: this sheet prices the whole
+ * acca and prints nothing against the fixtures inside it, so the card leads
+ * with the printed price against the fair one and nests the legs underneath.
+ * A per-leg edge would be meaningless and is deliberately not shown.
+ */
+const BundleCard = memo(function BundleCard({ bundle }) {
+  const { name, picks, payout, fair, value, unpriced, legs } = bundle
+  return (
+    <div className={styles.bundle}>
+      <div className={styles.bundleHead}>
+        <span className={styles.bundleName}>{name}</span>
+        <span className={styles.bundleFold}>{picks}-fold</span>
+        <span className={styles.bundlePrice}>
+          {payout == null ? (
+            <span className={styles.bundleUnpriced}>no price read</span>
+          ) : value == null ? (
+            <span className={styles.mono}>{payout.toFixed(2)}</span>
+          ) : (
+            <span className={value > 0 ? styles.comboGood : styles.comboBad}>
+              {payout.toFixed(2)} · {value > 0 ? '+' : ''}{(value * 100).toFixed(1)}%
+            </span>
+          )}
+        </span>
+      </div>
+      <div className={styles.bundleFair}>
+        {fair != null
+          ? `fair ${fair.toFixed(2)}`
+          /* Say WHY there is no figure. An acca is only as knowable as its
+             worst leg, so one unpriced selection leaves the whole bundle
+             unvaluable — a blank on its own reads as a bug. */
+          : `fair unknown — ${unpriced} selection${unpriced !== 1 ? 's' : ''} unpriced`}
+      </div>
+      <ul className={styles.bundleLegs}>
+        {legs.map(leg => (
+          <li key={leg.id} className={styles.bundleLeg}>
+            <span className={styles.bundlePick}>{leg.pick}</span>
+            <span>{leg.match_name}</span>
+            <span className={styles.bundleLegFair}>
+              {leg.fair_odds != null
+                ? leg.fair_odds.toFixed(2)
+                : <span className={styles.bundleUnpriced}>—</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+})
+
 export default function TrackerPage() {
   // The seven coupon types are the entities. Each is its own filtered fixture
   // list; an upload is just how selections got into one.
@@ -414,6 +475,10 @@ export default function TrackerPage() {
   const activeIssueId = routeCouponId && !spanningAll ? Number(routeCouponId) : null
   const [types, setTypes] = useState([])
   const [legs, setLegs] = useState([])
+  // Bundle coupons load whole accas instead of a flat leg list. Kept separate
+  // rather than folded into `legs`: they are a different unit, and every
+  // per-row control (EV filter, inline edit) is meaningless on one.
+  const [bundles, setBundles] = useState([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -428,25 +493,37 @@ export default function TrackerPage() {
   )
   useEffect(() => { loadTypes() }, [loadTypes])
 
-  const loadSelections = useCallback(async (code, issueId) => {
-    if (!code) { setLegs([]); return }
+  const isBundleType = useMemo(
+    () => types.find(t => t.code === activeCode)?.bundles === true,
+    [types, activeCode],
+  )
+
+  const loadSelections = useCallback(async (code, issueId, asBundles) => {
+    if (!code) { setLegs([]); setBundles([]); return }
+    if (asBundles) {
+      setLegs([])
+      setBundles(await getTypeBundles(code, issueId))
+      return
+    }
+    setBundles([])
     setLegs(await getTypeSelections(code, issueId))
   }, [])
 
   useEffect(() => {
     setError(null)
-    loadSelections(activeCode, activeIssueId).catch(e => {
+    loadSelections(activeCode, activeIssueId, isBundleType).catch(e => {
       // A superseded issue's id 404s — its upload has been replaced. Say so
       // and send them back to the type rather than showing "no fixtures",
       // which reads as an empty coupon.
       setLegs([])
+      setBundles([])
       setError(
         e?.status === 404
           ? 'That upload has been replaced by a newer one.'
           : e.message,
       )
     })
-  }, [activeCode, activeIssueId, loadSelections])
+  }, [activeCode, activeIssueId, isBundleType, loadSelections])
 
   // Both derive from state that changes far less often than the page renders.
   const activeType = useMemo(
@@ -491,7 +568,7 @@ export default function TrackerPage() {
   // only ever describe one of them. Null for an issue id that no longer
   // resolves, so a replaced upload shows no figure at all.
   const headlineIssue = activeIssueId ? activeIssue : latestIssue
-  const combo = headlineIssue?.best_combination ?? null
+  const combo = headlineIssue?.best_combination ?? headlineIssue?.best_bundle ?? null
   // Spanning every issue, the figure needs saying WHOSE it is.
   const comboLabel =
     !activeIssueId && (activeType?.periods.length ?? 0) > 1 ? headlineIssue?.label : null
@@ -516,7 +593,7 @@ export default function TrackerPage() {
     if (!activeCode || refreshing) return
     setRefreshing(true)
     try {
-      await loadSelections(activeCode, activeIssueId)
+      await loadSelections(activeCode, activeIssueId, isBundleType)
     } catch { /* leave existing rows */ } finally {
       setRefreshing(false)
     }
@@ -637,7 +714,9 @@ export default function TrackerPage() {
       {activeType && (
         <div className={styles.subheader}>
           <span className={styles.subMeta}>
-            {legs.length} fixture{legs.length !== 1 ? 's' : ''}
+            {isBundleType
+              ? `${bundles.length} bundle${bundles.length !== 1 ? 's' : ''}`
+              : `${legs.length} fixture${legs.length !== 1 ? 's' : ''}`}
             {combo && (
               <>
                 {' · best '}
@@ -660,7 +739,7 @@ export default function TrackerPage() {
 
       {/* Not when an error is already on screen: a replaced upload 404s, and
           "no fixtures yet · upload one" would contradict the reason given. */}
-      {!loading && !error && legs.length === 0 && (
+      {!loading && !error && legs.length === 0 && bundles.length === 0 && (
         <div className={styles.empty}>
           <p>No fixtures on {activeType?.label ?? 'this coupon'} yet.</p>
           <Link to="/upload" className={styles.uploadLink}>
@@ -672,6 +751,17 @@ export default function TrackerPage() {
       {/* Middle ground: cards, not rows — but each card is laid out on the
           reference table's columns, so rank / EV / odds still line up down the
           list and stay scannable. Nothing scrolls sideways on a phone. */}
+      {/* Bundle coupons: one card per acca. No EV floor and no collapse — a
+          sheet is a handful of bundles, not 154 rows, and every one of them is
+          a bet worth seeing whether or not it holds value. */}
+      {bundles.length > 0 && (
+        <div className={styles.legs}>
+          {bundles.map(b => (
+            <BundleCard key={`${b.coupon_id}:${b.name}`} bundle={b} />
+          ))}
+        </div>
+      )}
+
       {legs.length > 0 && (
         <div className={styles.legs}>
           {legGroups.map(g => (

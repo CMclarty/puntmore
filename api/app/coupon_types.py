@@ -68,6 +68,18 @@ class CouponType:
     # twelve-fold nobody was going to strike. This is a DISPLAY choice only;
     # every rung is still stored and still priced.
     display_picks: int | None = None
+    # Is the sheet a set of READY-MADE ACCUMULATORS rather than a fixture list?
+    # A bundle coupon prints a handful of pre-built accas, each a small group of
+    # selections carrying ONE price for the whole group. That makes value a
+    # property of the GROUP — the printed acca price against the product of its
+    # legs' fair odds — which is the ladder coupons' arithmetic applied to a
+    # group the coupon chose rather than to the N shortest prices on the sheet.
+    #
+    # It also switches off the rectangle rules (coupon_grid): there are no
+    # market blocks to key by heading, and the SAME FIXTURE may legitimately
+    # appear in more than one bundle, so the one-line-per-match rule that
+    # protects a grid read would silently delete half of this sheet.
+    bundles: bool = False
     # Phrases that, printed in the sheet's header, mean this is NOT that coupon.
     # A VETO, not a classifier: the question asked is "does the header contradict
     # the type that was selected", never "which type is this". So a header that
@@ -195,6 +207,23 @@ COUPON_TYPES: tuple[CouponType, ...] = (
         # Hill's own no-draw sheet. A Betfred GG Bonus header on it is the
         # wrong bookmaker as well as the wrong market.
         title_conflicts=("GG BONUS",),
+    ),
+    # Betfred "Bundles": a sheet of ready-made win accumulators. Not a fixture
+    # list with a market over it — each bundle is its own small acca with one
+    # printed price, so the sheet carries several independent bets rather than
+    # one list to choose from.
+    #
+    # prices_each_selection is FALSE and that is the whole point: the sheet
+    # prices the BUNDLE, not the selection. Any per-leg number here would be
+    # invented, and a per-leg edge would be meaningless — value lives on the
+    # group (bundle_value below), exactly as it does on a ladder combination.
+    #
+    # Every selection is a straight win, so this type prices off de-vigged 1X2
+    # alone: no team totals, no score grid. It is the one priced type that
+    # would still work on the TheOddsApi fallback.
+    CouponType(
+        "FREDB", "Fred Bundles", "{team} Win",
+        period_codes=_VARIABLE, prices_each_selection=False, bundles=True,
     ),
 )
 
@@ -349,3 +378,59 @@ def best_combination(
                 "value": value,
             }
     return best
+
+
+def bundles_on(legs) -> list[dict]:
+    """The ready-made accumulators on a bundle coupon, priced and ranked.
+
+    A bundle is a group the COUPON chose, not one the tracker picked, so this
+    is deliberately not `best_combination`: there is nothing to select. Every
+    bundle printed on the sheet is returned, whether or not it holds value —
+    a bundle you would not back is still one you looked at, and hiding it makes
+    the sheet look shorter than it is.
+
+    The arithmetic is the ladder coupons' (`combination_value`): an acca's fair
+    price is the product of its legs' fair odds, and the printed price is value
+    whenever it beats that product. A bundle with ANY unpriced leg reports
+    `value: None` rather than a figure computed off the legs that did price —
+    an acca is only as knowable as its worst leg, and quietly valuing a
+    four-fold as a three-fold overstates it every time.
+
+    Ranked best value first, with unvaluable bundles last in printed order, so
+    the sheet's own numbering still reads sensibly at the bottom.
+    """
+    grouped: dict[str, list] = {}
+    for leg in legs:
+        if leg.bundle:
+            grouped.setdefault(leg.bundle, []).append(leg)
+
+    out = []
+    for name, members in grouped.items():
+        members = sorted(members, key=lambda l: l.rank)
+        fair = [l.fair_odds for l in members]
+        # One printed price per bundle, repeated on each row. Take the first
+        # that was read: they are the same number, and requiring agreement
+        # would throw away a bundle over one fumbled row.
+        payout = next(
+            (l.bundle_odds for l in members if l.bundle_odds is not None), None
+        )
+        priced = [f for f in fair if f is not None]
+        out.append({
+            "name": name,
+            "picks": len(members),
+            "payout": payout,
+            # The fair price of the WHOLE bundle, so it is only reported when
+            # every leg priced — see above.
+            "fair": (
+                round(prod(fair), 4) if len(priced) == len(fair) and fair else None
+            ),
+            "value": (
+                combination_value(fair, payout) if payout is not None else None
+            ),
+            "unpriced": len(fair) - len(priced),
+            "legs": members,
+        })
+
+    return sorted(
+        out, key=lambda b: (b["value"] is None, -(b["value"] or 0), b["name"])
+    )

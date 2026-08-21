@@ -123,6 +123,13 @@ class Leg(Base):
     fair_odds_home = Column(Float, nullable=True)
     fair_odds_away = Column(Float, nullable=True)
     side = Column(String, nullable=True)             # 'home' | 'away' | None (unresolved)
+    # BUNDLE coupons (Fred Bundles): which ready-made acca this selection is
+    # part of, as printed, and that acca's single printed price. Null on every
+    # other type. The bundle is the BET — value belongs to the group, not to
+    # the row — so `odds` stays null on these legs and `bundle_odds` carries
+    # the number the group is struck at (coupon_types.bundles_on).
+    bundle = Column(String, nullable=True)
+    bundle_odds = Column(Float, nullable=True)
     notified_tier = Column(String, nullable=True)    # last value tier sent to Discord (dedupe)
     # True once a human has corrected this row. A re-scan must never overwrite
     # an edited row with a fresh machine read.

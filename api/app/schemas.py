@@ -21,6 +21,12 @@ class LegOut(BaseModel):
     fair_odds_away: Optional[float] = None
     side: Optional[str] = None
     edited: bool = False
+    # Bundle coupons only: the ready-made acca this selection belongs to, and
+    # that acca's printed price. Null everywhere else. `odds` stays null on
+    # these legs — the sheet prices the bundle, not the selection — so a
+    # per-row edge is meaningless and `value` is null too.
+    bundle: Optional[str] = None
+    bundle_odds: Optional[float] = None
     # Period this selection's coupon runs on, and where today sits in it, so the
     # tracker can separate the live set from the next one to upload.
     period_label: Optional[str] = None       # "Mon–Wed"
@@ -79,6 +85,10 @@ class TypePeriodOut(BaseModel):
     # of them — which left the live issue's combination unreadable while a
     # newer one existed.
     best_combination: Optional[dict] = None
+    # Bundle coupons: this issue's best ready-made acca, same shape as
+    # best_combination plus the bundle's printed name. Per-issue for the same
+    # reason — a bundle's legs are struck on one sheet.
+    best_bundle: Optional[dict] = None
 
 
 class CouponTypeOut(BaseModel):
@@ -91,6 +101,10 @@ class CouponTypeOut(BaseModel):
     # for N correct, or (William Hill's "Hills") both.
     prices_each_selection: bool = True
     pays_ladder: bool = False
+    # A sheet of ready-made accumulators rather than a fixture list. The value
+    # is per BUNDLE, so the tracker renders these grouped instead of as a
+    # ranked row list.
+    bundles: bool = False
     period_codes: list[str] = Field(default_factory=list)
     # Every issue of this type that is live or still to come, newest window
     # first. Drives the landing page's status and its select buttons.
@@ -100,6 +114,26 @@ class CouponTypeOut(BaseModel):
     # issue also carries its own in `periods` — read that one when a specific
     # issue is on screen, since this is only ever the newest.
     best_combination: Optional[dict] = None
+    # Best bundle on the LATEST issue of a bundle type. Same caveat as
+    # best_combination: every issue carries its own in `periods`.
+    best_bundle: Optional[dict] = None
+
+
+class BundleOut(BaseModel):
+    """One ready-made accumulator off a bundle sheet.
+
+    `payout` is what the coupon prints for the whole group; `fair` is the
+    product of its legs' fair odds. `value` is null — never a number — when any
+    leg is unpriced, because an acca is only as knowable as its worst leg.
+    """
+    name: str
+    coupon_id: int
+    picks: int
+    payout: Optional[float] = None
+    fair: Optional[float] = None
+    value: Optional[float] = None
+    unpriced: int = 0
+    legs: list[LegOut] = Field(default_factory=list)
 
 
 class CouponPeriodOut(BaseModel):

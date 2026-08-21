@@ -53,6 +53,13 @@ class OcrHint:
     priced: bool = False
     two_sided: bool = False
     board_label: str | None = None
+    # A BUNDLE sheet is a third shape, and not a rectangle at all: instead of
+    # one fixture list under several market columns, it prints a handful of
+    # ready-made accumulators, each a small group of selections with ONE price
+    # for the whole group. The grid rules do not apply to it — there are no
+    # blocks to key by heading, and the same fixture may legitimately appear in
+    # more than one bundle.
+    bundles: bool = False
 
 
 @dataclass
@@ -100,6 +107,17 @@ class ExtractedRow:
     prices: dict[str, tuple[float | None, float | None]] = field(
         default_factory=dict
     )
+    # Which ready-made accumulator this selection belongs to, as printed
+    # ("Bundle 1", "Acca 3"), and that accumulator's single printed price.
+    #
+    # Both are repeated on EVERY row of the bundle rather than reported once
+    # per group. Same reasoning as the grid's "every row gets every block": a
+    # value carried on one row alone is lost outright if that row is the one
+    # the read fumbles, and a repeated value can be checked for agreement.
+    # `bundle` is the grouping key; `bundle_odds` is what the group is BET at,
+    # so a coupon's value hangs on it the way a ladder coupon's hangs on a rung.
+    bundle: str | None = None
+    bundle_odds: float | None = None
 
 
 @dataclass

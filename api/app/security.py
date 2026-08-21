@@ -335,6 +335,13 @@ def ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN fair_odds_away FLOAT"))
             if "side" not in cols:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN side VARCHAR"))
+            # Fred Bundles: a selection belongs to a ready-made acca, and that
+            # acca carries the price. Nullable with no default — every existing
+            # leg belongs to no bundle, which is exactly what null means here.
+            if "bundle" not in cols:
+                conn.execute(text("ALTER TABLE legs ADD COLUMN bundle VARCHAR"))
+            if "bundle_odds" not in cols:
+                conn.execute(text("ALTER TABLE legs ADD COLUMN bundle_odds FLOAT"))
 
         # legs.odds must become NULLABLE: GG Bonus / GG No Draw coupons print no
         # per-selection price (any 3 pay a flat 5.5), so those rows have no odds

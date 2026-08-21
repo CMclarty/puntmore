@@ -111,6 +111,56 @@ async def _read_capped(file: UploadFile) -> bytes:
     return b"".join(chunks)
 
 
+def audit_bundles(extracted) -> dict:
+    """The scan verdict for a BUNDLE sheet, which is not a rectangle.
+
+    None of the grid's reconciliation applies here and running it would do
+    harm, not nothing:
+
+      * `drop_duplicate_fixtures` enforces one line per match. On a grid a
+        repeat is the read losing its place; on a bundle sheet the SAME FIXTURE
+        legitimately appears in several bundles, so that rule would delete real
+        selections from every bundle after the first.
+      * there are no market blocks to derive a column set from or to fold
+        near-miss headings onto.
+
+    What can be measured is the sheet's own shape: how many bundles were read,
+    how many selections they hold, and how many bundles came back without the
+    price the whole group is bet at — the one number a bundle cannot be valued
+    without.
+    """
+    bundles: dict[str, list] = {}
+    loose = 0
+    for row in extracted.rows:
+        if row.bundle:
+            bundles.setdefault(row.bundle.strip(), []).append(row)
+        else:
+            loose += 1
+
+    unpriced = [
+        name for name, rows in bundles.items()
+        if all(r.bundle_odds is None for r in rows)
+    ]
+    clean = bool(bundles) and not loose and not unpriced
+    parts = [f"{len(bundles)} bundle(s), {sum(len(r) for r in bundles.values())} selections"]
+    if loose:
+        parts.append(f"{loose} selection(s) with no bundle heading")
+    if unpriced:
+        parts.append(f"{len(unpriced)} bundle(s) with no readable price")
+    if not bundles:
+        parts.append("no bundles read")
+    verdict = {
+        "clean": clean,
+        "summary": " — ".join(parts),
+        "bundles": len(bundles),
+        "loose_selections": loose,
+        "bundles_unpriced": unpriced,
+    }
+    log = logger.info if clean else logger.warning
+    log("Bundle scan: %s", verdict["summary"])
+    return verdict
+
+
 def solve_grid(extracted):
     """Reconcile a read against the rectangle the sheet is, and measure it.
 
@@ -170,6 +220,57 @@ def _types_on_sheet(extracted, period: str) -> list:
     ]
 
 
+def _build_bundle_legs(coupon_id, extracted, ctype, reference: date) -> list[Leg]:
+    """Turn a read BUNDLE sheet into legs, grouped by the acca they belong to.
+
+    A bundle sheet is not a fixture list with a market over it: it is several
+    ready-made accumulators, each with its own selections and ONE price for the
+    whole group. So the leg carries the group it belongs to and the group's
+    price, and `odds` stays null — the sheet prices the bundle, never the
+    selection, and any per-row number here would be invented.
+
+    A row with no bundle is DROPPED rather than kept loose. On this sheet a
+    selection outside a bundle is not a bet: it belongs to an accumulator whose
+    heading the read lost, so keeping it would put a leg into a group it might
+    not be in, or leave a one-leg "bundle" that was never printed.
+
+    The bundle's price is taken from whichever of its rows carried one, since
+    OCR repeats it on each. A bundle whose price was unreadable everywhere is
+    still built — its selections are real and worth seeing — but it will report
+    no value, which is the honest answer rather than a guessed price.
+    """
+    legs = []
+    rank = 0
+    dropped = 0
+    for row in extracted.rows:
+        if not row.bundle:
+            dropped += 1
+            continue
+        kickoff = coupon_periods.parse_kickoff(row.kickoff_text, reference)
+        # The selection as printed is the team backed; the market is known from
+        # the coupon ("{team} Win"), never guessed from the sheet.
+        team = (row.market or "").strip() or None
+        legs.append(Leg(
+            coupon_id=coupon_id,
+            match_name=row.match,
+            pick=_selection_for(ctype, team),
+            odds=None,
+            kickoff=kickoff,
+            rank=rank,
+            bundle=row.bundle.strip(),
+            bundle_odds=row.bundle_odds,
+        ))
+        rank += 1
+
+    if dropped:
+        logger.warning(
+            "Bundle sheet: %d selection(s) carried no bundle heading and were "
+            "dropped — the read lost a bundle's grouping, not the coupon.",
+            dropped,
+        )
+    return legs
+
+
 def _build_legs(coupon_id, extracted, ctype, reference: date) -> list[Leg]:
     """Turn a read coupon into legs.
 
@@ -185,6 +286,9 @@ def _build_legs(coupon_id, extracted, ctype, reference: date) -> list[Leg]:
     unreadable is skipped rather than stored priceless — on a priced coupon a
     leg with no odds has nothing to value.
     """
+    if ctype.bundles:
+        return _build_bundle_legs(coupon_id, extracted, ctype, reference)
+
     legs = []
     rank = 0
     for row in extracted.rows:
@@ -312,6 +416,7 @@ def _hint_for(ctype) -> OcrHint:
         priced=ctype.prices_each_selection,
         two_sided=ctype.two_sided,
         board_label=ctype.board_label,
+        bundles=ctype.bundles,
     )
 
 
@@ -527,14 +632,22 @@ def _process_upload(
             db.commit()
             return
 
-        scan = solve_grid(extracted)
+        # A bundle sheet is not a rectangle — see audit_bundles. Running the
+        # grid solver on one would enforce a one-line-per-match rule that this
+        # sheet is entitled to break, deleting real selections.
+        if ctype.bundles:
+            scan = None
+            audit_override = audit_bundles(extracted)
+        else:
+            scan = solve_grid(extracted)
+            audit_override = None
         legs = _build_legs(coupon.id, extracted, ctype, reference)
         db.add_all(legs)
         db.flush()
         ladder_notes = _apply_coupon_window(coupon, extracted, ctype, period, reference, legs)
         # The ladder is read off the same photo as the grid, so a rejected
         # rung belongs in the same verdict — it is the sheet's headline figure.
-        audit = scan.as_dict()
+        audit = audit_override if audit_override is not None else scan.as_dict()
         if ladder_notes:
             audit["ladder_notes"] = ladder_notes
             audit["clean"] = False
@@ -629,7 +742,10 @@ def rescan_coupon(
 
     # A re-scan is a fresh read of the same sheet, so it gets a fresh verdict —
     # replacing the old one, which described a scan that no longer stands.
-    coupon.scan_audit = json.dumps(solve_grid(extracted).as_dict())
+    coupon.scan_audit = json.dumps(
+        audit_bundles(extracted) if ctype.bundles
+        else solve_grid(extracted).as_dict()
+    )
 
     existing = db.query(Leg).filter(Leg.coupon_id == coupon_id).order_by(Leg.rank).all()
     kept = [leg for leg in existing if leg.edited]

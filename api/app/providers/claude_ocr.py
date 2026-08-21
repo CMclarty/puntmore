@@ -55,6 +55,12 @@ teams to score). Coupons come in two shapes:
   across the page (e.g. "TEAM TO SCORE 1 OR MORE GOALS", then "2 OR MORE", then
   "3 OR MORE"). Most such blocks are split into TWO sub-columns.
 
+  BUNDLE coupons are not a fixture list at all. They print a handful of
+  ready-made accumulators, each headed by a name or number ("BUNDLE 1",
+  "ACCA 3") and listing its own few selections, with ONE price for the whole
+  accumulator — not one per selection. The same fixture may appear in more
+  than one bundle; that is normal and both occurrences are reported.
+
 TRANSCRIBE EVERY BLOCK, DO NOT CHOOSE ONE. Give each row a "prices" object
 keyed by the block's heading COPIED AS PRINTED, with that block's two prices as
 a two-item list in the order they are printed, left first:
@@ -92,6 +98,7 @@ Return exactly this shape:
   "payout_ladder": [ {"picks": 3, "fractional": "9/2"}, ... ],
   "selections": [
     {"match": "...", "kickoff": "...", "market": null, "your_odds": null,
+     "bundle": null, "bundle_odds": null,
      "prices": {"<BLOCK HEADING AS PRINTED>": ["6-4", "4-11"], ...}}, ...
   ]
 }
@@ -133,6 +140,14 @@ Rules:
   of numbering it, and dropping it loses the shortest fold the coupon accepts.
   Read the rungs off THIS sheet only: two coupons printed for the same dates
   can carry completely different boards.
+- "bundle" / "bundle_odds": ONLY on a bundle coupon. "bundle" is the
+  accumulator's heading exactly as printed ("BUNDLE 1"); "bundle_odds" is that
+  accumulator's single printed price, as a fraction. Repeat BOTH on every
+  selection belonging to that bundle — do not report the price once and leave
+  it off the rest. A value carried on one row alone is lost if that row is the
+  one misread, and repeating it lets the software check the rows agree.
+  On a bundle coupon "market" is the SELECTION as printed (the team backed),
+  and "your_odds" stays null: the sheet prices the bundle, not the selection.
 - "period_text": the date range printed on the coupon, e.g.
   "Monday 20th - Thursday 23rd July"."""
 
@@ -158,6 +173,20 @@ def build_user_prompt(hint: OcrHint | None) -> str:
     board_label is still passed, but only as the heading to expect — not as a
     filter to apply.
     """
+    if hint is not None and hint.bundles:
+        return (
+            "This is a BUNDLE coupon: a set of ready-made accumulators, not a "
+            "fixture list. Read EVERY bundle and EVERY selection inside it. "
+            'For each selection return "bundle" (the accumulator\'s heading '
+            'exactly as printed, e.g. "BUNDLE 1"), "bundle_odds" (that '
+            "accumulator's single printed price, as a fraction), \"match\" "
+            "(the fixture as printed) and \"market\" (the selection as "
+            'printed — the team being backed). Leave "your_odds" null: the '
+            "sheet prices the bundle, not the selection. Repeat the bundle "
+            "name and its price on every selection in that bundle. The same "
+            "fixture may appear in more than one bundle — report it each time "
+            "rather than skipping the repeat. Also return the date range."
+        )
     if hint is None or not hint.priced:
         return USER_PROMPT
     parts = [
@@ -380,6 +409,8 @@ def read_rows(data: dict) -> tuple[list[ExtractedRow], int]:
                 away_odds=away_odds,
                 sides_positional=positional,
                 prices=prices,
+                bundle=(row.get("bundle") or None),
+                bundle_odds=parse_odds(row.get("bundle_odds")),
             )
         )
     return rows, malformed

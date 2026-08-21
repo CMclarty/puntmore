@@ -237,6 +237,31 @@ Both live behind their seams. Core logic never calls a vendor API directly.
   10-fold". Sanitised on the way in (upload) AND on the way out
   (`Coupon.ladder`), because a coupon already stored with a bad rung will not
   re-scan itself. Rejected rungs go into `scan_audit`.
+- **FRED BUNDLES IS A SHEET OF BETS, NOT A LIST OF FIXTURES** (Aug 2026). Every
+  other type is one market over a fixture list and the tracker picks the good
+  rows out of it. Bundles inverts that: Betfred has already built the accas, so
+  the sheet carries several complete bets, each a group of straight-win
+  selections with ONE printed price for the whole group.
+  - **Value belongs to the GROUP** (`coupon_types.bundles_on`). The sheet prices
+    the bundle, never the selection, so `prices_each_selection=False` and a
+    bundle leg's `odds` is NULL — any per-row number would be invented and a
+    per-row edge is meaningless. The figure is the printed acca price against
+    the product of its legs' fair odds, via the same `combination_value` a
+    ladder rung uses. There is nothing to select, so EVERY bundle is listed
+    whether or not it holds value.
+  - **Any unpriced leg ⇒ the bundle has NO value**, never one computed off the
+    legs that did price. Valuing a four-fold as a three-fold overstates it every
+    time.
+  - **It is NOT a rectangle**, so `solve_grid` must never run on it —
+    `upload.audit_bundles` does instead. The same fixture legitimately appears
+    in several bundles, and the one-line-per-match rule that protects a grid
+    read would delete real selections from every bundle after the first.
+  - A selection with no bundle heading is DROPPED, not kept loose: on this sheet
+    a selection outside a bundle is not a bet, it is an acca whose grouping the
+    read lost.
+  - It has no `title_conflicts` yet — nobody has read a real sheet's header, and
+    a guessed veto would block genuine uploads. Add one only off an issue you
+    have actually read, same rule as the ladders.
 - **A ladder combination belongs to an ISSUE, not to a type.** The legs of a
   fold are struck on one sheet, so never price one across two uploads, and never
   show a single type-wide figure when a type has more than one live issue — that

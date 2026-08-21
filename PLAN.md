@@ -216,6 +216,27 @@ Ordered so the shared prerequisite lands first.
 - DoD: each type prices on a real fixture or refuses cleanly; away-side legs
       verified against home-side; pytest green; build clean.
 
+### 2c. Fred Bundles — DONE (Aug 2026)
+Betfred's pre-made win accas as a coupon type (`FREDB`). A third sheet shape:
+several complete bets, each a group of straight-win selections under one
+printed price.
+- [x] `bundles` flag on `CouponType`; `Leg.bundle` / `Leg.bundle_odds` with
+      guarded DDL in `ensure_schema`.
+- [x] OCR reads the grouping (`OcrHint.bundles`, a bundle branch in the prompt);
+      the bundle name and price are repeated on every row of the group, so one
+      fumbled row does not cost the bundle its price.
+- [x] `coupon_types.bundles_on` prices each acca off `combination_value`; any
+      unpriced leg ⇒ no value at all.
+- [x] `audit_bundles` replaces the grid solver — the sheet is not a rectangle
+      and a fixture may appear in several bundles.
+- [x] `GET /coupons/types/FREDB/bundles`, `best_bundle` on the type and each
+      issue, and a bundle card view in the tracker.
+- **Still to verify manually:** nobody has run a REAL Bundles photo through
+  `ClaudeOCRProvider`. Tests cover the shape with a stub. Two things to check
+  against a real sheet: that the bundle headings come back as printed, and
+  whether the sheet's header needs a `title_conflicts` veto (none is configured
+  — a guessed one would block real uploads).
+
 ### 3. Calibration backtest  *(was Phase V4 — depends on 1)*
 - [ ] `api/tools/backtest_calibration.py`: over a season+ of historical fixtures
       with settlements, fit grids, compute derived P(win ∧ over X), score

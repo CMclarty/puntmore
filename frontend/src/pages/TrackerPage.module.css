@@ -622,3 +622,84 @@
   text-decoration: none;
   padding: 0 8px 0 2px;
 }
+
+/* --- Bundle coupons (Fred Bundles) -----------------------------------------
+   A bundle sheet offers whole accumulators, not a fixture list, so the unit on
+   screen is the BET: one card per bundle with its selections nested inside it.
+   Rendering these as flat rows would show a hundred legs and none of the accas
+   they belong to. */
+
+.bundle {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 12px;
+}
+.bundle:last-child { border-bottom: none; }
+
+.bundleHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.bundleName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.bundleFold {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+/* The printed acca price against the fair one — the only figure that means
+   anything on this sheet, so it leads the card. */
+.bundlePrice {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bundleFair {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.bundleLegs {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bundleLeg {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.bundlePick {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.bundleLegFair {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* An unpriced leg is stated, never hidden: it is why the bundle carries no
+   value, and a blank where a number should be reads as a bug. */
+.bundleUnpriced {
+  color: #8C2F1E;
+  font-size: 11px;
+}

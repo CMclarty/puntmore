@@ -192,6 +192,11 @@ export const getCouponPeriods = (typeCode) =>
 // on its own — unscoped, the newer one sits below every row of the live one.
 export const getTypeSelections = (code, couponId = null) =>
   get(`/coupons/types/${code}/selections${couponId ? `?coupon_id=${couponId}` : ''}`)
+// A bundle coupon's ready-made accas, best value first. A separate call from
+// selections because the unit is the BUNDLE: the flat row list would show every
+// leg and none of the bets they belong to.
+export const getTypeBundles = (code, couponId = null) =>
+  get(`/coupons/types/${code}/bundles${couponId ? `?coupon_id=${couponId}` : ''}`)
 export const refreshCoupon = (id) => post(`/coupons/${id}/refresh`, {})
 
 export async function uploadCoupon(typeCode, period, file, name = null) {

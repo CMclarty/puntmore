@@ -12,8 +12,8 @@ from .. import coupon_types, coupon_periods
 from ..coupon_periods import COUPON_PERIODS
 from ..coupon_types import COUPON_TYPES
 from ..schemas import (
-    CouponOut, CouponTypeOut, CouponPeriodOut, LegOut, LegEditRequest,
-    TypePeriodOut,
+    BundleOut, CouponOut, CouponTypeOut, CouponPeriodOut, LegOut,
+    LegEditRequest, TypePeriodOut,
 )
 from ..config import settings
 from ..pricing.legs import price_legs
@@ -134,6 +134,34 @@ def _best_for_coupon(db: Session, coupon: Coupon, ctype) -> dict | None:
     )
 
 
+def _bundles_for_coupon(db: Session, coupon: Coupon) -> list[dict]:
+    """Every ready-made acca on ONE issue, priced and ranked.
+
+    Per issue for the same reason a ladder combination is: a bundle's legs are
+    struck on one sheet, so pricing one across two uploads would describe a bet
+    nobody could place.
+    """
+    legs = (
+        db.query(Leg)
+        .filter(Leg.coupon_id == coupon.id, Leg.bundle.isnot(None))
+        .order_by(Leg.rank)
+        .all()
+    )
+    return coupon_types.bundles_on(legs)
+
+
+def _best_bundle_for_coupon(db: Session, coupon: Coupon) -> dict | None:
+    """The single best-value bundle on an issue, for the landing page.
+
+    Drops the legs — the landing page wants the headline figure, and the legs
+    are several hundred bytes of JSON per bundle that nothing there reads.
+    """
+    found = _bundles_for_coupon(db, coupon)
+    if not found or found[0]["value"] is None:
+        return None
+    return {k: v for k, v in found[0].items() if k != "legs"}
+
+
 @router.get("/types", response_model=list[CouponTypeOut])
 def list_coupon_types(db: Session = Depends(get_db)):
     """The coupon types — the app's top-level entities.
@@ -203,6 +231,10 @@ def list_coupon_types(db: Session = Depends(get_db)):
                 _best_for_coupon(db, coupon, ctype)
                 if ctype is not None and ctype.pays_ladder else None
             ),
+            best_bundle=(
+                _best_bundle_for_coupon(db, coupon)
+                if ctype is not None and ctype.bundles else None
+            ),
         ))
     for rows in periods_by_type.values():
         # Soonest window first, so the set closest to going off leads.
@@ -211,6 +243,16 @@ def list_coupon_types(db: Session = Depends(get_db)):
     out = []
     for t in COUPON_TYPES:
         best = None
+        best_bundle = None
+        if t.bundles:
+            latest = (
+                db.query(Coupon)
+                .filter(Coupon.type_code == t.code)
+                .order_by(Coupon.match_day.desc(), Coupon.created_at.desc())
+                .first()
+            )
+            if latest is not None:
+                best_bundle = _best_bundle_for_coupon(db, latest)
         if t.pays_ladder:
             # Keyed on pays_ladder, NOT on "prints no prices": a Hills coupon
             # does both, and gating this on the absence of prices would hide the
@@ -232,9 +274,11 @@ def list_coupon_types(db: Session = Depends(get_db)):
             selection_count=counts.get(t.code, 0),
             prices_each_selection=t.prices_each_selection,
             pays_ladder=t.pays_ladder,
+            bundles=t.bundles,
             period_codes=list(t.period_codes),
             periods=periods_by_type.get(t.code, []),
             best_combination=best,
+            best_bundle=best_bundle,
         ))
     return out
 
@@ -290,6 +334,51 @@ def list_type_selections(
             selections, key=lambda s: (s.fair_odds is None, s.fair_odds or 0)
         )
     return sorted(selections, key=lambda s: (s.value is None, -(s.value or 0)))
+
+
+@router.get("/types/{type_code}/bundles", response_model=list[BundleOut])
+def list_type_bundles(
+    type_code: str,
+    coupon_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """The ready-made accumulators on a bundle coupon, best value first.
+
+    Bundles, not selections, are what this sheet offers: each is a complete bet
+    with its own printed price, so the flat ranked row list the other types use
+    would show a hundred legs and none of the bets they belong to.
+
+    Scoped to one issue with `coupon_id`, exactly as `selections` is — a bundle
+    is struck on one sheet, so spanning issues would list bets that were never
+    printed together.
+    """
+    coupon_type = coupon_types.get(type_code)
+    if coupon_type is None:
+        raise HTTPException(status_code=404, detail=f"Unknown coupon type: {type_code}")
+    if not coupon_type.bundles:
+        raise HTTPException(
+            status_code=400, detail=f"{coupon_type.label} is not a bundle coupon"
+        )
+
+    query = db.query(Coupon).filter(Coupon.type_code == type_code)
+    if coupon_id is not None:
+        issue = db.get(Coupon, coupon_id)
+        if issue is None or issue.type_code != type_code:
+            raise HTTPException(
+                status_code=404, detail=f"No {type_code} coupon with id {coupon_id}"
+            )
+        coupons = [issue]
+    else:
+        coupons = query.order_by(
+            Coupon.match_day.desc(), Coupon.created_at.desc()
+        ).all()
+
+    out = []
+    for coupon in coupons:
+        for bundle in _bundles_for_coupon(db, coupon):
+            out.append(BundleOut(coupon_id=coupon.id, **bundle))
+    # Best value first; unvaluable bundles last, in printed order.
+    return sorted(out, key=lambda b: (b.value is None, -(b.value or 0), b.name))
 
 
 @router.get("", response_model=list[CouponOut])

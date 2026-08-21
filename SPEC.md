@@ -152,6 +152,7 @@ is a label only — the pricing path is chosen from each leg's **pick text**.
 | `WO25` | Win and Over 2.5 | picked team wins ∧ match total > 2.5 | DERIVED (§8) |
 | `GGB` | GG Bonus | both teams score — **a fixture screen, not a priced leg** (§8.5) | DERIVED (§8) |
 | `GGND` | GG No Draw | both teams score ∧ result is not a draw | DERIVED (§8) |
+| `FREDB` | Fred Bundles | picked team **wins** (straight moneyline) | DIRECT |
 
 **"Team to Score N" means N or more**, so the line is N−0.5 — `TTS2` is team
 total over **1.5**, not 2.5. Getting this off by one misprices every TTS leg,
@@ -165,6 +166,47 @@ TTS uses bettingiscool's native `home_totals` / `away_totals` markets, so it is
 direct rather than derived. GG has no vendor market at all (the API serves
 `moneyline | totals | home_totals | away_totals | spread`), so both GG types
 come off the grid.
+
+### Fred Bundles — a sheet of bets, not a list of fixtures
+
+Every other type is ONE market over a fixture list, and the tracker's job is to
+pick the good rows out of it. Bundles inverts that: Betfred has already built
+the accumulators, so the sheet carries several complete bets, each a small group
+of straight-win selections with ONE printed price for the whole group.
+
+Three consequences, all of which the code has to respect:
+
+- **Value belongs to the GROUP.** The sheet prices the bundle, never the
+  selection, so a bundle leg carries no `odds` of its own and a per-row edge is
+  meaningless. The figure is the printed acca price against the product of its
+  legs' fair odds — `combination_value`, the same arithmetic as a ladder rung,
+  applied to a group the COUPON chose rather than to the N shortest prices on
+  the sheet. There is nothing to select, so every bundle is listed whether or
+  not it holds value.
+- **A bundle with any unpriced leg has NO value**, not a value computed off the
+  legs that priced. An acca is only as knowable as its worst leg; quietly
+  valuing a four-fold as a three-fold overstates it every time.
+- **The sheet is not a rectangle**, so the grid rules (`coupon_grid`) must not
+  run on it — see §7.3. The same fixture legitimately appears in more than one
+  bundle.
+
+Selections are straight wins, priced off de-vigged 1X2 alone: no team totals,
+no score grid. It is the one priced type that would still work on the
+TheOddsApi fallback.
+
+### 7.3 A bundle sheet is not a rectangle
+
+The grid solver enforces one line per match, because on a grid a repeated
+fixture is the read losing its place rather than the coupon printing a match
+twice. On a bundle sheet that rule is wrong: a fixture appearing in two bundles
+is the coupon doing its job, and deduplicating would silently shorten every
+bundle after the first. There are also no market blocks to key by heading.
+
+So `upload.audit_bundles` replaces `solve_grid` for these coupons, and measures
+what a bundle sheet actually has: how many bundles were read, how many
+selections they hold, how many selections arrived with no bundle heading (the
+read losing a group), and how many bundles came back with no readable price —
+the one number a bundle cannot be valued without.
 
 ## 4. Data model (SQLite)
 - `coupons`: id, name, type_code, match_day, status (processing | confirmed),
