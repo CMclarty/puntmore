@@ -72,6 +72,24 @@ drowns out a short club name ("Lyon" scored 0.33 against "Lyon Win and Over
 2.5"), and never the whole-pick path, which bypasses the alias table that got
 the fixture matched in the first place.
 
+**A BLANK TRACKER HAS FIVE DIFFERENT CAUSES and they used to look identical**
+— a selection with no fair odds, whichever one it was. `get_fair_odds` now
+tallies them and logs ONE line per pass (never one per leg — a sheet is 154 of
+them), also served at `/api/ready` → `providers.odds_detail.last_pass`:
+
+| count | means | fix |
+|---|---|---|
+| `no_board` | the fixture board came back empty | config / vendor |
+| `no_match` | fixture not on the board | naming, or the wrong week |
+| `no_odds` | matched, odds fetch returned nothing | vendor error on that event |
+| `no_market` | matched, market not posted | Pinnacle's choice — not a bug |
+| `no_side` | market priced, pick's team unclear | the pick text |
+
+An EMPTY BOARD is the one that hid: every day-slice answers 200 with no rows,
+so nothing raises, nothing is logged, and every leg matches against an empty
+list. It now logs an error saying the requests SUCCEEDED and returned nothing,
+because that rules out the key and the network in one line.
+
 Both live behind their seams. Core logic never calls a vendor API directly.
 
 ## Hard rules (do not violate)

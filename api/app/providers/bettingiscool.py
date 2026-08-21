@@ -172,6 +172,10 @@ class BettingIsCoolProvider(OddsProvider):
         # bounded number rather than "however long the process has been up".
         self._odds_cache = TTLCache(self._cache_ttl, ODDS_CACHE_MAX)
         self._grid_cache = TTLCache(self._cache_ttl, GRID_CACHE_MAX)
+        # The last pricing pass's tally, for /api/ready. A live deploy has no
+        # shell, so without this the only record of WHY a coupon is blank is a
+        # log line that may already have scrolled away.
+        self.last_pass: dict | None = None
 
     # --- transport ---
 
@@ -235,6 +239,23 @@ class BettingIsCoolProvider(OddsProvider):
             return self._fixtures_cache[1] if self._fixtures_cache else []
 
         board = list(merged.values())
+        # AN EMPTY BOARD IS THE LOUDEST FAILURE THERE IS, and it used to be the
+        # quietest. Every slice answered 200 and returned nothing, so no request
+        # failed, nothing was logged, and `get_fair_odds` matched every leg
+        # against an empty list — a whole coupon of blank selections that looks
+        # exactly like a bad scan. The causes are all config or vendor-shaped
+        # (wrong sport_id, a date window the vendor reads as empty, an API
+        # change, the vendor simply down), and none of them are visible from
+        # the tracker.
+        if not board:
+            logger.error(
+                "bettingiscool returned an EMPTY BOARD for sport_id=%s across "
+                "%d day(s) from %s — every leg will be unmatched and every "
+                "selection blank. The requests SUCCEEDED and returned no "
+                "fixtures, so this is not a network or key failure: check "
+                "sport_id, the starts_from/starts_to window, and the vendor.",
+                self._sport_id, FIXTURE_HORIZON_DAYS, today.isoformat(),
+            )
         self._fixtures_cache = (now, board)
         return board
 
@@ -503,12 +524,33 @@ class BettingIsCoolProvider(OddsProvider):
         return None
 
     def get_fair_odds(self, queries: list[MatchQuery]) -> list[OddsResult]:
+        board = self._fixtures()
         by_name: dict[str, dict] = {}
-        for f in self._fixtures():
+        for f in board:
             if EXCLUDED_LEAGUE_RE.search(f.get("league_name", "")):
                 continue
             name = f"{f.get('runner_home', '')} vs {f.get('runner_away', '')}"
             by_name.setdefault(name, f)
+
+        # WHY a leg came back blank, counted. Every one of these used to be the
+        # same thing from outside — a selection with no fair odds — so "the feed
+        # isn't working" had no answer short of reading the code. They are
+        # different problems with different fixes:
+        #
+        #   no_board   the board is empty          -> config / vendor (above)
+        #   no_match   fixture not on the board    -> name, or the wrong week
+        #   no_odds    matched, odds fetch empty   -> vendor error for that event
+        #   no_market  matched, market not priced  -> Pinnacle does not post it
+        #   no_side    market priced, side unclear -> the pick's team name
+        #
+        # A TTS coupon that is 100% no_market is the vendor declining to post
+        # team totals; 100% no_match with a full board is a naming problem;
+        # 100% no_board is not a pricing problem at all.
+        tally = {
+            "legs": len(queries), "board": len(by_name), "priced": 0,
+            "no_board": 0, "no_match": 0, "no_odds": 0,
+            "no_market": 0, "no_side": 0,
+        }
 
         results = []
         for q in queries:
@@ -518,6 +560,7 @@ class BettingIsCoolProvider(OddsProvider):
             kickoff = None
             fair_home = fair_away = None
             side = None
+            odds_rows: list[dict] = []
             match = self._best_match(q.match_name, list(by_name))
             if match:
                 fixture, score = match
@@ -560,6 +603,27 @@ class BettingIsCoolProvider(OddsProvider):
                         fair = self._fair_odds_for(
                             odds_rows, q.market, event_id=event_id
                         )
+
+            # Classify the blank. Most specific cause first: "the market is not
+            # priced" is a better answer than "the side is unclear" when both
+            # are true, because the side never mattered.
+            if fair is not None:
+                tally["priced"] += 1
+            elif not by_name:
+                tally["no_board"] += 1
+            elif match is None:
+                tally["no_match"] += 1
+            elif not odds_rows:
+                tally["no_odds"] += 1
+            elif self._is_team_specific(q.market) and (
+                fair_home is None and fair_away is None
+            ):
+                tally["no_market"] += 1
+            elif self._is_team_specific(q.market) and side is None:
+                tally["no_side"] += 1
+            else:
+                tally["no_market"] += 1
+
             results.append(
                 OddsResult(
                     match_id=q.match_id,
@@ -572,4 +636,19 @@ class BettingIsCoolProvider(OddsProvider):
                     side=side,
                 )
             )
+
+        # ONE line per pass — never one per leg, which on a 154-selection sheet
+        # is 154 lines nobody reads. This is the line that answers "why is
+        # nothing pricing", so it is INFO when everything priced and WARNING the
+        # moment anything did not.
+        self.last_pass = tally
+        blanks = tally["legs"] - tally["priced"]
+        log = logger.info if blanks == 0 else logger.warning
+        log(
+            "bettingiscool pricing pass: %d/%d priced off a %d-fixture board "
+            "(no_board=%d no_match=%d no_odds=%d no_market=%d no_side=%d)",
+            tally["priced"], tally["legs"], tally["board"],
+            tally["no_board"], tally["no_match"], tally["no_odds"],
+            tally["no_market"], tally["no_side"],
+        )
         return results

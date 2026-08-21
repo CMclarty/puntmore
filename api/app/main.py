@@ -406,6 +406,13 @@ def ready():
         "source": settings.coupon_odds_source,
         "degraded": isinstance(odds_provider, (MockOddsProvider, TheOddsApiProvider)),
     }
+    # The last pricing pass, when the live provider ran one. This is the
+    # difference between "the feed is down", "the fixtures aren't matching" and
+    # "Pinnacle doesn't post this market" — three different problems that all
+    # look like a blank tracker.
+    last_pass = getattr(odds_provider, "last_pass", None)
+    if last_pass:
+        odds["last_pass"] = last_pass
     if isinstance(odds_provider, MockOddsProvider):
         odds["cannot_price"] = ["ALL — no odds provider configured"]
     elif isinstance(odds_provider, TheOddsApiProvider):
