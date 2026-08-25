@@ -225,11 +225,20 @@ def test_sorted_best_edge_first():
     assert rows[0].best_edge >= rows[1].best_edge
 
 
-def test_is_arb_when_cross_book_profitable():
-    # Bet365 home 2.10, Pinnacle away 2.10: 1/2.10 + 1/2.10 = 0.952 < 1.0 → arb
-    events = [_make_event("arb", "P", "Q", b365_home=2.10, b365_away=1.85, pin_home=1.95, pin_away=2.10)]
+def test_no_cross_book_arb_flag_because_the_bet_cannot_be_placed():
+    """Pinnacle is the measuring stick here, not a book to bet at.
+
+    A cross-book arb needs the Pinnacle leg, and the Acca Boost only exists at
+    bet365 — so the flag advertised a bet nobody could take, as the most
+    prominent badge on the row. These prices used to raise it.
+    """
+    events = [_make_event("arb", "P", "Q", b365_home=2.10, b365_away=1.85,
+                          pin_home=1.95, pin_away=2.10)]
     rows = compute_arbs(events, min_edge=-1.0)
-    assert any(r.is_arb for r in rows)
+    assert rows
+    assert not hasattr(rows[0], "is_arb")
+    # The value at bet365 is still measured — that is the whole tool.
+    assert rows[0].best_edge > 0
 
 
 def test_edge_formula():
@@ -272,14 +281,15 @@ def test_three_way_draw_can_be_best_edge():
     assert r.best_edge == pytest.approx(r.edge_draw)
 
 
-def test_three_way_arb_detection():
-    # Best prices across books: 2.20 home (b365), 4.20 draw (b365), 4.00 away (pin)
-    # 1/2.2 + 1/4.2 + 1/4.0 = 0.943 < 1 → arb
+def test_three_way_markets_still_devig_across_all_three_outcomes():
+    """The draw leg matters for the DE-VIG even without a cross-book flag:
+    the margin belongs to the whole market, so a 3-way must be de-vigged as
+    one."""
     rows = compute_arbs(
         [_three_way_event(b365_home=2.20, b365_draw=4.20, pin_away=4.00)],
         min_edge=-1.0,
     )
-    assert rows[0].is_arb is True
+    assert rows and rows[0].edge_draw is not None
 
 
 def test_draw_ignored_when_only_one_book_prices_it():
@@ -298,7 +308,8 @@ class _FakeArbsClient:
     def __init__(self, events_by_key: dict[str, list[dict]]):
         self._events = events_by_key
 
-    def fetch(self, sport_key: str, markets: str, bookmakers: str | None = None) -> list[dict]:
+    def fetch(self, sport_key: str, markets: str, bookmakers: str | None = None,
+              ttl: int | None = None) -> list[dict]:
         return self._events.get(sport_key, [])
 
 
@@ -344,3 +355,79 @@ def test_legacy_tennis_routes_still_serve():
     client = TestClient(app, raise_server_exceptions=True)
     assert client.get("/tennis/arbs").status_code == 200
     assert client.get("/tennis/feed").status_code == 200
+
+
+# --- hourly pulls, and the guards that keep them affordable ----------------
+
+def test_the_hourly_ttl_is_passed_through(monkeypatch):
+    """AccaBonus reads on its OWN ttl, not the shared 24-hour default.
+
+    Cost is 1 credit per sport key per pull, so this dial is the difference
+    between ~450 credits a month and ~10,800.
+    """
+    from app.config import settings
+    from app.routers.accabonus import _fetch_events
+
+    seen = {}
+
+    class _Client:
+        quota_remaining = 100_000
+
+        def list_sports(self):
+            return []
+
+        def fetch(self, sport_key, markets, bookmakers=None, ttl=None):
+            seen["ttl"] = ttl
+            seen["bookmakers"] = bookmakers
+            return []
+
+    monkeypatch.setattr(settings, "accabonus_sport_keys", "tennis_atp")
+    monkeypatch.setattr(settings, "accabonus_cache_ttl", 3600)
+    _fetch_events(_Client())
+    assert seen["ttl"] == 3600
+    # Both books in one call: bet365 is the bet, Pinnacle is the reference.
+    assert seen["bookmakers"] == "bet365,pinnacle"
+
+
+def test_accabonus_stops_at_the_quota_reserve(monkeypatch):
+    """An hourly TTL across many keys could quietly eat the allowance the
+    coupon fallback and the goalscorer scans depend on."""
+    from app.config import settings
+    from app.routers.accabonus import _fetch_events
+
+    calls = []
+
+    class _Broke:
+        quota_remaining = settings.cards_quota_reserve
+
+        def list_sports(self):
+            return []
+
+        def fetch(self, *a, **k):
+            calls.append(a)
+            return []
+
+    monkeypatch.setattr(settings, "accabonus_sport_keys", "tennis_atp,mma_mixed_martial_arts")
+    assert _fetch_events(_Broke()) == []
+    assert calls == []
+
+
+def test_a_failing_sport_key_is_logged_not_swallowed(monkeypatch, caplog):
+    """Silently swallowing this is what let the cards client return nothing
+    for months."""
+    from app.config import settings
+    from app.routers.accabonus import _fetch_events
+
+    class _Flaky:
+        quota_remaining = 100_000
+
+        def list_sports(self):
+            return []
+
+        def fetch(self, sport_key, markets, bookmakers=None, ttl=None):
+            raise RuntimeError("vendor down")
+
+    monkeypatch.setattr(settings, "accabonus_sport_keys", "tennis_atp")
+    with caplog.at_level("ERROR"):
+        assert _fetch_events(_Flaky()) == []
+    assert any("tennis_atp" in r.getMessage() for r in caplog.records)

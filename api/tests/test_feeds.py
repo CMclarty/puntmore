@@ -15,7 +15,7 @@ class StubArbsClient:
         self._events = events
         self._served = False
 
-    def fetch(self, sport_key, markets, bookmakers=None):
+    def fetch(self, sport_key, markets, bookmakers=None, ttl=None):
         # Serve the batch once; other sport keys return empty.
         if self._served:
             return []
@@ -114,14 +114,15 @@ def test_accabonus_feed_respects_min_edge():
     assert rows == []
 
 
-def test_accabonus_feed_flags_arb():
-    # 1/2.30 + 1/1.90 = 0.961 < 1 → guaranteed cross-book arb
+def test_accabonus_feed_carries_no_arb_flag():
+    """The ARB chip described a bet that needs a Pinnacle leg. The Acca Boost
+    is a bet365 promotion, so that leg cannot be placed."""
     app.state.arbs_client = StubArbsClient([
         _h2h_event("e1", "A", "B", 2.30, 1.60, 2.10, 1.90),
     ])
     rows = client.get("/accabonus/feed?min_edge=-0.5").json()
     assert len(rows) == 1
-    assert rows[0]["is_arb"] is True
+    assert "is_arb" not in rows[0]
 
 
 # --- /cards/feed ---

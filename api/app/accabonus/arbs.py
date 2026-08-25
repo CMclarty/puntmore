@@ -17,8 +17,16 @@ For each event that has both Pinnacle and Bet365 h2h prices:
      min_edge =  0.00  → only rows where Bet365 is at or above fair
      min_edge =  0.02  → Bet365 must beat fair by 2%+
 
-4. is_arb: true when a guaranteed cross-book profit exists — taking the best
-   price per outcome across the two books, sum(1/best_i) < 1.0.
+NOTE ON PINNACLE'S ROLE. It is the MEASURING STICK, not a second book to bet
+at. The Acca Boost is a bet365 promotion, so bet365 is the only place any of
+this is placed; de-vigged Pinnacle is simply what "fair odds" means here, as it
+is for the coupon tracker and the cards tool.
+
+Which is why there is no cross-book arb flag. There used to be one — best price
+per outcome across both books, sum(1/best) < 1 — and it rendered as the most
+prominent badge on the row. It described a bet that cannot be placed: taking it
+needs the Pinnacle leg, and this tool exists because the value is at bet365.
+A confident badge for an unplaceable bet is worse than no badge.
 """
 import re
 from dataclasses import dataclass
@@ -119,7 +127,6 @@ class ArbRow:
     edge_home: float        # bet365_home/fair_home - 1 (positive = value)
     edge_away: float        # bet365_away/fair_away - 1
     best_edge: float        # max edge across all outcomes (incl. draw)
-    is_arb: bool            # guaranteed cross-book profit possible
     # Only when both books price a draw (e.g. MMA) — None on 2-way markets:
     bet365_draw: float | None = None
     pinnacle_draw: float | None = None
@@ -171,9 +178,6 @@ def compute_arbs(events: list[dict], min_edge: float) -> list[ArbRow]:
         if best_edge < min_edge:
             continue
 
-        # Best price per outcome across both books; <1 total implied = arb.
-        is_arb = sum(1 / max(b365[o], pin[o]) for o in outcomes) < 1.0
-
         has_draw = "Draw" in fair_by_outcome
         rows.append(ArbRow(
             event_id=event["id"],
@@ -191,7 +195,6 @@ def compute_arbs(events: list[dict], min_edge: float) -> list[ArbRow]:
             edge_home=round(edges[home], 4),
             edge_away=round(edges[away], 4),
             best_edge=round(best_edge, 4),
-            is_arb=is_arb,
             bet365_draw=b365["Draw"] if has_draw else None,
             pinnacle_draw=pin["Draw"] if has_draw else None,
             fair_draw=round(fair_by_outcome["Draw"], 3) if has_draw else None,

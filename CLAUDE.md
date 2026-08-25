@@ -396,9 +396,17 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
 - `merge_pinnacle` joins the two vendors into one event so `value.py` stays
   vendor-agnostic — swapping either side back is a change in that function
   alone.
-- **`ENABLE_ACCABONUS` is off for QUOTA reasons**, not product ones: it
-  discovers sport keys dynamically and draws ~450 credits/month from the same
-  allowance. Re-enable it only with a pinned key list or a bigger plan.
+- **AccaBonus is bet365-only, and Pinnacle is the MEASURING STICK.** The Acca
+  Boost is a bet365 promotion, so bet365 is where every row is placed;
+  de-vigged Pinnacle is just what "fair odds" means, as in every other tool.
+  There is deliberately no cross-book arb flag — one existed and rendered as
+  the row's most prominent badge, describing a bet that needs a Pinnacle leg
+  nobody here places. Don't re-add it.
+  `ACCABONUS_CACHE_TTL` is the cost dial: 1 credit per sport key per pull, so
+  24h is ~450 credits/month and 1h is ~3.6k–10.8k depending on how many keys
+  discovery finds. Cards is ~17k of a 20k plan, so hourly only fits alongside
+  it with `ACCABONUS_SPORT_KEYS` pinned to a handful — watch the
+  "accabonus pull" log line for the live key count.
 - The sweep's Discord dedupe (`scheduler._cards_notified`) is IN MEMORY and is
   swept each pass. Cards rows are computed, never stored, so there is no row to
   flag — but the map must keep dropping bets that fall off the sweep, or it is

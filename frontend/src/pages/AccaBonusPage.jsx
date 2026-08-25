@@ -71,7 +71,6 @@ export default function AccaBonusPage() {
             <div className={styles.cardRow}>
               <span className={styles.match}>{item.match}</span>
               {item.sport && <span className={styles.sport}>{item.sport}</span>}
-              {item.is_arb && <span className={styles.arbChip}>ARB</span>}
             </div>
             <div className={styles.cardRow}>
               <span className={styles.pick}>{item.pick}</span>

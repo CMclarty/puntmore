@@ -131,6 +131,21 @@ class Settings(BaseSettings):
     # single key (e.g. "tennis_atp") to cap quota burn at ~1 API request per
     # 24 h while testing live data.
     accabonus_sport_keys: str = ""
+
+    # How long an AccaBonus h2h pull is reused. SEPARATE from odds_cache_ttl,
+    # which is shared with other consumers and stays at 24h.
+    #
+    # COST: 1 credit per sport key per pull (bookmakers are named, so one
+    # region-equivalent). At 24h that is ~1 credit/key/day; at 1h it is 24.
+    # Discovery typically finds 5-15 live keys, so hourly is roughly
+    # 120-360 credits/DAY — 3.6k-10.8k a month, on top of the cards sweep's
+    # ~17k. Against a 20k plan those do not both fit at the top of that range.
+    #
+    # Two ways to keep it inside: pin `accabonus_sport_keys` to a short list
+    # while testing, or raise this back up once the tool has been eyeballed.
+    # The quota reserve is the backstop either way — AccaBonus stops before the
+    # reserve for the same reason the cards sweep does.
+    accabonus_cache_ttl: int = 3600
     # Coupon tracker odds source (behind the OddsProvider seam).
     # "bettingiscool" (default, user decision July 2026) prices coupon legs
     # Pinnacle-referenced via BettingIsCoolProvider. "theoddsapi" is retained

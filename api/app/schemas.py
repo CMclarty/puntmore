@@ -169,7 +169,6 @@ class AccaBonusFeedItem(BaseModel):
     pick: str
     odds: float
     value: float
-    is_arb: bool
 
 
 # Cards & corners feed (grouped by match)
@@ -270,7 +269,6 @@ class ArbOut(BaseModel):
     edge_home: float
     edge_away: float
     best_edge: float
-    is_arb: bool
     # Only when both books price a draw (e.g. MMA) — null on 2-way markets:
     bet365_draw: float | None = None
     pinnacle_draw: float | None = None

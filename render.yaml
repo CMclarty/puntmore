@@ -39,16 +39,21 @@ services:
       # Cards/Corners is surfaced; it stays private via the split-auth grant
       # (only "*" users see it).
       #
-      # ACCABONUS IS OFF, and that is a QUOTA decision, not a product one. It
-      # discovers its sport keys dynamically across tennis, MMA, basketball,
-      # NFL, MLB and NHL and pulls each one per cache cycle — roughly 450
-      # credits a month, drawn from the SAME TheOddsApi allowance the cards
-      # tool now depends on. It costs nothing while ODDS_API_KEY is unset, so
-      # this was harmless until the key was added for cards; it is not
-      # harmless now. Re-enable it only alongside a pinned, short sport-key
-      # list (Settings.accabonus_sport_keys) or a bigger plan.
+      # AccaBonus: bet365 value against de-vigged Pinnacle, on the Acca Boost's
+      # eligible sports. It costs 1 credit per sport key per cache cycle, and
+      # ACCABONUS_CACHE_TTL is the dial that decides whether that is cheap or
+      # not: at 24h it is ~450 credits/month, at 1h it is ~3.6k-10.8k depending
+      # on how many keys discovery finds. Set to 1h for testing — watch the
+      # "accabonus pull" log line for the key count and cut ACCABONUS_SPORT_KEYS
+      # to a short list if it runs hot.
       - key: ENABLE_ACCABONUS
-        value: "false"
+        value: "true"
+      - key: ACCABONUS_CACHE_TTL
+        value: "3600"
+      # Pin to a short comma-separated list (e.g. "tennis_atp") to cap the burn
+      # while testing. Empty = discover every eligible key.
+      - key: ACCABONUS_SPORT_KEYS
+        value: ""
       - key: ENABLE_CARDS
         value: "true"
 
