@@ -431,3 +431,76 @@ def test_a_failing_sport_key_is_logged_not_swallowed(monkeypatch, caplog):
     with caplog.at_level("ERROR"):
         assert _fetch_events(_Flaky()) == []
     assert any("tennis_atp" in r.getMessage() for r in caplog.records)
+
+
+# --- the eligible-key list is checkable against bet365's terms -------------
+
+class _Sports:
+    quota_remaining = 100_000
+
+    def __init__(self, sports):
+        self._sports = sports
+
+    def list_sports(self):
+        return self._sports
+
+    def fetch(self, *a, **k):
+        return []
+
+
+SPORTS = [
+    {"key": "tennis_atp_us_open", "group": "Tennis", "title": "ATP US Open", "active": True},
+    {"key": "tennis_itf_men", "group": "Tennis", "title": "ITF Men", "active": True},
+    {"key": "mma_mixed_martial_arts", "group": "Mixed Martial Arts", "title": "MMA", "active": True},
+    {"key": "basketball_nba", "group": "Basketball", "title": "NBA", "active": True},
+    {"key": "basketball_ncaab", "group": "Basketball", "title": "NCAAB", "active": True},
+    {"key": "soccer_epl", "group": "Soccer", "title": "EPL", "active": True},
+    {"key": "cricket_test_match", "group": "Cricket", "title": "Test", "active": True},
+    {"key": "tennis_atp_winner", "group": "Tennis", "title": "ATP Winner",
+     "active": True, "has_outrights": True},
+]
+
+
+def test_eligible_keys_reports_what_is_accepted_and_what_just_missed():
+    from app.routers.accabonus import eligible_keys
+    report = eligible_keys(_Sports(SPORTS))
+    accepted = {e["key"] for e in report["accepted"]}
+    near = {e["key"] for e in report["rejected_near_misses"]}
+
+    assert "basketball_nba" in accepted
+    assert "mma_mixed_martial_arts" in accepted
+    # Soccer is excluded by DECISION, not by the offer terms — it must show up
+    # as a near miss so that decision stays visible rather than looking like
+    # the terms.
+    assert "soccer_epl" in near
+    assert "basketball_ncaab" in near
+    # Outrights carry no h2h to de-vig, so they are not eligible either way.
+    assert "tennis_atp_winner" not in accepted
+    # Cricket is not boost-eligible and is not a near miss worth listing.
+    assert "cricket_test_match" not in accepted and "cricket_test_match" not in near
+
+
+def test_whole_group_inclusion_is_visible_as_over_inclusion_risk():
+    """Tennis is taken as a WHOLE GROUP, so an ITF event is included even
+    though the terms name ATP/WTA/Challenger/Davis Cup/BJK Cup.
+
+    Pinned so the breadth is a known property rather than a surprise.
+    """
+    from app.routers.accabonus import eligible_keys
+    accepted = {e["key"] for e in eligible_keys(_Sports(SPORTS))["accepted"]}
+    assert "tennis_itf_men" in accepted
+
+
+def test_a_pinned_key_list_is_reported_as_such():
+    from app.config import settings
+    from app.routers.accabonus import eligible_keys
+    import pytest as _pytest
+
+    original = settings.accabonus_sport_keys
+    settings.accabonus_sport_keys = "tennis_atp,mma_mixed_martial_arts"
+    try:
+        report = eligible_keys(_Sports(SPORTS))
+    finally:
+        settings.accabonus_sport_keys = original
+    assert report["count"] == 2
+    assert "override" in report["source"]

@@ -72,6 +72,71 @@ def _fetch_events(client) -> list[dict]:
     return events
 
 
+def eligible_keys(client) -> dict:
+    """The sport keys this tool treats as Acca Boost-eligible, and why.
+
+    Exists to be CHECKED AGAINST BET365'S PUBLISHED TERMS by eye. The
+    eligibility list in accabonus/arbs.py is a reading of those terms from June
+    2026 and nothing re-reads them — offers change, TheOddsApi renames groups,
+    and both failures are silent: a renamed group quietly drops every key under
+    it, and a widened group quietly adds fixtures the boost does not cover.
+
+    Reports what was ACCEPTED and what was REJECTED, because over-inclusion
+    (rows for fixtures that get no boost) and under-inclusion (a whole sport
+    vanishing) look identical from a feed that simply has fewer rows on it.
+    """
+    from ..accabonus.arbs import _key_eligible, _OUTRIGHT_RE, _EXCLUDED_RE
+
+    if settings.accabonus_sport_keys:
+        pinned = [k.strip() for k in settings.accabonus_sport_keys.split(",") if k.strip()]
+        return {"source": "ACCABONUS_SPORT_KEYS override", "accepted": pinned,
+                "rejected": [], "count": len(pinned)}
+
+    try:
+        sports = client.list_sports()          # free endpoint, no quota cost
+    except Exception as exc:
+        return {"source": "discovery failed", "error": str(exc),
+                "accepted": [], "rejected": [], "count": 0}
+
+    accepted, rejected = [], []
+    for sport in sports:
+        key, group = sport.get("key", ""), sport.get("group", "")
+        if not sport.get("active", True) or sport.get("has_outrights", False):
+            continue
+        entry = {"key": key, "group": group, "title": sport.get("title", "")}
+        if _key_eligible(key, group):
+            accepted.append(entry)
+        elif group in ("Soccer", "Tennis", "Mixed Martial Arts", "Basketball",
+                       "American Football", "Baseball", "Ice Hockey"):
+            # Only near-misses are listed. Every darts and snooker key on the
+            # platform would bury the thing this is for.
+            rejected.append(entry)
+
+    return {
+        "source": "discovered from /v4/sports (free)",
+        "count": len(accepted),
+        "accepted": sorted(accepted, key=lambda e: e["key"]),
+        "rejected_near_misses": sorted(rejected, key=lambda e: e["key"]),
+        "note": (
+            "Compare `accepted` against bet365's Acca Boost terms. Tennis and "
+            "MMA are taken as WHOLE GROUPS, so anything TheOddsApi files under "
+            "them is included whether or not the offer covers it. Soccer is "
+            "excluded by an explicit decision (June 2026), not by the terms — "
+            "the boost does cover it."
+        ),
+    }
+
+
+@router.get("/accabonus/eligible-keys")
+def get_eligible_keys(request: Request):
+    """What this tool counts as boost-eligible, for checking against bet365."""
+    client = request.app.state.arbs_client
+    if client is None:
+        return {"source": "no client — ODDS_API_KEY unset",
+                "accepted": [], "count": 0}
+    return eligible_keys(client)
+
+
 # Legacy /tennis/* aliases kept so PWA clients with a cached pre-rename shell
 # don't 404 until their service worker updates. Hidden from the schema.
 @router.get("/accabonus/arbs", response_model=list[ArbOut])
