@@ -41,10 +41,14 @@ class Settings(BaseSettings):
     cards_market_keys: str = "alternate_totals_corners,alternate_totals_cards"
     # Major UK/Euro competitions. The fixture-list endpoint is FREE, so listing
     # a key that is out of season or has no fixtures costs nothing.
+    # An unknown or out-of-season key 404s, which is FREE and cached empty, so a
+    # wrong key costs nothing — but it also returns nothing silently. Verify a
+    # new key against /v4/sports (also free) rather than assuming the spelling.
     cards_sport_keys: str = (
-        "soccer_epl,soccer_efl_champ,soccer_spain_la_liga,soccer_italy_serie_a,"
+        "soccer_epl,soccer_efl_champ,soccer_england_league1,"
+        "soccer_spain_la_liga,soccer_italy_serie_a,"
         "soccer_germany_bundesliga,soccer_france_ligue_one,"
-        "soccer_netherlands_eredivisie,soccer_portugal_primeira_liga,"
+        "soccer_portugal_primeira_liga,"
         "soccer_uefa_champs_league,soccer_uefa_europa_league"
     )
     # TIERED REFRESH. Corners/cards markets are posted near kickoff and barely
