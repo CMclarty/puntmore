@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { getCardsFeed } from '../api'
+import { getCardsFeed, getCardsDiagnostics } from '../api'
 import ThresholdControl from '../components/ThresholdControl'
 import styles from './FeedPage.module.css'
 
@@ -25,6 +25,10 @@ export default function CardsPage() {
   const [error, setError] = useState(null)
   const [fetchedAt, setFetchedAt] = useState(null)
   const [openId, setOpenId] = useState(null)
+  // Only fetched when the feed comes back empty. An empty screen has several
+  // causes and they look identical here — "no fixtures near kickoff" and "the
+  // model found no value" are both normal, and neither should read as broken.
+  const [why, setWhy] = useState(null)
   const debounceRef = useRef(null)
 
   const fetchFeed = useCallback(async (ev) => {
@@ -34,6 +38,14 @@ export default function CardsPage() {
       const data = await getCardsFeed(ev / 100 - 1)
       setItems(data)
       setFetchedAt(new Date())
+      setWhy(null)
+      if (data.length === 0) {
+        // Best effort: an explanation is a nicety, so its failure must not
+        // surface as an error over a feed that loaded perfectly well.
+        try {
+          setWhy((await getCardsDiagnostics()).verdict)
+        } catch { /* leave the plain empty state */ }
+      }
     } catch (err) {
       setError(err.message)
     } finally {
@@ -69,6 +81,12 @@ export default function CardsPage() {
         </p>
       )}
       {error && <p className={styles.error}>{error}</p>}
+
+      {!loading && !error && items.length === 0 && (
+        <p className={styles.empty}>
+          {why ?? 'No value bets at this threshold.'}
+        </p>
+      )}
 
       <div className={styles.feed}>
         {items.map((item) => {

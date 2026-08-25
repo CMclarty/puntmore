@@ -499,3 +499,52 @@ def test_an_unfittable_ladder_is_skipped_not_crashed():
     assert compute_laddered_value(events, -0.5) == [], (
         "one rung pins nothing — the shape would come entirely from the prior"
     )
+
+
+# --- the empty screen must say WHICH kind of empty it is -------------------
+
+def test_diagnostics_names_a_missing_client():
+    from app.routers.cards import diagnose
+    assert "ODDS_API_KEY" in diagnose(None, None)["verdict"]
+
+
+def test_diagnostics_distinguishes_no_fixtures_from_no_value():
+    """The two most common empty states, and both are NORMAL.
+
+    Reporting them the same way is what makes a working tool look broken.
+    """
+    from app.routers.cards import diagnose
+
+    quiet = CardsApiClient(_StubOddsApi({"soccer_epl": []}), sport_keys=["soccer_epl"])
+    quiet.get_events()
+    verdict = diagnose(quiet, None)["verdict"]
+    assert "within" in verdict and "kickoff" in verdict
+
+    # Fixtures fetched and priced, but nothing clears the guards.
+    from app.cards import laddered
+    laddered.LAST_RUN.update({
+        "ladders_fitted": 3, "ladders_refused": 0,
+        "priceable_paddy_lines": 12, "rows": 0,
+    })
+    busy = _valued_client()
+    busy.get_events()
+    verdict = diagnose(busy, _StubBic(_corner_board(), _corner_odds()))["verdict"]
+    assert verdict.startswith("WORKING"), verdict
+    laddered.LAST_RUN.clear()
+
+
+def test_diagnostics_reports_paddy_not_posting_the_market():
+    from app.routers.cards import diagnose
+
+    class _NoPaddy(_StubOddsApi):
+        def fetch_event(self, *a, **k):
+            event = super().fetch_event(*a, **k)
+            event["bookmakers"] = []          # fixture exists, market not up
+            return event
+
+    client = CardsApiClient(
+        _NoPaddy({"soccer_epl": [{"id": "e1", "commence_time": _iso(0.5)}]}),
+        sport_keys=["soccer_epl"],
+    )
+    client.get_events()
+    assert "not posting" in diagnose(client, None)["verdict"]

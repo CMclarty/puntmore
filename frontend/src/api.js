@@ -230,6 +230,10 @@ export const getAccaBonusFeed = (minEdge = -0.02) =>
   get(`/accabonus/feed?min_edge=${minEdge}`)
 
 // Cards & corners
+// Why the cards screen looks the way it does. An empty feed has several
+// distinct causes that are identical from the outside, and one of them
+// ("nothing cleared the guards") is a SUCCESS.
+export const getCardsDiagnostics = () => get('/cards/diagnostics')
 export const getCardsFeed = (minEdge = -0.02) =>
   get(`/cards/feed?min_edge=${minEdge}`)
 

@@ -77,6 +77,10 @@ class CardsApiClient:
         # process without needing a scheduler of its own.
         self._spent_on = None
         self._spent = 0
+        # What the last sweep saw, for /cards/diagnostics. An empty screen has
+        # several possible causes and they are indistinguishable from the
+        # outside — this is what tells them apart without reading Render logs.
+        self.last_sweep: dict = {}
 
     # --- budget ---
 
@@ -172,6 +176,15 @@ class CardsApiClient:
                 priced += 1
                 events.append(event)
 
+        self.last_sweep = {
+            "window_hours": settings.cards_window_hours,
+            "fixtures_in_window": len(due),
+            "called": len(due) - failed,
+            "carried_paddy_prices": priced,
+            "failed": failed,
+            "calls_today": self.calls_today,
+            "call_budget": settings.cards_daily_call_budget,
+        }
         log = logger.info if not failed else logger.warning
         log(
             "cards sweep: %d fixture(s) due, %d called, %d carried Paddy Power "

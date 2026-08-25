@@ -41,6 +41,9 @@ from .value import CardValueRow, _get_bookmaker, _get_market, _market_label
 
 logger = logging.getLogger("uvicorn.error")
 
+# Counts from the most recent call, for /cards/diagnostics.
+LAST_RUN: dict = {}
+
 # Below this many two-sided Pinnacle rungs the fixture is skipped entirely.
 # Two rungs pin a mean and let the prior hold the shape; one rung pins nothing.
 MIN_RUNGS_TO_PRICE = 2
@@ -96,12 +99,14 @@ def compute_laddered_value(
     """
     rows: list[CardValueRow] = []
     fitted = refused = 0
+    both_books = priceable_lines = 0
 
     for event in events:
         pin = _get_bookmaker(event, "pinnacle")
         paddy = _get_bookmaker(event, "paddypower")
         if pin is None or paddy is None:
             continue
+        both_books += 1
         sport_key = event.get("sport_key", "")
 
         for market_key, config in _CONFIGS.items():
@@ -138,6 +143,7 @@ def compute_laddered_value(
                 # the model is allowed to quote.
                 if not is_priceable(line, config):
                     continue
+                priceable_lines += 1
                 try:
                     priced = price_line(fit, line, ladder)
                 except LadderError:
@@ -181,6 +187,11 @@ def compute_laddered_value(
                         edge=round(edge, 4),
                     ))
 
+    LAST_RUN.update({
+        "events": len(events), "with_both_books": both_books,
+        "ladders_fitted": fitted, "ladders_refused": refused,
+        "priceable_paddy_lines": priceable_lines, "rows": len(rows),
+    })
     if fitted or refused:
         logger.info(
             "cards laddered pricing: %d ladder(s) fitted, %d refused, %d row(s)",

@@ -31,6 +31,9 @@ from ..normalise import team_similarity
 
 logger = logging.getLogger("uvicorn.error")
 
+# Counts from the most recent call, for /cards/diagnostics.
+LAST_RUN: dict = {}
+
 # How the board labels a derived fixture. Matched on the league name AND the
 # runner names, because the vendor marks them in both places.
 CORNERS_RE = re.compile(r"\bcorners?\b", re.IGNORECASE)
@@ -119,6 +122,10 @@ def pinnacle_books(provider, fixtures: list[dict]) -> dict[str, dict]:
             derived.setdefault(kind, []).append((sides, row))
 
     if not derived:
+        LAST_RUN.update({
+            "board_fixtures": len(board), "derived_fixtures": 0,
+            "matched": 0, "unmatched": 0, "no_totals": 0,
+        })
         logger.warning(
             "cards: the bettingiscool board (%d fixtures) carries NO derived "
             "corners/cards events, so there is no fair price to measure Paddy "
@@ -157,6 +164,11 @@ def pinnacle_books(provider, fixtures: list[dict]) -> dict[str, dict]:
             )
             book["markets"].append({"key": market_key, "outcomes": outcomes})
 
+    LAST_RUN.update({
+        "board_fixtures": len(board),
+        "derived_fixtures": sum(len(v) for v in derived.values()),
+        "matched": matched, "unmatched": unmatched, "no_totals": no_totals,
+    })
     logger.info(
         "cards fair side: %d fixture-market(s) matched, %d unmatched, "
         "%d matched but carrying no totals",
