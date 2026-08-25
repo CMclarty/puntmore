@@ -480,15 +480,22 @@ def test_eligible_keys_reports_what_is_accepted_and_what_just_missed():
     assert "cricket_test_match" not in accepted and "cricket_test_match" not in near
 
 
-def test_whole_group_inclusion_is_visible_as_over_inclusion_risk():
-    """Tennis is taken as a WHOLE GROUP, so an ITF event is included even
-    though the terms name ATP/WTA/Challenger/Davis Cup/BJK Cup.
+def test_itf_tennis_is_not_eligible():
+    """bet365's list names Grand Slams, ATP, WTA, Davis Cup, BJK Cup and the
+    Challenger Tour. ITF is not on it.
 
-    Pinned so the breadth is a known property rather than a surprise.
+    Taking the whole Tennis group used to include ITF, producing value rows
+    measured against a boost that would never pay on them.
     """
+    from app.accabonus.arbs import _key_eligible
     from app.routers.accabonus import eligible_keys
+
     accepted = {e["key"] for e in eligible_keys(_Sports(SPORTS))["accepted"]}
-    assert "tennis_itf_men" in accepted
+    assert "tennis_itf_men" not in accepted
+    # ...and the tours that ARE named stay in.
+    assert "tennis_atp_us_open" in accepted
+    assert _key_eligible("tennis_atp_challenger_biella", "Tennis")
+    assert _key_eligible("tennis_wta_cincinnati", "Tennis")
 
 
 def test_a_pinned_key_list_is_reported_as_such():

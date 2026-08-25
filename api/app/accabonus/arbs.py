@@ -35,17 +35,27 @@ from ..odds.utils import devigd_multi
 
 # AccaBonus tracker — scans the competitions eligible for Bet365's Acca Boost
 # (per the published offer terms, verified June 2026):
-#   Tennis        — ATP / WTA / Challenger / Davis Cup / BJK Cup → whole group
+#   Tennis        — Grand Slams / ATP / WTA / Challenger / Davis Cup / BJK Cup.
+#                   Taken as the whole group MINUS ITF (see _EXCLUDED_RE): the
+#                   ITF tours are not on bet365's eligible list.
 #   MMA           — any event → whole group
 #   Basketball    — NBA, Euroleague, EuroBasket, Olympics, FIBA World Cup only
 #   Am. Football  — NFL only
 #   Baseball      — MLB, Japan NPB, Korea KBO only
 #   Ice Hockey    — NHL, World Championships, Olympics only
-# Cricket and rugby are NOT eligible. Soccer IS eligible for the boost but is
-# deliberately excluded here (user decision, June 2026): football is covered
-# by the coupon tracker and cards/corners tools — don't re-add it. Pre-season/
-# exhibition/All-Star games are excluded by the terms, so *_preseason keys are
-# dropped.
+# Cricket and rugby are NOT eligible.
+#
+# SOCCER IS ELIGIBLE AND IS THE LARGEST POOL BET365 OFFERS — over 80 leagues and
+# competitions, on Full Time Result, Both Teams To Score and Result/BTTS. It is
+# excluded here by an explicit user decision (June 2026) on the grounds that
+# football is covered by the coupon tracker and the cards/corners tools. Note
+# those cover different MARKETS: neither prices a straight full-time result with
+# a boost applied, so the exclusion leaves the biggest eligible pool unsurfaced.
+# Kept as a decision rather than quietly reversed — but do not mistake it for
+# something the offer forbids.
+#
+# Pre-season/exhibition/All-Star games are excluded by the terms, so *_preseason
+# keys are dropped.
 #
 # TheOddsApi sport keys rotate (per-tournament tennis keys, seasonal leagues),
 # so the live list is discovered from the free /v4/sports endpoint
@@ -74,7 +84,22 @@ ACCABONUS_KEY_PREFIXES = (
 
 _OUTRIGHT_RE = re.compile(r"winner|outright", re.IGNORECASE)
 # Pre-season/exhibition/All-Star games don't qualify for the boost.
-_EXCLUDED_RE = re.compile(r"preseason|pre_season|all_star|exhibition", re.IGNORECASE)
+#
+# ITF is here for a different reason. Tennis is accepted as a WHOLE GROUP, and
+# bet365's published eligibility names Grand Slams, ATP, WTA, Davis Cup, Billie
+# Jean King Cup and the Challenger Tour — the ITF tours are NOT on that list.
+# Whole-group inclusion therefore over-reached: it produced rows for events that
+# get no boost, which is a value figure computed against a promotion that will
+# not pay.
+#
+# Excluding by key rather than allow-listing the eligible tours on purpose: the
+# vendor's tennis key vocabulary is not documented here, so an allowlist risks
+# silently dropping a tour that IS eligible. An exclusion can only ever remove
+# the thing it names. Checked against bet365's terms August 2026 via published
+# summaries — their own help pages are not reachable from this environment.
+_EXCLUDED_RE = re.compile(
+    r"preseason|pre_season|all_star|exhibition|itf|futures", re.IGNORECASE
+)
 
 # Used when sport discovery fails (network error). Unknown/off-season keys
 # 404, which is free, so over-listing is safe.
