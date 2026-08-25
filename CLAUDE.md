@@ -360,10 +360,14 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   from `uk` perfectly well; the competition is chosen by sport key and the
   fixture list is free. Getting this backwards is what produced the original
   two-region design.
-- **The WINDOW is the cost dial, not the interval.** Cost per fixture is
-  `sweeps × markets`, and these markets are only posted near kickoff, so a wide
-  window buys empty responses. Tiered via the odds cache's per-read TTL — 4h–1h
-  out at 30 min, every 5 min inside the last hour.
+- **The WINDOW and the CADENCE are separate dials, and widening one means
+  slowing the other.** Cost per fixture is `sweeps × markets`. THREE tiers via
+  the odds cache's per-read TTL: 72h–4h every 12h, 4h–1h every 30 min, then
+  every 5 min inside the last hour — 47 credits per fixture, ~18k/month over
+  the major UK/Euro leagues (92% of a 20k plan). Widening the window to 72h
+  WITHOUT adding the coarse far tier would have been ~308 credits per fixture
+  and ~120k/month, six times the plan. Never move `cards_window_hours` without
+  recomputing that.
 - `cards_daily_call_budget` is a HARD per-day ceiling and must stay one. The
   true credit cost of a per-event call is still unmeasured (this file's Odds API
   section says `markets × regions`; `routers/accabonus.py` says naming

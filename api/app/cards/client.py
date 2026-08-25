@@ -107,6 +107,7 @@ class CardsApiClient:
         """
         now = datetime.now(timezone.utc)
         window = timedelta(hours=settings.cards_window_hours)
+        far = timedelta(hours=settings.cards_far_window_hours)
         fast = timedelta(hours=settings.cards_fast_window_hours)
         due = []
         for sport_key in self._sport_keys:
@@ -124,10 +125,15 @@ class CardsApiClient:
                 # Already kicked off, or too far out for the markets to be up.
                 if to_ko <= timedelta(0) or to_ko > window:
                     continue
-                minutes = (
-                    settings.cards_fast_interval_minutes if to_ko <= fast
-                    else settings.cards_slow_interval_minutes
-                )
+                # Three tiers by time to kickoff. The cadence is carried as a
+                # cache TTL, so a 5-minute sweep re-fetches only the fixtures
+                # whose tier has expired and serves the rest from cache.
+                if to_ko <= fast:
+                    minutes = settings.cards_fast_interval_minutes
+                elif to_ko <= far:
+                    minutes = settings.cards_slow_interval_minutes
+                else:
+                    minutes = settings.cards_far_interval_minutes
                 due.append((sport_key, fixture, minutes * 60))
         # Soonest kickoff first, so a budget cut-off drops the fixtures that
         # matter least rather than whichever came back first.
@@ -179,6 +185,8 @@ class CardsApiClient:
         self.last_sweep = {
             "window_hours": settings.cards_window_hours,
             "fixtures_in_window": len(due),
+            "near_kickoff": sum(1 for _, _, ttl in due
+                                if ttl <= settings.cards_slow_interval_minutes * 60),
             "called": len(due) - failed,
             "carried_paddy_prices": priced,
             "failed": failed,

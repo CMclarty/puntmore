@@ -59,8 +59,31 @@ class Settings(BaseSettings):
     # Cost per fixture = sweeps x markets, so the WINDOW is the expensive dial,
     # not the interval. 4h at 30 min + 1h at 5 min = 18 sweeps against the 48 a
     # flat 5-minute 4-hour window would cost.
-    cards_window_hours: float = 4.0        # start watching this far out
+    # THREE tiers, because the window and the cadence are separate dials and
+    # widening one without slowing the other is what blows a budget.
+    #
+    # Cost per fixture is sweeps x markets. At the old 4h window that was
+    # 6 slow + 12 fast = 18 sweeps = 36 credits. Simply widening to 72h at the
+    # same 30-minute cadence would be ~154 sweeps = ~308 credits per fixture,
+    # or roughly 120k/month across the major leagues — six times a 20k plan.
+    #
+    # So the far tier is deliberately coarse. Three days out the question is
+    # only "has the market been posted yet", which does not need asking every
+    # half hour. Corners/cards are rarely up more than a few hours before
+    # kickoff, so most far-tier calls return nothing — and TheOddsApi bills
+    # (markets RETURNED x regions), so an empty response should cost little or
+    # nothing. That is unverified, which is exactly what the daily ceiling is
+    # for.
+    cards_window_hours: float = 72.0       # start watching this far out
+    cards_far_window_hours: float = 4.0    # coarse polling beyond this
     cards_fast_window_hours: float = 1.0   # switch to the fast cadence here
+    # Every 12h from three days out to four hours. At 6h the modelled worst
+    # case was ~23k/month against a 20k plan; at 12h it is ~18k. Twice a day is
+    # ample for the only question being asked out there — "is the market up
+    # yet" — and a fixture still gets ~6 looks before it reaches the 30-minute
+    # tier. Raise it once an empty far-tier response is CONFIRMED to bill
+    # nothing (see the note above); until then the conservative number stands.
+    cards_far_interval_minutes: int = 720
     cards_slow_interval_minutes: int = 30
     cards_fast_interval_minutes: int = 5
     # HARD CEILING on per-event calls in one UTC day. The exact credit cost of

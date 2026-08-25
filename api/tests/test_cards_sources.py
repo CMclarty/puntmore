@@ -548,3 +548,50 @@ def test_diagnostics_reports_paddy_not_posting_the_market():
     )
     client.get_events()
     assert "not posting" in diagnose(client, None)["verdict"]
+
+
+# --- three tiers: the window widened without the cadence following it ------
+
+def test_the_far_tier_polls_coarsely():
+    """72h of window at the 30-minute cadence would be ~308 credits a fixture,
+    six times a 20k plan. Three days out the only question is whether the
+    market is up yet, which does not need asking every half hour."""
+    stub = _StubOddsApi({"soccer_epl": [
+        {"id": "far", "commence_time": _iso(48)},     # 2 days out
+        {"id": "mid", "commence_time": _iso(3)},      # inside the slow tier
+        {"id": "near", "commence_time": _iso(0.5)},   # inside the fast tier
+    ]})
+    CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
+    ttls = {c["event_id"]: c["ttl"] for c in stub.event_calls}
+
+    assert ttls["near"] == settings.cards_fast_interval_minutes * 60
+    assert ttls["mid"] == settings.cards_slow_interval_minutes * 60
+    assert ttls["far"] == settings.cards_far_interval_minutes * 60
+    assert ttls["near"] < ttls["mid"] < ttls["far"]
+
+
+def test_the_window_now_reaches_three_days_out():
+    stub = _StubOddsApi({"soccer_epl": [
+        {"id": "in", "commence_time": _iso(70)},
+        {"id": "out", "commence_time": _iso(80)},
+    ]})
+    CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
+    assert [c["event_id"] for c in stub.event_calls] == ["in"]
+
+
+def test_a_budget_cut_off_still_keeps_the_soonest_fixtures():
+    """With a 72h window far more fixtures are due at once, so the daily
+    ceiling matters more — and what it drops must be the least urgent."""
+    stub = _StubOddsApi({"soccer_epl": [
+        {"id": "days_out", "commence_time": _iso(60)},
+        {"id": "tomorrow", "commence_time": _iso(20)},
+        {"id": "tonight", "commence_time": _iso(0.5)},
+    ]})
+    client = CardsApiClient(stub, sport_keys=["soccer_epl"])
+    import app.cards.client as mod
+    mod.settings.cards_daily_call_budget = 2
+    try:
+        client.get_events()
+    finally:
+        mod.settings.cards_daily_call_budget = 700
+    assert [c["event_id"] for c in stub.event_calls] == ["tonight", "tomorrow"]
