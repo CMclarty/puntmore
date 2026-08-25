@@ -63,6 +63,25 @@ class ModelConfig:
     # likely to be a real edge, so it must survive a good overall fit.
     residual_z_threshold: float = 2.5
 
+    # HARD BOUNDS ON WHAT WILL BE PRICED AT ALL (Callum's call, Aug 2026).
+    #
+    # A separate mechanism from the extrapolation penalty below, and a blunter
+    # one on purpose. The penalty makes a distant price harder to bet; these
+    # bounds mean some prices are never produced. Outside them the count
+    # distribution is being asked about a region no ladder constrains and no
+    # sensible market quotes — the number would be arithmetic rather than a
+    # price, and a confident-looking figure on a 20.5 corner line is exactly
+    # the kind of thing that gets bet by accident.
+    #
+    # Corners 4.5-13.5 covers the range real ladders and real books quote.
+    # Cards 0.5-6.5 covers a 0-5 card match with headroom.
+    #
+    # These bound PRICING, not FITTING: a rung outside the range is still a
+    # perfectly good constraint and makes the fit better. It is being ASKED for
+    # a price out there that is refused.
+    min_priceable_line: float = 4.5
+    max_priceable_line: float = 13.5
+
     # How far outside the quoted range a line may sit before its price is
     # treated as extrapolation. Measured in counts, not rungs, so it means the
     # same thing on a sparse ladder as on a dense one.
@@ -82,4 +101,8 @@ CARDS = ModelConfig(
     grid_max=CARDS_MAX,
     d_priors={},
     d_prior_default=CARDS_D_PRIOR_DEFAULT,
+    # A 0-5 card match with headroom. Anything above 6.5 is a red-card tail the
+    # ladder cannot speak to.
+    min_priceable_line=0.5,
+    max_priceable_line=6.5,
 )

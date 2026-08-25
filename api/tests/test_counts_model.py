@@ -139,7 +139,7 @@ def test_band_widens_with_distance_from_the_ladder():
 def test_integer_line_probabilities_partition_with_the_push():
     """Acceptance test 3: over + under + push == 1 at every integer line."""
     fit = fit_ladder(_ladder(FULL_LINES))
-    for line in range(4, 18):
+    for line in range(5, 14):          # inside the priceable range
         priced = price_line(fit, float(line))
         total = priced.p_over + priced.p_under + priced.p_push
         assert total == pytest.approx(1.0, abs=1e-9)
@@ -301,9 +301,10 @@ def test_a_line_inside_the_ladder_is_not_flagged_as_extrapolated():
 
 
 def test_a_line_beyond_the_ladder_records_its_distance():
-    ladder = _ladder(FULL_LINES)
+    """A short ladder, priced above it but still inside the hard bounds."""
+    ladder = _ladder([7.5, 8.5, 9.5, 10.5])
     fit = fit_ladder(ladder)
-    priced = price_line(fit, 16.5, ladder)
+    priced = price_line(fit, 13.5, ladder)
     assert priced.extrapolated
     assert priced.beyond_ladder == pytest.approx(2.0, abs=0.01)
 
@@ -324,9 +325,9 @@ def test_extrapolated_prices_demand_a_bigger_edge():
     A quote beating fair by a little, two counts outside the ladder, must not
     register — most of that apparent edge is tail-shape error.
     """
-    ladder = _ladder(FULL_LINES)
+    ladder = _ladder([7.5, 8.5, 9.5, 10.5])
     fit = fit_ladder(ladder)
-    priced = price_line(fit, 16.5, ladder)
+    priced = price_line(fit, 13.5, ladder)
     modest = priced.fair_over * 1.02
     assert priced.edge_vs(modest, "over", True, CORNERS) is None
     generous = priced.band_over[1] * 1.20
@@ -365,3 +366,56 @@ def test_a_fit_is_fast_enough_to_run_per_fixture():
     for _ in range(5):
         fit_ladder(ladder)
     assert (time.perf_counter() - start) / 5 < 0.05
+
+
+# --- Hard priceable bounds (Callum's call) --------------------------------
+
+def test_corners_are_only_priced_between_4_5_and_13_5():
+    """A blunter guard than the extrapolation penalty, and separate from it.
+
+    The penalty makes a distant price harder to bet; these bounds mean it is
+    never produced. Out there the distribution is being asked about a region no
+    ladder constrains and no book quotes, so the number would be arithmetic
+    wearing the clothes of a price.
+    """
+    ladder = _ladder(FULL_LINES)
+    fit = fit_ladder(ladder)
+
+    for line in (4.5, 9.5, 13.5):
+        assert price_line(fit, line, ladder).fair_over > 1.0
+
+    for line in (3.5, 4.0, 14.5, 20.5):
+        with pytest.raises(LadderError, match="priceable range"):
+            price_line(fit, line, ladder)
+
+
+def test_cards_are_only_priced_up_to_6_5():
+    """A 0-5 card match with headroom. Above that is a red-card tail the ladder
+    cannot speak to."""
+    from app.pricing.counts.config import CARDS
+    from app.pricing.counts.price import is_priceable
+
+    assert is_priceable(6.5, CARDS)
+    assert is_priceable(0.5, CARDS)
+    assert not is_priceable(7.5, CARDS)
+    assert not is_priceable(0.0, CARDS)
+    # And the corners range does not leak into cards.
+    assert not is_priceable(9.5, CARDS)
+
+
+def test_the_bounds_limit_pricing_not_fitting():
+    """A rung outside the range is still a good constraint.
+
+    Excluding it would throw away information that makes every price inside the
+    range better — the bound is on what will be QUOTED, not on what is read.
+    """
+    # 4.5 is deliberately absent: at lam=10.2 an over-4.5 is a 0.97 shot, and
+    # applying a 7% margin to that gives sub-1.0 decimal odds — a book no real
+    # bookmaker would print. The out-of-range rung here is 14.5.
+    ladder = _ladder([6.5, 7.5, 9.5, 13.5, 14.5])
+    fit = fit_ladder(ladder)
+    assert len(fit.constraints) == 5, "every rung must inform the fit"
+    assert abs(fit.lam - TRUE_LAM) <= 0.2
+    # ...but the out-of-range line still cannot be priced.
+    with pytest.raises(LadderError, match="priceable range"):
+        price_line(fit, 14.5, ladder)

@@ -22,6 +22,7 @@ tail-shape error rather than a soft price.
 from dataclasses import dataclass, field
 
 from .config import ModelConfig
+from .errors import LadderError
 from .dist import CountDist
 from .fit import FitResult, fit_ladder
 from .ladder import Ladder
@@ -152,6 +153,11 @@ def _band_dispersions(fit: FitResult) -> list[float]:
     return [max(base + delta, 1.0) for delta in (0.0, spread, -spread)]
 
 
+def is_priceable(line: float, config: ModelConfig) -> bool:
+    """Is this line inside the range the model is allowed to quote at all?"""
+    return config.min_priceable_line <= line <= config.max_priceable_line
+
+
 def price_line(fit: FitResult, line: float, ladder: Ladder | None = None) -> FairPrice:
     """Fair price for any line, with the band from refitting under uncertainty.
 
@@ -159,6 +165,19 @@ def price_line(fit: FitResult, line: float, ladder: Ladder | None = None) -> Fai
     which requires the original quotes. Without it the price is still correct
     but the band collapses to the dispersion sweep alone, and is flagged.
     """
+    # Refused outright, before anything is computed. Beyond these bounds the
+    # distribution is being extrapolated into a region no ladder constrains and
+    # no book quotes; the result would be arithmetic wearing the clothes of a
+    # price. Raising rather than returning a flagged number is deliberate — a
+    # flag can be ignored by a caller looping over lines, and this one must not
+    # be.
+    if not is_priceable(line, fit.config):
+        raise LadderError(
+            f"line {line} is outside the priceable range "
+            f"{fit.config.min_priceable_line}-{fit.config.max_priceable_line}; "
+            f"the model is not trusted out there and will not quote it"
+        )
+
     dist = fit.dist
     p_over, p_under, p_push = _price_from(dist, line)
     over, under = _fair_odds(dist, line)
