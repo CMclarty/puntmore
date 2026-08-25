@@ -62,10 +62,10 @@ class Settings(BaseSettings):
     # THREE tiers, because the window and the cadence are separate dials and
     # widening one without slowing the other is what blows a budget.
     #
-    # Cost per fixture is sweeps x markets. At the old 4h window that was
-    # 6 slow + 12 fast = 18 sweeps = 36 credits. Simply widening to 72h at the
-    # same 30-minute cadence would be ~154 sweeps = ~308 credits per fixture,
-    # or roughly 120k/month across the major leagues — six times a 20k plan.
+    # Cost per fixture is sweeps x markets. At a 4h window that was
+    # 6 slow + 12 fast = 18 sweeps = 36 credits. Widening to 48h at the same
+    # 30-minute cadence would be ~106 sweeps = ~212 credits per fixture, or
+    # roughly 83k/month across the major leagues — four times a 20k plan.
     #
     # So the far tier is deliberately coarse. Three days out the question is
     # only "has the market been posted yet", which does not need asking every
@@ -74,15 +74,18 @@ class Settings(BaseSettings):
     # (markets RETURNED x regions), so an empty response should cost little or
     # nothing. That is unverified, which is exactly what the daily ceiling is
     # for.
-    cards_window_hours: float = 72.0       # start watching this far out
+    cards_window_hours: float = 48.0       # start watching this far out
     cards_far_window_hours: float = 4.0    # coarse polling beyond this
     cards_fast_window_hours: float = 1.0   # switch to the fast cadence here
-    # Every 12h from three days out to four hours. At 6h the modelled worst
-    # case was ~23k/month against a 20k plan; at 12h it is ~18k. Twice a day is
-    # ample for the only question being asked out there — "is the market up
-    # yet" — and a fixture still gets ~6 looks before it reaches the 30-minute
-    # tier. Raise it once an empty far-tier response is CONFIRMED to bill
-    # nothing (see the note above); until then the conservative number stands.
+    # Every 12h from two days out to four hours. Twice a day is ample for the
+    # only question being asked out there — "is the market up yet" — and a
+    # fixture still gets ~4 looks before it reaches the 30-minute tier.
+    #
+    # 8h was affordable at this window (92% of plan) and 12h is 85%. The
+    # difference in usefulness is one extra look at a fixture whose market is
+    # almost certainly not posted; the difference in risk is all the headroom.
+    # Tighten it once x-requests-last has reported the REAL per-call cost —
+    # if that comes back as 1 rather than 2, everything here halves.
     cards_far_interval_minutes: int = 720
     cards_slow_interval_minutes: int = 30
     cards_fast_interval_minutes: int = 5

@@ -362,11 +362,11 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   two-region design.
 - **The WINDOW and the CADENCE are separate dials, and widening one means
   slowing the other.** Cost per fixture is `sweeps × markets`. THREE tiers via
-  the odds cache's per-read TTL: 72h–4h every 12h, 4h–1h every 30 min, then
-  every 5 min inside the last hour — 47 credits per fixture, ~18k/month over
-  the major UK/Euro leagues (92% of a 20k plan). Widening the window to 72h
-  WITHOUT adding the coarse far tier would have been ~308 credits per fixture
-  and ~120k/month, six times the plan. Never move `cards_window_hours` without
+  the odds cache's per-read TTL: 48h–4h every 12h, 4h–1h every 30 min, then
+  every 5 min inside the last hour — 43 credits per fixture, ~17k/month over
+  the major UK/Euro leagues (84% of a 20k plan). Widening the window WITHOUT
+  adding the coarse far tier would have been ~212 credits per fixture and
+  ~83k/month, four times the plan. Never move `cards_window_hours` without
   recomputing that.
 - **TWO budget guards, and they fail differently.** `cards_quota_reserve` stops
   the sweep when TheOddsApi's own `x-requests-remaining` header falls to it —

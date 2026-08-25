@@ -557,7 +557,7 @@ def test_the_far_tier_polls_coarsely():
     six times a 20k plan. Three days out the only question is whether the
     market is up yet, which does not need asking every half hour."""
     stub = _StubOddsApi({"soccer_epl": [
-        {"id": "far", "commence_time": _iso(48)},     # 2 days out
+        {"id": "far", "commence_time": _iso(30)},     # well into the far tier
         {"id": "mid", "commence_time": _iso(3)},      # inside the slow tier
         {"id": "near", "commence_time": _iso(0.5)},   # inside the fast tier
     ]})
@@ -570,10 +570,14 @@ def test_the_far_tier_polls_coarsely():
     assert ttls["near"] < ttls["mid"] < ttls["far"]
 
 
-def test_the_window_now_reaches_three_days_out():
+def test_the_window_reaches_two_days_out():
+    """Read from config rather than hard-coded, so changing the window is one
+    edit and the test still pins that the boundary is enforced."""
+    inside = settings.cards_window_hours - 2
+    outside = settings.cards_window_hours + 2
     stub = _StubOddsApi({"soccer_epl": [
-        {"id": "in", "commence_time": _iso(70)},
-        {"id": "out", "commence_time": _iso(80)},
+        {"id": "in", "commence_time": _iso(inside)},
+        {"id": "out", "commence_time": _iso(outside)},
     ]})
     CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
     assert [c["event_id"] for c in stub.event_calls] == ["in"]
