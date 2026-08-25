@@ -368,11 +368,16 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   WITHOUT adding the coarse far tier would have been ~308 credits per fixture
   and ~120k/month, six times the plan. Never move `cards_window_hours` without
   recomputing that.
-- `cards_daily_call_budget` is a HARD per-day ceiling and must stay one. The
-  true credit cost of a per-event call is still unmeasured (this file's Odds API
-  section says `markets × regions`; `routers/accabonus.py` says naming
-  bookmakers bills as one — a 2× difference). The sweep counts its own calls and
-  stops, rather than discovering the rate when the month's quota is gone.
+- **TWO budget guards, and they fail differently.** `cards_quota_reserve` stops
+  the sweep when TheOddsApi's own `x-requests-remaining` header falls to it —
+  authoritative, survives a restart, and already reflects the true per-call cost,
+  which is still unmeasured (this file's Odds API section says
+  `markets × regions`; `routers/accabonus.py` says naming bookmakers bills as
+  one — a 2× difference). `cards_daily_call_budget` is local arithmetic that
+  stops one bad day spending a month; keep it BELOW plan/30 (650 × 30 = 19,500
+  against a 20k plan — 700 was 21,000, i.e. the guard permitted more than the
+  budget it guarded). The reserve exists so a runaway sweep cannot take the
+  coupon fallback and the goalscorer scans down with it.
 - **Every line PADDY POWER quotes is priced, off Pinnacle's fitted ladder**
   (`cards/laddered.py`, `cards_use_ladder_model`). The matched-line path only
   compares lines BOTH books picked, and books rarely agree — so most of Paddy's

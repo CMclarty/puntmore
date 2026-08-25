@@ -91,7 +91,21 @@ class Settings(BaseSettings):
     # markets x regions; routers/accabonus.py says naming bookmakers bills as
     # one) — so the sweep measures the real rate from the response headers and
     # STOPS rather than discovering it when the quota is gone.
-    cards_daily_call_budget: int = 700
+    # Stop when the vendor says this much of the monthly quota is left. This is
+    # the REAL guard: TheOddsApi reports remaining quota on every response, so it
+    # is authoritative where a locally-counted budget is a guess — it survives a
+    # restart, it already reflects the true per-call cost, and it does not depend
+    # on the (markets x regions) figure nobody has measured.
+    #
+    # The reserve exists so a runaway sweep cannot take the coupon tracker's
+    # fallback and the goalscorer scans down with it.
+    cards_quota_reserve: int = 1500
+
+    # Secondary rate limiter: a per-UTC-day ceiling, so one bad day cannot spend
+    # a month even before the reserve is reached. 650 x 30 = 19,500, which sits
+    # UNDER a 20k plan rather than over it — 700/day was 21,000/month, i.e. the
+    # guard permitted more than the budget it was guarding.
+    cards_daily_call_budget: int = 650
 
     # Price every line PADDY POWER quotes off Pinnacle's fitted ladder, rather
     # than only the lines both books happen to pick. The two books rarely agree

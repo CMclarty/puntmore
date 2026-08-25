@@ -77,7 +77,7 @@ services:
       # a real call — it is here rather than in code so that is a dashboard
       # edit, not a redeploy.
       - key: CARDS_DAILY_CALL_BUDGET
-        value: "700"
+        value: "650"
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: STATE_API_KEY

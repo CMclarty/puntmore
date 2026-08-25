@@ -95,7 +95,32 @@ class CardsApiClient:
         return self._spent
 
     def _budget_left(self) -> int:
-        return max(settings.cards_daily_call_budget - self.calls_today, 0)
+        """Calls still permitted: the tighter of the day's cap and the reserve.
+
+        Two guards, deliberately, because they fail differently. The daily cap
+        is local arithmetic and stops one bad day spending a month. The reserve
+        is the vendor's OWN remaining-quota header, so it is right even if the
+        per-call cost is not what this code assumes — which it may not be, since
+        that figure is still unmeasured.
+        """
+        daily = max(settings.cards_daily_call_budget - self.calls_today, 0)
+
+        remaining = getattr(self._client, "quota_remaining", None)
+        if remaining is None:
+            return daily
+        spare = remaining - settings.cards_quota_reserve
+        if spare <= 0:
+            logger.error(
+                "cards: TheOddsApi quota down to %s, at or below the %s reserve "
+                "— the sweep is stopping so the reserve is left for the coupon "
+                "fallback and the goalscorer scans.",
+                remaining, settings.cards_quota_reserve,
+            )
+            return 0
+        # A per-call cost of at least 1; the header tells us the real one once a
+        # call has been made, so use it rather than assuming.
+        cost = max(getattr(self._client, "last_call_cost", None) or 1, 1)
+        return min(daily, spare // cost)
 
     # --- the sweep ---
 
@@ -192,6 +217,10 @@ class CardsApiClient:
             "failed": failed,
             "calls_today": self.calls_today,
             "call_budget": settings.cards_daily_call_budget,
+            # The vendor's own figures, which are the ones that actually bind.
+            "quota_remaining": getattr(self._client, "quota_remaining", None),
+            "quota_reserve": settings.cards_quota_reserve,
+            "last_call_cost": getattr(self._client, "last_call_cost", None),
         }
         log = logger.info if not failed else logger.warning
         log(

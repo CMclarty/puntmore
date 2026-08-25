@@ -25,9 +25,21 @@ CACHE_MAX = 128
 EVENT_CACHE_MAX = 256
 
 
+def _as_int(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 class TheOddsApiClient:
     def __init__(self, api_key: str, cache_ttl: int = DEFAULT_CACHE_TTL):
         self._api_key = api_key
+        # Populated from response headers on every real call; None until one
+        # has been made.
+        self.quota_remaining: int | None = None
+        self.quota_used: int | None = None
+        self.last_call_cost: int | None = None
         self._cache_ttl = cache_ttl
         # keyed by (sport_key, markets, bookmakers)
         self._cache = TTLCache(cache_ttl, CACHE_MAX)
@@ -138,9 +150,18 @@ class TheOddsApiClient:
         resp.raise_for_status()
         remaining = resp.headers.get("x-requests-remaining")
         used = resp.headers.get("x-requests-used")
+        # THE VENDOR'S OWN NUMBER, kept rather than only logged. It is
+        # authoritative where a locally-counted budget is a guess: it survives a
+        # restart, it already reflects whatever the real per-call cost is, and
+        # it needs no assumption about (markets x regions) — which is exactly
+        # the figure nobody here has measured. `last_call_cost` is what one call
+        # actually billed, which is that measurement.
+        self.quota_remaining = _as_int(remaining)
+        self.quota_used = _as_int(used)
+        self.last_call_cost = _as_int(resp.headers.get("x-requests-last"))
         logger.info(
-            "OddsApi per-event call: %s/%s [%s] — quota used=%s remaining=%s",
-            sport_key, event_id, markets, used, remaining,
+            "OddsApi per-event call: %s/%s [%s] — quota used=%s remaining=%s cost=%s",
+            sport_key, event_id, markets, used, remaining, self.last_call_cost,
         )
         event = resp.json()
         self._event_cache.set(cache_key, event)

@@ -595,3 +595,68 @@ def test_a_budget_cut_off_still_keeps_the_soonest_fixtures():
     finally:
         mod.settings.cards_daily_call_budget = 700
     assert [c["event_id"] for c in stub.event_calls] == ["tonight", "tomorrow"]
+
+
+# --- the guard that binds is the vendor's own quota ------------------------
+
+class _QuotaClient(_StubOddsApi):
+    """A stub reporting quota the way TheOddsApi's headers do."""
+
+    def __init__(self, fixtures, remaining, cost=1):
+        super().__init__(fixtures)
+        self.quota_remaining = remaining
+        self.last_call_cost = cost
+
+
+def _many(n):
+    return {"soccer_epl": [
+        {"id": f"e{i}", "commence_time": _iso(0.5 + i * 0.01)} for i in range(n)
+    ]}
+
+
+def test_the_sweep_stops_at_the_quota_reserve():
+    """The reserve is left for the coupon fallback and the goalscorer scans.
+
+    A locally counted budget cannot do this job: it is a guess at the per-call
+    cost, and it resets on every restart. The vendor's remaining-quota header
+    is right regardless.
+    """
+    stub = _QuotaClient(_many(10), remaining=settings.cards_quota_reserve)
+    client = CardsApiClient(stub, sport_keys=["soccer_epl"])
+    client.get_events()
+    assert stub.event_calls == []
+
+
+def test_the_sweep_spends_only_the_quota_above_the_reserve():
+    stub = _QuotaClient(_many(10), remaining=settings.cards_quota_reserve + 3)
+    CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
+    assert len(stub.event_calls) == 3
+
+
+def test_the_real_per_call_cost_is_used_when_the_vendor_reports_it():
+    """The (markets x regions) figure is unmeasured, so it is not assumed.
+
+    At 2 credits a call, headroom of 6 buys 3 calls, not 6.
+    """
+    stub = _QuotaClient(_many(10), remaining=settings.cards_quota_reserve + 6, cost=2)
+    CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
+    assert len(stub.event_calls) == 3
+
+
+def test_the_daily_cap_still_applies_below_the_reserve_limit():
+    """Two guards that fail differently: one bad day must not spend a month."""
+    stub = _QuotaClient(_many(50), remaining=100_000)
+    client = CardsApiClient(stub, sport_keys=["soccer_epl"])
+    import app.cards.client as mod
+    mod.settings.cards_daily_call_budget = 4
+    try:
+        client.get_events()
+    finally:
+        mod.settings.cards_daily_call_budget = 650
+    assert len(stub.event_calls) == 4
+
+
+def test_the_daily_cap_fits_inside_the_monthly_plan():
+    """700/day was 21,000/month against a 20,000 plan — the guard permitted
+    more than the budget it was guarding."""
+    assert settings.cards_daily_call_budget * 30 < 20_000
