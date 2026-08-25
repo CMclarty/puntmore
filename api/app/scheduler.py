@@ -13,7 +13,6 @@ from .database import SessionLocal
 from .models import Coupon, Leg
 from .comparison import value_tier
 from .cards.client import merge_pinnacle
-from .cards.value import compute_value_bets
 from .goalscorers.service import (
     build_watchlist,
     cleanup_stale_alerts,
@@ -193,8 +192,9 @@ def sweep_cards(cards_client, pinnacle=None, notifier=None) -> int:
     if cards_client is None:
         return 0
     try:
+        from .routers.cards import price_events      # one pricing entry point
         events = merge_pinnacle(cards_client.get_events(), pinnacle)
-        rows = compute_value_bets(events, settings.cards_min_edge)
+        rows = price_events(events, settings.cards_min_edge)
     except Exception:
         # Logged with the cause: a silent failure here is what made the old
         # cards client look like a market with no value in it.
@@ -221,7 +221,10 @@ def sweep_cards(cards_client, pinnacle=None, notifier=None) -> int:
     for key in [k for k in _cards_notified if k not in seen]:
         del _cards_notified[key]
 
-    if notifier and fresh:
+    # Alerts stay off until the feed has been proven against real prices —
+    # a value tool that alerts before anyone has checked it trains trust it has
+    # not earned. The sweep still runs, and the rows are still on the screen.
+    if notifier and fresh and settings.cards_discord_alerts:
         lines = "\n".join(
             f"  {r.home_team} v {r.away_team} — {r.side} {r.line} "
             f"({r.market_key.replace('alternate_totals_', '')}): "

@@ -369,6 +369,19 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   section says `markets × regions`; `routers/accabonus.py` says naming
   bookmakers bills as one — a 2× difference). The sweep counts its own calls and
   stops, rather than discovering the rate when the month's quota is gone.
+- **Every line PADDY POWER quotes is priced, off Pinnacle's fitted ladder**
+  (`cards/laddered.py`, `cards_use_ladder_model`). The matched-line path only
+  compares lines BOTH books picked, and books rarely agree — so most of Paddy's
+  board was invisible. Only lines Paddy actually offers are priced: a fair price
+  for a line nobody quotes cannot be bet.
+  The model (`pricing/counts`) reads Pinnacle's ladder and nothing else — it has
+  no football knowledge and **cannot beat Pinnacle**; between their rungs it
+  interpolates their opinion, beyond them it decays toward a shape assumption.
+  Three guards keep that honest and none may be relaxed to make more rows
+  appear: hard bounds (4.5–13.5 corners, 0.5–6.5 cards), `require_band=True` on
+  every edge, and a per-count penalty beyond Pinnacle's quoted range. Fewer than
+  2 two-sided Pinnacle rungs and the fixture is skipped — one rung pins nothing
+  and the shape would come entirely from a stale league prior.
 - `cards/pinnacle.py` returns **RAW** prices. De-vigging lives in
   `cards/value.py`; handing it fair prices would de-vig them twice.
 - `merge_pinnacle` joins the two vendors into one event so `value.py` stays

@@ -297,13 +297,18 @@ def _reset_dedupe():
     sched._cards_notified.clear()
 
 
-def test_sweep_alerts_new_value_once_not_every_tick():
+def test_sweep_alerts_new_value_once_not_every_tick(monkeypatch):
     """The whole reason for tier dedupe.
 
     A bet sits in its fixture's window for hours and the sweep runs every five
     minutes. Without this it would fire ~48 Discord messages for one bet.
+
+    Alerts default OFF while the feed is unproven, so this turns them on to
+    test the dedupe rather than the switch.
     """
     from app.scheduler import sweep_cards
+    monkeypatch.setattr(settings, "cards_discord_alerts", True)
+    monkeypatch.setattr(settings, "cards_use_ladder_model", False)
     _reset_dedupe()
     bic = _StubBic(_corner_board(), _corner_odds())
     notifier = _Notifier()
@@ -317,13 +322,14 @@ def test_sweep_alerts_new_value_once_not_every_tick():
     assert len(notifier.sent) == 1
 
 
-def test_sweep_forgets_bets_that_drop_off():
+def test_sweep_forgets_bets_that_drop_off(monkeypatch):
     """The dedupe map must not grow with every bet the process has ever seen.
 
     Same shape of leak the odds caches had before ttl_cache.py — a dict keyed
     by something unbounded, fed by a loop that never stops.
     """
     from app import scheduler as sched
+    monkeypatch.setattr(settings, "cards_use_ladder_model", False)
     _reset_dedupe()
     bic = _StubBic(_corner_board(), _corner_odds())
     sched.sweep_cards(_valued_client(), bic, _Notifier())
@@ -373,3 +379,123 @@ def test_the_job_is_registered_only_when_the_client_exists(monkeypatch):
         )
     finally:
         with_client.shutdown(wait=False)
+
+
+
+def test_cards_alerts_are_off_by_default():
+    """A value tool that alerts before anyone has checked its prices trains
+    trust it has not earned. The sweep still runs and the rows still appear."""
+    from app.scheduler import sweep_cards
+    _reset_dedupe()
+    notifier = _Notifier()
+    sweep_cards(_valued_client(), _StubBic(_corner_board(), _corner_odds()), notifier)
+    assert notifier.sent == []
+
+
+# --- laddered pricing: every line PADDY quotes, off Pinnacle's whole ladder --
+
+def _pin_ladder_book(lines):
+    """A Pinnacle corners ladder as merge_pinnacle would attach it."""
+    outcomes = []
+    for line, (over, under) in sorted(lines.items()):
+        outcomes.append({"name": "Over", "point": line, "price": over})
+        outcomes.append({"name": "Under", "point": line, "price": under})
+    return {"key": "pinnacle",
+            "markets": [{"key": "alternate_totals_corners", "outcomes": outcomes}]}
+
+
+def _paddy_book(lines):
+    outcomes = []
+    for line, (over, under) in sorted(lines.items()):
+        outcomes.append({"name": "Over", "point": line, "price": over})
+        outcomes.append({"name": "Under", "point": line, "price": under})
+    return {"key": PADDY_POWER,
+            "markets": [{"key": "alternate_totals_corners", "outcomes": outcomes}]}
+
+
+def _joined(pin_lines, paddy_lines):
+    return [{
+        "id": "e1", "home_team": "Arsenal", "away_team": "Chelsea",
+        "commence_time": _iso(0.5), "sport_key": "soccer_epl",
+        "bookmakers": [_pin_ladder_book(pin_lines), _paddy_book(paddy_lines)],
+    }]
+
+
+# A realistic Pinnacle corners ladder around 10.
+PIN = {
+    8.5: (1.44, 2.75), 9.5: (1.74, 2.10),
+    10.5: (2.20, 1.68), 11.5: (2.95, 1.42),
+}
+
+
+def test_a_line_pinnacle_does_not_quote_is_still_priced():
+    """The whole reason this path exists.
+
+    The matched-line path sees nothing here: Paddy quotes 9.0 and 12.5, neither
+    of which Pinnacle prices. Most of Paddy's board looks like this.
+    """
+    from app.cards.laddered import compute_laddered_value
+    from app.cards.value import compute_value_bets
+
+    # Fair at 9.0 is ~1.63 and at 12.5 ~4.22; these beat the band comfortably.
+    events = _joined(PIN, {9.0: (1.80, 2.35), 12.5: (4.80, 1.24)})
+    assert compute_value_bets(events, -0.5) == [], "matched-line path sees nothing"
+
+    rows = compute_laddered_value(events, -0.5)
+    assert rows, "laddered path must price lines Pinnacle does not quote"
+    assert {r.line for r in rows} <= {9.0, 12.5}
+
+
+def test_only_lines_paddy_offers_are_priced():
+    """A fair price for a line nobody offers is a number you cannot bet."""
+    from app.cards.laddered import compute_laddered_value
+    rows = compute_laddered_value(_joined(PIN, {10.5: (2.60, 1.60)}), -0.5)
+    assert {r.line for r in rows} == {10.5}
+
+
+def test_lines_outside_the_hard_bounds_are_never_priced():
+    """Paddy may quote a 2.5 or an 18.5 corner line; the model will not."""
+    from app.cards.laddered import compute_laddered_value
+    rows = compute_laddered_value(
+        _joined(PIN, {2.5: (1.02, 15.0), 18.5: (26.0, 1.01), 10.5: (2.60, 1.60)}),
+        -0.5,
+    )
+    assert {r.line for r in rows} == {10.5}
+
+
+def test_an_extrapolated_row_says_so_in_its_label():
+    """Beyond Pinnacle's quoted range is the same number of a different kind."""
+    from app.cards.laddered import compute_laddered_value
+    rows = compute_laddered_value(_joined(PIN, {13.5: (9.00, 1.11)}), -0.5)
+    assert rows, "a generous extrapolated quote should still produce a row"
+    for row in rows:
+        assert "+" in row.market_label, "distance beyond the ladder must be visible"
+
+
+def test_a_quote_that_only_beats_the_midpoint_is_rejected():
+    """require_band=True is the default and is what keeps noise off the screen."""
+    from app.cards.laddered import compute_laddered_value
+    from app.pricing.counts.fit import fit_ladder
+    from app.pricing.counts.price import price_line
+    from app.cards.laddered import ladder_from
+    from app.pricing.counts.config import CORNERS
+
+    events = _joined(PIN, {10.5: (2.20, 1.68)})
+    ladder = ladder_from(
+        events[0]["bookmakers"][0]["markets"][0]["outcomes"], "e1",
+        "alternate_totals_corners", "soccer_epl",
+    )
+    fair = price_line(fit_ladder(ladder, CORNERS), 10.5, ladder)
+    # A quote a hair above fair but inside the band must not produce a row.
+    marginal = fair.fair_over + 0.005
+    rows = compute_laddered_value(_joined(PIN, {10.5: (marginal, 1.68)}), -0.5)
+    assert not any(r.side == "Over" and r.line == 10.5 for r in rows)
+
+
+def test_an_unfittable_ladder_is_skipped_not_crashed():
+    """One rung with one side is not a ladder; the fixture is passed over."""
+    from app.cards.laddered import compute_laddered_value
+    events = _joined({9.5: (1.74, 2.10)}, {9.5: (2.60, 2.00)})
+    assert compute_laddered_value(events, -0.5) == [], (
+        "one rung pins nothing — the shape would come entirely from the prior"
+    )

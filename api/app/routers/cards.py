@@ -3,7 +3,21 @@ from fastapi import APIRouter, Query, Request
 from ..config import settings
 from ..schemas import CardValueOut, CardFeedItem, CardFeedBet
 from ..cards.value import compute_value_bets
+from ..cards.laddered import compute_laddered_value
 from ..cards.client import merge_pinnacle
+
+
+def price_events(events, min_edge):
+    """Value rows from joined events, by whichever pricing path is configured.
+
+    The laddered path prices every line Paddy Power quotes off Pinnacle's fitted
+    ladder; the matched-line path compares only lines both books picked. One
+    entry point so the router, the feed and the scheduler cannot diverge on
+    which is in use.
+    """
+    if settings.cards_use_ladder_model:
+        return compute_laddered_value(events, min_edge)
+    return compute_value_bets(events, min_edge)
 
 router = APIRouter()
 
@@ -23,7 +37,7 @@ def get_card_value_bets(
     events = merge_pinnacle(
         client.get_events(), getattr(request.app.state, "odds_provider", None)
     )
-    return compute_value_bets(events, min_edge)
+    return price_events(events, min_edge)
 
 
 def build_feed(client, min_edge: float, pinnacle=None) -> list[CardFeedItem]:
@@ -31,9 +45,7 @@ def build_feed(client, min_edge: float, pinnacle=None) -> list[CardFeedItem]:
     if client is None:
         return []
 
-    bets = compute_value_bets(
-        merge_pinnacle(client.get_events(), pinnacle), min_edge
-    )
+    bets = price_events(merge_pinnacle(client.get_events(), pinnacle), min_edge)
 
     groups: dict[str, dict] = {}
     for bet in bets:

@@ -69,6 +69,22 @@ class Settings(BaseSettings):
     # one) — so the sweep measures the real rate from the response headers and
     # STOPS rather than discovering it when the quota is gone.
     cards_daily_call_budget: int = 700
+
+    # Price every line PADDY POWER quotes off Pinnacle's fitted ladder, rather
+    # than only the lines both books happen to pick. The two books rarely agree
+    # on a line, so without this most of Paddy's board is invisible.
+    #
+    # The model can never beat Pinnacle — between their rungs it interpolates
+    # their own opinion, outside them it decays toward a shape assumption. The
+    # hard bounds, the band requirement and the extrapolation penalty
+    # (pricing/counts) are what keep that honest; turn this off rather than
+    # relaxing any of them.
+    cards_use_ladder_model: bool = True
+
+    # Discord alerts for the cards sweep. OFF while the feed is being proven —
+    # a value tool that alerts before anyone has checked its prices trains you
+    # to trust it. The coupon tracker's alerts are unaffected.
+    cards_discord_alerts: bool = False
     # Optional comma-separated override of the AccaBonus sport keys. Empty =
     # keys discovered from the free /v4/sports list, filtered to Acca Boost-
     # eligible competitions, soccer excluded (accabonus/arbs.py). Set to a
