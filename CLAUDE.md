@@ -350,6 +350,38 @@ loop) and reads through the client on its own `COUPON_ODDS_CACHE_TTL`. AccaBonus
 and cards consume the `TheOddsApiClient` directly via `app.state.arbs_client` /
 `app.state.cards_client` because they query bespoke market/bookmaker combos.
 
+### Cards & Corners (`app/cards/`) — TWO vendors, on purpose
+Paddy Power's price comes from **TheOddsApi's per-event endpoint**
+(`bookmakers=paddypower`, never a `regions` param beside it); Pinnacle's fair
+reference comes from **bettingiscool**. That split is a COST decision, not a
+preference: billing is `markets × regions` per event, Paddy Power is a `uk` book
+and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
+- **Regions describe the BOOKMAKER, not the league.** Paddy Power prices La Liga
+  from `uk` perfectly well; the competition is chosen by sport key and the
+  fixture list is free. Getting this backwards is what produced the original
+  two-region design.
+- **The WINDOW is the cost dial, not the interval.** Cost per fixture is
+  `sweeps × markets`, and these markets are only posted near kickoff, so a wide
+  window buys empty responses. Tiered via the odds cache's per-read TTL — 4h–1h
+  out at 30 min, every 5 min inside the last hour.
+- `cards_daily_call_budget` is a HARD per-day ceiling and must stay one. The
+  true credit cost of a per-event call is still unmeasured (this file's Odds API
+  section says `markets × regions`; `routers/accabonus.py` says naming
+  bookmakers bills as one — a 2× difference). The sweep counts its own calls and
+  stops, rather than discovering the rate when the month's quota is gone.
+- `cards/pinnacle.py` returns **RAW** prices. De-vigging lives in
+  `cards/value.py`; handing it fair prices would de-vig them twice.
+- `merge_pinnacle` joins the two vendors into one event so `value.py` stays
+  vendor-agnostic — swapping either side back is a change in that function
+  alone.
+- **`ENABLE_ACCABONUS` is off for QUOTA reasons**, not product ones: it
+  discovers sport keys dynamically and draws ~450 credits/month from the same
+  allowance. Re-enable it only with a pinned key list or a bigger plan.
+- The sweep's Discord dedupe (`scheduler._cards_notified`) is IN MEMORY and is
+  swept each pass. Cards rows are computed, never stored, so there is no row to
+  flag — but the map must keep dropping bets that fall off the sweep, or it is
+  the same unbounded-dict leak `ttl_cache.py` exists to prevent.
+
 ### Notification provider (`app/notifications/`)
 `send(message)`. `DiscordNotificationProvider` (`DISCORD_WEBHOOK_URL`) →
 `NullNotificationProvider` (no webhook). Value-bet alerts from the refresh loop

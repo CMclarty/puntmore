@@ -12,6 +12,8 @@ from .coupon_images import delete_coupon_image
 from .database import SessionLocal
 from .models import Coupon, Leg
 from .comparison import value_tier
+from .cards.client import merge_pinnacle
+from .cards.value import compute_value_bets
 from .goalscorers.service import (
     build_watchlist,
     cleanup_stale_alerts,
@@ -160,6 +162,79 @@ def refresh_all_live_coupons(odds_provider, notifier=None, db=None) -> int:
     return total_updated
 
 
+# Which cards/corners bets have already been alerted, and at what tier.
+#
+# IN MEMORY, unlike the coupon path's Leg.notified_tier. Cards rows are computed
+# per sweep and never stored — there is no row to hang a flag off — and they are
+# short-lived by nature: a bet exists only inside its fixture's pre-kickoff
+# window and is gone once the match starts. A restart re-alerts each live bet
+# once, which is the honest trade for not adding a table whose rows would all be
+# stale within four hours.
+_cards_notified: dict[tuple, str] = {}
+
+
+def _cards_key(row) -> tuple:
+    return (row.event_id, row.market_key, row.line, row.side)
+
+
+def sweep_cards(cards_client, pinnacle=None, notifier=None) -> int:
+    """One cards/corners sweep: fetch, value, alert on new value. Returns rows.
+
+    Runs on a 5-MINUTE tick, but that is not the same as calling every fixture
+    every five minutes. The client tiers each fixture by time to kickoff (via
+    the odds cache's per-read TTL), so a tick only spends credits on fixtures
+    inside the fast window; the rest are served from cache. The cost dial is the
+    WINDOW, not this interval — see cards/client.py.
+
+    Alerts are deduped by value tier, the same rule the coupon refresh follows:
+    a bet is announced when its tier appears or changes, never once per tick.
+    Without that a live value bet would fire every five minutes for four hours.
+    """
+    if cards_client is None:
+        return 0
+    try:
+        events = merge_pinnacle(cards_client.get_events(), pinnacle)
+        rows = compute_value_bets(events, settings.cards_min_edge)
+    except Exception:
+        # Logged with the cause: a silent failure here is what made the old
+        # cards client look like a market with no value in it.
+        logger.exception("Cards sweep failed")
+        return 0
+
+    fresh = []
+    seen = set()
+    for row in rows:
+        key = _cards_key(row)
+        seen.add(key)
+        tier = value_tier(row.edge)
+        if tier and _cards_notified.get(key) != tier:
+            fresh.append(row)
+        if tier:
+            _cards_notified[key] = tier
+        else:
+            _cards_notified.pop(key, None)
+
+    # Forget bets that have dropped off the sweep entirely (their fixture kicked
+    # off, or the market came down). Without this the dict is a slow leak keyed
+    # by every bet the process has ever seen — the same shape of bug the caches
+    # had before ttl_cache.py.
+    for key in [k for k in _cards_notified if k not in seen]:
+        del _cards_notified[key]
+
+    if notifier and fresh:
+        lines = "\n".join(
+            f"  {r.home_team} v {r.away_team} — {r.side} {r.line} "
+            f"({r.market_key.replace('alternate_totals_', '')}): "
+            f"paddy {r.paddy_odds}, fair {r.fair_odds:.2f}, +{r.edge:.1%}"
+            for r in fresh
+        )
+        notifier.send(
+            f":triangular_flag_on_post: {len(fresh)} new/changed cards value "
+            f"bet(s):\n{lines}"
+        )
+    return len(rows)
+
+
 def _goalscorer_sport_keys() -> list[str]:
     return [k.strip() for k in settings.goalscorer_sport_keys.split(",") if k.strip()]
 
@@ -229,7 +304,9 @@ def build_goalscorer_watchlist(scheduler, client, notifier=None) -> int:
     return len(watch)
 
 
-def start_scheduler(odds_provider, notifier=None, odds_client=None) -> BackgroundScheduler:
+def start_scheduler(
+    odds_provider, notifier=None, odds_client=None, cards_client=None,
+) -> BackgroundScheduler:
     """Create, configure, and start the background scheduler."""
     scheduler = BackgroundScheduler()
 
@@ -261,6 +338,29 @@ def start_scheduler(odds_provider, notifier=None, odds_client=None) -> Backgroun
         replace_existing=True,
         kwargs={"odds_provider": odds_provider, "notifier": notifier},
     )
+
+    # Cards/corners: a 5-minute tick, but only fixtures inside the fast window
+    # actually cost a call — the client tiers them by time to kickoff. Gated on
+    # the client existing, so no ODDS_API_KEY means no job rather than a job
+    # that wakes every five minutes to do nothing.
+    if settings.enable_cards and cards_client is not None:
+        scheduler.add_job(
+            sweep_cards,
+            trigger="interval",
+            minutes=settings.cards_fast_interval_minutes,
+            id="cards_sweep",
+            replace_existing=True,
+            # Skip a tick rather than queue it if a sweep overruns — a backlog
+            # of sweeps would spend the daily budget catching up on prices that
+            # are already stale.
+            coalesce=True,
+            max_instances=1,
+            kwargs={
+                "cards_client": cards_client,
+                "pinnacle": odds_provider,
+                "notifier": notifier,
+            },
+        )
 
     # First-goalscorer pipeline: rebuild the watchlist daily, and once now so a
     # restart re-populates today's per-fixture scans instead of waiting a day.

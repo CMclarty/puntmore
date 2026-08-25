@@ -203,6 +203,7 @@ async def lifespan(app: FastAPI):
         odds_provider=app.state.odds_provider,
         notifier=app.state.notifier,
         odds_client=odds_client,
+        cards_client=app.state.cards_client,
     )
     app.state.scheduler = scheduler
 

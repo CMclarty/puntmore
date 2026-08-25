@@ -272,3 +272,104 @@ def test_no_fair_price_means_no_row_rather_than_an_unvalued_one():
     events = CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
     events = merge_pinnacle(events, _StubBic([], {}))     # empty board
     assert compute_value_bets(events, min_edge=-0.50) == []
+
+
+# --- the 5-minute sweep, and not re-alerting the same bet every tick --------
+
+class _Notifier:
+    def __init__(self):
+        self.sent = []
+
+    def send(self, message):
+        self.sent.append(message)
+
+
+def _valued_client():
+    """A client whose sweep yields one Paddy Power event with real value."""
+    return CardsApiClient(
+        _StubOddsApi({"soccer_epl": [{"id": "e1", "commence_time": _iso(0.5)}]}),
+        sport_keys=["soccer_epl"],
+    )
+
+
+def _reset_dedupe():
+    from app import scheduler as sched
+    sched._cards_notified.clear()
+
+
+def test_sweep_alerts_new_value_once_not_every_tick():
+    """The whole reason for tier dedupe.
+
+    A bet sits in its fixture's window for hours and the sweep runs every five
+    minutes. Without this it would fire ~48 Discord messages for one bet.
+    """
+    from app.scheduler import sweep_cards
+    _reset_dedupe()
+    bic = _StubBic(_corner_board(), _corner_odds())
+    notifier = _Notifier()
+
+    first = sweep_cards(_valued_client(), bic, notifier)
+    assert first > 0
+    assert len(notifier.sent) == 1
+
+    # Same bet, same tier, next tick — silence.
+    sweep_cards(_valued_client(), bic, notifier)
+    assert len(notifier.sent) == 1
+
+
+def test_sweep_forgets_bets_that_drop_off():
+    """The dedupe map must not grow with every bet the process has ever seen.
+
+    Same shape of leak the odds caches had before ttl_cache.py — a dict keyed
+    by something unbounded, fed by a loop that never stops.
+    """
+    from app import scheduler as sched
+    _reset_dedupe()
+    bic = _StubBic(_corner_board(), _corner_odds())
+    sched.sweep_cards(_valued_client(), bic, _Notifier())
+    assert sched._cards_notified
+
+    # Next sweep finds nothing (fixtures kicked off, markets down).
+    empty = CardsApiClient(_StubOddsApi({"soccer_epl": []}), sport_keys=["soccer_epl"])
+    sched.sweep_cards(empty, bic, _Notifier())
+    assert sched._cards_notified == {}
+
+
+def test_sweep_survives_a_vendor_failure():
+    """A raising sweep must not kill the scheduler job."""
+    from app.scheduler import sweep_cards
+
+    class _Boom:
+        def get_events(self):
+            raise RuntimeError("vendor down")
+
+    _reset_dedupe()
+    assert sweep_cards(_Boom(), None, _Notifier()) == 0
+
+
+def test_no_cards_client_means_no_sweep():
+    from app.scheduler import sweep_cards
+    assert sweep_cards(None, None, _Notifier()) == 0
+
+
+def test_the_job_is_registered_only_when_the_client_exists(monkeypatch):
+    """No ODDS_API_KEY should mean no job, rather than a job that wakes every
+    five minutes to do nothing."""
+    from app.scheduler import start_scheduler
+    monkeypatch.setattr(settings, "enable_cards", True)
+
+    without = start_scheduler(odds_provider=None, cards_client=None)
+    try:
+        assert without.get_job("cards_sweep") is None
+    finally:
+        without.shutdown(wait=False)
+
+    with_client = start_scheduler(odds_provider=None, cards_client=_valued_client())
+    try:
+        job = with_client.get_job("cards_sweep")
+        assert job is not None
+        assert job.trigger.interval.total_seconds() == (
+            settings.cards_fast_interval_minutes * 60
+        )
+    finally:
+        with_client.shutdown(wait=False)
