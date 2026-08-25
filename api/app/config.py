@@ -25,6 +25,46 @@ class Settings(BaseSettings):
     # fair: %EV = (1 + edge) × 100). Default -0.02 = the 98% EV preset.
     arb_min_edge: float = -0.02
     cards_min_edge: float = -0.02
+
+    # --- Cards & corners (SPEC 1, docs/provider-verification.md) ------------
+    # PADDY POWER comes from TheOddsApi's PER-EVENT endpoint; Pinnacle comes
+    # from bettingiscool. That split is a cost decision, not a preference:
+    # TheOddsApi bills (markets x regions) per event, Paddy Power is a `uk`
+    # book and Pinnacle an `eu` one, so asking one vendor for both spans two
+    # regions. Asking only for Paddy Power is unambiguously ONE region, and
+    # bettingiscool is Pinnacle-native on a plan billing per DAY rather than
+    # per month.
+    #
+    # NOTE: regions in TheOddsApi are where the BOOKMAKER is licensed, not
+    # where the league is. Paddy Power prices La Liga and Serie A perfectly
+    # well from the `uk` region; the league is chosen by sport key.
+    cards_market_keys: str = "alternate_totals_corners,alternate_totals_cards"
+    # Major UK/Euro competitions. The fixture-list endpoint is FREE, so listing
+    # a key that is out of season or has no fixtures costs nothing.
+    cards_sport_keys: str = (
+        "soccer_epl,soccer_efl_champ,soccer_spain_la_liga,soccer_italy_serie_a,"
+        "soccer_germany_bundesliga,soccer_france_ligue_one,"
+        "soccer_netherlands_eredivisie,soccer_portugal_primeira_liga,"
+        "soccer_uefa_champs_league,soccer_uefa_europa_league"
+    )
+    # TIERED REFRESH. Corners/cards markets are posted near kickoff and barely
+    # move until the last hour, so a flat 5-minute sweep over a wide window
+    # spends most of the budget re-reading prices that have not changed — and
+    # buys empty responses on fixtures whose markets are not up yet.
+    #
+    # Cost per fixture = sweeps x markets, so the WINDOW is the expensive dial,
+    # not the interval. 4h at 30 min + 1h at 5 min = 18 sweeps against the 48 a
+    # flat 5-minute 4-hour window would cost.
+    cards_window_hours: float = 4.0        # start watching this far out
+    cards_fast_window_hours: float = 1.0   # switch to the fast cadence here
+    cards_slow_interval_minutes: int = 30
+    cards_fast_interval_minutes: int = 5
+    # HARD CEILING on per-event calls in one UTC day. The exact credit cost of
+    # a per-event call is not yet confirmed (docs/provider-verification.md says
+    # markets x regions; routers/accabonus.py says naming bookmakers bills as
+    # one) — so the sweep measures the real rate from the response headers and
+    # STOPS rather than discovering it when the quota is gone.
+    cards_daily_call_budget: int = 700
     # Optional comma-separated override of the AccaBonus sport keys. Empty =
     # keys discovered from the free /v4/sports list, filtered to Acca Boost-
     # eligible competitions, soccer excluded (accabonus/arbs.py). Set to a

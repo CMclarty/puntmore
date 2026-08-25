@@ -279,6 +279,23 @@ class BettingIsCoolProvider(OddsProvider):
         self._odds_cache.set(event_id, rows)
         return rows
 
+    # --- public accessors ---
+    #
+    # The cards/corners tool needs the same board and the same odds rows this
+    # provider already fetches and caches, for the DERIVED fixtures the coupon
+    # path deliberately filters out ("X (Corners) vs Y (Corners)"). Exposed as
+    # methods rather than copied into a second client so there is one transport,
+    # one cache and one quota-warning path — the same reason pricing/legs.py is
+    # one implementation.
+
+    def board(self) -> list[dict]:
+        """Every fixture on the board, INCLUDING the derived-market ones."""
+        return self._fixtures()
+
+    def odds_for(self, event_id: int) -> list[dict]:
+        """Cached odds rows for one event."""
+        return self._odds(event_id)
+
     # --- pricing ---
 
     @staticmethod

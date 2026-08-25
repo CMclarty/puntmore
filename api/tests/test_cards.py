@@ -83,11 +83,11 @@ def _make_event(pin_over, pin_under, paddy_over, paddy_under, line=3.5):
         "bookmakers": [
             {
                 "key": "pinnacle",
-                "markets": [{"key": "alternate_totals", "outcomes": outcomes(pin_over, pin_under)}],
+                "markets": [{"key": "alternate_totals_corners", "outcomes": outcomes(pin_over, pin_under)}],
             },
             {
                 "key": "paddypower",
-                "markets": [{"key": "alternate_totals", "outcomes": outcomes(paddy_over, paddy_under)}],
+                "markets": [{"key": "alternate_totals_corners", "outcomes": outcomes(paddy_over, paddy_under)}],
             },
         ],
     }
@@ -127,7 +127,7 @@ def test_compute_value_bets_missing_paddypower_skipped():
         "bookmakers": [
             {
                 "key": "pinnacle",
-                "markets": [{"key": "alternate_totals", "outcomes": [
+                "markets": [{"key": "alternate_totals_corners", "outcomes": [
                     {"name": "Over", "point": 3.5, "price": 1.9},
                     {"name": "Under", "point": 3.5, "price": 1.9},
                 ]}],
@@ -148,7 +148,7 @@ def test_compute_value_bets_missing_pinnacle_skipped():
         "bookmakers": [
             {
                 "key": "paddypower",
-                "markets": [{"key": "alternate_totals", "outcomes": [
+                "markets": [{"key": "alternate_totals_corners", "outcomes": [
                     {"name": "Over", "point": 3.5, "price": 2.1},
                     {"name": "Under", "point": 3.5, "price": 1.8},
                 ]}],

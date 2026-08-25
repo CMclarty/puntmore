@@ -112,3 +112,56 @@ re-enabled it needs, at minimum:
 3. a bookmaker other than Paddy Power on the value side, or acceptance that
    most fixtures will have no counterparty;
 4. a paid tier — see the cost note above.
+
+---
+
+## Rebuilt, August 2026 — the split-vendor design
+
+Points 1 and 2 above are done (`cards/client.py`). Point 4 is answered by a
+20k/month plan. Point 3 is the one still open: the July sample cannot speak for
+an in-season Saturday, and Paddy Power is expected to price these now.
+
+**Regions are about the BOOKMAKER, not the league.** `regions=uk` means
+UK-licensed books (Paddy Power, bet365, William Hill); the competition is chosen
+by sport key. Paddy Power prices La Liga and Serie A perfectly well from `uk` —
+there is never a reason to ask for `eu` to reach European leagues. This was a
+live misconception and it drove the original two-region design.
+
+**So the two halves come from different vendors, and that is a cost decision.**
+Billing is (markets x regions) per event. Paddy Power is `uk`, Pinnacle is `eu`,
+so asking TheOddsApi for both spans two regions. Asking for Paddy Power alone is
+unambiguously one:
+
+| Half | Vendor | Why |
+|---|---|---|
+| Paddy Power (the price you bet) | TheOddsApi per-event, `bookmakers=paddypower` | only source; one region |
+| Pinnacle (the fair reference) | bettingiscool | Pinnacle-native, quota billed per DAY |
+
+**Cost model.** Cost per fixture is `sweeps x markets`, so the WINDOW is the
+expensive dial, not the refresh interval — and these markets are posted near
+kickoff, so a wide window buys empty responses. Tiered: 4h-1h before kickoff
+every 30 min, then every 5 min inside the last hour = 18 sweeps x 2 markets =
+36 credits per fixture. Over ~390 major UK/Euro fixtures a month that is
+**~14,000 credits — 70% of a 20k plan**, with true 5-minute refresh where it
+matters.
+
+**The billing multiplier is still unconfirmed.** This doc says
+(markets x regions); `routers/accabonus.py` says naming bookmakers bills as one.
+That is a 2x difference on the whole tool. `Settings.cards_daily_call_budget` is
+a hard per-day ceiling for exactly this reason — the sweep counts its own calls
+and stops, rather than discovering the true rate when the quota is gone. One
+real call settles it: every response carries `x-requests-last`.
+
+**bettingiscool carrying corners totals is ALSO unconfirmed.** The board is
+known to LIST derived fixtures ("X (Corners) vs Y (Corners)") because the coupon
+provider filters them out by name — whether they carry priceable totals has not
+been checked. `cards/pinnacle.py` reports it rather than failing quietly: no
+derived fixtures, or no totals on them, logs once naming the cause, because an
+empty feed from a missing fair side must not look like a market with no value.
+
+`tools/probe_corners.py` answers both unknowns in one run.
+
+**AccaBonus was switched off in `render.yaml` as part of this.** It discovers
+its sport keys dynamically and pulls ~450 credits/month from the SAME allowance.
+That cost nothing while `ODDS_API_KEY` was unset; it is not free once the key
+exists for cards.

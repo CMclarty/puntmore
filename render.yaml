@@ -36,11 +36,19 @@ services:
       - key: UPLOAD_DIR
         value: /data/uploads   # on the disk, or images vanish on redeploy
 
-      # Surface AccaBonus + Cards in the tool switcher. They stay private via
-      # the split-auth grant (only "*" users see them) and their feeds are empty
-      # until ODDS_API_KEY is set / the cards client is rebuilt.
+      # Cards/Corners is surfaced; it stays private via the split-auth grant
+      # (only "*" users see it).
+      #
+      # ACCABONUS IS OFF, and that is a QUOTA decision, not a product one. It
+      # discovers its sport keys dynamically across tennis, MMA, basketball,
+      # NFL, MLB and NHL and pulls each one per cache cycle — roughly 450
+      # credits a month, drawn from the SAME TheOddsApi allowance the cards
+      # tool now depends on. It costs nothing while ODDS_API_KEY is unset, so
+      # this was harmless until the key was added for cards; it is not
+      # harmless now. Re-enable it only alongside a pinned, short sport-key
+      # list (Settings.accabonus_sport_keys) or a bigger plan.
       - key: ENABLE_ACCABONUS
-        value: "true"
+        value: "false"
       - key: ENABLE_CARDS
         value: "true"
 

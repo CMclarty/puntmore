@@ -51,6 +51,7 @@ def get_state(request: Request, db: Session = Depends(get_db)):
             request.app.state.arbs_client, settings.arb_min_edge
         ),
         cards=cards.build_feed(
-            request.app.state.cards_client, settings.cards_min_edge
+            request.app.state.cards_client, settings.cards_min_edge,
+            getattr(request.app.state, "odds_provider", None),
         ),
     )

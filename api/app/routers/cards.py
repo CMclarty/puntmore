@@ -3,6 +3,7 @@ from fastapi import APIRouter, Query, Request
 from ..config import settings
 from ..schemas import CardValueOut, CardFeedItem, CardFeedBet
 from ..cards.value import compute_value_bets
+from ..cards.client import merge_pinnacle
 
 router = APIRouter()
 
@@ -17,15 +18,22 @@ def get_card_value_bets(
     client = request.app.state.cards_client
     if client is None:
         return []
-    return compute_value_bets(client.get_events(), min_edge)
+    # Paddy Power from TheOddsApi, Pinnacle from bettingiscool — joined into
+    # one event before valuing, so value.py stays vendor-agnostic.
+    events = merge_pinnacle(
+        client.get_events(), getattr(request.app.state, "odds_provider", None)
+    )
+    return compute_value_bets(events, min_edge)
 
 
-def build_feed(client, min_edge: float) -> list[CardFeedItem]:
+def build_feed(client, min_edge: float, pinnacle=None) -> list[CardFeedItem]:
     """Cards/corners feed grouped by match, sorted by best value. Shared with /state."""
     if client is None:
         return []
 
-    bets = compute_value_bets(client.get_events(), min_edge)
+    bets = compute_value_bets(
+        merge_pinnacle(client.get_events(), pinnacle), min_edge
+    )
 
     groups: dict[str, dict] = {}
     for bet in bets:
@@ -64,4 +72,7 @@ def get_cards_feed(
 ):
     if min_edge is None:
         min_edge = settings.cards_min_edge
-    return build_feed(request.app.state.cards_client, min_edge)
+    return build_feed(
+        request.app.state.cards_client, min_edge,
+        getattr(request.app.state, "odds_provider", None),
+    )

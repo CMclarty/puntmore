@@ -63,8 +63,8 @@ def _totals_event(event_id, home, away, pin_over, pin_under, paddy_over, paddy_u
         "commence_time": "2026-06-14T15:00:00Z",
         "sport_key": "soccer_epl",
         "bookmakers": [
-            {"key": "pinnacle", "markets": [{"key": "alternate_totals", "outcomes": outcomes(pin_over, pin_under)}]},
-            {"key": "paddypower", "markets": [{"key": "alternate_totals", "outcomes": outcomes(paddy_over, paddy_under)}]},
+            {"key": "pinnacle", "markets": [{"key": "alternate_totals_corners", "outcomes": outcomes(pin_over, pin_under)}]},
+            {"key": "paddypower", "markets": [{"key": "alternate_totals_corners", "outcomes": outcomes(paddy_over, paddy_under)}]},
         ],
     }
 

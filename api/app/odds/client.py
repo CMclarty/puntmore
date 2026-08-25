@@ -112,14 +112,20 @@ class TheOddsApiClient:
         if cached is not MISS:
             return cached
 
+        # ONE of bookmakers or regions, never both. Billing is
+        # (markets x regions), and `bookmakers` overrides `regions` for
+        # filtering — so sending a default `regions=eu` alongside a named UK
+        # book was at best redundant and at worst the difference between being
+        # billed for one region and two. Naming the books is also the cheaper
+        # side of that question (see routers/accabonus.py), and it is the only
+        # form whose cost does not depend on which regions the named books
+        # happen to span.
         params: dict = {
             "apiKey": self._api_key,
-            "regions": "eu",
             "markets": markets,
             "oddsFormat": "decimal",
         }
-        if bookmakers:
-            params["bookmakers"] = bookmakers
+        params["bookmakers" if bookmakers else "regions"] = bookmakers or "eu"
 
         resp = httpx.get(
             f"{BASE_URL}/v4/sports/{sport_key}/events/{event_id}/odds",
