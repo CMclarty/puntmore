@@ -149,8 +149,7 @@ def test_selection_includes_eligible_groups_and_leagues():
 def test_selection_excludes_ineligible():
     sports = [
         _sport("tennis_atp", "Tennis"),  # keep one eligible so fallback doesn't kick in
-        _sport("soccer_epl", "Soccer"),  # football covered by the other tools
-        _sport("soccer_uefa_champs_league", "Soccer"),
+        _sport("soccer_friendlies", "Soccer"),   # friendlies are not boost-eligible
         _sport("cricket_t20", "Cricket"),                     # cricket not eligible
         _sport("rugbyleague_nrl", "Rugby League"),            # rugby not eligible
         _sport("rugbyunion_premiership", "Rugby Union"),
@@ -449,6 +448,8 @@ class _Sports:
 
 
 SPORTS = [
+    {"key": "soccer_efl_champ", "group": "Soccer", "title": "Championship", "active": True},
+    {"key": "soccer_friendlies", "group": "Soccer", "title": "Friendlies", "active": True},
     {"key": "tennis_atp_us_open", "group": "Tennis", "title": "ATP US Open", "active": True},
     {"key": "tennis_itf_men", "group": "Tennis", "title": "ITF Men", "active": True},
     {"key": "mma_mixed_martial_arts", "group": "Mixed Martial Arts", "title": "MMA", "active": True},
@@ -469,10 +470,9 @@ def test_eligible_keys_reports_what_is_accepted_and_what_just_missed():
 
     assert "basketball_nba" in accepted
     assert "mma_mixed_martial_arts" in accepted
-    # Soccer is excluded by DECISION, not by the offer terms — it must show up
-    # as a near miss so that decision stays visible rather than looking like
-    # the terms.
-    assert "soccer_epl" in near
+    # Soccer IS boost-eligible and is the largest pool bet365 offers. It was
+    # excluded from June to August 2026 on reasoning that did not hold.
+    assert "soccer_epl" in accepted
     assert "basketball_ncaab" in near
     # Outrights carry no h2h to de-vig, so they are not eligible either way.
     assert "tennis_atp_winner" not in accepted
@@ -511,3 +511,27 @@ def test_a_pinned_key_list_is_reported_as_such():
         settings.accabonus_sport_keys = original
     assert report["count"] == 2
     assert "override" in report["source"]
+
+
+
+def test_soccer_is_eligible_and_is_the_biggest_pool():
+    """bet365 names the Premier League, Championship, League One and Two, the
+    FA and EFL Cups from their first rounds, the Scottish Premiership and the
+    Champions and Europa Leagues from the group stage — 80+ competitions in all,
+    on Full Time Result, which is the h2h market this tool reads.
+    """
+    from app.accabonus.arbs import _key_eligible
+    for key in ("soccer_epl", "soccer_efl_champ", "soccer_england_league1",
+                "soccer_england_league2", "soccer_fa_cup", "soccer_spl",
+                "soccer_uefa_champs_league", "soccer_spain_la_liga"):
+        assert _key_eligible(key, "Soccer"), key
+
+
+def test_soccer_is_a_prefix_list_not_the_whole_group():
+    """The Soccer group also carries friendlies and youth competitions the
+    offer does not cover, so `soccer_` alone would sweep them in — the same
+    over-inclusion just removed from tennis."""
+    from app.accabonus.arbs import _key_eligible
+    assert not _key_eligible("soccer_friendlies", "Soccer")
+    assert not _key_eligible("soccer_fifa_world_cup_qualifiers", "Soccer")
+    assert not _key_eligible("soccer_epl_preseason", "Soccer")

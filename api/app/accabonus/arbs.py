@@ -43,16 +43,26 @@ from ..odds.utils import devigd_multi
 #   Am. Football  — NFL only
 #   Baseball      — MLB, Japan NPB, Korea KBO only
 #   Ice Hockey    — NHL, World Championships, Olympics only
+#   Soccer        — 80+ leagues, Full Time Result / BTTS / Result-BTTS
 # Cricket and rugby are NOT eligible.
 #
-# SOCCER IS ELIGIBLE AND IS THE LARGEST POOL BET365 OFFERS — over 80 leagues and
-# competitions, on Full Time Result, Both Teams To Score and Result/BTTS. It is
-# excluded here by an explicit user decision (June 2026) on the grounds that
-# football is covered by the coupon tracker and the cards/corners tools. Note
-# those cover different MARKETS: neither prices a straight full-time result with
-# a boost applied, so the exclusion leaves the biggest eligible pool unsurfaced.
-# Kept as a decision rather than quietly reversed — but do not mistake it for
-# something the offer forbids.
+# SOCCER IS ELIGIBLE AND IS THE LARGEST POOL BET365 OFFERS. Checked against UK
+# sources August 2026 (bet365's own pages are egress-blocked from here): over 80
+# leagues and competitions, on Full Time Result, Both Teams To Score and
+# Result/BTTS, from 2.5% on a double to 100% on a twenty-fold. The UK
+# competitions named explicitly are the Premier League, Championship, League One,
+# League Two, the FA Cup and EFL Cup from their first rounds, the Scottish
+# Premiership, and the Champions and Europa Leagues from the group stage.
+#
+# It was excluded here from June 2026 to August 2026 on the stated grounds that
+# "football is covered by the coupon tracker and cards/corners tools". That
+# reasoning does not hold: those cover different MARKETS — coupon markets and
+# corners — and neither prices a straight full-time result with a boost applied.
+# The exclusion left the single biggest eligible pool unsurfaced.
+#
+# The market this tool reads is h2h, which IS the Full Time Result. Note the one
+# market exclusion that matters: "Full Time Result - Enhanced Prices" does NOT
+# qualify, so an enhanced-price quote must never be treated as a boostable one.
 #
 # Pre-season/exhibition/All-Star games are excluded by the terms, so *_preseason
 # keys are dropped.
@@ -80,6 +90,27 @@ ACCABONUS_KEY_PREFIXES = (
     "icehockey_nhl",
     "icehockey_world_championship",
     "icehockey_olympics",
+    # Soccer. A PREFIX list rather than the whole group, because the group also
+    # carries friendlies and youth competitions the offer does not cover, and
+    # `soccer_` alone would sweep in every one of them. These are the
+    # competitions bet365 names for the UK plus the major European leagues that
+    # make up the bulk of the "80+".
+    "soccer_epl",
+    "soccer_efl_champ",
+    "soccer_england_league1",
+    "soccer_england_league2",
+    "soccer_fa_cup",
+    "soccer_england_efl_cup",
+    "soccer_spl",
+    "soccer_uefa_champs_league",
+    "soccer_uefa_europa_league",
+    "soccer_uefa_europa_conference_league",
+    "soccer_spain_la_liga",
+    "soccer_italy_serie_a",
+    "soccer_germany_bundesliga",
+    "soccer_france_ligue_one",
+    "soccer_netherlands_eredivisie",
+    "soccer_portugal_primeira_liga",
 )
 
 _OUTRIGHT_RE = re.compile(r"winner|outright", re.IGNORECASE)

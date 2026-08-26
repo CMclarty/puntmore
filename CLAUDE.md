@@ -396,6 +396,18 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
 - `merge_pinnacle` joins the two vendors into one event so `value.py` stays
   vendor-agnostic — swapping either side back is a change in that function
   alone.
+- **AccaBonus eligibility is bet365's published list, not a guess.** Checked
+  against UK sources Aug 2026 (bet365's own pages are egress-blocked): football
+  (80+ competitions), tennis, MMA, basketball, NFL, baseball, ice hockey. Two
+  corrections came out of that check and both were the same failure — a value
+  figure measured against a promotion that would not pay on it: **ITF tennis is
+  NOT eligible** (the list names Grand Slams/ATP/WTA/Davis Cup/BJK/Challenger),
+  and **soccer IS** — it had been excluded since June 2026 on the incorrect
+  grounds that the coupon and cards tools cover football, which they do for
+  different MARKETS. Soccer and tennis are PREFIX lists, never whole groups:
+  the groups carry friendlies, youth and ITF events the offer excludes.
+  `/accabonus/eligible-keys` lists what the filter accepts plus near-misses, off
+  the FREE `/v4/sports` endpoint, so re-checking against the terms costs nothing.
 - **AccaBonus is bet365-only, and Pinnacle is the MEASURING STICK.** The Acca
   Boost is a bet365 promotion, so bet365 is where every row is placed;
   de-vigged Pinnacle is just what "fair odds" means, as in every other tool.
