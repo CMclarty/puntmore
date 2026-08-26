@@ -285,3 +285,51 @@ def get_accabonus_diagnostics(request: Request):
 
     return {"verdict": verdict, "pull": pull,
             "min_edge": settings.arb_min_edge}
+
+
+@router.get("/accabonus/probe-books")
+def probe_books(request: Request, sport: str = "soccer_epl", region: str = "uk"):
+    """Which bookmakers this plan actually carries for one sport and region.
+
+    COSTS CREDITS — one call, on demand, never on a schedule. It exists because
+    the question "is bet365 on this plan at all" cannot be answered any other
+    way from here: the vendor's own docs are egress-blocked, and every automatic
+    pull names the two books it wants, so a book that is absent is
+    indistinguishable from a book that is filtered.
+
+    This asks by REGION with no bookmaker filter, so the response is everything
+    the plan carries. If bet365 is missing from that list, no request tweak will
+    produce it and the tool needs a different reference or a different plan.
+    """
+    client = request.app.state.arbs_client
+    if client is None:
+        return {"error": "ODDS_API_KEY is not set"}
+
+    try:
+        # ttl=0 forces a fresh call: a cached answer would defeat the point.
+        events = client.fetch(sport, "h2h", ttl=0, regions=region)
+    except Exception as exc:
+        return {"error": str(exc), "sport": sport, "region": region}
+
+    census: dict[str, int] = {}
+    for e in events:
+        for bm in e.get("bookmakers", []):
+            key = bm.get("key")
+            if key:
+                census[key] = census.get(key, 0) + 1
+
+    found = sorted(census.items(), key=lambda kv: -kv[1])
+    return {
+        "sport": sport,
+        "region_requested": region,
+        "events": len(events),
+        "bookmakers": dict(found),
+        "bet365_present": "bet365" in census,
+        "pinnacle_present": "pinnacle" in census,
+        "quota_remaining": getattr(client, "quota_remaining", None),
+        "last_call_cost": getattr(client, "last_call_cost", None),
+        "note": (
+            "No bookmaker filter was sent, so this is everything the plan "
+            "carries for this sport. bet365 absent here means absent full stop."
+        ),
+    }

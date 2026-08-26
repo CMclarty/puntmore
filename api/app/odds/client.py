@@ -52,6 +52,7 @@ class TheOddsApiClient:
         markets: str,
         bookmakers: str | None = None,
         ttl: int | None = None,
+        regions: str | None = None,
     ) -> list[dict]:
         """Return events for a sport/market combo, cached for `ttl` seconds.
 
@@ -63,7 +64,7 @@ class TheOddsApiClient:
                     per-sport pull refreshes on a tighter cadence than the
                     24-h default the other tools rely on.
         """
-        cache_key = (sport_key, markets, bookmakers or "")
+        cache_key = (sport_key, markets, bookmakers or regions or "")
         effective_ttl = self._cache_ttl if ttl is None else ttl
 
         cached = self._cache.get(cache_key, ttl=effective_ttl)
@@ -84,7 +85,9 @@ class TheOddsApiClient:
             "markets": markets,
             "oddsFormat": "decimal",
         }
-        params["bookmakers" if bookmakers else "regions"] = bookmakers or "eu"
+        params["bookmakers" if bookmakers else "regions"] = (
+            bookmakers or regions or "eu"
+        )
 
         resp = httpx.get(
             f"{BASE_URL}/v4/sports/{sport_key}/odds",

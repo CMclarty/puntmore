@@ -673,3 +673,67 @@ def test_diagnostics_tells_a_missing_bet365_from_a_missing_pinnacle():
     disjoint = _diag({**base, "bet365_events": 20, "pinnacle_events": 20,
                       "bookmakers_seen": {"bet365": 20, "pinnacle": 20}})
     assert "never the SAME event" in disjoint
+
+
+def test_the_probe_asks_by_region_with_no_bookmaker_filter(monkeypatch):
+    """The whole point: a bookmaker filter cannot reveal a book that is absent.
+
+    Every automatic pull names bet365 and Pinnacle, so a book missing from the
+    plan looks exactly like a book being filtered out. Asking by REGION with no
+    filter returns everything the plan carries, which is the only way to tell
+    those apart from here — the vendor's own docs are egress-blocked.
+    """
+    params = _captured_params(
+        monkeypatch,
+        lambda c: c.fetch("soccer_epl", "h2h", ttl=0, regions="uk"),
+    )
+    assert params["regions"] == "uk"
+    assert "bookmakers" not in params
+
+
+def test_the_probe_forces_a_fresh_call(monkeypatch):
+    """A cached answer would defeat the purpose — ttl=0 must bypass the cache."""
+    import app.odds.client as mod
+    calls = []
+
+    class _Resp:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [{"bookmakers": [{"key": "pinnacle"}]}]
+
+    def _get(url, params=None, timeout=None):
+        calls.append(url)
+        return _Resp()
+
+    monkeypatch.setattr(mod.httpx, "get", _get)
+    client = mod.TheOddsApiClient("k")
+    client.fetch("soccer_epl", "h2h", ttl=0, regions="uk")
+    client.fetch("soccer_epl", "h2h", ttl=0, regions="uk")
+    assert len(calls) == 2, "ttl=0 must not be served from cache"
+
+
+def test_a_region_probe_and_a_bookmaker_pull_cache_separately(monkeypatch):
+    """Otherwise the probe's unfiltered answer would be served to the pull that
+    wants only two books, or the reverse."""
+    import app.odds.client as mod
+
+    class _Resp:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return []
+
+    monkeypatch.setattr(mod.httpx, "get", lambda *a, **k: _Resp())
+    client = mod.TheOddsApiClient("k")
+    client.fetch("soccer_epl", "h2h", regions="uk")
+    client.fetch("soccer_epl", "h2h", bookmakers="bet365,pinnacle")
+    assert len(client._cache._data) == 2
