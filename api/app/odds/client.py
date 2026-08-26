@@ -70,14 +70,21 @@ class TheOddsApiClient:
         if cached is not MISS:
             return cached
 
+        # ONE of bookmakers or regions, NEVER both — the same rule as
+        # fetch_event, and it belongs here just as much.
+        #
+        # This sent regions="eu" alongside a named bet365, which is a `uk`
+        # bookmaker. An eu region filter can exclude it outright, and
+        # accabonus/arbs.py skips any event without BOTH books — so every row
+        # was dropped and the feed came back empty with nothing logged. Naming
+        # the books is also the cheaper billing form, and the only one whose
+        # cost does not depend on which regions those books happen to span.
         params: dict = {
             "apiKey": self._api_key,
-            "regions": "eu",
             "markets": markets,
             "oddsFormat": "decimal",
         }
-        if bookmakers:
-            params["bookmakers"] = bookmakers
+        params["bookmakers" if bookmakers else "regions"] = bookmakers or "eu"
 
         resp = httpx.get(
             f"{BASE_URL}/v4/sports/{sport_key}/odds",

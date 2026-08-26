@@ -8,6 +8,10 @@ from ..schemas import AccaBonusFeedItem, ArbOut
 
 logger = logging.getLogger("uvicorn.error")
 
+# What the last pull saw, for /accabonus/diagnostics. A blank feed has several
+# causes that look identical from outside, and one of them is the tool working.
+LAST_PULL: dict = {}
+
 router = APIRouter()
 
 
@@ -63,11 +67,21 @@ def _fetch_events(client) -> list[dict]:
             "accabonus: skipped %d sport key(s) — TheOddsApi quota is at or "
             "below the %d reserve.", skipped, settings.cards_quota_reserve,
         )
+    with_both = sum(
+        1 for e in events
+        if {bm.get("key") for bm in e.get("bookmakers", [])} >= {"bet365", "pinnacle"}
+    )
+    LAST_PULL.update({
+        "keys_read": fetched, "keys_failed": failed, "keys_skipped": skipped,
+        "events": len(events), "events_with_both_books": with_both,
+        "ttl_seconds": settings.accabonus_cache_ttl,
+    })
     log = logger.info if not failed else logger.warning
     log(
         "accabonus pull: %d key(s) read, %d failed, %d skipped, %d event(s), "
-        "ttl=%ss",
-        fetched, failed, skipped, len(events), settings.accabonus_cache_ttl,
+        "%d with both books, ttl=%ss",
+        fetched, failed, skipped, len(events), with_both,
+        settings.accabonus_cache_ttl,
     )
     return events
 
@@ -187,3 +201,50 @@ def get_accabonus_feed(
     if min_edge is None:
         min_edge = settings.arb_min_edge
     return build_feed(request.app.state.arbs_client, min_edge)
+
+
+@router.get("/accabonus/diagnostics")
+def get_accabonus_diagnostics(request: Request):
+    """Why the AccaBonus screen looks the way it does.
+
+    Blank has several causes and they are indistinguishable from a feed with no
+    rows on it: no key, no eligible sports in season, the vendor returning no
+    events, bet365 absent from the response, or nothing clearing the edge
+    threshold. That LAST one is the tool working correctly and must not read as
+    a fault.
+    """
+    client = request.app.state.arbs_client
+    pull = dict(LAST_PULL)
+
+    if client is None:
+        verdict = "No client — ODDS_API_KEY is not set."
+    elif not pull:
+        verdict = "No pull has run yet. Open the feed to trigger one."
+    elif pull.get("keys_read", 0) == 0:
+        verdict = (
+            f"No eligible sport key was read ({pull.get('keys_skipped', 0)} "
+            f"skipped on quota, {pull.get('keys_failed', 0)} failed). Check "
+            f"/accabonus/eligible-keys — nothing eligible may be in season."
+        )
+    elif pull.get("events", 0) == 0:
+        verdict = (
+            f"{pull.get('keys_read')} key(s) read and the vendor returned NO "
+            f"events. Out of season, or no fixtures posted yet."
+        )
+    elif pull.get("events_with_both_books", 0) == 0:
+        verdict = (
+            f"{pull.get('events')} event(s) returned but NONE carried both "
+            f"bet365 and Pinnacle. Every row needs both — bet365 for the bet, "
+            f"Pinnacle as the fair-odds reference — so all were skipped. "
+            f"bet365 is a `uk` book: check the request is not filtering to a "
+            f"single region."
+        )
+    else:
+        verdict = (
+            f"WORKING: {pull.get('events_with_both_books')} event(s) carry both "
+            f"books and were priced. Any blank screen is the edge threshold "
+            f"doing its job — lower it on the page to see near-value rows."
+        )
+
+    return {"verdict": verdict, "pull": pull,
+            "min_edge": settings.arb_min_edge}

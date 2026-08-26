@@ -535,3 +535,96 @@ def test_soccer_is_a_prefix_list_not_the_whole_group():
     assert not _key_eligible("soccer_friendlies", "Soccer")
     assert not _key_eligible("soccer_fifa_world_cup_qualifiers", "Soccer")
     assert not _key_eligible("soccer_epl_preseason", "Soccer")
+
+
+# --- bookmakers and regions are mutually exclusive on BOTH endpoints -------
+
+def _captured_params(monkeypatch, call):
+    """Run `call` against a stubbed httpx.get and return the params sent."""
+    import app.odds.client as mod
+    seen = {}
+
+    class _Resp:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return []
+
+    def _get(url, params=None, timeout=None):
+        seen.update(params or {})
+        return _Resp()
+
+    monkeypatch.setattr(mod.httpx, "get", _get)
+    call(mod.TheOddsApiClient("k"))
+    return seen
+
+
+def test_naming_bookmakers_sends_no_region_filter(monkeypatch):
+    """bet365 is a `uk` book. Sending regions=eu beside it can filter it out
+    entirely — and arbs.py drops any event missing either book, so the whole
+    feed came back empty with nothing logged to say why.
+    """
+    params = _captured_params(
+        monkeypatch,
+        lambda c: c.fetch("soccer_epl", "h2h", bookmakers="bet365,pinnacle"),
+    )
+    assert params["bookmakers"] == "bet365,pinnacle"
+    assert "regions" not in params
+
+
+def test_the_per_event_endpoint_follows_the_same_rule(monkeypatch):
+    params = _captured_params(
+        monkeypatch,
+        lambda c: c.fetch_event("soccer_epl", "e1", "alternate_totals_corners",
+                                bookmakers="paddypower"),
+    )
+    assert params["bookmakers"] == "paddypower"
+    assert "regions" not in params
+
+
+def test_a_region_is_still_sent_when_no_bookmakers_are_named(monkeypatch):
+    """The coupon fallback names no books and must keep its region filter."""
+    params = _captured_params(
+        monkeypatch, lambda c: c.fetch("soccer_epl", "h2h,totals"),
+    )
+    assert params["regions"] == "eu"
+    assert "bookmakers" not in params
+
+
+def test_accabonus_diagnostics_names_the_missing_book(monkeypatch):
+    """The failure that just produced a blank feed: bet365 absent because a
+    region filter excluded a `uk` book."""
+    from app.routers import accabonus as mod
+
+    mod.LAST_PULL.clear()
+    mod.LAST_PULL.update({"keys_read": 5, "keys_failed": 0, "keys_skipped": 0,
+                          "events": 40, "events_with_both_books": 0})
+
+    class _Req:
+        class app:
+            class state:
+                arbs_client = object()
+
+    verdict = mod.get_accabonus_diagnostics(_Req())["verdict"]
+    assert "NONE carried both" in verdict
+    assert "uk" in verdict
+
+
+def test_accabonus_diagnostics_calls_a_working_tool_working():
+    from app.routers import accabonus as mod
+
+    mod.LAST_PULL.clear()
+    mod.LAST_PULL.update({"keys_read": 5, "keys_failed": 0, "keys_skipped": 0,
+                          "events": 40, "events_with_both_books": 40})
+
+    class _Req:
+        class app:
+            class state:
+                arbs_client = object()
+
+    assert mod.get_accabonus_diagnostics(_Req())["verdict"].startswith("WORKING")
+    mod.LAST_PULL.clear()

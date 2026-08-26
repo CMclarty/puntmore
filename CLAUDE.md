@@ -315,6 +315,14 @@ Refresh cadence is 10 min, reading through the cache — it never adds vendor
 calls. To add a provider, implement `OddsProvider` and add an `elif` on
 `settings.coupon_odds_source` in the `main.py` lifespan.
 
+**NEVER send `bookmakers` AND `regions` together** (`odds/client.py`). Billing is
+`markets × regions`, and naming books is the cheaper form — but the real damage
+is filtering: bet365 is a `uk` book and Paddy Power a `uk` book, so a leftover
+default `regions=eu` beside a named book can drop it from the response entirely.
+AccaBonus skips any event missing bet365, so that produced a completely blank
+feed with nothing logged. `fetch` and `fetch_event` both send one or the other,
+and tests pin it on both.
+
 ### Odds data layer for value tools (`app/odds/client.py::TheOddsApiClient`)
 AccaBonus + Cards read TheOddsApi through this one shared client (HTTP + cache).
 `fetch(sport_key, markets, bookmakers=None) -> list[dict]`, cached in-memory
