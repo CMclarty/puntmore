@@ -67,14 +67,31 @@ def _fetch_events(client) -> list[dict]:
             "accabonus: skipped %d sport key(s) — TheOddsApi quota is at or "
             "below the %d reserve.", skipped, settings.cards_quota_reserve,
         )
-    with_both = sum(
-        1 for e in events
-        if {bm.get("key") for bm in e.get("bookmakers", [])} >= {"bet365", "pinnacle"}
-    )
+    # WHICH bookmakers actually came back, counted. "Neither book present" and
+    # "one book present" are completely different problems — the first is the
+    # request or the plan, the second is coverage of that sport — and a
+    # both-books boolean cannot tell them apart. Learned the hard way: a blank
+    # feed was diagnosed as a region filter when the census would have named
+    # the real culprit immediately.
+    census: dict[str, int] = {}
+    with_both = 0
+    for e in events:
+        keys = {bm.get("key") for bm in e.get("bookmakers", [])}
+        for key in keys:
+            if key:
+                census[key] = census.get(key, 0) + 1
+        if keys >= {"bet365", "pinnacle"}:
+            with_both += 1
+
     LAST_PULL.update({
         "keys_read": fetched, "keys_failed": failed, "keys_skipped": skipped,
         "events": len(events), "events_with_both_books": with_both,
         "ttl_seconds": settings.accabonus_cache_ttl,
+        "bet365_events": census.get("bet365", 0),
+        "pinnacle_events": census.get("pinnacle", 0),
+        # Every bookmaker the vendor returned, commonest first. If bet365 is
+        # absent from this entirely, no request tweak will conjure it.
+        "bookmakers_seen": dict(sorted(census.items(), key=lambda kv: -kv[1])),
     })
     log = logger.info if not failed else logger.warning
     log(
@@ -232,13 +249,33 @@ def get_accabonus_diagnostics(request: Request):
             f"events. Out of season, or no fixtures posted yet."
         )
     elif pull.get("events_with_both_books", 0) == 0:
-        verdict = (
-            f"{pull.get('events')} event(s) returned but NONE carried both "
-            f"bet365 and Pinnacle. Every row needs both — bet365 for the bet, "
-            f"Pinnacle as the fair-odds reference — so all were skipped. "
-            f"bet365 is a `uk` book: check the request is not filtering to a "
-            f"single region."
-        )
+        b365, pin = pull.get("bet365_events", 0), pull.get("pinnacle_events", 0)
+        seen = list(pull.get("bookmakers_seen", {}))
+        if b365 == 0 and pin == 0:
+            verdict = (
+                f"{pull.get('events')} event(s) returned and NEITHER bet365 nor "
+                f"Pinnacle is among them. Books present: {seen or 'none'}. "
+                f"If the list is non-empty, the request is reaching the vendor "
+                f"and these two are simply not on this plan or not named the "
+                f"way this code expects."
+            )
+        elif b365 == 0:
+            verdict = (
+                f"Pinnacle is on {pin} event(s) but bet365 on NONE. Books "
+                f"present: {seen}. bet365 is a `uk` bookmaker — either it is "
+                f"not carried on this plan, or it does not price these sports."
+            )
+        elif pin == 0:
+            verdict = (
+                f"bet365 is on {b365} event(s) but Pinnacle on NONE. Books "
+                f"present: {seen}. Pinnacle is the fair-odds reference, so "
+                f"without it there is nothing to measure value against."
+            )
+        else:
+            verdict = (
+                f"bet365 is on {b365} event(s) and Pinnacle on {pin}, but never "
+                f"the SAME event. The two books cover different fixtures here."
+            )
     else:
         verdict = (
             f"WORKING: {pull.get('events_with_both_books')} event(s) carry both "

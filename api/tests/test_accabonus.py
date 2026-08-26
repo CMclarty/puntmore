@@ -602,7 +602,9 @@ def test_accabonus_diagnostics_names_the_missing_book(monkeypatch):
 
     mod.LAST_PULL.clear()
     mod.LAST_PULL.update({"keys_read": 5, "keys_failed": 0, "keys_skipped": 0,
-                          "events": 40, "events_with_both_books": 0})
+                          "events": 40, "events_with_both_books": 0,
+                          "bet365_events": 0, "pinnacle_events": 40,
+                          "bookmakers_seen": {"pinnacle": 40}})
 
     class _Req:
         class app:
@@ -610,8 +612,9 @@ def test_accabonus_diagnostics_names_the_missing_book(monkeypatch):
                 arbs_client = object()
 
     verdict = mod.get_accabonus_diagnostics(_Req())["verdict"]
-    assert "NONE carried both" in verdict
+    assert "bet365 on NONE" in verdict
     assert "uk" in verdict
+    mod.LAST_PULL.clear()
 
 
 def test_accabonus_diagnostics_calls_a_working_tool_working():
@@ -628,3 +631,45 @@ def test_accabonus_diagnostics_calls_a_working_tool_working():
 
     assert mod.get_accabonus_diagnostics(_Req())["verdict"].startswith("WORKING")
     mod.LAST_PULL.clear()
+
+
+def _diag(pull):
+    from app.routers import accabonus as mod
+    mod.LAST_PULL.clear()
+    mod.LAST_PULL.update(pull)
+
+    class _Req:
+        class app:
+            class state:
+                arbs_client = object()
+
+    out = mod.get_accabonus_diagnostics(_Req())["verdict"]
+    mod.LAST_PULL.clear()
+    return out
+
+
+def test_diagnostics_tells_a_missing_bet365_from_a_missing_pinnacle():
+    """"Neither book" and "one book" are different problems: the first is the
+    request or the plan, the second is that book's coverage of the sport.
+
+    A both-books boolean cannot tell them apart, which is what made the last
+    blank feed take two passes to diagnose.
+    """
+    base = {"keys_read": 5, "keys_failed": 0, "keys_skipped": 0,
+            "events": 40, "events_with_both_books": 0}
+
+    neither = _diag({**base, "bet365_events": 0, "pinnacle_events": 0,
+                     "bookmakers_seen": {"williamhill": 40, "betfair": 30}})
+    assert "NEITHER" in neither and "williamhill" in neither
+
+    no_b365 = _diag({**base, "bet365_events": 0, "pinnacle_events": 40,
+                     "bookmakers_seen": {"pinnacle": 40}})
+    assert "bet365 on NONE" in no_b365
+
+    no_pin = _diag({**base, "bet365_events": 40, "pinnacle_events": 0,
+                    "bookmakers_seen": {"bet365": 40}})
+    assert "Pinnacle on NONE" in no_pin
+
+    disjoint = _diag({**base, "bet365_events": 20, "pinnacle_events": 20,
+                      "bookmakers_seen": {"bet365": 20, "pinnacle": 20}})
+    assert "never the SAME event" in disjoint
