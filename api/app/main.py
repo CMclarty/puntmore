@@ -29,6 +29,7 @@ from .providers.mock_odds import MockOddsProvider
 from .providers.claude_ocr import ClaudeOCRProvider
 from .providers.gemini_ocr import GeminiOCRProvider
 from .providers.mock_ocr import MockOCRProvider
+from .providers.verified_ocr import VerifiedOCRProvider, describe_ocr
 from .notifications.discord import DiscordNotificationProvider, NullNotificationProvider
 from .scheduler import cleanup_kicked_off_legs, cleanup_old_coupons, start_scheduler
 from .routers import coupons
@@ -172,10 +173,20 @@ async def lifespan(app: FastAPI):
             settings.coupon_odds_cache_ttl,
         )
 
+    # A real provider is always WRAPPED: every price on a priced grid is read
+    # twice, by separate calls over separate pieces of the page, and kept only
+    # where the reads agree. Not a dial — a switch to turn the check off is a
+    # switch that ends up off, and the failure it catches (a whole column of
+    # prices one row out) is invisible on screen. The mock is not wrapped: it
+    # returns canned rows whatever it is shown, so there is nothing to compare.
     if settings.google_api_key:
-        app.state.ocr_provider = GeminiOCRProvider(settings.google_api_key)
+        app.state.ocr_provider = VerifiedOCRProvider(
+            GeminiOCRProvider(settings.google_api_key)
+        )
     elif settings.anthropic_api_key:
-        app.state.ocr_provider = ClaudeOCRProvider(settings.anthropic_api_key)
+        app.state.ocr_provider = VerifiedOCRProvider(
+            ClaudeOCRProvider(settings.anthropic_api_key)
+        )
     else:
         # Falling back to the mock in a deployment means every upload silently
         # returns canned rows and the user's photo is never read. That has
@@ -186,7 +197,7 @@ async def lifespan(app: FastAPI):
             "hard-coded test rows and your coupon image will NOT be read. "
             "Set ANTHROPIC_API_KEY (or GOOGLE_API_KEY) and restart."
         )
-    logger.info("OCR provider: %s", type(app.state.ocr_provider).__name__)
+    logger.info("OCR provider: %s", describe_ocr(app.state.ocr_provider))
 
     if settings.discord_webhook_url:
         app.state.notifier = DiscordNotificationProvider(settings.discord_webhook_url)
@@ -210,7 +221,7 @@ async def lifespan(app: FastAPI):
     diagnostics.record(
         "boot",
         note="startup complete",
-        ocr=type(app.state.ocr_provider).__name__ if hasattr(app.state, "ocr_provider") else None,
+        ocr=describe_ocr(app.state.ocr_provider) if hasattr(app.state, "ocr_provider") else None,
         odds=type(app.state.odds_provider).__name__ if hasattr(app.state, "odds_provider") else None,
     )
 

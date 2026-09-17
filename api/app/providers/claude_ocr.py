@@ -189,6 +189,8 @@ def build_user_prompt(hint: OcrHint | None) -> str:
         )
     if hint is None or not hint.priced:
         return USER_PROMPT
+    if hint.strip:
+        return _strip_prompt(hint)
     parts = [
         "Read this coupon. Return EVERY fixture row (a long coupon has 78), "
         "plus the date range."
@@ -228,6 +230,53 @@ def build_user_prompt(hint: OcrHint | None) -> str:
             'This is a PRICED coupon: read the price beside each fixture into '
             '"your_odds", exactly as printed.'
         )
+    return " ".join(parts)
+
+
+def _strip_prompt(hint: OcrHint) -> str:
+    """The instruction for one horizontal piece of a sheet already read whole.
+
+    The piece is the unit of the SECOND read (`verified_ocr.py`), so it asks
+    for the same shape as the whole-page read and nothing the page-level read
+    already has: no ladder, no title, no date range. What it does need telling
+    is the column headings, which are usually above the cut — supplied here in
+    print order — and that a row sliced by the top or bottom edge is to be left
+    out rather than completed from what is visible.
+    """
+    parts = [
+        "This image is a horizontal STRIP cut from a longer coupon sheet. Read "
+        "EVERY fixture row that is completely visible in it, in reading order. "
+        "A row cut through by the top or bottom edge is NOT to be reported — "
+        "leave it out rather than guessing the part that is missing."
+    ]
+    if hint.two_sided:
+        if hint.headings:
+            listed = "; ".join(f'"{h}"' for h in hint.headings)
+            parts.append(
+                "The column headings are above this strip and may not be "
+                "visible. The market blocks are, LEFT TO RIGHT: "
+                f"{listed}. Key each row's pairs by exactly these headings, "
+                "in that order — the first pair you read across the row goes "
+                "under the first heading, and so on."
+            )
+        parts.append(
+            'Return every block on every row in "prices": each pair in PRINTED '
+            'order, left first, as ["<left>", "<right>"], copied exactly as '
+            'printed ("6-4", "4-11", "EVS"). Use null for a price you cannot '
+            "read rather than shifting the other one across, and [null, null] "
+            "for a block you cannot read at all rather than leaving it out. "
+            "Do not label the pair and do not judge which team either belongs "
+            "to."
+        )
+    else:
+        parts.append(
+            'Read the price printed beside each fixture into "your_odds", '
+            "exactly as printed."
+        )
+    parts.append(
+        'Return "title" as null, "period_text" as null and "payout_ladder" as '
+        "[] — they are read from the whole sheet, not from a strip."
+    )
     return " ".join(parts)
 
 

@@ -301,3 +301,24 @@ def test_truncated_read_raises_its_own_type():
         _provider([_block("text", _VALID[:80])], stop_reason="max_tokens").extract(
             b"img", "image/png"
         )
+
+
+# --- Strips: the second read ---------------------------------------------------
+
+def test_a_strip_is_told_the_headings_in_print_order_and_to_drop_cut_rows():
+    from app.providers.base import OcrHint
+    from app.providers.claude_ocr import build_user_prompt
+
+    prompt = build_user_prompt(OcrHint(
+        priced=True, two_sided=True, strip=True,
+        headings=("TEAM TO SCORE 1 OR MORE GOALS", "TEAM TO SCORE 2 OR MORE GOALS"),
+    ))
+    assert "STRIP" in prompt
+    assert "LEFT TO RIGHT" in prompt
+    assert prompt.index("TEAM TO SCORE 1") < prompt.index("TEAM TO SCORE 2")
+    assert "cut through by the top or bottom edge" in prompt
+    # Same discipline as the whole-page read: positional pairs, no labelling.
+    assert "do not judge which team" in prompt
+    assert "home_odds" not in prompt
+    # It is a strip: the sheet-level fields are the whole read's business.
+    assert '"payout_ladder" as []' in prompt

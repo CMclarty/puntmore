@@ -123,6 +123,12 @@ class GridAudit:
 
     `holes` is an honest coupon and a poor photo. `absent` is the read losing
     structure the sheet has — the number that says re-scan.
+
+    `disputed` is a subset of the holes with a different meaning: a PRICE was
+    read there, but the independent reads of the same cell did not agree, so
+    it was left unpriced rather than trusted (`providers/verified_ocr.py`).
+    A hole is a cell nobody could read; a disputed cell is one somebody read
+    WRONG — and which read it was is unknowable, which is why neither is kept.
     """
     rows: int = 0
     blocks: tuple[str, ...] = ()
@@ -131,6 +137,7 @@ class GridAudit:
     absent: int = 0
     malformed: int = 0
     duplicates: tuple[str, ...] = ()
+    disputed: int = 0
 
     @property
     def cells(self) -> int:
@@ -150,6 +157,7 @@ class GridAudit:
             not self.duplicates
             and not self.malformed
             and self.absent == 0
+            and self.disputed == 0
             and self.coverage >= CLEAN_CELL_FLOOR
         )
 
@@ -163,6 +171,8 @@ class GridAudit:
             parts.append(f"{self.holes} unreadable")
         if self.absent:
             parts.append(f"{self.absent} MISSING")
+        if self.disputed:
+            parts.append(f"{self.disputed} DISPUTED between reads (left unpriced)")
         if self.malformed:
             parts.append(f"{self.malformed} malformed")
         if self.duplicates:
@@ -178,6 +188,7 @@ class GridAudit:
             "holes": self.holes,
             "absent": self.absent,
             "malformed": self.malformed,
+            "disputed": self.disputed,
             "duplicates": list(self.duplicates),
             "clean": self.clean,
             "summary": self.summary(),
@@ -255,7 +266,7 @@ def drop_duplicate_fixtures(rows) -> tuple[list, tuple[str, ...]]:
 
 
 def audit(rows, blocks: tuple[str, ...], *, malformed: int = 0,
-          duplicates: tuple[str, ...] = ()) -> GridAudit:
+          duplicates: tuple[str, ...] = (), disputed: int = 0) -> GridAudit:
     """Measure the read against the rectangle it claims to be."""
     read = holes = absent = 0
     for row in rows:
@@ -268,7 +279,7 @@ def audit(rows, blocks: tuple[str, ...], *, malformed: int = 0,
                 read += 1
     return GridAudit(
         rows=len(rows), blocks=blocks, read=read, holes=holes, absent=absent,
-        malformed=malformed, duplicates=duplicates,
+        malformed=malformed, duplicates=duplicates, disputed=disputed,
     )
 
 

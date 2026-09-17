@@ -172,3 +172,21 @@ def test_an_empty_audit_is_clean_rather_than_dividing_by_zero():
     assert GridAudit().clean
     assert GridAudit().coverage == 1.0
     assert "no market grid" in GridAudit().summary()
+
+
+# --- disputed cells: two reads that did not agree -----------------------------
+
+def test_a_disputed_cell_fails_the_scan_and_is_named_in_the_summary():
+    rows = _sheet(10)
+    rows[3].prices[TTS1] = (None, None)         # the disputed cell, left unpriced
+    scan = audit(rows, (TTS1, TTS2, WO15), disputed=1)
+    assert scan.holes == 1 and scan.disputed == 1
+    assert scan.clean is False
+    assert "1 DISPUTED" in scan.summary()
+    assert scan.as_dict()["disputed"] == 1
+
+
+def test_a_read_with_nothing_disputed_is_still_clean():
+    scan = audit(_sheet(10), (TTS1, TTS2, WO15), disputed=0)
+    assert scan.clean is True
+    assert "DISPUTED" not in scan.summary()

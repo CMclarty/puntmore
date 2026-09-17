@@ -193,6 +193,41 @@ Both live behind their seams. Core logic never calls a vendor API directly.
   Never LOWER `MAX_LONG_EDGE` to save more memory — below the API's cap it
   becomes a real loss of detail, and small print is what is being read here.
   What is stored is what is sent, so a re-scan costs the same nothing.
+- **THE PHOTO IS STRAIGHTENED BEFORE IT IS READ** (`images.measure_skew`,
+  Sept 2026). A hand-held photo is never square, and on a 78-row grid that is
+  not cosmetic: at 2576 px the row pitch is ~30 px, and a tilt of 0.7° drifts
+  the far edge of the page by ~24 px — most of a row. The price at the right
+  of row 55 then sits, IN THE PHOTO, level with the fixture name of row 54,
+  and a faithful transcription of that picture is a column of prices one row
+  out. The tilt is measured off the text lines themselves (a projection
+  profile, pure Pillow, ~300 ms) and rotated out in `prepare_for_ocr`, so the
+  stored image is the level one. It corrects rotation only, never
+  perspective; a sheet photographed at a steep angle is still a bad photo.
+- **EVERY PRICE ON A PRICED GRID IS READ TWICE, AND KEPT ONLY WHERE THE READS
+  AGREE** (`providers/verified_ocr.py`, Sept 2026). The rectangle check cannot
+  see a column of prices one row out: every row still has every block and
+  every price is a real price — only the association slipped, which is a
+  confident wrong price on a real bet, and it reached the tracker more than
+  once after the transcribe-don't-interpret fixes. So `VerifiedOCRProvider`
+  wraps every REAL provider (never the mock): the sheet is read whole, then
+  again as five overlapping horizontal strips (`images.strips`, a third of
+  the page each, so most rows are in two), and each price SLOT is voted — a
+  value survives only if `READS_TO_AGREE` (2) separate reads report it. A
+  price one read saw alone, or reads disagree on, is left unpriced and
+  counted as `disputed` in the scan audit, which fails `clean` and names the
+  count. Which read was right is exactly the thing that cannot be known.
+  - It is NOT a dial. A switch to turn the check off is a switch that ends up
+    off, and the failure it catches is invisible on screen. Cost is about
+    2.5 full reads per upload — a few pounds a month.
+  - A strip read that fails FAILS THE UPLOAD (`OCRUnverified`), it does not
+    fall back to the single read. A coupon that looks verified and is not is
+    the exact thing this exists to prevent.
+  - Ladder coupons (no per-fixture prices) and bundle sheets (not a grid) are
+    read once and marked `verified=False`; nothing on them is cross-checked.
+  - The whole-page read owns the fixture LIST and its ORDER, the headings, the
+    title, the period and the ladder. Strips are told the headings in print
+    order (`OcrHint.headings`) because the header is usually above the cut,
+    and are told to leave out any row the cut slices through.
 - The Odds API free tier (AccaBonus/Cards) is 500 credits/month. The 24-hour
   cache (`Settings.odds_cache_ttl`, `app/odds/client.py`) keeps this safe — do
   not lower the default. A paid-tier upgrade is an `.env` change only.
@@ -279,11 +314,17 @@ Interface: `extract(image_bytes: bytes, media_type: str) -> list[ExtractedRow]`
 | `MockOCRProvider` | `providers/mock_ocr.py` | neither key present (dev/test) |
 
 Selection logic is in `app/main.py` lifespan — `GOOGLE_API_KEY` takes priority.
+Whichever real provider is chosen is wrapped in `VerifiedOCRProvider`
+(`providers/verified_ocr.py`), which reads a priced grid a second time in
+strips and keeps only the prices the reads agree on. Diagnostics and the boot
+log name both: `VerifiedOCRProvider(ClaudeOCRProvider)`.
 To add a new OCR provider:
 1. Create `providers/<name>_ocr.py` implementing `OCRProvider`.
 2. Add its API key to `config.py` (`Settings`) and `.env.example`.
 3. Add an `elif settings.<new_key>:` branch in `main.py` lifespan before the
-   `MockOCRProvider` fallback.
+   `MockOCRProvider` fallback — wrapped in `VerifiedOCRProvider`, like the
+   others. Its prompt must honour `OcrHint.strip` / `OcrHint.headings`
+   (share `claude_ocr.build_user_prompt`, as Gemini does).
 
 Current model IDs (verify before changing — do not assume from memory):
 - Gemini: `gemini-2.0-flash` (set in `providers/gemini_ocr.py::MODEL`)

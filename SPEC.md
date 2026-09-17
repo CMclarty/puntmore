@@ -297,8 +297,24 @@ Uploads happen from a phone — there is NO blocking review screen. Instead:
   re-read).
 - Fixtures that fail name-matching persist as "unmatched" rows with fair odds
   blank (never block the coupon); resolving them is an inline edit.
-- KNOWN TRADE-OFF (accepted): a misread is not detected automatically; the
-  value column is the practical tripwire and rows are reviewed by hand.
+- **The photo is straightened first** (`images.measure_skew`, Sept 2026): a
+  tilt of under a degree drifts the far columns of a 78-row grid by most of a
+  row, so the print at the right of row 55 lines up with the name on row 54.
+  Rotation is measured off the text lines and removed before the read; the
+  stored image is the level one.
+- **Every price on a priced grid is read twice** (`providers/verified_ocr.py`,
+  Sept 2026). After the whole-page read, the page is read again as five
+  overlapping horizontal strips, and each price slot is kept only where two
+  separate reads report the same value. A price seen once, or reads that
+  disagree, is left unpriced and counted as `disputed` in the coupon's
+  `scan_audit` (which fails `clean` and says so in its summary line). A strip
+  read that fails fails the upload rather than saving the single read. Ladder
+  coupons and bundle sheets are read once — nothing on them is a grid cell.
+- KNOWN TRADE-OFF (accepted): a misread that BOTH reads make identically is
+  not detected; the value column is the practical tripwire and rows are
+  reviewed by hand. What the double read catches is the class that matters —
+  a whole column slipped a row — because a slip has to recur across separate
+  reads of separate pieces of the page to survive the vote.
 
 Team-name normalisation (`app/normalise.py`): OCR'd names won't match provider
 fixture names exactly ("Man Utd" vs "Manchester United"). A fuzzy-match layer

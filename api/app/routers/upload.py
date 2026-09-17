@@ -188,6 +188,7 @@ def solve_grid(extracted):
         extracted.rows, blocks,
         malformed=getattr(extracted, "malformed_pairs", 0),
         duplicates=dupes,
+        disputed=getattr(extracted, "disputed_cells", 0),
     )
     if repaired:
         logger.info("Grid: repaired %d mistranscribed block heading(s)", repaired)

@@ -60,6 +60,13 @@ class OcrHint:
     # blocks to key by heading, and the same fixture may legitimately appear in
     # more than one bundle.
     bundles: bool = False
+    # A STRIP is a horizontal piece cut from a sheet that has already been read
+    # whole (`providers/verified_ocr.py`). The column headings are usually not
+    # in the picture, so they are supplied here in print order, left to right,
+    # for the model to key each row's pairs by. Rows the cut leaves half-visible
+    # are to be left out, not guessed at.
+    strip: bool = False
+    headings: tuple[str, ...] = ()
 
 
 @dataclass
@@ -139,6 +146,16 @@ class ExtractedCoupon:
     # cell is the READ going wrong, and the coupon's scan audit has to see it
     # (coupon_grid.py). Zero on a clean transcription.
     malformed_pairs: int = 0
+    # Price cells the independent reads could not agree on, left unpriced.
+    # Zero on a coupon that was read once (nothing to disagree with) — see
+    # `verified` for whether that is the case.
+    disputed_cells: int = 0
+    # Did every price here survive a second, independent read? False for a
+    # single-pass read: a ladder coupon (no prices to check), a bundle sheet
+    # (not a grid), or a provider used bare. When True, every price present
+    # was reported identically by at least two separate transcriptions.
+    verified: bool = False
+    reads: int = 1
 
 
 class OCRProvider(ABC):

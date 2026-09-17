@@ -237,6 +237,34 @@ printed price.
   whether the sheet's header needs a `title_conflicts` veto (none is configured
   — a guessed one would block real uploads).
 
+### 2d. Prices one row out — straighten the photo, read every price twice — DONE (Sept 2026)
+The tracker priced line 55 with line 54's prices. Every earlier OCR fix was
+about interpretation (which block, which side) and this was not: it is the
+association between the fixture column and the price columns slipping a row,
+either in the model over 78 dense rows or in the photo itself (a tilt of 0.7°
+drifts the far edge by most of a row at 2576 px). Nothing downstream could see
+it — the rectangle was intact and every price was a real price.
+- [x] `images.measure_skew` / `straighten`: rotation measured off the text
+      lines (projection-profile variance, pure Pillow) and removed in
+      `prepare_for_ocr`. Rotation only; perspective is not corrected.
+- [x] `providers/verified_ocr.py::VerifiedOCRProvider`: wraps the real
+      provider; a priced grid is read whole, then again in five overlapping
+      strips (`images.strips`), and each price slot is kept only where two
+      separate reads agree. Disputed cells are unpriced and counted in the
+      scan audit; a failed strip read fails the upload. Not a dial.
+- [x] `OcrHint.strip` / `.headings`, `ExtractedCoupon.disputed_cells` /
+      `.verified` / `.reads`, `GridAudit.disputed`.
+- [x] 29 new tests, including the bug itself: a page read slipped from row 10
+      is outvoted by two strips and every row prices correctly. 601 pass.
+- **Still to verify live** — nobody has run a real sheet through it here (no
+  key, no photo in the sandbox): that the strip reads come back keyed by the
+  supplied headings, that a real sheet reconciles with few or no disputed
+  cells, and the wall-clock cost of six reads per upload.
+- Known gap, left alone: `rescan_coupon` slots edited rows back by RANK. If a
+  re-read returns a different row count (a strip-recovered row, say) the ranks
+  past that point shift and an edit can land beside the wrong fixture. Fixing
+  it properly needs the leg to remember the OCR name it was read under.
+
 ### 3. Calibration backtest  *(was Phase V4 — depends on 1)*
 - [ ] `api/tools/backtest_calibration.py`: over a season+ of historical fixtures
       with settlements, fit grids, compute derived P(win ∧ over X), score
