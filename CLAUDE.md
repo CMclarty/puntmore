@@ -72,6 +72,18 @@ drowns out a short club name ("Lyon" scored 0.33 against "Lyon Win and Over
 2.5"), and never the whole-pick path, which bypasses the alias table that got
 the fixture matched in the first place.
 
+**A youth, reserve or women's side is a DIFFERENT TEAM, however the board
+spells the marker** (`normalise._squad_markers`, Sept 2026). `team_similarity`
+returns 0 when the two names' markers differ, and the markers are found by
+PATTERN and folded to one canonical token in the normalised name ("U-21",
+"U21s", "Under 21", "(U21)" → `u21`; "Women", "Ladies", "(W)", "Frauen" →
+`women`; "Reserves", "Res", "II", "B" → their own). It was a token list that
+recognised the bare "U21" and nothing else, so a senior leg was priced off
+the under-21 fixture at 0.90 similarity. Add a spelling to the regexes when a
+board prints a new one — never relax the zero: a first team against its
+reserves is the one comparison where "nearly the same name" means the wrong
+prices.
+
 **A BLANK TRACKER HAS FIVE DIFFERENT CAUSES and they used to look identical**
 — a selection with no fair odds, whichever one it was. `get_fair_odds` now
 tallies them and logs ONE line per pass (never one per leg — a sheet is 154 of

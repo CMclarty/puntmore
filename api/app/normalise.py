@@ -111,25 +111,70 @@ _TEAM_ALIASES: dict[str, str] = {
     "tns": "new saints",
 }
 
-# Reserve, B and youth sides. They carry the parent club's name plus a marker,
-# so every name-similarity measure reads them as the same club — but they are a
-# different team with different prices. The marker is compared, never stripped.
-_SQUAD_MARKERS = {
-    "ii", "iii", "b", "c", "res", "reserve", "reserves", "youth", "academy",
-    "u18", "u19", "u20", "u21", "u23", "jr", "juniors",
+_PUNCT_RE = re.compile(r"['\-.()\[\]]")
+_SPACE_RE = re.compile(r'\s+')
+
+# Reserve, B, youth and women's sides. They carry the parent club's name plus a
+# marker, so every name-similarity measure reads them as the same club — but
+# they are a different team with different prices. The markers are compared,
+# never stripped.
+#
+# Detected by PATTERN, not by token membership, because the boards spell the
+# same marker a dozen ways and a token list only ever caught one of them: "U21"
+# was recognised, while "U-21", "U21s", "Under 21", "Under-21s", "(U21)" and
+# "U 21" all fell through and scored 0.90 against the senior side — which is
+# how a first-team leg was priced off an under-21 fixture (Sept 2026). Every
+# spelling folds to ONE canonical marker so "U-21" on the coupon still meets
+# "U21" on the board.
+_AGE_GROUP_RE = re.compile(r"\b(?:u|under)\s*(1[5-9]|2[0-3])\s*s?\b")
+_WOMEN_RE = re.compile(
+    r"\b(?:women|womens|woman|ladies|w|female|fem|feminine|feminino|femenino"
+    r"|frauen|damen|dames|damer|kvinner|kvinnor|naiset)\b"
+)
+_RESERVE_RE = re.compile(
+    r"\b(?:ii|iii|iv|b|c|res|reserve|reserves|youth|academy|jr|jrs|junior"
+    r"|juniors|amateur|amateurs|amateure)\b"
+)
+
+
+_RESERVE_CANON = {
+    "reserve": "res", "reserves": "res", "jrs": "jr", "junior": "jr",
+    "juniors": "jr", "amateurs": "amateur", "amateure": "amateur",
 }
 
 
+def _canonical_squad(name: str) -> str:
+    """Every spelling of a marker rewritten to its one canonical token."""
+    name = _AGE_GROUP_RE.sub(lambda m: f"u{m.group(1)}", name)
+    name = _WOMEN_RE.sub("women", name)
+    name = _RESERVE_RE.sub(lambda m: _RESERVE_CANON.get(m.group(0), m.group(0)), name)
+    return _SPACE_RE.sub(' ', name).strip()
+
+
+def _squad_markers(normalised: str) -> frozenset[str]:
+    """The reserve/youth/women markers in an already-normalised name, folded
+    to canonical form: "u-21", "U21s" and "under 21" are all "u21"; every
+    women's spelling is "women"; "reserves" and "res" are "res"."""
+    found = set()
+    for m in _AGE_GROUP_RE.finditer(normalised):
+        found.add(f"u{m.group(1)}")
+    if _WOMEN_RE.search(normalised):
+        found.add("women")
+    for m in _RESERVE_RE.finditer(normalised):
+        token = m.group(0)
+        found.add({"reserve": "res", "reserves": "res", "jrs": "jr", "junior": "jr",
+                   "juniors": "jr", "amateurs": "amateur", "amateure": "amateur"
+                   }.get(token, token))
+    return frozenset(found)
+
+
 def _squad_marker(normalised: str) -> str | None:
-    """The reserve/youth marker in an already-normalised name, if any."""
-    for token in normalised.split():
-        if token in _SQUAD_MARKERS:
-            return token
-    return None
+    """Back-compatible single-marker view, for callers that only ask "is this a
+    non-first-team side" — see _squad_markers for the comparison."""
+    markers = _squad_markers(normalised)
+    return " ".join(sorted(markers)) if markers else None
 
 
-_PUNCT_RE = re.compile(r"['\-.]")
-_SPACE_RE = re.compile(r'\s+')
 
 _VS_RE = re.compile(r'\s+(?:vs\.?|v\.?|@)\s+', re.IGNORECASE)
 
@@ -150,6 +195,11 @@ def normalise_team(name: str) -> str:
     words = [_ABBREVS.get(w, w) for w in name.split()]
     words = [_CITY_TOKENS.get(w, w) for w in words]
     name = ' '.join(words)
+    # Squad markers fold to their canonical spelling IN the name, not only in
+    # the comparison, so "Spain U-21" and "Spain U21s" are the same string and
+    # an exact match — otherwise the markers agree and the characters still
+    # disagree, and a side scores 0.9 against itself.
+    name = _canonical_squad(name)
     # Alias LAST, on the already-normalised form, so both the coupon's name and
     # the board's name land on the same canonical string no matter which side
     # of the pair each came from.
@@ -181,7 +231,7 @@ def team_similarity(a: str, b: str) -> float:
     # A reserve/youth side is a DIFFERENT team from the first XI, with its own
     # (much longer) prices. "Wisla Krakow" against "Wisla Krakow II" otherwise
     # scores as containment and priced a first-team leg off the reserves.
-    if _squad_marker(na) != _squad_marker(nb):
+    if _squad_markers(na) != _squad_markers(nb):
         return 0.0
     if na == nb:
         return 1.0

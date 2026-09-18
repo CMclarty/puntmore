@@ -314,3 +314,69 @@ def test_short_home_name_prices_end_to_end():
     ])
     assert home.side is True
     assert home.fair_odds is not None
+
+
+# --- Squad markers are recognised however the board spells them ----------------
+#
+# A first-team leg was priced off an under-21 fixture (Sept 2026). The marker
+# list caught the bare token "U21" and nothing else; the board printed it
+# differently and the senior side scored 0.90 against it.
+
+def test_every_spelling_of_an_age_group_side_is_kept_apart_from_the_seniors():
+    from app.normalise import team_similarity as t
+    for youth in ("England U21", "England U-21", "England U21s", "England U-21s",
+                  "England Under 21", "England Under-21", "England Under 21s",
+                  "England U 21", "England (U21)", "England U23", "England U19",
+                  "England Under-19s", "England U18"):
+        assert t("England", youth) == 0.0, youth
+        assert t(youth, "England") == 0.0, youth
+
+
+def test_the_same_age_group_side_spelled_two_ways_still_matches_itself():
+    from app.normalise import team_similarity as t
+    assert t("Spain U21", "Spain U-21") == 1.0
+    assert t("Spain Under 21", "Spain U21s") == 1.0
+    assert t("Paide U21", "Paide Linnameeskond Under-21s") >= 0.9   # containment still works
+
+
+def test_different_age_groups_are_different_teams():
+    from app.normalise import team_similarity as t
+    assert t("England U21", "England U19") == 0.0
+    assert t("England U21", "England U23") == 0.0
+
+
+def test_womens_sides_are_kept_apart_from_the_mens_however_marked():
+    from app.normalise import team_similarity as t
+    for women in ("Arsenal Women", "Arsenal W", "Arsenal (W)", "Arsenal Ladies",
+                  "Arsenal Womens", "Bayern Frauen"):
+        assert t("Arsenal" if "Arsenal" in women else "Bayern", women) == 0.0, women
+    assert t("Arsenal Women", "Arsenal Ladies") == 1.0
+    assert t("Arsenal Women", "Arsenal (W)") == 1.0
+
+
+def test_reserve_markers_in_every_spelling():
+    from app.normalise import team_similarity as t
+    for reserve in ("Wisla Krakow II", "Wisla Krakow B", "Wisla Krakow Reserves",
+                    "Wisla Krakow Res", "Wisla Krakow Amateurs", "Wisla Krakow Youth"):
+        assert t("Wisla Krakow", reserve) == 0.0, reserve
+    assert t("Ajax Reserves", "Ajax Res") == 1.0
+
+
+def test_a_number_that_is_not_an_age_group_is_not_a_marker():
+    """"1904", "1899", "96" are club names, not squads."""
+    from app.normalise import team_similarity as t
+    assert t("Hannover 96", "Hannover 96") == 1.0
+    assert t("Hoffenheim", "TSG 1899 Hoffenheim") >= 0.9
+    assert t("Dunajska Streda", "FK DAC 1904") == 1.0
+
+
+def test_the_fixture_matcher_refuses_the_under_21_fixture_for_a_senior_leg():
+    """End to end through the board matcher: the U21 fixture is on the board,
+    the senior one is not — the leg must come back UNMATCHED, not priced off
+    the youth game."""
+    from app.providers.bettingiscool import BettingIsCoolProvider
+    board = ["England U-21s vs Spain U-21s", "Germany vs France"]
+    assert BettingIsCoolProvider._best_match("England v Spain", board) is None
+    assert BettingIsCoolProvider._best_match(
+        "England U21 v Spain U21", board
+    )[0] == "England U-21s vs Spain U-21s"

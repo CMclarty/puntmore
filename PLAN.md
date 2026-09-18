@@ -265,6 +265,12 @@ it — the rectangle was intact and every price was a real price.
   past that point shift and an edit can land beside the wrong fixture. Fixing
   it properly needs the leg to remember the OCR name it was read under.
 
+### 2e. Under-21 sides priced as the seniors — DONE (Sept 2026)
+- [x] `normalise._squad_markers`: markers found by pattern, canonicalised in
+      the name. Bare "U21" was the only spelling the old token list caught.
+- [x] Women's and every reserve spelling covered the same way; 7 tests
+      including the matcher end to end (senior leg refuses the U21 fixture).
+
 ### 3. Calibration backtest  *(was Phase V4 — depends on 1)*
 - [ ] `api/tools/backtest_calibration.py`: over a season+ of historical fixtures
       with settlements, fit grids, compute derived P(win ∧ over X), score
