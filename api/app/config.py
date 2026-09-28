@@ -50,12 +50,17 @@ class Settings(BaseSettings):
     #   = 144/day + ~2 reference = ~4,400/month.
     # Halving the TTL doubles that; one request for all 11 would cut it by 3x.
     oddspapi_api_key: str = ""
-    # Sofascore unique-tournament ids (OddsPapi uses Sofascore's): Premier
-    # League, Championship, League One, LaLiga, Serie A, Bundesliga, Ligue 1,
-    # Primeira Liga, Champions League, Europa League, Nations League. LaLiga 8
-    # and Champions League 7 were seen in the trial; the rest are Sofascore's
-    # ids and are checked by /api/cards/oddspapi-check.
-    oddspapi_tournament_ids: str = "17,18,24,8,23,35,34,238,7,679,10783"
+    # Competitions to sweep: an OddsPapi tournament id, or a competition NAME
+    # matched exactly against OddsPapi's own list. Ids confirmed live by
+    # /api/cards/oddspapi-check (28 Sept 2026): 17 Premier League, 18
+    # Championship, 24 League One, 8 LaLiga, 23 Serie A, 35 Bundesliga, 34
+    # Ligue 1, 238 Liga Portugal, 7 Champions League, 679 Europa League. The
+    # Nations League is by NAME: the Sofascore id assumed for it (10783) is not
+    # in OddsPapi's list. A name that matches nothing is reported in the
+    # sweep's `unresolved_tournaments`, never silently dropped.
+    oddspapi_tournament_ids: str = (
+        "17,18,24,8,23,35,34,238,7,679,UEFA Nations League"
+    )
     oddspapi_tournaments_per_request: int = 5
     oddspapi_ttl_seconds: int = 1800
     # A ceiling, not a target: ~146/day is the planned spend, so this only

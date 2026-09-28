@@ -169,3 +169,62 @@ def test_the_diagnostics_verdict_still_reads_an_oddspapi_sweep():
     src.get_events()
     verdict = diagnose(src, None)["verdict"]
     assert "No cards client" not in verdict and "No sweep" not in verdict
+
+
+# --- competitions by name, and a book's coverage -----------------------------------
+
+def test_a_competition_can_be_named_and_an_unknown_one_is_reported():
+    known = {17: "Premier League", 555: "UEFA Nations League", 556: "UEFA Women's Nations League"}
+    ids, missing = op.resolve_tournaments(["17", "UEFA Nations League", "Narnia Cup"], known)
+    assert ids == [17, 555] and missing == ["Narnia Cup"]
+    # exact match only: the women's competition is never taken for the men's
+    ids, _ = op.resolve_tournaments(["uefa nations league"], known)
+    assert ids == [555]
+
+
+def test_the_default_sweep_names_the_nations_league():
+    from app.config import settings
+    assert "UEFA Nations League" in settings.oddspapi_tournament_ids
+    assert "10783" not in settings.oddspapi_tournament_ids
+
+
+def test_a_sweep_resolves_named_competitions_and_reports_the_rest(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "oddspapi_tournament_ids", "17,UEFA Nations League,Narnia Cup")
+
+    class F(_Fake):
+        def get(self, path, **params):
+            if path == "/tournaments":
+                self.calls.append((path, params))
+                return [{"tournamentId": 17, "tournamentName": "Premier League"},
+                        {"tournamentId": 555, "tournamentName": "UEFA Nations League"}]
+            return super().get(path, **params)
+
+    f = F()
+    src = op.OddsPapiPaddySource(f)
+    src.get_events()
+    asked = [c[1]["tournamentIds"] for c in f.calls if c[0] == "/odds-by-tournaments"]
+    assert asked == ["17,555"]
+    assert src.last_sweep["unresolved_tournaments"] == ["Narnia Cup"]
+
+
+def test_coverage_counts_two_sided_lines_per_fixture_by_market_type():
+    index = op.catalogue_index([
+        {"marketId": 1, "marketType": "totals-corners", "marketName": "Corners OU",
+         "handicap": 9.5, "period": "fulltime"},
+        {"marketId": 2, "marketType": "totals-corners", "marketName": "Corners OU",
+         "handicap": 10.5, "period": "fulltime"},
+        {"marketId": 3, "marketType": "team-totals", "marketName": "Home Team Total",
+         "handicap": 1.5, "period": "fulltime"},
+    ])
+    fx = {"bookmakerOdds": {"pinnacle": {"markets": {
+        "1": {"outcomes": {"a": _p(1.9), "b": _p(1.9)}},
+        "2": {"outcomes": {"a": _p(2.3), "b": _p(1.6)}},
+        "3": {"outcomes": {"a": _p(2.0), "b": _p(None)}},     # one side only: not counted
+    }}}}
+    rep = op.coverage([fx, fx], index, "pinnacle")
+    assert rep["fixtures_with_prices"] == 2
+    corners = rep["market_types"]["totals-corners [fulltime]"]
+    assert corners["two_sided_lines_per_fixture"] == {"min": 2, "median": 2, "max": 2}
+    assert corners["lines_seen"] == [9.5, 10.5]
+    assert "team-totals [fulltime]" not in rep["market_types"]

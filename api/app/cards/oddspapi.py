@@ -288,15 +288,118 @@ class OddsPapiClient:
     def tournaments(self):
         return self._cached(self._ref, "tournaments", "/tournaments", sportId=SOCCER)
 
-    def odds_by_tournaments(self, ids: list[int]):
-        key = ("odds", tuple(ids))
+    def odds_by_tournaments(self, ids: list[int], bookmaker: str = PADDY_POWER):
+        key = ("odds", tuple(ids), bookmaker)
         return self._cached(self._odds, key, "/odds-by-tournaments",
                             tournamentIds=",".join(str(i) for i in ids),
-                            bookmaker=PADDY_POWER)
+                            bookmaker=bookmaker)
+
+
+def tournament_names(data) -> dict[int, str]:
+    out = {}
+    for t in _as_list(data):
+        tid = _first(t, "tournamentId", "id", "_id")
+        name = _first(t, "tournamentName", "name")
+        try:
+            out[int(tid)] = str(name or "")
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _norm(name: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).split())
+
+
+def resolve_tournaments(entries: list[str], known: dict[int, str]) -> tuple[list[int], list[str]]:
+    """Config entries -> tournament ids. An entry is an id, or a competition's
+    NAME matched exactly (case and punctuation aside) against OddsPapi's own
+    list — a name cannot be a wrong guess the way an id can: the Nations League
+    id taken from Sofascore (10783) turned out not to be in OddsPapi's list at
+    all. Returns (ids, entries that resolved to nothing)."""
+    by_name = {_norm(n): i for i, n in known.items() if n}
+    ids, unresolved = [], []
+    for entry in entries:
+        entry = entry.strip()
+        if not entry:
+            continue
+        if entry.isdigit():
+            ids.append(int(entry))
+        elif _norm(entry) in by_name:
+            ids.append(by_name[_norm(entry)])
+        else:
+            unresolved.append(entry)
+    return list(dict.fromkeys(ids)), unresolved
+
+
+def _tournament_entries() -> list[str]:
+    return [x.strip() for x in settings.oddspapi_tournament_ids.split(",") if x.strip()]
 
 
 def _tournament_ids() -> list[int]:
-    return [int(x) for x in settings.oddspapi_tournament_ids.split(",") if x.strip()]
+    """The numeric entries only — what can be known without a request."""
+    return [int(x) for x in _tournament_entries() if x.isdigit()]
+
+
+def catalogue_index(catalogue) -> dict[str, dict]:
+    """Every catalogue market by id: {type, name, line, period}. For coverage
+    reports — the pricing path uses `corner_card_markets`."""
+    out = {}
+    for m in _as_list(catalogue):
+        mid = _first(m, "marketId", "id", "_id")
+        if mid is None:
+            continue
+        line = _first(m, "handicap", "line", "value", "points", "total")
+        out[str(mid)] = {
+            "type": str(_first(m, "marketType", "type") or _first(m, "marketName", "name") or "?"),
+            "name": str(_first(m, "marketName", "name") or ""),
+            "line": line,
+            "period": str(_first(m, "period", "periodName") or ""),
+        }
+    return out
+
+
+def coverage(fixtures, index: dict[str, dict], bookmaker: str) -> dict:
+    """How many LINES a bookmaker quotes per fixture, by market type.
+
+    The question it answers: can this book stand in for another — e.g. does
+    Pinnacle on OddsPapi carry team totals and a corners ladder deep enough
+    for the counts model (2+ two-sided lines; 4+ to fit dispersion on its own)?
+    """
+    per_type: dict[str, list[int]] = {}
+    names: dict[str, str] = {}
+    lines_seen: dict[str, set] = {}
+    n = 0
+    for fx in _as_list(fixtures):
+        book = ((fx.get("bookmakerOdds") or {}).get(bookmaker)) or {}
+        markets = book.get("markets") or {}
+        if not markets:
+            continue
+        n += 1
+        counts: dict[str, int] = {}
+        for mid, market in markets.items():
+            info = index.get(str(mid))
+            if info is None:
+                continue
+            key = f"{info['type']} [{info['period'] or '?'}]"
+            priced = sum(1 for o in (market.get("outcomes") or {}).values() if _price(o))
+            if priced >= 2:
+                counts[key] = counts.get(key, 0) + 1
+                names.setdefault(key, info["name"])
+                if info["line"] is not None:
+                    lines_seen.setdefault(key, set()).add(info["line"])
+        for key, c in counts.items():
+            per_type.setdefault(key, []).append(c)
+    report = {}
+    for key, cs in sorted(per_type.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        cs = sorted(cs)
+        report[key] = {
+            "name": names.get(key, ""),
+            "fixtures": len(cs),
+            "two_sided_lines_per_fixture": {"min": cs[0], "median": cs[len(cs) // 2], "max": cs[-1]},
+            "lines_seen": sorted(lines_seen.get(key, set()), key=lambda x: float(x))[:30],
+        }
+    return {"bookmaker": bookmaker, "fixtures_with_prices": n, "market_types": report}
 
 
 class OddsPapiPaddySource:
@@ -308,7 +411,21 @@ class OddsPapiPaddySource:
         self.last_sweep: dict = {}
 
     def get_events(self) -> list[dict]:
-        ids = _tournament_ids()
+        entries = _tournament_entries()
+        unresolved: list[str] = []
+        if all(e.isdigit() for e in entries):
+            ids = _tournament_ids()
+        else:
+            try:
+                ids, unresolved = resolve_tournaments(
+                    entries, tournament_names(self._client.tournaments())
+                )
+            except Exception as exc:
+                logger.error("cards (oddspapi): tournament list failed: %s", exc)
+                ids, unresolved = _tournament_ids(), [e for e in entries if not e.isdigit()]
+            if unresolved:
+                logger.warning("cards (oddspapi): competition(s) not found by name: %s",
+                               ", ".join(unresolved))
         per = max(1, settings.oddspapi_tournaments_per_request)
         errors = []
         try:
@@ -338,6 +455,7 @@ class OddsPapiPaddySource:
             "source": "oddspapi",
             "window_hours": settings.cards_window_hours,
             "tournaments": len(ids),
+            "unresolved_tournaments": unresolved,
             **counts,
             "called": counts["fixtures_in_window"],
             "failed": len(errors),

@@ -253,7 +253,8 @@ def probe_books(
 
 
 @router.get("/cards/oddspapi-check")
-def oddspapi_check(request: Request):
+def oddspapi_check(request: Request, book: str | None = None, tournament: int = 17,
+                   find: str = "nations,qualif,world cup,euro"):
     """What OddsPapi's live catalogue and lists actually say — read ONCE after
     switching, before trusting a price. Costs up to 3 requests (market
     catalogue, participants, tournaments), each cached for a day after.
@@ -264,8 +265,9 @@ def oddspapi_check(request: Request):
     the competitions they are meant to be.
     """
     from ..cards.oddspapi import (
-        OddsPapiPaddySource, _as_list, _first, _tournament_ids,
-        corner_card_markets, participant_names,
+        OddsPapiPaddySource, _as_list, _first, _tournament_entries,
+        catalogue_index, corner_card_markets, coverage, participant_names,
+        resolve_tournaments, tournament_names,
     )
     cards = request.app.state.cards_client
     if not isinstance(cards, OddsPapiPaddySource):
@@ -292,15 +294,29 @@ def oddspapi_check(request: Request):
     except Exception as exc:
         out["participants_error"] = str(exc)
     try:
-        wanted = set(_tournament_ids())
-        out["tournaments"] = {
-            str(_first(t, "tournamentId", "id", "_id")): _first(t, "tournamentName", "name")
-            for t in _as_list(client.tournaments())
-            if _first(t, "tournamentId", "id", "_id") in wanted
-            or str(_first(t, "tournamentId", "id", "_id")) in {str(w) for w in wanted}
+        known = tournament_names(client.tournaments())
+        ids, unresolved = resolve_tournaments(_tournament_entries(), known)
+        out["tournaments"] = {str(i): known.get(i, "NOT IN ODDSPAPI'S LIST") for i in ids}
+        out["unresolved_tournaments"] = unresolved
+        # Competitions whose name contains any of `find` — for locating an id.
+        words = [w.strip().lower() for w in find.split(",") if w.strip()]
+        out["tournament_search"] = {
+            str(i): n for i, n in sorted(known.items())
+            if any(w in n.lower() for w in words)
         }
     except Exception as exc:
         out["tournaments_error"] = str(exc)
+    if book:
+        # ONE request: this book's whole board for one competition, summarised
+        # as two-sided lines per fixture by market type.
+        try:
+            out["coverage"] = coverage(
+                client.odds_by_tournaments([tournament], bookmaker=book),
+                catalogue_index(client.catalogue()), book,
+            )
+            out["coverage"]["tournament"] = tournament
+        except Exception as exc:
+            out["coverage_error"] = str(exc)
     out["requests_today"] = client.requests_today
     out["last_sweep"] = cards.last_sweep
     return out
