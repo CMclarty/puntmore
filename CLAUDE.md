@@ -483,6 +483,15 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   every edge, and a per-count penalty beyond Pinnacle's quoted range. Fewer than
   2 two-sided Pinnacle rungs and the fixture is skipped — one rung pins nothing
   and the shape would come entirely from a stale league prior.
+- **The sweep covers INTERNATIONALS too** (`cards_sport_keys`, Sept 2026):
+  Nations League, Euro and European World Cup qualifiers. Without them an
+  international window read as "no fixture within 48h". Club football mostly
+  pauses in a window, so they replace club spend rather than add to it.
+  Friendlies are deliberately left out. `list_events` answers an unknown key
+  with a 404 that reads as "no fixtures", so the sweep checks its keys against
+  the FREE `/v4/sports` list and names any it does not see (`inactive_keys`,
+  out of season or misspelled), with `fixtures_listed` and `next_kickoff`, so
+  "a quiet spell" and "a key list that misses the games" look different.
 - `cards/pinnacle.py` returns **RAW** prices. De-vigging lives in
   `cards/value.py`; handing it fair prices would de-vig them twice.
 - `merge_pinnacle` joins the two vendors into one event so `value.py` stays

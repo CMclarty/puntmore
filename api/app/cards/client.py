@@ -135,6 +135,12 @@ class CardsApiClient:
         far = timedelta(hours=settings.cards_far_window_hours)
         fast = timedelta(hours=settings.cards_fast_window_hours)
         due = []
+        # What the FREE fixture lists held before the window cut them down.
+        # "Nothing within 48h" has two very different causes — a quiet spell,
+        # or a key list that does not cover the games being played — and only
+        # the listed count and the next kickoff tell them apart.
+        self._listed = 0
+        self._next_kickoff = None
         for sport_key in self._sport_keys:
             try:
                 fixtures = self._client.list_events(sport_key)
@@ -147,6 +153,11 @@ class CardsApiClient:
                 if starts is None:
                     continue
                 to_ko = starts - now
+                self._listed += 1
+                if to_ko > timedelta(0) and (
+                    self._next_kickoff is None or starts < self._next_kickoff
+                ):
+                    self._next_kickoff = starts
                 # Already kicked off, or too far out for the markets to be up.
                 if to_ko <= timedelta(0) or to_ko > window:
                     continue
@@ -164,6 +175,23 @@ class CardsApiClient:
         # matter least rather than whichever came back first.
         due.sort(key=lambda row: row[1].get("commence_time", ""))
         return due
+
+    def _inactive_keys(self) -> list[str] | None:
+        """Configured keys TheOddsApi is not currently listing.
+
+        `list_events` answers an unknown key with a 404 that reads as "no
+        fixtures", so a misspelled key would sit in the list returning nothing
+        for ever, indistinguishable from a quiet week. Checked against the
+        FREE /v4/sports list. It names in-season sports only, so a key here is
+        either out of season or misspelled — both worth seeing. None when the
+        check itself could not run.
+        """
+        try:
+            active = {s.get("key") for s in self._client.list_sports()}
+        except Exception as exc:
+            logger.warning("cards: could not check sport keys: %s", exc)
+            return None
+        return [k for k in self._sport_keys if k not in active]
 
     def get_events(self) -> list[dict]:
         """Paddy Power's corners/cards markets for every fixture now due.
@@ -207,7 +235,12 @@ class CardsApiClient:
                 priced += 1
                 events.append(event)
 
+        next_ko = getattr(self, "_next_kickoff", None)
         self.last_sweep = {
+            "sport_keys": len(self._sport_keys),
+            "inactive_keys": self._inactive_keys(),
+            "fixtures_listed": getattr(self, "_listed", 0),
+            "next_kickoff": next_ko.isoformat() if next_ko else None,
             "window_hours": settings.cards_window_hours,
             "fixtures_in_window": len(due),
             "near_kickoff": sum(1 for _, _, ttl in due

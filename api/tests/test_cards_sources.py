@@ -664,3 +664,72 @@ def test_the_daily_cap_fits_inside_the_monthly_plan():
     """700/day was 21,000/month against a 20,000 plan — the guard permitted
     more than the budget it was guarding."""
     assert settings.cards_daily_call_budget * 30 < 20_000
+
+
+# --- international football is covered, and a dead key is visible ------------
+#
+# An international window returned "No fixture kicks off within 48h" — true,
+# and entirely because no international competition was on the key list. And a
+# misspelled key would have looked exactly the same: list_events answers an
+# unknown key with a 404 that reads as "no fixtures".
+
+def test_the_internationals_are_on_the_sweep():
+    from app.config import settings
+    keys = settings.cards_sport_keys.split(",")
+    assert "soccer_uefa_nations_league" in keys
+    assert "soccer_fifa_world_cup_qualifiers_europe" in keys
+    assert "soccer_uefa_euro_qualification" in keys
+
+
+class _StubWithSports(_StubOddsApi):
+    def __init__(self, fixtures, active):
+        super().__init__(fixtures)
+        self._active = active
+
+    def list_sports(self):
+        return [{"key": k} for k in self._active]
+
+
+def test_a_key_the_vendor_does_not_list_is_named_in_the_sweep():
+    stub = _StubWithSports({}, active=["soccer_epl"])
+    c = CardsApiClient(stub, sport_keys=["soccer_epl", "soccer_uefa_nations_leage"])
+    c.get_events()
+    assert c.last_sweep["inactive_keys"] == ["soccer_uefa_nations_leage"]
+    assert c.last_sweep["sport_keys"] == 2
+
+
+def test_the_sweep_says_what_was_listed_and_when_the_next_game_is():
+    """Listed-but-far and listed-nothing are different answers."""
+    stub = _StubWithSports({"soccer_epl": [
+        {"id": "far", "commence_time": _iso(100)},
+        {"id": "farther", "commence_time": _iso(150)},
+    ]}, active=["soccer_epl"])
+    c = CardsApiClient(stub, sport_keys=["soccer_epl"])
+    c.get_events()
+    assert c.last_sweep["fixtures_in_window"] == 0
+    assert c.last_sweep["fixtures_listed"] == 2
+    assert c.last_sweep["next_kickoff"] is not None
+    assert stub.event_calls == []                 # still spends nothing
+
+
+def test_a_failed_key_check_does_not_break_the_sweep():
+    c = _client({"soccer_epl": [{"id": "e1", "commence_time": _iso(0.5)}]})
+    c.get_events()                                # stub has no list_sports
+    assert c.last_sweep["inactive_keys"] is None
+    assert c.last_sweep["called"] == 1
+
+
+def test_the_empty_verdict_names_the_next_kickoff_and_the_dead_keys():
+    from app.routers.cards import diagnose
+    stub = _StubWithSports({"soccer_epl": [{"id": "far", "commence_time": _iso(100)}]},
+                           active=["soccer_epl"])
+    c = CardsApiClient(stub, sport_keys=["soccer_epl", "soccer_nope"])
+    c.get_events()
+    verdict = diagnose(c, None)["verdict"]
+    assert "Next listed kickoff" in verdict
+    assert "soccer_nope" in verdict
+    # Nothing listed anywhere is said outright.
+    empty = CardsApiClient(_StubWithSports({}, active=["soccer_epl"]),
+                           sport_keys=["soccer_epl"])
+    empty.get_events()
+    assert "No upcoming fixture is listed" in diagnose(empty, None)["verdict"]

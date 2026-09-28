@@ -116,11 +116,19 @@ def diagnose(client, pinnacle) -> dict:
     elif not sweep:
         verdict = "No sweep has run yet. Open the feed or wait for the 5-minute tick."
     elif sweep.get("fixtures_in_window", 0) == 0:
+        nxt = sweep.get("next_kickoff")
+        inactive = sweep.get("inactive_keys") or []
         verdict = (
             f"No fixture kicks off within {sweep.get('window_hours')}h, so nothing "
             f"was fetched. These markets are only posted near kickoff — this is "
-            f"the normal state between matches, not a failure."
-        )
+            f"the normal state between matches, not a failure. "
+            + (f"Next listed kickoff: {nxt}. " if nxt else
+               f"No upcoming fixture is listed in ANY of the "
+               f"{sweep.get('sport_keys')} covered competitions. ")
+            + (f"{len(inactive)} configured key(s) not currently listed by "
+               f"TheOddsApi (out of season, or misspelled): "
+               f"{', '.join(inactive)}." if inactive else "")
+        ).strip()
     elif sweep.get("carried_paddy_prices", 0) == 0:
         verdict = (
             f"{sweep.get('called')} fixture(s) called and NONE carried Paddy Power "

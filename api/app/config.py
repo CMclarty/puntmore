@@ -49,7 +49,17 @@ class Settings(BaseSettings):
         "soccer_spain_la_liga,soccer_italy_serie_a,"
         "soccer_germany_bundesliga,soccer_france_ligue_one,"
         "soccer_portugal_primeira_liga,"
-        "soccer_uefa_champs_league,soccer_uefa_europa_league"
+        "soccer_uefa_champs_league,soccer_uefa_europa_league,"
+        # Internationals (Sept 2026). Without these the sweep found nothing
+        # at all in an international window, which the diagnostics reported
+        # as "no fixture within 48h" — true, and entirely the key list's
+        # doing. Club football mostly pauses in a window, so these replace
+        # club spend rather than adding to it: a Nations League window is
+        # ~54 fixtures x ~43 credits, against ~40 top-flight fixtures a
+        # normal weekend. Qualifier keys cost nothing while out of season.
+        # Friendlies deliberately left out: noisy games, often unpriced.
+        "soccer_uefa_nations_league,soccer_uefa_euro_qualification,"
+        "soccer_fifa_world_cup_qualifiers_europe"
     )
     # TIERED REFRESH. Corners/cards markets are posted near kickoff and barely
     # move until the last hour, so a flat 5-minute sweep over a wide window
