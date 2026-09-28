@@ -518,3 +518,20 @@
      stays fully opaque for its whole life instead of ending at opacity 0. */
   .flash { animation: none; }
 }
+
+/* Variance band legend — the swatch is the band's own shading. */
+.simTag { white-space: nowrap; }
+.simTag::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 8px;
+  background: var(--ink);
+  opacity: 0.14;
+  vertical-align: middle;
+  margin-right: 5px;
+  border-radius: 1px;
+}
+/* A result outside the 90% band. */
+.subline b.pctLow, .pctLow { color: var(--red); }
+.subline b.pctHigh, .pctHigh { color: var(--accent); }

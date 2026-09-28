@@ -138,7 +138,17 @@ function inChartRange(b, range, now) {
  * `onCycle` makes the corner tag a button; without it the tag is a plain label
  * and the chart is fixed to its range.
  */
-function PnlChart({ bets, range, label: rangeLabel, onCycle, onSwipe }) {
+/**
+ * Colour for a variance percentile: only the tails, where the result sits
+ * outside the 90% band and luck alone stops being a comfortable explanation.
+ */
+function pctClass(p) {
+  if (p < 5) return styles.pctLow
+  if (p > 95) return styles.pctHigh
+  return undefined
+}
+
+function PnlChart({ bets, range, label: rangeLabel, onCycle, onSwipe, sim: givenSim }) {
   const chartRef = useRef(null)
   const tipRef = useRef(null)
 
@@ -151,7 +161,11 @@ function PnlChart({ bets, range, label: rangeLabel, onCycle, onSwipe }) {
   )
   // The variance band. Memoised apart from the drawing: a resize redraws, but
   // only a new bet (or a new window) re-runs the replays.
-  const sim = useMemo(() => simulate(rangedBets), [rangedBets])
+  // A caller that already ran the replays for the same bets (the all-time
+  // chart, whose figure also heads the page) passes them in rather than
+  // running them twice.
+  const ownSim = useMemo(() => (givenSim === undefined ? simulate(rangedBets) : null), [rangedBets, givenSim])
+  const sim = givenSim === undefined ? ownSim : givenSim
 
   const renderChart = useCallback(() => {
     const svg = chartRef.current
@@ -262,13 +276,18 @@ function PnlChart({ bets, range, label: rangeLabel, onCycle, onSwipe }) {
       <g class="pnlHover" style="opacity:0"><circle class="pnlHdot" r="4" fill="var(--ink)" stroke="var(--paper)" stroke-width="1.5"/></g>`
     svg._pts = pts; svg._cum = cumArr; svg._dates = dates; svg._spAt = spAt
     svg._fmt = fmtTick
+    svg._band = sim && sim.band.length > 1 ? sim.band : null
   }, [rangedBets, sim])
 
   useEffect(() => { renderChart() }, [renderChart])
 
   // The window's variance percentile rides on the range tag: where this
   // window's result sits among the replays of the same bets.
-  const label = sim ? `${rangeLabel} · p${Math.round(sim.percentile)}` : rangeLabel
+  const pct = sim ? Math.round(sim.percentile) : null
+  const label = sim ? `${rangeLabel} · p${pct}` : rangeLabel
+  const tagText = sim ? (
+    <>{rangeLabel} · <span className={pctClass(sim.percentile)}>p{pct}</span></>
+  ) : rangeLabel
 
   // The SVG STRETCHES to fill its box via CSS, but its contents are drawn at
   // absolute coordinates taken from one getBoundingClientRect. So whenever the
@@ -329,9 +348,14 @@ function PnlChart({ bets, range, label: rangeLabel, onCycle, onSwipe }) {
       // The SP mean only exists on bets that carried both prices, so the tooltip
       // gains a second figure exactly where the dashed line has a point.
       const spv = svg._spAt ? svg._spAt[bi] : undefined
+      // The 90% band at this bet: its latest band point at or before it (the
+      // band is thinned on long ledgers, so not every bet has its own).
+      let bp = null
+      if (svg._band && bi > 0) for (const p of svg._band) { if (p[0] > bi) break; bp = p }
       tip.textContent =
         (bi === 0 ? 'Start' : (svg._fmt || fmtDay)(dates[bi])) + '  ' + signed(cumA[bi]) +
-        (spv === undefined ? '' : '  ·  ' + signed(spv) + ' EV')
+        (spv === undefined ? '' : '  ·  ' + signed(spv) + ' EV') +
+        (bp ? '  ·  90%: ' + signed(Math.round(bp[1])) + '…' + signed(Math.round(bp[4])) : '')
     }
 
     const move = e => {
@@ -418,10 +442,10 @@ function PnlChart({ bets, range, label: rangeLabel, onCycle, onSwipe }) {
           onClick={onCycle}
           aria-label={`Chart range: ${label}. Tap to cycle.`}
         >
-          {label}
+          {tagText}
         </button>
       ) : (
-        <span className={`${styles.rangeTag} ${styles.rangeTagFixed}`}>{label}</span>
+        <span className={`${styles.rangeTag} ${styles.rangeTagFixed}`}>{tagText}</span>
       )}
     </div>
   )
@@ -518,6 +542,9 @@ export default function PnlPage({ category = 'dogs' }) {
   const measured = bets.filter(hasEv)
   const evTotal = measured.length ? measured.reduce((s, b) => s + evOf(b), 0) : null
   const spBeat = measured.filter(b => b.price_taken > b.bfsp).length
+  // The all-time variance replay: heads the subline and feeds the all-time
+  // chart, so it runs once per bet, not once for each.
+  const allSim = useMemo(() => simulate(bets), [bets])
 
 
   // Only called when a bet is actually submitted — so the chart re-renders once
@@ -573,6 +600,12 @@ export default function PnlPage({ category = 'dogs' }) {
               <b>{signed(evTotal)}</b> EV · {spBeat}/{measured.length}
             </span>
           )}
+          {/* Legend for the shaded band: the swatch matches it. */}
+          {allSim && (
+            <span className={styles.simTag}>
+              <b className={pctClass(allSim.percentile)}>p{Math.round(allSim.percentile)}</b> luck · {allSim.simmed}/{allSim.total} simmed
+            </span>
+          )}
           <span>last <b>{wagers.length ? signed(wagers[wagers.length - 1].amount) : '—'}</b></span>
           {/* Actions ride in their own group so they anchor right as a unit and
               wrap together, rather than each fighting for the auto margin. */}
@@ -604,7 +637,7 @@ export default function PnlPage({ category = 'dogs' }) {
             onCycle={cycleZoom}
             onSwipe={stepZoom}
           />
-          <PnlChart bets={bets} range="all" label={RANGE_LABEL.all} />
+          <PnlChart bets={bets} range="all" label={RANGE_LABEL.all} sim={allSim} />
         </div>
       </section>
 
