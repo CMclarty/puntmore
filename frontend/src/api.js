@@ -184,6 +184,9 @@ export const getCouponLegs = (id) => get(`/coupons/${id}/legs`)
 // filtered fixture list. Served by the API so the tracker dropdown and the
 // upload form cannot drift out of sync.
 export const getCouponTypes = () => get('/coupons/types')
+// What can be photographed: the two multi-market sheets (Win And, Team To
+// Score — one photo fills every market on them) and the single-market sheets.
+export const getUploadOptions = () => get('/coupons/upload-options')
 // Coupons cover a fixed window (Mon–Wed / Wed–Fri / Sat / Sun), not one day.
 export const getCouponPeriods = (typeCode) =>
   get(`/coupons/periods${typeCode ? `?type_code=${typeCode}` : ''}`)

@@ -456,11 +456,14 @@ async def upload_coupon(
     db: Session = Depends(get_db),
     user: str = Depends(require_user),
 ):
-    if not coupon_types.is_valid(type_code):
+    ctype, sheet = coupon_types.resolve_upload(type_code)
+    if ctype is None:
         raise HTTPException(
             status_code=400, detail=f"Unknown coupon type: {type_code}"
         )
-    ctype = coupon_types.get(type_code)
+    # A SHEET upload opens as the sheet's first type, provisionally — which of
+    # its markets it becomes is decided once the photo is read (_process_upload).
+    type_code = ctype.code
     if period not in ctype.period_codes:
         raise HTTPException(
             status_code=400,
@@ -525,6 +528,7 @@ async def upload_coupon(
         period=period,
         reference=reference,
         media_type=media_type,
+        sheet_code=sheet.code if sheet else None,
         ocr=request.app.state.ocr_provider,
         odds_provider=request.app.state.odds_provider,
         user_name=name,
@@ -595,6 +599,7 @@ def _build_sibling_coupons(
 def _process_upload(
     *, coupon_id, type_code, period, reference, media_type,
     ocr, odds_provider, notifier, user_name=None, session_factory=None,
+    sheet_code=None,
 ) -> None:
     """Read and price an already-saved coupon. Runs AFTER the response.
 
@@ -645,6 +650,34 @@ def _process_upload(
         else:
             scan = solve_grid(extracted)
             audit_override = None
+
+        # A SHEET upload becomes whichever of the sheet's markets was actually
+        # read — the first, in the sheet's order — and the rest are built as
+        # its siblings below. None read at all is a failed scan, said so,
+        # rather than an empty coupon that looks like a real one priced nothing.
+        sheet = coupon_types.SHEET_BY_CODE.get(sheet_code) if sheet_code else None
+        if sheet is not None:
+            read = {t.code for t in _types_on_sheet(extracted, period)}
+            found = [code for code in sheet.types if code in read]
+            if not found:
+                logger.error(
+                    "Coupon %s: none of the %s markets were read off the photo",
+                    coupon.id, sheet.label,
+                )
+                coupon.status = "failed"
+                coupon.scan_audit = json.dumps({
+                    **(scan.as_dict() if scan else {}),
+                    "clean": False,
+                    "summary": (
+                        f"None of the {sheet.label} markets were read off this "
+                        f"photo — is it the right sheet?"
+                    ),
+                })
+                db.commit()
+                return
+            if found[0] != coupon.type_code:
+                coupon.type_code = found[0]
+                ctype = coupon_types.get(found[0])
         legs = _build_legs(coupon.id, extracted, ctype, reference)
         db.add_all(legs)
         db.flush()

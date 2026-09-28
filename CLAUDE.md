@@ -198,6 +198,13 @@ Both live behind their seams. Core logic never calls a vendor API directly.
   image, so `coupon_images.delete_coupon_image` removes the file only with the
   LAST coupon referencing it — both the supersede path and the scheduled
   cleanup go through it.
+- **The upload form offers SHEETS, not markets** (`coupon_types.UPLOAD_SHEETS`,
+  Sept 2026): "Win And coupon" (WO15, WO25, WTN) and "Team To Score" (TTS1-3),
+  then the single-market sheets (GGB, GGND, HILLS, FREDB) as before. A sheet
+  upload opens as the FIRST of its types whose block actually read — never an
+  empty coupon of an unread one — and the rest are its siblings. None read is a
+  FAILED upload with the reason in `scan_audit` (usually the other sheet
+  photographed). Posting a single type code still works for old clients.
 - **Coupon OCR is not blocking-reviewed** (phone uploads). Rows auto-save and
   price immediately with inline editing (SPEC §7). The per-row anomaly checks
   and ⚠ badges were REMOVED (July 2026, Callum's call — the rows are checked by

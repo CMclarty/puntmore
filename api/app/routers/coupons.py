@@ -33,7 +33,8 @@ def list_coupon_periods(type_code: str | None = None):
     """
     today = date.today()
     if type_code is not None:
-        ctype = coupon_types.get(type_code)
+        # A sheet code is accepted too: the upload form offers sheets.
+        ctype, _ = coupon_types.resolve_upload(type_code)
         if ctype is None:
             raise HTTPException(
                 status_code=404, detail=f"Unknown coupon type: {type_code}"
@@ -160,6 +161,18 @@ def _best_bundle_for_coupon(db: Session, coupon: Coupon) -> dict | None:
     if not found or found[0]["value"] is None:
         return None
     return {k: v for k, v in found[0].items() if k != "legs"}
+
+
+@router.get("/upload-options")
+def list_upload_options():
+    """What can be photographed: the two multi-market sheets, and the types
+    printed on a sheet of their own. The upload form's one dropdown."""
+    return [
+        {"code": code, "label": label, "period_codes": list(periods),
+         "types": list(coupon_types.SHEET_BY_CODE[code].types)
+                  if code in coupon_types.SHEET_BY_CODE else [code]}
+        for code, label, periods in coupon_types.upload_options()
+    ]
 
 
 @router.get("/types", response_model=list[CouponTypeOut])

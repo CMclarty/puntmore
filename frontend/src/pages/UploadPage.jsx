@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getCoupons, getCouponLegs, uploadCoupon, getCouponTypes, getCouponPeriods } from '../api'
+import { getCoupons, getCouponLegs, uploadCoupon, getUploadOptions, getCouponPeriods } from '../api'
 import styles from './UploadPage.module.css'
 
 
@@ -36,7 +36,7 @@ export default function UploadPage() {
 
   useEffect(() => {
     getCoupons().then(setPrevCoupons).catch(() => {})
-    getCouponTypes().then(ts => {
+    getUploadOptions().then(ts => {
       setTypes(ts)
       if (ts.length > 0) setTypeCode(prev => prev || ts[0].code)
     }).catch(() => {})
@@ -142,18 +142,20 @@ export default function UploadPage() {
       {error && <p className={styles.error}>{error}</p>}
 
       <div className={styles.form}>
-        <label className={styles.label}>Coupon type</label>
+        <label className={styles.label}>Coupon</label>
         <select className={styles.select} value={typeCode} onChange={e => setTypeCode(e.target.value)}>
           {types.map(t => (
             <option key={t.code} value={t.code}>{t.label}</option>
           ))}
         </select>
-        {/* The photo is read whole, so a sheet printing six markets fills six
-            lists. Said here because the form still asks for ONE type and would
-            otherwise imply the rest were thrown away. */}
-        <p className={styles.hint}>
-          Every market printed on the sheet is read — this is the one it opens on.
-        </p>
+        {/* The two multi-market sheets are offered as SHEETS: the photo is read
+            whole and every market on it becomes its own coupon, so asking which
+            one the photo is "of" has no right answer. */}
+        {types.find(t => t.code === typeCode)?.types?.length > 1 && (
+          <p className={styles.hint}>
+            One photo fills all {types.find(t => t.code === typeCode).types.length} markets on this sheet.
+          </p>
+        )}
 
         <label className={styles.label}>Coupon period</label>
         <select className={styles.select} value={period} onChange={e => setPeriod(e.target.value)}>

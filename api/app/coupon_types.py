@@ -230,6 +230,58 @@ COUPON_TYPES: tuple[CouponType, ...] = (
 BY_CODE = {t.code: t for t in COUPON_TYPES}
 
 
+@dataclass(frozen=True)
+class UploadSheet:
+    """A printed SHEET that carries several coupon types as blocks side by side.
+
+    William Hill prints its priced markets two sheets at a time: a "Team to
+    score" sheet (1+, 2+ and 3+ goals) and a "Match winner" sheet (Win & 2+,
+    Win & 3+, Win to Nil). One photo of a sheet fills every one of its types
+    (`upload._build_sibling_coupons`), so the upload form offers the SHEET
+    rather than asking which of its markets the photo is of — a question with
+    no right answer, since the photo is of all of them.
+
+    `types` is in the order the upload opens on: the first whose block was
+    actually read becomes the uploaded coupon, the rest its siblings.
+    """
+    code: str
+    label: str
+    types: tuple[str, ...]
+
+    @property
+    def period_codes(self) -> tuple[str, ...]:
+        # Every member runs the same weekly schedule; the first stands for all.
+        return BY_CODE[self.types[0]].period_codes
+
+
+UPLOAD_SHEETS: tuple[UploadSheet, ...] = (
+    UploadSheet("SHEET_WIN_AND", "Win And coupon", ("WO15", "WO25", "WTN")),
+    UploadSheet("SHEET_TTS", "Team To Score", ("TTS1", "TTS2", "TTS3")),
+)
+SHEET_BY_CODE = {s.code: s for s in UPLOAD_SHEETS}
+_ON_A_SHEET = {code for sheet in UPLOAD_SHEETS for code in sheet.types}
+
+
+def upload_options() -> list[tuple[str, str, tuple[str, ...]]]:
+    """What the upload form offers: (code, label, period_codes).
+
+    The two multi-market sheets, then every type printed on a sheet of its own
+    (the GG coupons, Hills GGND, Fred Bundles) as before.
+    """
+    out = [(s.code, s.label, s.period_codes) for s in UPLOAD_SHEETS]
+    out += [(t.code, t.label, t.period_codes) for t in COUPON_TYPES
+            if t.code not in _ON_A_SHEET]
+    return out
+
+
+def resolve_upload(code: str) -> tuple[CouponType | None, UploadSheet | None]:
+    """An upload code -> (the type the coupon opens as, the sheet if any)."""
+    sheet = SHEET_BY_CODE.get(code)
+    if sheet is not None:
+        return BY_CODE[sheet.types[0]], sheet
+    return BY_CODE.get(code), None
+
+
 def get(code: str) -> CouponType | None:
     return BY_CODE.get(code)
 
