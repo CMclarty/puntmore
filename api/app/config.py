@@ -39,6 +39,28 @@ class Settings(BaseSettings):
     # where the league is. Paddy Power prices La Liga and Serie A perfectly
     # well from the `uk` region; the league is chosen by sport key.
     cards_market_keys: str = "alternate_totals_corners,alternate_totals_cards"
+    # PADDY POWER VIA ODDSPAPI (Sept 2026). TheOddsApi does not carry Paddy's
+    # corners/cards (probe, 28 Sept: one book with corners, none with cards,
+    # no Paddy). With a key set, Paddy's side comes from OddsPapi instead —
+    # see cards/oddspapi.py. OddsPapi bills per REQUEST, and one
+    # odds-by-tournaments request returns every fixture in the tournaments
+    # named, so the cost is (sweeps/day x requests/sweep), independent of how
+    # many games are on:
+    #   48 sweeps/day (30-min TTL) x 3 requests (11 tournaments, 5 a request)
+    #   = 144/day + ~2 reference = ~4,400/month.
+    # Halving the TTL doubles that; one request for all 11 would cut it by 3x.
+    oddspapi_api_key: str = ""
+    # Sofascore unique-tournament ids (OddsPapi uses Sofascore's): Premier
+    # League, Championship, League One, LaLiga, Serie A, Bundesliga, Ligue 1,
+    # Primeira Liga, Champions League, Europa League, Nations League. LaLiga 8
+    # and Champions League 7 were seen in the trial; the rest are Sofascore's
+    # ids and are checked by /api/cards/oddspapi-check.
+    oddspapi_tournament_ids: str = "17,18,24,8,23,35,34,238,7,679,10783"
+    oddspapi_tournaments_per_request: int = 5
+    oddspapi_ttl_seconds: int = 1800
+    # A ceiling, not a target: ~146/day is the planned spend, so this only
+    # bites on a runaway. Keep it below (monthly plan / 30).
+    oddspapi_daily_request_budget: int = 200
     # Major UK/Euro competitions. The fixture-list endpoint is FREE, so listing
     # a key that is out of season or has no fixtures costs nothing.
     # An unknown or out-of-season key 404s, which is FREE and cached empty, so a

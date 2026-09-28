@@ -74,6 +74,11 @@ services:
       # before setting it.
       - key: ODDS_API_KEY
         sync: false
+      # Paddy Power's corners/cards (OddsPapi). When set, the cards tool reads
+      # Paddy from OddsPapi instead of TheOddsApi, which does not carry them.
+      # ~146 requests/day at the defaults — see Settings.oddspapi_* in config.
+      - key: ODDSPAPI_API_KEY
+        sync: false
 
       # Hard ceiling on per-event cards calls in one UTC day. The true credit
       # cost of a call is not yet measured (see docs/provider-verification.md),

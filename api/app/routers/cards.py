@@ -204,6 +204,9 @@ def probe_books(
     raw = getattr(cards, "_client", None)
     if cards is None or raw is None:
         return {"error": "ODDS_API_KEY is not set"}
+    if not hasattr(cards, "_due_fixtures"):
+        return {"error": "Paddy Power's side is OddsPapi now — this probe is "
+                         "TheOddsApi's. Use /api/cards/oddspapi-check."}
 
     if event_id is None or sport is None:
         due = cards._due_fixtures()          # FREE: the fixture lists only
@@ -247,6 +250,60 @@ def probe_books(
             "are wrong — try again nearer kickoff, or another `markets` spelling."
         ),
     }
+
+
+@router.get("/cards/oddspapi-check")
+def oddspapi_check(request: Request):
+    """What OddsPapi's live catalogue and lists actually say — read ONCE after
+    switching, before trusting a price. Costs up to 3 requests (market
+    catalogue, participants, tournaments), each cached for a day after.
+
+    Answers the three things that could not be verified from where the adapter
+    was written: which market ids are Paddy's corners/cards and at what lines,
+    whether team names resolve, and whether the configured tournament ids are
+    the competitions they are meant to be.
+    """
+    from ..cards.oddspapi import (
+        OddsPapiPaddySource, _as_list, _first, _tournament_ids,
+        corner_card_markets, participant_names,
+    )
+    cards = request.app.state.cards_client
+    if not isinstance(cards, OddsPapiPaddySource):
+        return {"error": "OddsPapi is not configured — set ODDSPAPI_API_KEY."}
+    client = cards._client
+    out: dict = {}
+    try:
+        cat = client.catalogue()
+        found = corner_card_markets(cat)
+        out["catalogue_entries"] = len(_as_list(cat))
+        out["corner_card_markets"] = {
+            mid: {"market": k, "line": line, "outcomes": sides}
+            for mid, (k, line, sides) in sorted(found.items(), key=lambda x: (x[1][0], x[1][1]))
+        }
+        # The raw entries behind any three ids, so the field names can be read.
+        out["sample_raw_entries"] = [
+            m for m in _as_list(cat)
+            if str(_first(m, "marketId", "id", "_id")) in ("10803", "10807", "10811")
+        ][:3]
+    except Exception as exc:
+        out["catalogue_error"] = str(exc)
+    try:
+        out["team_names_known"] = len(participant_names(client.participants()))
+    except Exception as exc:
+        out["participants_error"] = str(exc)
+    try:
+        wanted = set(_tournament_ids())
+        out["tournaments"] = {
+            str(_first(t, "tournamentId", "id", "_id")): _first(t, "tournamentName", "name")
+            for t in _as_list(client.tournaments())
+            if _first(t, "tournamentId", "id", "_id") in wanted
+            or str(_first(t, "tournamentId", "id", "_id")) in {str(w) for w in wanted}
+        }
+    except Exception as exc:
+        out["tournaments_error"] = str(exc)
+    out["requests_today"] = client.requests_today
+    out["last_sweep"] = cards.last_sweep
+    return out
 
 
 @router.get("/cards/diagnostics")

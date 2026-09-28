@@ -96,6 +96,15 @@ async def lifespan(app: FastAPI):
         odds_client = None
         app.state.arbs_client = None
         app.state.cards_client = None
+    # Paddy Power's corners/cards come from OddsPapi when it is configured:
+    # TheOddsApi does not carry them (cards/oddspapi.py). The Pinnacle side is
+    # unchanged either way — it is bettingiscool, joined in merge_pinnacle.
+    if settings.oddspapi_api_key:
+        from .cards.oddspapi import OddsPapiClient, OddsPapiPaddySource
+        app.state.cards_client = OddsPapiPaddySource(
+            OddsPapiClient(settings.oddspapi_api_key)
+        )
+        logger.info("Cards: Paddy Power side from OddsPapi")
 
     # Coupon odds provider (behind the OddsProvider seam).
     #

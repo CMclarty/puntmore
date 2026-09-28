@@ -499,6 +499,22 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   the FREE `/v4/sports` list and names any it does not see (`inactive_keys`,
   out of season or misspelled), with `fixtures_listed` and `next_kickoff`, so
   "a quiet spell" and "a key list that misses the games" look different.
+- **Paddy Power's side comes from ODDSPAPI when `ODDSPAPI_API_KEY` is set**
+  (`cards/oddspapi.py`, Sept 2026). TheOddsApi does NOT carry Paddy's
+  corners/cards: a probe asked by region with no bookmaker filter, hours from
+  a Nations League kickoff, returned LeoVegas alone for corners, nobody for
+  cards, no Paddy. OddsPapi facts the adapter rests on: ids are SOFASCORE's
+  (tournaments, teams); a market id is ONE market at ONE line, so a corner
+  ladder is several ids and the line comes from the `/markets` CATALOGUE;
+  fixtures carry participant ids, named via `/participants`; it bills per
+  REQUEST and `odds-by-tournaments` returns every fixture in the tournaments
+  named, so cost is sweeps x requests (~146/day at the defaults), not per
+  fixture. The catalogue and participants field names were NOT verifiable
+  when written (host blocked) — parsed tolerantly, and
+  `/api/cards/oddspapi-check` shows what the live catalogue calls each corner
+  and card market. Read it before trusting a price. It emits TheOddsApi-shaped
+  events, so the Pinnacle join, the pricing model and the diagnostics are
+  unchanged; unset the key and TheOddsApi's path is back.
 - `cards/pinnacle.py` returns **RAW** prices. De-vigging lives in
   `cards/value.py`; handing it fair prices would de-vig them twice.
 - `merge_pinnacle` joins the two vendors into one event so `value.py` stays
