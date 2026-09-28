@@ -257,6 +257,7 @@ def _build_bundle_legs(coupon_id, extracted, ctype, reference: date) -> list[Leg
             pick=_selection_for(ctype, team),
             odds=None,
             kickoff=kickoff,
+            printed_kickoff=kickoff,
             rank=rank,
             bundle=row.bundle.strip(),
             bundle_odds=row.bundle_odds,
@@ -315,6 +316,7 @@ def _build_legs(coupon_id, extracted, ctype, reference: date) -> list[Leg]:
                     pick=_selection_for(ctype, team),
                     odds=odds,
                     kickoff=kickoff,
+                    printed_kickoff=kickoff,
                     rank=rank,
                 ))
                 rank += 1
@@ -328,6 +330,7 @@ def _build_legs(coupon_id, extracted, ctype, reference: date) -> list[Leg]:
             # prints none and any number here would be invented.
             odds=row.your_odds if ctype.prices_each_selection else None,
             kickoff=kickoff,
+            printed_kickoff=kickoff,
             rank=rank,
         ))
         rank += 1

@@ -84,6 +84,37 @@ board prints a new one — never relax the zero: a first team against its
 reserves is the one comparison where "nearly the same name" means the wrong
 prices.
 
+**A name match is not enough: the fixture must be on the printed DAY and in a
+SENIOR competition** (`app/fixture_checks.py`, Sept 2026). U19 games kept
+pricing after the marker fix because the board can print a youth fixture's
+runners with NO marker ("England vs Spain" under "UEFA U19 Championship"), and
+because `get_fair_odds` kept only the FIRST board row per fixture name — the
+board is fetched day by day from today, so whichever same-named game kicked
+off first won. Now every row per name is kept, and `_match_fixture` applies:
+- **Competition** — a league naming an age group, youth, reserve or women's
+  competition (Primavera, Juvenil, Premier League 2 and PDL included, which
+  name no age) never matches a row with no marker of its own. Time-independent,
+  so it is what catches a youth game on the SAME day as the senior one.
+- **Day** — a candidate more than `KICKOFF_EXCLUDE_HOURS` (12) from the
+  printed slot is refused. Deliberately wide: delays (sometimes unannounced)
+  and early-morning fixtures with time-zone confusion must still match. Never
+  narrow it to make the check "stricter" — that unmatches real fixtures.
+  Compared by MINUTE OF THE WEEK, circularly, because the printed weekday is
+  dated forward from the upload and a late upload dates it a week out.
+- **Closest** — among rows sharing the winning name, the nearest to the
+  printed slot wins. A tie-break, never an exclusion.
+Refusals happen BEFORE the name match, so a refused fixture leaves the leg
+unmatched, never passed to the next-best name. They are counted
+(`refused_youth`, `refused_day`, subsets of `no_match`) in the pass line and
+`last_pass`. The check needs `legs.printed_kickoff` — kept apart from
+`legs.kickoff`, which pricing OVERWRITES with the matched fixture's time and so
+cannot check the match without a wrong match vouching for itself. Legs read
+before it existed have none and are matched on name and competition only.
+It costs nothing: pruning other days' fixtures before the fuzzy scoring made a
+150-leg pass against a 1,000-fixture board ~5x FASTER (8.6s → 1.6s).
+The fallback `TheOddsApiProvider` does NOT apply these checks (not the live
+path) — port `_match_fixture` before it is ever made live again.
+
 **A BLANK TRACKER HAS FIVE DIFFERENT CAUSES and they used to look identical**
 — a selection with no fair odds, whichever one it was. `get_fair_odds` now
 tallies them and logs ONE line per pass (never one per leg — a sheet is 154 of

@@ -119,6 +119,10 @@ class Leg(Base):
     matched_fixture = Column(String, nullable=True)  # fixture the fuzzy match linked
     match_score = Column(Float, nullable=True)       # similarity behind that match
     kickoff = Column(DateTime, nullable=True)        # fixture start (UTC), drives KO countdown
+    # The kickoff as PRINTED on the coupon. Kept apart from `kickoff`, which
+    # pricing overwrites with the matched board fixture's time — so it cannot
+    # be what checks the match, or a wrong match would vouch for itself.
+    printed_kickoff = Column(DateTime, nullable=True)
     # Both sides of the market, so value on the opposite side stays visible.
     fair_odds_home = Column(Float, nullable=True)
     fair_odds_away = Column(Float, nullable=True)

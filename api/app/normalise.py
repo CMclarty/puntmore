@@ -126,7 +126,10 @@ _SPACE_RE = re.compile(r'\s+')
 # how a first-team leg was priced off an under-21 fixture (Sept 2026). Every
 # spelling folds to ONE canonical marker so "U-21" on the coupon still meets
 # "U21" on the board.
-_AGE_GROUP_RE = re.compile(r"\b(?:u|under)\s*(1[5-9]|2[0-3])\s*s?\b")
+# The plural "s" is taken only when it is attached ("U21s") — a `\s*s?` here
+# once swallowed the space AFTER the marker, so "U19 Championship" folded to
+# "u19championship" and the marker disappeared into the next word.
+_AGE_GROUP_RE = re.compile(r"\b(?:u|under|sub)\s*(1[5-9]|2[0-3])s?\b")
 _WOMEN_RE = re.compile(
     r"\b(?:women|womens|woman|ladies|w|female|fem|feminine|feminino|femenino"
     r"|frauen|damen|dames|damer|kvinner|kvinnor|naiset)\b"

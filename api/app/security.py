@@ -342,6 +342,11 @@ def ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN bundle VARCHAR"))
             if "bundle_odds" not in cols:
                 conn.execute(text("ALTER TABLE legs ADD COLUMN bundle_odds FLOAT"))
+            # Sept 2026: the printed kickoff, which checks the fixture match.
+            # Null on legs read before it existed — those are matched on name
+            # and competition only, and age out with the 8-day cleanup.
+            if "printed_kickoff" not in cols:
+                conn.execute(text("ALTER TABLE legs ADD COLUMN printed_kickoff DATETIME"))
 
         # legs.odds must become NULLABLE: GG Bonus / GG No Draw coupons print no
         # per-selection price (any 3 pay a flat 5.5), so those rows have no odds

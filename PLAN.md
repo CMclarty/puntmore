@@ -271,6 +271,21 @@ it — the rectangle was intact and every price was a real price.
 - [x] Women's and every reserve spelling covered the same way; 7 tests
       including the matcher end to end (senior leg refuses the U21 fixture).
 
+### 2f. U19 fixtures priced as senior ones — check the day and the competition — DONE (Sept 2026)
+- [x] Root cause: `get_fair_odds` kept only the FIRST board row per fixture
+      name, so a same-named youth game kicking off earlier won outright; and
+      boards can mark the age group only in the league name.
+- [x] `fixture_checks.py`: competition check, 12-hour day window (wide for
+      delays and morning time-zone skew), nearest-kickoff tie-break.
+- [x] `legs.printed_kickoff` + migration; `MatchQuery.kickoff`.
+- [x] Found and fixed on the way: the age-group pattern swallowed the space
+      after the marker ("U19 Championship" → "u19championship").
+- [x] 20 tests incl. delays, a -9h/+9h morning skew, the two-"England vs
+      Spain" case, and a timing guard. 628 pass. Pass time ~5x faster.
+- Not ported to the fallback `TheOddsApiProvider` (not live).
+- **Still to see live**: the `refused_youth` / `refused_day` counts on a real
+  pass, and whether any real board league slips the youth patterns.
+
 ### 3. Calibration backtest  *(was Phase V4 — depends on 1)*
 - [ ] `api/tools/backtest_calibration.py`: over a season+ of historical fixtures
       with settlements, fit grids, compute derived P(win ∧ over X), score

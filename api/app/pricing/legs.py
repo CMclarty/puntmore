@@ -20,7 +20,8 @@ def price_legs(legs: list[Leg], odds_provider) -> list[Leg]:
         return []
 
     queries = [
-        MatchQuery(match_id=leg.id, match_name=leg.match_name, market=leg.pick)
+        MatchQuery(match_id=leg.id, match_name=leg.match_name, market=leg.pick,
+                   kickoff=leg.printed_kickoff)
         for leg in legs
     ]
     results = odds_provider.get_fair_odds(queries)

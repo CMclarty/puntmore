@@ -380,3 +380,12 @@ def test_the_fixture_matcher_refuses_the_under_21_fixture_for_a_senior_leg():
     assert BettingIsCoolProvider._best_match(
         "England U21 v Spain U21", board
     )[0] == "England U-21s vs Spain U-21s"
+
+
+def test_a_marker_in_the_middle_of_a_name_keeps_its_word_boundary():
+    """"U19 Championship" once folded to "u19championship": the pattern ate the
+    space after the marker, and the marker vanished into the next word."""
+    from app.normalise import normalise_team, team_similarity as t
+    assert normalise_team("UEFA U19 Championship") == "uefa u19 championship"
+    assert normalise_team("Ajax U-19 Amsterdam") == "ajax u19 amsterdam"
+    assert t("Ajax Amsterdam", "Ajax U19 Amsterdam") == 0.0

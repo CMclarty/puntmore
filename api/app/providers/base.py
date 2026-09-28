@@ -8,6 +8,10 @@ class MatchQuery:
     match_id: int
     match_name: str
     market: str
+    # The kickoff PRINTED on the coupon (naive, GMT-as-UTC), never the board's.
+    # It is the independent fact that tells a senior fixture from the same two
+    # sides' youth game when the names alone cannot (`fixture_checks`).
+    kickoff: datetime | None = None
 
 
 @dataclass

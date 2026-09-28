@@ -42,6 +42,7 @@ import httpx
 
 from .base import OddsProvider, MatchQuery, OddsResult
 from ..normalise import normalise_match, normalise_sides, split_sides, team_similarity
+from ..fixture_checks import excluded_reason, kickoff_distance_min, query_is_senior
 from ..picks import (
     OVER_RE, UNDER_RE, WIN_RE, WIN_TO_NIL_RE, TTS_RE, GG_NO_DRAW_RE, GG_RE,
     SIDE_THRESHOLD, SIDE_MARGIN, team_fragment, side_of, is_team_specific,
@@ -540,14 +541,73 @@ class BettingIsCoolProvider(OddsProvider):
             return scored[0][1], scored[0][0]
         return None
 
+    @classmethod
+    def _match_fixture(cls, q: MatchQuery, by_name: dict[str, list[dict]]):
+        """The board row this leg is, or why none was accepted.
+
+        Returns ((name, score) | None, row | None, refused_reason | None).
+
+        Candidates the fixture checks refuse — a youth competition for a senior
+        row, a kickoff on another day — are removed BEFORE the name match, so a
+        refused fixture leaves the leg unmatched rather than passing it to the
+        next-best name. Among rows that share the winning name, the one nearest
+        the printed kickoff wins: the only way to tell two "England vs Spain"s
+        apart when the league check cannot. Never an exclusion on its own, so a
+        delayed or time-shifted fixture is still found when it is the only one.
+        """
+        senior = query_is_senior(q.match_name)
+        allowed: dict[str, list[dict]] = {}
+        refusals: dict[str, int] = {}
+        for name, rows in by_name.items():
+            keep = []
+            for r in rows:
+                why = excluded_reason(
+                    senior, q.kickoff, r.get("league_name"), r.get("_starts_dt")
+                )
+                if why is None:
+                    keep.append(r)
+                else:
+                    refusals[name] = why
+            if keep:
+                allowed[name] = keep
+
+        match = cls._best_match(q.match_name, list(allowed))
+        if match is None:
+            # Only when something was refused: would the name have matched it?
+            # That separates "the checks turned the fixture away" from "the
+            # names never met", which are different fixes. Costs a second name
+            # pass for unmatched legs only, over the refused names only.
+            refused_names = [n for n in refusals if n not in allowed]
+            if refused_names:
+                hit = cls._best_match(q.match_name, refused_names)
+                if hit:
+                    return None, None, {"youth_league": "youth",
+                                        "wrong_day": "day"}[refusals[hit[0]]]
+            return None, None, None
+
+        rows = allowed[match[0]]
+        if len(rows) > 1:
+            def distance(r):
+                d = kickoff_distance_min(q.kickoff, r.get("_starts_dt"))
+                return d if d is not None else 10**9
+            rows = sorted(rows, key=distance)
+        return match, rows[0], None
+
     def get_fair_odds(self, queries: list[MatchQuery]) -> list[OddsResult]:
         board = self._fixtures()
-        by_name: dict[str, dict] = {}
+        # EVERY row per fixture name, not the first. Two fixtures can print
+        # identically — a senior international and the same nations' U19 game
+        # both read "England vs Spain" when the board marks the age group only
+        # in the league name. Keeping the first row (the board is fetched day
+        # by day from today) handed the leg whichever of them kicked off
+        # FIRST, which is how U19 fixtures were priced as senior ones.
+        by_name: dict[str, list[dict]] = {}
         for f in board:
             if EXCLUDED_LEAGUE_RE.search(f.get("league_name", "")):
                 continue
             name = f"{f.get('runner_home', '')} vs {f.get('runner_away', '')}"
-            by_name.setdefault(name, f)
+            f.setdefault("_starts_dt", _parse_starts(f.get("starts")))
+            by_name.setdefault(name, []).append(f)
 
         # WHY a leg came back blank, counted. Every one of these used to be the
         # same thing from outside — a selection with no fair odds — so "the feed
@@ -567,6 +627,10 @@ class BettingIsCoolProvider(OddsProvider):
             "legs": len(queries), "board": len(by_name), "priced": 0,
             "no_board": 0, "no_match": 0, "no_odds": 0,
             "no_market": 0, "no_side": 0,
+            # Subsets of no_match: the name DID match a fixture, and the
+            # fixture checks refused it (fixture_checks.py). Counted apart so
+            # "the U19 game was turned away" never reads as "the names failed".
+            "refused_youth": 0, "refused_day": 0,
         }
 
         results = []
@@ -578,7 +642,9 @@ class BettingIsCoolProvider(OddsProvider):
             fair_home = fair_away = None
             side = None
             odds_rows: list[dict] = []
-            match = self._best_match(q.match_name, list(by_name))
+            match, row, refused = self._match_fixture(q, by_name)
+            if match is None and refused:
+                tally["refused_" + refused] += 1
             if match:
                 fixture, score = match
                 if score < CONFIDENT_THRESHOLD:
@@ -586,9 +652,8 @@ class BettingIsCoolProvider(OddsProvider):
                         "Borderline fixture match (%.2f): %r -> %r — verify in UI",
                         score, q.match_name, fixture,
                     )
-                row = by_name[fixture]
                 event_id = row.get("event_id")
-                kickoff = _parse_starts(row.get("starts"))
+                kickoff = row.get("_starts_dt")
                 if event_id is not None:
                     odds_rows = self._odds(event_id)
                     if self._is_team_specific(q.market):
@@ -663,9 +728,11 @@ class BettingIsCoolProvider(OddsProvider):
         log = logger.info if blanks == 0 else logger.warning
         log(
             "bettingiscool pricing pass: %d/%d priced off a %d-fixture board "
-            "(no_board=%d no_match=%d no_odds=%d no_market=%d no_side=%d)",
+            "(no_board=%d no_match=%d [refused: youth=%d day=%d] no_odds=%d "
+            "no_market=%d no_side=%d)",
             tally["priced"], tally["legs"], tally["board"],
-            tally["no_board"], tally["no_match"], tally["no_odds"],
+            tally["no_board"], tally["no_match"], tally["refused_youth"],
+            tally["refused_day"], tally["no_odds"],
             tally["no_market"], tally["no_side"],
         )
         return results
