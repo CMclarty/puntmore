@@ -733,3 +733,36 @@ def test_the_empty_verdict_names_the_next_kickoff_and_the_dead_keys():
                            sport_keys=["soccer_epl"])
     empty.get_events()
     assert "No upcoming fixture is listed" in diagnose(empty, None)["verdict"]
+
+
+# --- probe: who carries corners/cards for one match --------------------------------
+
+def test_the_probe_asks_by_region_with_no_book_filter_and_reports_every_book():
+    from types import SimpleNamespace
+    from app.routers.cards import probe_books
+
+    calls = []
+
+    class Raw(_StubOddsApi):
+        quota_remaining, last_call_cost = 19000, 2
+
+        def fetch_event(self, sport_key, event_id, markets, bookmakers=None,
+                        ttl=None, regions=None):
+            calls.append({"bookmakers": bookmakers, "regions": regions, "ttl": ttl})
+            return {"home_team": "England", "away_team": "Spain",
+                    "commence_time": _iso(20), "bookmakers": [
+                        {"key": "williamhill", "markets": [{"key": "alternate_totals_corners"}]},
+                        {"key": "paddypower", "markets": [{"key": "alternate_totals_cards"},
+                                                          {"key": "alternate_totals_corners"}]},
+                    ]}
+
+    raw = Raw({"soccer_uefa_nations_league": [
+        {"id": "e1", "commence_time": _iso(20), "home_team": "England", "away_team": "Spain"}]})
+    cards = CardsApiClient(raw, sport_keys=["soccer_uefa_nations_league"])
+    req = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(cards_client=cards)))
+    out = probe_books(req)
+    assert calls == [{"bookmakers": None, "regions": "uk", "ttl": 0}]
+    assert out["match"] == "England vs Spain"
+    assert out["paddypower_present"] is True
+    assert out["paddypower_markets"] == ["alternate_totals_cards", "alternate_totals_corners"]
+    assert "williamhill" in out["bookmakers"]

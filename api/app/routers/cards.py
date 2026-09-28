@@ -180,6 +180,75 @@ def diagnose(client, pinnacle) -> dict:
     }
 
 
+@router.get("/cards/probe-books")
+def probe_books(
+    request: Request,
+    region: str = "uk",
+    sport: str | None = None,
+    event_id: str | None = None,
+    markets: str | None = None,
+):
+    """Which bookmakers and markets TheOddsApi returns for ONE match.
+
+    COSTS CREDITS — one per-event call (markets x regions, so ~2), on demand,
+    never on a schedule. The sweep names Paddy Power, so an empty answer there
+    cannot say whether Paddy's corners are not up YET, are filed under
+    different market keys, or are not in this vendor's feed at all. This asks
+    by REGION with no bookmaker filter, so the answer is everything the vendor
+    carries for these markets on this match.
+
+    Defaults to the soonest fixture the sweep has in range. `markets` overrides
+    the configured keys, to try another spelling.
+    """
+    cards = request.app.state.cards_client
+    raw = getattr(cards, "_client", None)
+    if cards is None or raw is None:
+        return {"error": "ODDS_API_KEY is not set"}
+
+    if event_id is None or sport is None:
+        due = cards._due_fixtures()          # FREE: the fixture lists only
+        if not due:
+            return {"error": "no fixture in range to probe — try nearer a match"}
+        sport, fixture, _ = due[0]
+        event_id = fixture.get("id")
+        match = f"{fixture.get('home_team')} vs {fixture.get('away_team')}"
+        kickoff = fixture.get("commence_time")
+    else:
+        match = kickoff = None
+
+    wanted = markets or settings.cards_market_keys
+    try:
+        # ttl=0: a cached answer would defeat the point.
+        event = raw.fetch_event(sport, event_id, wanted, regions=region, ttl=0)
+    except Exception as exc:
+        return {"error": str(exc), "sport": sport, "event_id": event_id,
+                "markets_requested": wanted}
+
+    books: dict[str, list[str]] = {}
+    for bm in (event or {}).get("bookmakers", []):
+        books[bm.get("key")] = sorted(m.get("key") for m in bm.get("markets", []))
+    paddy = books.get("paddypower")
+    return {
+        "match": match or f"{event.get('home_team')} vs {event.get('away_team')}",
+        "kickoff": kickoff or event.get("commence_time"),
+        "sport": sport,
+        "region_requested": region,
+        "markets_requested": wanted,
+        "bookmakers": books,
+        "paddypower_present": paddy is not None,
+        "paddypower_markets": paddy or [],
+        "quota_remaining": getattr(raw, "quota_remaining", None),
+        "last_call_cost": getattr(raw, "last_call_cost", None),
+        "reading": (
+            "Paddy Power listed with markets: the feed carries them — the sweep "
+            "should price this match. Other books listed but not Paddy Power: "
+            "the vendor carries these markets, not from Paddy (yet). NO books at "
+            "all: nobody has posted them for this match yet, or the market keys "
+            "are wrong — try again nearer kickoff, or another `markets` spelling."
+        ),
+    }
+
+
 @router.get("/cards/diagnostics")
 def get_cards_diagnostics(request: Request):
     """One request that says why the screen looks the way it does."""

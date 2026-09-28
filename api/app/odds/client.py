@@ -116,6 +116,7 @@ class TheOddsApiClient:
         markets: str,
         bookmakers: str | None = None,
         ttl: int | None = None,
+        regions: str | None = None,
     ) -> dict:
         """Return one event's odds from the PER-EVENT endpoint, cached.
 
@@ -127,7 +128,7 @@ class TheOddsApiClient:
 
         Returns the event dict, or {} if the event/market is absent (404).
         """
-        cache_key = ("__event__", event_id, markets, bookmakers or "")
+        cache_key = ("__event__", event_id, markets, bookmakers or "", regions or "")
         effective_ttl = self._cache_ttl if ttl is None else ttl
 
         cached = self._event_cache.get(cache_key, ttl=effective_ttl)
@@ -147,7 +148,7 @@ class TheOddsApiClient:
             "markets": markets,
             "oddsFormat": "decimal",
         }
-        params["bookmakers" if bookmakers else "regions"] = bookmakers or "eu"
+        params["bookmakers" if bookmakers else "regions"] = bookmakers or regions or "eu"
 
         resp = httpx.get(
             f"{BASE_URL}/v4/sports/{sport_key}/events/{event_id}/odds",
