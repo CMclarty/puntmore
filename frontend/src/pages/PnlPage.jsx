@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { getBets, addBet, deleteBet } from '../api'
 import OddsWheel, { DEFAULT_PRICE, TERMS_LADDER, DEFAULT_TERMS } from '../components/OddsWheel'
+import { simulate } from '../pnlVariance'
 import styles from './PnlPage.module.css'
 
 /**
@@ -137,19 +138,26 @@ function inChartRange(b, range, now) {
  * `onCycle` makes the corner tag a button; without it the tag is a plain label
  * and the chart is fixed to its range.
  */
-function PnlChart({ bets, range, label, onCycle, onSwipe }) {
+function PnlChart({ bets, range, label: rangeLabel, onCycle, onSwipe }) {
   const chartRef = useRef(null)
   const tipRef = useRef(null)
+
+  // Windowed to the chart's own range, not the ledger's: each step zooms the
+  // SAME cumulative curve into a shorter tail, starting fresh from 0 at the
+  // window's edge — so "Day" reads as today's shape, not a slice of the total.
+  const rangedBets = useMemo(
+    () => (range === 'all' ? bets : bets.filter(b => inChartRange(b, range, new Date()))),
+    [bets, range],
+  )
+  // The variance band. Memoised apart from the drawing: a resize redraws, but
+  // only a new bet (or a new window) re-runs the replays.
+  const sim = useMemo(() => simulate(rangedBets), [rangedBets])
 
   const renderChart = useCallback(() => {
     const svg = chartRef.current
     if (!svg) return
     const r = svg.getBoundingClientRect(), W = r.width, H = r.height
     if (!W || !H) return
-    // Windowed to the chart's own range, not the ledger's: each step zooms the
-    // SAME cumulative curve into a shorter tail, starting fresh from 0 at the
-    // window's edge — so "Day" reads as today's shape, not a slice of the total.
-    const rangedBets = range === 'all' ? bets : bets.filter(b => inChartRange(b, range, new Date()))
     const spPts = spSeries(rangedBets)
     const hasSp = spPts.length > 0
     const pad = { t: 16, r: 46, b: 30, l: 8 }
@@ -162,7 +170,10 @@ function PnlChart({ bets, range, label, onCycle, onSwipe }) {
     // how much of the profit was earned in the price, and how much was variance.
     // Its range therefore has to sit inside the domain as well.
     const evVals = spPts.map(p => p[1])
-    let lo = Math.min(0, ...cumArr, ...evVals), hi = Math.max(0, ...cumArr, ...evVals)
+    // The band is in the domain too — clipping it would hide exactly the
+    // question it answers (is the line outside what luck explains?).
+    const bandVals = sim ? sim.band.flatMap(p => [p[1], p[4]]) : []
+    let lo = Math.min(0, ...cumArr, ...evVals, ...bandVals), hi = Math.max(0, ...cumArr, ...evVals, ...bandVals)
     const sp = (hi - lo) || 100; lo -= sp * 0.14; hi += sp * 0.14
     const X = i => pad.l + (W - pad.l - pad.r) * (n <= 1 ? 0.5 : i / (n - 1))
     const Y = v => pad.t + (H - pad.t - pad.b) * (1 - (v - lo) / (hi - lo))
@@ -221,13 +232,27 @@ function PnlChart({ bets, range, label, onCycle, onSwipe }) {
       for (const [i, v] of spPts) spAt[i] = v
     }
 
+    // ── Variance band: 5–95% and 25–75% of the replays ────────────────────────
+    // Drawn under everything else; one replayed bet is no spread to speak of.
+    let bandLayer = ''
+    if (sim && sim.band.length > 1) {
+      const poly = (a, b) => {
+        const top = sim.band.map((p, i) => (i ? 'L' : 'M') + X(p[0]).toFixed(1) + ' ' + Y(p[b]).toFixed(1)).join(' ')
+        const bot = sim.band.slice().reverse().map(p => 'L' + X(p[0]).toFixed(1) + ' ' + Y(p[a]).toFixed(1)).join(' ')
+        return top + ' ' + bot + ' Z'
+      }
+      bandLayer =
+        `<path d="${poly(1, 4)}" fill="var(--ink)" fill-opacity="0.06"/>` +
+        `<path d="${poly(2, 3)}" fill="var(--ink)" fill-opacity="0.08"/>`
+    }
+
     const cur = cumArr[n - 1], endCol = cur >= 0 ? 'var(--accent)' : 'var(--red)'
     svg.innerHTML = `
       <defs>
         <clipPath id="pnlAbove"><rect x="0" y="0" width="${W}" height="${zeroY}"/></clipPath>
         <clipPath id="pnlBelow"><rect x="0" y="${zeroY}" width="${W}" height="${Math.max(0, H - zeroY)}"/></clipPath>
       </defs>
-      ${grid}${months}
+      ${grid}${months}${bandLayer}
       <path d="${area}" fill="var(--accent)" fill-opacity="0.14" clip-path="url(#pnlAbove)"/>
       <path d="${area}" fill="var(--red)" fill-opacity="0.13" clip-path="url(#pnlBelow)"/>
       <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
@@ -237,9 +262,13 @@ function PnlChart({ bets, range, label, onCycle, onSwipe }) {
       <g class="pnlHover" style="opacity:0"><circle class="pnlHdot" r="4" fill="var(--ink)" stroke="var(--paper)" stroke-width="1.5"/></g>`
     svg._pts = pts; svg._cum = cumArr; svg._dates = dates; svg._spAt = spAt
     svg._fmt = fmtTick
-  }, [bets, range])
+  }, [rangedBets, sim])
 
   useEffect(() => { renderChart() }, [renderChart])
+
+  // The window's variance percentile rides on the range tag: where this
+  // window's result sits among the replays of the same bets.
+  const label = sim ? `${rangeLabel} · p${Math.round(sim.percentile)}` : rangeLabel
 
   // The SVG STRETCHES to fill its box via CSS, but its contents are drawn at
   // absolute coordinates taken from one getBoundingClientRect. So whenever the
