@@ -46,9 +46,9 @@ class Settings(BaseSettings):
     # odds-by-tournaments request returns every fixture in the tournaments
     # named, so the cost is (sweeps/day x requests/sweep), independent of how
     # many games are on:
-    #   48 sweeps/day (30-min TTL) x 3 requests (11 tournaments, 5 a request)
-    #   = 144/day + ~2 reference = ~4,400/month.
-    # Halving the TTL doubles that; one request for all 11 would cut it by 3x.
+    #   48 sweeps/day (30-min TTL) x 3 requests (13 tournaments, 5 a request)
+    #   x 2 books (Paddy + Pinnacle) = 288/day + ~3 reference = ~8,800/month.
+    # Halving the TTL doubles that; dropping the fair book halves it.
     oddspapi_api_key: str = ""
     # Competitions to sweep: an OddsPapi tournament id, or a competition NAME
     # matched exactly against OddsPapi's own list. Ids confirmed live by
@@ -57,15 +57,23 @@ class Settings(BaseSettings):
     # Ligue 1, 238 Liga Portugal, 7 Champions League, 679 Europa League. The
     # Nations League is by NAME: the Sofascore id assumed for it (10783) is not
     # in OddsPapi's list. A name that matches nothing is reported in the
-    # sweep's `unresolved_tournaments`, never silently dropped.
+    # sweep's `unresolved_tournaments`, never silently dropped. 11 "FIFA World
+    # Cup Qualification, UEFA" and 27 "UEFA EURO, Qualification" are by id
+    # (read off the live tournament search) because their names hold commas.
     oddspapi_tournament_ids: str = (
-        "17,18,24,8,23,35,34,238,7,679,UEFA Nations League"
+        "17,18,24,8,23,35,34,238,7,679,UEFA Nations League,11,27"
     )
     oddspapi_tournaments_per_request: int = 5
     oddspapi_ttl_seconds: int = 1800
     # A ceiling, not a target: ~146/day is the planned spend, so this only
     # bites on a runaway. Keep it below (monthly plan / 30).
-    oddspapi_daily_request_budget: int = 200
+    oddspapi_daily_request_budget: int = 400
+    # The FAIR side from the same vendor (Sept 2026). Pinnacle on OddsPapi
+    # carries a 5-line corners ladder and a 5-line "Bookings" (card count)
+    # ladder — /api/cards/oddspapi-check, Nations League, 28 Sept — and it
+    # sits on the SAME fixture id as Paddy's, so the join is exact rather
+    # than bettingiscool's team-name match. Blank = bettingiscool as before.
+    oddspapi_fair_book: str = "pinnacle"
     # Major UK/Euro competitions. The fixture-list endpoint is FREE, so listing
     # a key that is out of season or has no fixtures costs nothing.
     # An unknown or out-of-season key 404s, which is FREE and cached empty, so a

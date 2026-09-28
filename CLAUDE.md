@@ -515,6 +515,17 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   and card market. Read it before trusting a price. It emits TheOddsApi-shaped
   events, so the Pinnacle join, the pricing model and the diagnostics are
   unchanged; unset the key and TheOddsApi's path is back.
+- **Pinnacle's side comes from OddsPapi too** (`oddspapi_fair_book`, default
+  `pinnacle`, Sept 2026). Checked live on the Nations League: Pinnacle posts a
+  5-line corners ladder and a 5-line "Bookings" ladder (a CARD COUNT, 3.0–6.0 —
+  not booking points). One request per book per chunk, joined on OddsPapi's
+  FIXTURE ID (`merge_books`) — exact, where bettingiscool needed a team-name
+  match. `merge_pinnacle` only goes to bettingiscool for events that arrive
+  without a Pinnacle book; blank the setting to use bettingiscool for all.
+- **OddsPapi rate-limits per endpoint** — back-to-back requests get a 429
+  ("wait 0.80 seconds"), which on 28 Sept cost a whole chunk of five
+  competitions. `OddsPapiClient` spaces requests by `MIN_REQUEST_GAP` and
+  retries a 429 ONCE after the wait it names. Don't parallelise the sweep.
 - `cards/pinnacle.py` returns **RAW** prices. De-vigging lives in
   `cards/value.py`; handing it fair prices would de-vig them twice.
 - `merge_pinnacle` joins the two vendors into one event so `value.py` stays

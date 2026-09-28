@@ -278,7 +278,13 @@ def merge_pinnacle(events: list[dict], provider) -> list[dict]:
     skips any event without both books, so a fixture with no fair price is
     dropped rather than valued against nothing.
     """
-    if provider is None or not events:
+    # Events whose fair side already came from OddsPapi (same fixture id, no
+    # name match) need nothing more; only the rest go to bettingiscool.
+    events_needing = [e for e in events or []
+                      if not any(b.get("key") == "pinnacle" for b in e.get("bookmakers", []))]
+    if not events_needing:
+        return events
+    if provider is None:
         return events
     # The coupon odds provider is only bettingiscool when a key is configured;
     # it degrades to TheOddsApi or the mock otherwise, and neither carries a
@@ -296,8 +302,8 @@ def merge_pinnacle(events: list[dict], provider) -> list[dict]:
         return events
     from .pinnacle import pinnacle_books
 
-    books = pinnacle_books(provider, events)
-    for event in events:
+    books = pinnacle_books(provider, events_needing)
+    for event in events_needing:
         book = books.get(event.get("id"))
         if book:
             event.setdefault("bookmakers", []).append(book)

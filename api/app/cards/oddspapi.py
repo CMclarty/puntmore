@@ -40,6 +40,7 @@ capped per day by `oddspapi_daily_request_budget`.
 from datetime import datetime, timedelta, timezone
 import logging
 import re
+import time
 
 import httpx
 
@@ -51,6 +52,7 @@ logger = logging.getLogger("uvicorn.error")
 BASE_URL = "https://api.oddspapi.io/v4"
 SOCCER = 10
 PADDY_POWER = "paddypower"
+PINNACLE = "pinnacle"
 CORNERS = "alternate_totals_corners"
 CARDS = "alternate_totals_cards"
 
@@ -62,8 +64,17 @@ TOURNAMENT_SPORT_KEYS = {
     8: "soccer_spain_la_liga", 23: "soccer_italy_serie_a",
     35: "soccer_germany_bundesliga", 34: "soccer_france_ligue_one",
     238: "soccer_portugal_primeira_liga", 7: "soccer_uefa_champs_league",
-    679: "soccer_uefa_europa_league", 10783: "soccer_uefa_nations_league",
+    679: "soccer_uefa_europa_league", 23755: "soccer_uefa_nations_league",
+    11: "soccer_fifa_world_cup_qualifiers_europe",
+    27: "soccer_uefa_euro_qualification",
 }
+
+# OddsPapi rate-limits each endpoint: back-to-back requests are refused with a
+# 429 saying "wait 0.80 seconds" (live sweep, 28 Sept 2026 — it cost a whole
+# chunk of five competitions, Champions League included). Requests are spaced
+# by this much, and a 429 is retried ONCE after the wait it names.
+MIN_REQUEST_GAP = 1.1
+_WAIT_RE = re.compile(r"wait\s+(\d+(?:\.\d+)?)\s*s", re.I)
 
 _CORNER_RE = re.compile(r"\bcorners?\b", re.I)
 _CARD_RE = re.compile(r"\b(?:cards?|bookings?)\b", re.I)
@@ -180,17 +191,58 @@ def _parse_start(raw) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def to_events(fixtures, markets, names, *, now=None, window_hours=None) -> tuple[list[dict], dict]:
+def _book_markets(fx: dict, bookmaker: str, markets) -> dict[str, list[dict]]:
+    """{market_key: outcomes} for one book's corners/cards lines on a fixture."""
+    book = ((fx.get("bookmakerOdds") or {}).get(bookmaker)) or {}
+    by_key: dict[str, list[dict]] = {}
+    for mid, market in (book.get("markets") or {}).items():
+        known = markets.get(str(mid))
+        if known is None or market.get("marketActive") is False:
+            continue
+        key, line, sides = known
+        for oid, outcome in (market.get("outcomes") or {}).items():
+            side = sides.get(str(oid))
+            price = _price(outcome)
+            if side and price:
+                by_key.setdefault(key, []).append(
+                    {"name": side, "point": line, "price": price}
+                )
+    return by_key
+
+
+def merge_books(*fixture_lists) -> list[dict]:
+    """Join per-bookmaker responses on OddsPapi's own fixture id.
+
+    Each odds request names ONE bookmaker, so Paddy and Pinnacle arrive as two
+    lists of the same fixtures. They share the fixture id, so the join is
+    exact — no team-name matching, which is what the bettingiscool fair side
+    needed and what could pair a fixture with the wrong one."""
+    out: dict[str, dict] = {}
+    for fixtures in fixture_lists:
+        for fx in _as_list(fixtures):
+            fid = str(_first(fx, "fixtureId", "id"))
+            have = out.get(fid)
+            if have is None:
+                out[fid] = {**fx, "bookmakerOdds": dict(fx.get("bookmakerOdds") or {})}
+            else:
+                have["bookmakerOdds"].update(fx.get("bookmakerOdds") or {})
+    return list(out.values())
+
+
+def to_events(fixtures, markets, names, *, now=None, window_hours=None,
+              fair_book: str | None = None) -> tuple[list[dict], dict]:
     """OddsPapi fixtures -> TheOddsApi-shaped events carrying Paddy's corners/cards.
 
     Returns (events, counts). Only fixtures still to kick off inside the window
     are kept, and only ones where Paddy prices at least one corners/cards line.
+    With `fair_book` (Pinnacle), that book's lines on the SAME fixture are
+    attached as a second bookmaker, RAW — value.py de-vigs.
     """
     now = now or datetime.now(timezone.utc)
     window = timedelta(hours=window_hours if window_hours is not None
                        else settings.cards_window_hours)
     counts = {"fixtures_listed": 0, "fixtures_in_window": 0,
-              "carried_paddy_prices": 0, "unnamed": 0}
+              "carried_paddy_prices": 0, "carried_pinnacle_prices": 0, "unnamed": 0}
     events = []
     for fx in _as_list(fixtures):
         counts["fixtures_listed"] += 1
@@ -198,40 +250,38 @@ def to_events(fixtures, markets, names, *, now=None, window_hours=None) -> tuple
         if start is None or not (timedelta(0) < start - now <= window):
             continue
         counts["fixtures_in_window"] += 1
-        book = ((fx.get("bookmakerOdds") or {}).get(PADDY_POWER)) or {}
-        by_key: dict[str, list[dict]] = {}
-        for mid, market in (book.get("markets") or {}).items():
-            known = markets.get(str(mid))
-            if known is None or market.get("marketActive") is False:
-                continue
-            key, line, sides = known
-            for oid, outcome in (market.get("outcomes") or {}).items():
-                side = sides.get(str(oid))
-                price = _price(outcome)
-                if side and price:
-                    by_key.setdefault(key, []).append(
-                        {"name": side, "point": line, "price": price}
-                    )
+        by_key = _book_markets(fx, PADDY_POWER, markets)
         if not by_key:
             continue
         home = _first(fx, "participant1Name") or names.get(str(fx.get("participant1Id")))
         away = _first(fx, "participant2Name") or names.get(str(fx.get("participant2Id")))
         if not home or not away:
-            # Without names the Pinnacle side cannot be joined, and a row with
-            # no teams on it cannot be bet. Counted, not guessed.
+            # A row with no teams on it cannot be bet. Counted, not guessed.
             counts["unnamed"] += 1
             continue
         counts["carried_paddy_prices"] += 1
+        books = [{
+            "key": PADDY_POWER,
+            "markets": [{"key": k, "outcomes": v} for k, v in by_key.items()],
+        }]
+        if fair_book:
+            fair = _book_markets(fx, fair_book, markets)
+            if fair:
+                counts["carried_pinnacle_prices"] += 1
+                books.append({
+                    "key": "pinnacle",
+                    "markets": [{"key": k, "outcomes": v} for k, v in fair.items()],
+                })
         events.append({
             "id": str(_first(fx, "fixtureId", "id")),
             "home_team": home,
             "away_team": away,
             "commence_time": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "sport_key": TOURNAMENT_SPORT_KEYS.get(fx.get("tournamentId"), "soccer"),
-            "bookmakers": [{
-                "key": PADDY_POWER,
-                "markets": [{"key": k, "outcomes": v} for k, v in by_key.items()],
-            }],
+            # Set when the fair side came from OddsPapi, so merge_pinnacle does
+            # not go looking for a second one on bettingiscool.
+            "fair_source": "oddspapi" if fair_book else None,
+            "bookmakers": books,
         })
     return events, counts
 
@@ -247,6 +297,7 @@ class OddsPapiClient:
         self._odds = TTLCache(ttl=self._ttl, maxsize=64)
         self.requests_today = 0
         self._day = None
+        self._last_request = 0.0
 
     def _roll_day(self):
         today = datetime.now(timezone.utc).date()
@@ -265,11 +316,26 @@ class OddsPapiClient:
                 f"{settings.oddspapi_daily_request_budget} reached"
             )
         self.requests_today += 1
-        resp = httpx.get(f"{BASE_URL}{path}", params={**params, "apiKey": self._key},
-                         timeout=30)
+        resp = self._send(path, params)
+        if resp.status_code == 429:
+            # Once, after the wait it names (capped): a rate limit is the API
+            # asking for spacing, not refusing the request.
+            m = _WAIT_RE.search(resp.text or "")
+            time.sleep(min(5.0, float(m.group(1)) + 0.2 if m else MIN_REQUEST_GAP))
+            resp = self._send(path, params)
         if resp.status_code != 200:
             raise RuntimeError(f"OddsPapi {path}: HTTP {resp.status_code}: {resp.text[:200]}")
         return resp.json()
+
+    def _send(self, path, params):
+        gap = MIN_REQUEST_GAP - (time.monotonic() - self._last_request)
+        if gap > 0:
+            time.sleep(gap)
+        try:
+            return httpx.get(f"{BASE_URL}{path}",
+                             params={**params, "apiKey": self._key}, timeout=30)
+        finally:
+            self._last_request = time.monotonic()
 
     def _cached(self, cache, key, path, **params):
         hit = cache.get(key)
@@ -403,7 +469,8 @@ def coverage(fixtures, index: dict[str, dict], bookmaker: str) -> dict:
 
 
 class OddsPapiPaddySource:
-    """The cards tool's Paddy Power side, from OddsPapi. Same interface as
+    """The cards tool's Paddy Power side from OddsPapi — and, with
+    `oddspapi_fair_book` set (default "pinnacle"), its fair side too. Same interface as
     `CardsApiClient`: `get_events()` and `last_sweep`."""
 
     def __init__(self, client: OddsPapiClient):
@@ -442,17 +509,22 @@ class OddsPapiPaddySource:
                 "cards (oddspapi): the market catalogue matched NO corners/cards "
                 "totals — see /api/cards/oddspapi-check before trusting this feed"
             )
-        fixtures = []
-        for i in range(0, len(ids), per):
-            chunk = ids[i:i + per]
-            try:
-                fixtures.extend(_as_list(self._client.odds_by_tournaments(chunk)))
-            except Exception as exc:
-                errors.append(f"{chunk}: {exc}")
-                logger.error("cards (oddspapi): odds for %s failed: %s", chunk, exc)
-        events, counts = to_events(fixtures, markets, names)
+        fair_book = (settings.oddspapi_fair_book or "").strip() or None
+        per_book: dict[str, list] = {}
+        for book in [PADDY_POWER] + ([fair_book] if fair_book else []):
+            got = per_book.setdefault(book, [])
+            for i in range(0, len(ids), per):
+                chunk = ids[i:i + per]
+                try:
+                    got.extend(_as_list(self._client.odds_by_tournaments(chunk, bookmaker=book)))
+                except Exception as exc:
+                    errors.append(f"{book} {chunk}: {exc}")
+                    logger.error("cards (oddspapi): %s odds for %s failed: %s", book, chunk, exc)
+        fixtures = merge_books(*per_book.values())
+        events, counts = to_events(fixtures, markets, names, fair_book=fair_book)
         self.last_sweep = {
             "source": "oddspapi",
+            "fair_source": f"oddspapi:{fair_book}" if fair_book else "bettingiscool",
             "window_hours": settings.cards_window_hours,
             "tournaments": len(ids),
             "unresolved_tournaments": unresolved,
@@ -467,6 +539,8 @@ class OddsPapiPaddySource:
         }
         log = logger.info if not errors else logger.warning
         log("cards sweep (oddspapi): %d fixture(s) in window, %d carried Paddy "
-            "corners/cards, %d request(s) today", counts["fixtures_in_window"],
-            counts["carried_paddy_prices"], self._client.requests_today)
+            "corners/cards, %d of those with %s's, %d request(s) today",
+            counts["fixtures_in_window"], counts["carried_paddy_prices"],
+            counts["carried_pinnacle_prices"], fair_book or "no fair book",
+            self._client.requests_today)
         return events

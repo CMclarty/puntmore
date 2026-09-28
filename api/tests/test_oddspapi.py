@@ -141,9 +141,10 @@ def test_a_sweep_costs_a_few_requests_however_many_games_and_caches(monkeypatch)
     fake = _Fake()
     src = op.OddsPapiPaddySource(fake)
     src.get_events()
+    monkeypatch.setattr(settings, "oddspapi_fair_book", "pinnacle")
     odds_calls = [c for c in fake.calls if c[0] == "/odds-by-tournaments"]
-    assert len(odds_calls) == 3                       # 11 tournaments, 5 a request
-    assert all(c[1]["bookmaker"] == "paddypower" for c in odds_calls)
+    # 11 tournaments, 5 a request, once per book
+    assert [c[1]["bookmaker"] for c in odds_calls] == ["paddypower"] * 3 + ["pinnacle"] * 3
     first = len(fake.calls)
     src.get_events()                                  # within the TTL: all cached
     assert len(fake.calls) == first
@@ -204,7 +205,7 @@ def test_a_sweep_resolves_named_competitions_and_reports_the_rest(monkeypatch):
     src = op.OddsPapiPaddySource(f)
     src.get_events()
     asked = [c[1]["tournamentIds"] for c in f.calls if c[0] == "/odds-by-tournaments"]
-    assert asked == ["17,555"]
+    assert asked == ["17,555", "17,555"]              # Paddy, then Pinnacle
     assert src.last_sweep["unresolved_tournaments"] == ["Narnia Cup"]
 
 
@@ -228,3 +229,106 @@ def test_coverage_counts_two_sided_lines_per_fixture_by_market_type():
     assert corners["two_sided_lines_per_fixture"] == {"min": 2, "median": 2, "max": 2}
     assert corners["lines_seen"] == [9.5, 10.5]
     assert "team-totals [fulltime]" not in rep["market_types"]
+
+
+# --- Pinnacle's fair side from the same vendor --------------------------------------
+
+PIN_MARKETS = {
+    "10803": {"outcomes": {"10803": _p(2.30), "10804": _p(1.62)}},
+    "10807": {"outcomes": {"10807": _p(3.30), "10808": _p(1.33)}},
+}
+
+
+def _pin_fixture(fid="id1"):
+    fx = _fixture(fid=fid)
+    fx["bookmakerOdds"] = {"pinnacle": {"markets": PIN_MARKETS}}
+    return fx
+
+
+def test_pinnacle_joins_paddy_on_the_fixture_id_not_the_team_names():
+    paddy = [_fixture(fid="id1"), _fixture(fid="id2")]
+    pin = [_pin_fixture("id1")]                        # Pinnacle has only one of them
+    fixtures = op.merge_books(paddy, pin)
+    events, counts = op.to_events(fixtures, op.corner_card_markets(CATALOGUE), NAMES,
+                                  now=NOW, window_hours=48, fair_book="pinnacle")
+    by_id = {e["id"]: e for e in events}
+    assert [b["key"] for b in by_id["id1"]["bookmakers"]] == ["paddypower", "pinnacle"]
+    assert [b["key"] for b in by_id["id2"]["bookmakers"]] == ["paddypower"]
+    assert counts["carried_paddy_prices"] == 2 and counts["carried_pinnacle_prices"] == 1
+    pin_book = by_id["id1"]["bookmakers"][1]
+    corners = next(m for m in pin_book["markets"] if m["key"] == op.CORNERS)
+    # RAW prices, both sides of every line — value.py de-vigs
+    assert {(o["name"], o["point"], o["price"]) for o in corners["outcomes"]} == {
+        ("Over", 9.5, 2.30), ("Under", 9.5, 1.62),
+        ("Over", 10.5, 3.30), ("Under", 10.5, 1.33),
+    }
+
+
+def test_the_pricing_pipeline_values_paddy_against_oddspapi_pinnacle():
+    from app.routers.cards import price_events
+    fixtures = op.merge_books([_fixture()], [_pin_fixture()])
+    events, _ = op.to_events(fixtures, op.corner_card_markets(CATALOGUE), NAMES,
+                             now=NOW, window_hours=48, fair_book="pinnacle")
+    rows = price_events(events, -1.0)
+    assert rows, "a fixture with both books must produce rows"
+
+
+def test_merge_pinnacle_leaves_an_oddspapi_fair_side_alone():
+    from app.cards.client import merge_pinnacle
+
+    class Boom:
+        def board(self):
+            raise AssertionError("bettingiscool must not be asked")
+
+        def odds_for(self, _):
+            raise AssertionError("bettingiscool must not be asked")
+
+    fixtures = op.merge_books([_fixture()], [_pin_fixture()])
+    events, _ = op.to_events(fixtures, op.corner_card_markets(CATALOGUE), NAMES,
+                             now=NOW, window_hours=48, fair_book="pinnacle")
+    assert merge_pinnacle(events, Boom()) is events
+
+
+def test_a_rate_limited_request_is_retried_once_after_the_wait_it_names(monkeypatch):
+    sleeps, sent = [], []
+
+    class R:
+        def __init__(self, code, text="", body=None):
+            self.status_code, self.text, self._body = code, text, body
+
+        def json(self):
+            return self._body
+
+    replies = [R(429, '{"error":{"details":"Please wait 0.80 seconds before making another request"}}'),
+               R(200, body=[{"ok": 1}])]
+    monkeypatch.setattr(op.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(op.httpx, "get", lambda *a, **k: sent.append(1) or replies.pop(0))
+    c = op.OddsPapiClient("k")
+    assert c.get("/odds-by-tournaments", tournamentIds="7") == [{"ok": 1}]
+    assert len(sent) == 2
+    assert any(abs(s - 1.0) < 1e-9 for s in sleeps)    # 0.80 + margin
+
+
+def test_back_to_back_requests_are_spaced(monkeypatch):
+    sleeps = []
+
+    class R:
+        status_code, text = 200, ""
+
+        def json(self):
+            return []
+
+    monkeypatch.setattr(op.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(op.httpx, "get", lambda *a, **k: R())
+    c = op.OddsPapiClient("k")
+    c.get("/a")
+    c.get("/b")
+    assert sleeps and sleeps[-1] > 0.5
+
+
+def test_the_default_sweep_takes_the_uefa_qualifiers_and_pinnacle():
+    from app.config import settings
+    entries = settings.oddspapi_tournament_ids.split(",")
+    assert "11" in entries and "27" in entries
+    assert settings.oddspapi_fair_book == "pinnacle"
+    assert op.TOURNAMENT_SPORT_KEYS[23755] == "soccer_uefa_nations_league"
