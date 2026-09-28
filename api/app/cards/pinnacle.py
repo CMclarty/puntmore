@@ -1,17 +1,15 @@
 """Pinnacle fair odds for corners and cards, off the bettingiscool board.
 
-WHY NOT THEODDSAPI. Pinnacle is an `eu` bookmaker and Paddy Power a `uk` one,
-and TheOddsApi bills a per-event call as (markets x regions). Asking it for
-both books therefore spans two regions; asking it only for Paddy Power is
-unambiguously one. bettingiscool is Pinnacle-native and bills per DAY against a
-500k-token quota, so moving this half here makes the TheOddsApi call half the
-size and removes the billing question entirely.
+THE FALLBACK FAIR SIDE. By default Pinnacle's corners/cards come from OddsPapi
+on the same fixture id as Paddy Power's (cards/oddspapi.py). This module is
+used only for an event that arrives without a Pinnacle book, or for every
+event when ODDSPAPI_FAIR_BOOK is blank.
 
 WHAT THIS ASSUMES, AND IT IS NOT YET CONFIRMED. The bettingiscool board is
 known to CARRY derived-market fixtures — the coupon provider filters them out
 by name so they cannot be matched to a coupon leg (EXCLUDED_LEAGUE_RE) — but
 whether those fixtures carry priceable totals has not been verified against the
-live API. `tools/probe_corners.py` answers it. Until then this module reports
+live API. Until it is, this module reports
 what it found rather than failing quietly: if the board has no derived fixtures,
 or they carry no totals, `fair_markets` returns nothing and says so ONCE per
 sweep, naming the cause. A corners tool that shows an empty feed because its
@@ -130,7 +128,7 @@ def pinnacle_books(provider, fixtures: list[dict]) -> dict[str, dict]:
             "cards: the bettingiscool board (%d fixtures) carries NO derived "
             "corners/cards events, so there is no fair price to measure Paddy "
             "Power against and the feed will be empty. This is a data-source "
-            "question, not a value one — see tools/probe_corners.py.",
+            "question, not a value one. The default fair side is OddsPapi (cards/oddspapi.py).",
             len(board),
         )
         return {}

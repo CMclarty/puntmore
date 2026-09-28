@@ -31,6 +31,11 @@ class CardValueRow:
     edge: float           # paddy_odds / fair_odds - 1
 
 
+# The markets this tool values. Every source emits these keys — OddsPapi's
+# adapter maps its catalogue onto them (cards/oddspapi.py).
+CARDS_MARKET_KEYS = ["alternate_totals_corners", "alternate_totals_cards"]
+
+
 def _get_bookmaker(event: dict, bm_key: str) -> dict | None:
     for bm in event.get("bookmakers", []):
         if bm["key"] == bm_key:
@@ -85,7 +90,6 @@ def compute_value_bets(
     market_keys: list[str] | None = None,
 ) -> list[CardValueRow]:
     """Return CardValueRows where edge >= min_edge, sorted best-edge-first."""
-    from .client import CARDS_MARKET_KEYS
     if market_keys is None:
         market_keys = CARDS_MARKET_KEYS
 

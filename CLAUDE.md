@@ -34,30 +34,30 @@ for stale PWA clients; don't add new code under it.)
 - **Coupon tracker** → `BettingIsCoolProvider` (`providers/bettingiscool.py`).
   Pinnacle-native and exposes team totals, which feed the derived score grid.
   Fair odds are de-vigged in-house from its raw prices.
-- **AccaBonus + Cards** → the shared `TheOddsApiClient` (free tier). Unchanged.
+- **Cards** → **OddsPapi** (`cards/oddspapi.py`): Paddy Power AND Pinnacle,
+  joined on OddsPapi's fixture id.
+- **Goalscorers + AccaBonus** → the shared `TheOddsApiClient`, **pending their
+  move to OddsPapi** (user decision, 28 Sept 2026: TheOddsApi is being removed
+  throughout). Read `/api/diagnostics/oddspapi` before porting either — it
+  shows OddsPapi's first-goalscorer markets and player-prop shape, and other
+  sports' coverage, off the live API.
 
-`TheOddsApiProvider` (`providers/odds_api.py`) is the fallback and is **no
-longer the live path**. It has no score grid of its own, so its compound-leg
-pricing is still a naive product — if it is ever made live again, wire it to
-`pricing.grid` first rather than shipping that path.
-
-**The fallback is reached SILENTLY when `BETTINGISCOOL_API_KEY` is unset**, and
-it serves h2h + totals only — no team totals, no grid. So TTS1/2/3, Win to Nil
-and the GG family cannot be priced on it AT ALL, and a coupon of one of those
-types opens with every selection blank. That is indistinguishable from a failed
-scan by looking at it, which is how it went undiagnosed (Aug 2026: a
-"Team to Score 2" sheet, 154 fixtures, 154 blanks). Three things keep it
-diagnosable — do not quietly undo any of them:
-- It **refuses** what it cannot price (`odds_api.unsupported_reason`) rather
-  than approximating. Win to Nil is the one that matters: it contains "win", so
-  it used to fall through and return the STRAIGHT WIN price — a confident wrong
-  price on a much shorter bet.
-- It logs ONE warning per pricing pass naming the market, the count and the
-  missing env var — never one line per leg, and never none.
+**There is NO fallback coupon source** (Sept 2026). `TheOddsApiProvider` was
+removed: it served h2h + totals only, so TTS1/2/3, Win to Nil and the GG family
+could not be priced on it AT ALL, and it was reached SILENTLY when
+`BETTINGISCOOL_API_KEY` was unset (Aug 2026: a "Team to Score 2" sheet, 154
+fixtures, 154 blanks — indistinguishable from a failed scan). Without the key
+the MOCK is used, which prices nothing, and that stays diagnosable — do not
+quietly undo either of these:
+- The boot log warns that coupon pricing is mocked and names the env var.
 - `/api/ready` NAMES the provider (`providers.odds_detail`) with `degraded` and
-  `cannot_price`. It used to report `"live"` for this fallback, which made a
+  `cannot_price`. It used to report `"live"` for the fallback, which made a
   deploy that could price nothing look healthy. The diagnostics ring buffer's
   `boot` record carries the provider name too.
+A second coupon source (OddsPapi's Pinnacle carries 1X2, a totals ladder and
+team totals) must go through `pricing.grid` for the compound markets and
+through `_match_fixture`'s checks below — never a naive product, never a bare
+name match.
 
 **Reading a pick's market and team is ONE implementation** (`app/picks.py`) —
 `team_fragment`, `side_of`, `is_team_specific` and the market regexes. It was
@@ -112,8 +112,6 @@ cannot check the match without a wrong match vouching for itself. Legs read
 before it existed have none and are matched on name and competition only.
 It costs nothing: pruning other days' fixtures before the fuzzy scoring made a
 150-leg pass against a 1,000-fixture board ~5x FASTER (8.6s → 1.6s).
-The fallback `TheOddsApiProvider` does NOT apply these checks (not the live
-path) — port `_match_fixture` before it is ever made live again.
 
 **A BLANK TRACKER HAS FIVE DIFFERENT CAUSES and they used to look identical**
 — a selection with no fair odds, whichever one it was. `get_fair_odds` now
@@ -278,7 +276,7 @@ Both live behind their seams. Core logic never calls a vendor API directly.
     title, the period and the ladder. Strips are told the headings in print
     order (`OcrHint.headings`) because the header is usually above the cut,
     and are told to leave out any row the cut slices through.
-- The Odds API free tier (AccaBonus/Cards) is 500 credits/month. The 24-hour
+- The Odds API free tier (Goalscorers/AccaBonus) is 500 credits/month. The 24-hour
   cache (`Settings.odds_cache_ttl`, `app/odds/client.py`) keeps this safe — do
   not lower the default. A paid-tier upgrade is an `.env` change only.
 - The refresh loop runs every 10 minutes; it recomputes value locally and reads
@@ -387,8 +385,7 @@ internally and returns FAIR odds plus the fixture it fuzzy-matched.
 | Class | File | Trigger |
 |---|---|---|
 | `BettingIsCoolProvider` | `providers/bettingiscool.py` | `COUPON_ODDS_SOURCE=bettingiscool` (default) |
-| `TheOddsApiProvider` | `providers/odds_api.py` | `COUPON_ODDS_SOURCE=theoddsapi` (fallback) |
-| `MockOddsProvider` | `providers/mock_odds.py` | no provider key (dev/test) |
+| `MockOddsProvider` | `providers/mock_odds.py` | no `BETTINGISCOOL_API_KEY` (dev/test — prices nothing) |
 
 Legs are priced through `pricing/legs.py::price_legs` — one implementation
 shared by upload, the on-demand refresh and the scheduler. Don't reintroduce a
@@ -406,16 +403,18 @@ Refresh cadence is 10 min, reading through the cache — it never adds vendor
 calls. To add a provider, implement `OddsProvider` and add an `elif` on
 `settings.coupon_odds_source` in the `main.py` lifespan.
 
-**NEVER send `bookmakers` AND `regions` together** (`odds/client.py`). Billing is
-`markets × regions`, and naming books is the cheaper form — but the real damage
-is filtering: bet365 is a `uk` book and Paddy Power a `uk` book, so a leftover
-default `regions=eu` beside a named book can drop it from the response entirely.
-AccaBonus skips any event missing bet365, so that produced a completely blank
-feed with nothing logged. `fetch` and `fetch_event` both send one or the other,
-and tests pin it on both.
+### TheOddsApi (`app/odds/client.py::TheOddsApiClient`) — being removed
+Goalscorers + AccaBonus still read TheOddsApi through this one shared client
+(HTTP + cache). Everything else has left it; it goes once those two are on
+OddsPapi (see Odds sources above).
 
-### Odds data layer for value tools (`app/odds/client.py::TheOddsApiClient`)
-AccaBonus + Cards read TheOddsApi through this one shared client (HTTP + cache).
+**NEVER send `bookmakers` AND `regions` together.** Billing is
+`markets × regions`, and naming books is the cheaper form — but the real damage
+is filtering: bet365 is a `uk` book, so a leftover default `regions=eu` beside a
+named book can drop it from the response entirely. AccaBonus skips any event
+missing bet365, so that produced a completely blank feed with nothing logged.
+`fetch` and `fetch_event` both send one or the other, and tests pin it on both.
+
 `fetch(sport_key, markets, bookmakers=None) -> list[dict]`, cached in-memory
 keyed by `(sport_key, markets, bookmakers)`.
 
@@ -426,57 +425,32 @@ keyed by `(sport_key, markets, bookmakers)`.
   to keep all keys listed year-round.
 - Fair odds come from de-vigging Pinnacle via the **power method**
   (`app/odds/utils.py::devigd` / `devigd_multi` — user decision, June 2026;
-  don't revert to multiplicative). Pinnacle is the reference everywhere. The
-  coupon tracker devigs the same way, over TheOddsApi prices.
+  don't revert to multiplicative). Pinnacle is the reference everywhere.
 - TheOddsApi returns the totals line as `"point"` (numeric) on each outcome.
   Do not confuse with `"description"` — that field does not exist in this API.
 
 Consumers:
-| Consumer | File | Source | Markets | Bookmakers |
-|---|---|---|---|---|
-| coupons | `providers/odds_api.py` | TheOddsApi | `h2h`, `totals` | Pinnacle (falls back to first listed) |
-| arbs router | `routers/accabonus.py` + `accabonus/arbs.py` | TheOddsApi | `h2h` | bet365 vs Pinnacle |
-| `CardsApiClient` | `cards/client.py` + `cards/value.py` | TheOddsApi | `alternate_totals` ⚠️ **broken, see below** | Pinnacle, Paddy Power |
+| Consumer | File | Markets | Bookmakers |
+|---|---|---|---|
+| goalscorers | `goalscorers/service.py` + `goalscorers/value.py` | `player_first_goal_scorer` | bet365 vs Pinnacle |
+| arbs router | `routers/accabonus.py` + `accabonus/arbs.py` | `h2h` | bet365 vs Pinnacle |
 
-⚠️ `CardsApiClient` asks the **bulk** endpoint for `alternate_totals`, which
-that endpoint rejects (`INVALID_MARKET`) — so it has never returned a row. The
-tool is gated off, so nothing is affected, but re-enabling it means rebuilding
-against the per-event endpoint with the real corners/cards market keys. See
-`docs/provider-verification.md` and PLAN item 7 before touching it.
-
-`TheOddsApiProvider` satisfies the `OddsProvider` interface (used by the refresh
-loop) and reads through the client on its own `COUPON_ODDS_CACHE_TTL`. AccaBonus
-and cards consume the `TheOddsApiClient` directly via `app.state.arbs_client` /
-`app.state.cards_client` because they query bespoke market/bookmaker combos.
-
-### Cards & Corners (`app/cards/`) — TWO vendors, on purpose
-Paddy Power's price comes from **TheOddsApi's per-event endpoint**
-(`bookmakers=paddypower`, never a `regions` param beside it); Pinnacle's fair
-reference comes from **bettingiscool**. That split is a COST decision, not a
-preference: billing is `markets × regions` per event, Paddy Power is a `uk` book
-and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
-- **Regions describe the BOOKMAKER, not the league.** Paddy Power prices La Liga
-  from `uk` perfectly well; the competition is chosen by sport key and the
-  fixture list is free. Getting this backwards is what produced the original
-  two-region design.
-- **The WINDOW and the CADENCE are separate dials, and widening one means
-  slowing the other.** Cost per fixture is `sweeps × markets`. THREE tiers via
-  the odds cache's per-read TTL: 48h–4h every 12h, 4h–1h every 30 min, then
-  every 5 min inside the last hour — 43 credits per fixture, ~17k/month over
-  the major UK/Euro leagues (84% of a 20k plan). Widening the window WITHOUT
-  adding the coarse far tier would have been ~212 credits per fixture and
-  ~83k/month, four times the plan. Never move `cards_window_hours` without
-  recomputing that.
-- **TWO budget guards, and they fail differently.** `cards_quota_reserve` stops
-  the sweep when TheOddsApi's own `x-requests-remaining` header falls to it —
-  authoritative, survives a restart, and already reflects the true per-call cost,
-  which is still unmeasured (this file's Odds API section says
-  `markets × regions`; `routers/accabonus.py` says naming bookmakers bills as
-  one — a 2× difference). `cards_daily_call_budget` is local arithmetic that
-  stops one bad day spending a month; keep it BELOW plan/30 (650 × 30 = 19,500
-  against a 20k plan — 700 was 21,000, i.e. the guard permitted more than the
-  budget it guarded). The reserve exists so a runaway sweep cannot take the
-  coupon fallback and the goalscorer scans down with it.
+### Cards & Corners (`app/cards/`) — ONE vendor, OddsPapi
+Paddy Power's price and Pinnacle's fair reference both come from **OddsPapi**
+(`cards/oddspapi.py`), fetched per competition and joined on OddsPapi's own
+fixture id. bettingiscool (`cards/pinnacle.py`) is the fallback fair side for
+an event that arrives without a Pinnacle book.
+- **TheOddsApi does NOT carry Paddy's corners/cards** — a probe asked by region
+  with no bookmaker filter, hours from a Nations League kickoff, returned
+  LeoVegas alone for corners, nobody for cards, no Paddy. Its per-event Paddy
+  sweep (`CardsApiClient`, tiered cadence, quota reserve) was removed in Sept
+  2026; don't rebuild it.
+- **Cost is sweeps × requests, not per fixture.** OddsPapi bills per REQUEST
+  and `odds-by-tournaments` returns every fixture in the competitions named:
+  13 competitions at 5 per request × 2 books × 48 sweeps/day (30-min
+  `oddspapi_ttl_seconds`) ≈ 290 requests/day. `oddspapi_daily_request_budget`
+  (400) is a runaway ceiling — keep it below plan/30. `cards_window_hours`
+  costs nothing here; it only chooses which fetched fixtures are priced.
 - **Every line PADDY POWER quotes is priced, off Pinnacle's fitted ladder**
   (`cards/laddered.py`, `cards_use_ladder_model`). The matched-line path only
   compares lines BOTH books picked, and books rarely agree — so most of Paddy's
@@ -490,32 +464,22 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   every edge, and a per-count penalty beyond Pinnacle's quoted range. Fewer than
   2 two-sided Pinnacle rungs and the fixture is skipped — one rung pins nothing
   and the shape would come entirely from a stale league prior.
-- **The sweep covers INTERNATIONALS too** (`cards_sport_keys`, Sept 2026):
-  Nations League, Euro and European World Cup qualifiers. Without them an
-  international window read as "no fixture within 48h". Club football mostly
-  pauses in a window, so they replace club spend rather than add to it.
-  Friendlies are deliberately left out. `list_events` answers an unknown key
-  with a 404 that reads as "no fixtures", so the sweep checks its keys against
-  the FREE `/v4/sports` list and names any it does not see (`inactive_keys`,
-  out of season or misspelled), with `fixtures_listed` and `next_kickoff`, so
-  "a quiet spell" and "a key list that misses the games" look different.
-- **Paddy Power's side comes from ODDSPAPI when `ODDSPAPI_API_KEY` is set**
-  (`cards/oddspapi.py`, Sept 2026). TheOddsApi does NOT carry Paddy's
-  corners/cards: a probe asked by region with no bookmaker filter, hours from
-  a Nations League kickoff, returned LeoVegas alone for corners, nobody for
-  cards, no Paddy. OddsPapi facts the adapter rests on: ids are SOFASCORE's
-  (tournaments, teams); a market id is ONE market at ONE line, so a corner
-  ladder is several ids and the line comes from the `/markets` CATALOGUE;
-  fixtures carry participant ids, named via `/participants`; it bills per
-  REQUEST and `odds-by-tournaments` returns every fixture in the tournaments
-  named, so cost is sweeps x requests (~146/day at the defaults), not per
-  fixture. The catalogue and participants field names were NOT verifiable
-  when written (host blocked) — parsed tolerantly, and
-  `/api/cards/oddspapi-check` shows what the live catalogue calls each corner
-  and card market. Read it before trusting a price. It emits TheOddsApi-shaped
-  events, so the Pinnacle join, the pricing model and the diagnostics are
-  unchanged; unset the key and TheOddsApi's path is back.
-- **Pinnacle's side comes from OddsPapi too** (`oddspapi_fair_book`, default
+- **The sweep covers INTERNATIONALS too** (Sept 2026): Nations League (by
+  NAME — the Sofascore id 10783 is not OddsPapi's; it is 23755), UEFA World Cup
+  qualifiers (11) and Euro qualifiers (27). Without them an international
+  window read as "no fixture within 48h". Friendlies are deliberately left
+  out. A configured name that resolves to nothing is reported as
+  `unresolved_tournaments`, and the sweep reports `fixtures_listed` and
+  `next_kickoff`, so "a quiet spell" and "a list that misses the games" look
+  different.
+- **OddsPapi facts the adapter rests on** (all confirmed live, Sept 2026): ids
+  are SOFASCORE's (tournaments, teams); a market id is ONE market at ONE line,
+  the line being `handicap` in the `/markets` CATALOGUE; odds live at
+  `bookmakerOdds.<book>.markets.<id>.outcomes.<id>.players."0".price`;
+  fixtures carry participant ids, named via `/participants`. Pinnacle's cards
+  market is called "Bookings" (`totals-bookings`). `/api/cards/oddspapi-check`
+  shows the catalogue and any book's coverage for one competition.
+- **Pinnacle's side comes from OddsPapi** (`oddspapi_fair_book`, default
   `pinnacle`, Sept 2026). Checked live on the Nations League: Pinnacle posts a
   5-line corners ladder and a 5-line "Bookings" ladder (a CARD COUNT, 3.0–6.0 —
   not booking points). One request per book per chunk, joined on OddsPapi's
@@ -525,7 +489,9 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
 - **OddsPapi rate-limits per endpoint** — back-to-back requests get a 429
   ("wait 0.80 seconds"), which on 28 Sept cost a whole chunk of five
   competitions. `OddsPapiClient` spaces requests by `MIN_REQUEST_GAP` and
-  retries a 429 ONCE after the wait it names. Don't parallelise the sweep.
+  retries a 429 ONCE after the wait it names. Don't parallelise the sweep, and
+  keep ONE client for the whole app (`app.state.oddspapi_client`) — a second
+  client would neither share the spacing nor the daily budget.
 - `cards/pinnacle.py` returns **RAW** prices. De-vigging lives in
   `cards/value.py`; handing it fair prices would de-vig them twice.
 - `merge_pinnacle` joins the two vendors into one event so `value.py` stays
@@ -551,9 +517,8 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   nobody here places. Don't re-add it.
   `ACCABONUS_CACHE_TTL` is the cost dial: 1 credit per sport key per pull, so
   24h is ~450 credits/month and 1h is ~3.6k–10.8k depending on how many keys
-  discovery finds. Cards is ~17k of a 20k plan, so hourly only fits alongside
-  it with `ACCABONUS_SPORT_KEYS` pinned to a handful — watch the
-  "accabonus pull" log line for the live key count.
+  discovery finds — watch the "accabonus pull" log line for the live key
+  count. (Cards no longer spends TheOddsApi credits; it is on OddsPapi.)
 - The sweep's Discord dedupe (`scheduler._cards_notified`) is IN MEMORY and is
   swept each pass. Cards rows are computed, never stored, so there is no row to
   flag — but the map must keep dropping bets that fall off the sweep, or it is
@@ -599,7 +564,7 @@ operations behind the API key.
 
 ## Adding a new tool page
 1. Add the compute logic under `api/app/<tool>/` (and a client consumer of
-   `TheOddsApiClient` if it needs odds).
+   the shared OddsPapi client, `app.state.oddspapi_client`, if it needs odds).
 2. Add a router under `api/app/routers/<tool>.py`; include it in `main.py`.
 3. Add a Pydantic response schema in `schemas.py`.
 4. Frontend: add a page under `frontend/src/pages/`, a route in `App.jsx`, and a

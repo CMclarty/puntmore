@@ -332,3 +332,21 @@ def test_the_default_sweep_takes_the_uefa_qualifiers_and_pinnacle():
     assert "11" in entries and "27" in entries
     assert settings.oddspapi_fair_book == "pinnacle"
     assert op.TOURNAMENT_SPORT_KEYS[23755] == "soccer_uefa_nations_league"
+
+
+def test_a_player_prop_sample_is_trimmed_and_says_where_it_came_from():
+    cat = [{"marketId": 101, "marketName": "First Goalscorer", "marketType": "firstgoalscorer",
+            "sportId": 10, "playerProp": True, "period": "fulltime",
+            "outcomes": [{"outcomeId": 101, "outcomeName": "Yes"}]}]
+    players = {str(i): {"price": 5.0 + i, "active": True} for i in range(20)}
+    fx = {"fixtureId": "f1", "participant1Id": 17, "participant2Id": 38,
+          "bookmakerOdds": {"bet365": {"markets": {
+              "1010": {"outcomes": {"1010": _p(1.9)}},          # not a prop: skipped
+              "101": {"outcomes": {"101": {"players": players}}},
+          }}}}
+    index = op.catalogue_index(cat + CATALOGUE)
+    sample = op.player_prop_sample([fx], index, "bet365", players=3)
+    assert sample["market_id"] == "101" and sample["market"]["player_prop"]
+    assert len(sample["outcomes"]["101"]["players"]) == 3
+    assert sample["outcomes"]["101"]["players_total"] == 20
+    assert op.player_prop_sample([fx], index, "pinnacle") is None

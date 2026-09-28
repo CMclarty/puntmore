@@ -1,20 +1,18 @@
-"""Cards & corners: Paddy Power from TheOddsApi, Pinnacle from bettingiscool.
+"""Cards & corners: the fair-side join, the value paths, the sweep and the
+diagnostics.
 
-The old client asked the BULK endpoint for `alternate_totals` — a market that
-endpoint rejects, and goal totals rather than corners anyway — then swallowed
-the rejection. It returned no row in its entire life and looked like a market
-with no value in it.
-
-The split is a COST decision. TheOddsApi bills (markets x regions) per event;
-Paddy Power is `uk` and Pinnacle is `eu`, so asking one vendor for both spans
-two regions. Asking only for Paddy Power is unambiguously one, and bettingiscool
-is Pinnacle-native on a per-DAY quota.
+Paddy Power (and by default Pinnacle) come from OddsPapi — see
+test_oddspapi.py for that adapter. What is tested here is everything
+downstream of a source's `get_events()`: the bettingiscool fallback join,
+`value.py` / `laddered.py`, the scheduler's dedupe, and the verdict that says
+which kind of empty an empty screen is.
 """
+import copy
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.cards.client import CardsApiClient, merge_pinnacle, PADDY_POWER
+from app.cards.client import merge_pinnacle, PADDY_POWER
 from app.cards.pinnacle import pinnacle_books, _strip_marker, _kind
 from app.cards.value import compute_value_bets
 from app.config import settings
@@ -24,137 +22,40 @@ def _iso(delta_hours):
     return (datetime.now(timezone.utc) + timedelta(hours=delta_hours)).isoformat()
 
 
-class _StubOddsApi:
-    """TheOddsApi client with the network replaced, recording every call."""
+def _paddy_event(eid="e1", books=True):
+    return {
+        "id": eid, "home_team": "Arsenal", "away_team": "Chelsea",
+        "commence_time": _iso(1), "sport_key": "soccer_epl",
+        "bookmakers": [{
+            "key": PADDY_POWER,
+            "markets": [{"key": "alternate_totals_corners", "outcomes": [
+                {"name": "Over", "point": 10.5, "price": 2.10},
+                {"name": "Under", "point": 10.5, "price": 1.80},
+            ]}],
+        }] if books else [],
+    }
 
-    def __init__(self, fixtures):
-        self._fixtures = fixtures
-        self.event_calls = []
 
-    def list_events(self, sport_key):
-        return self._fixtures.get(sport_key, [])
+class _Source:
+    """A cards source (the interface `OddsPapiPaddySource` has): `get_events()`
+    and the `last_sweep` it leaves behind. Events are copied per call because
+    the join appends a book to them."""
 
-    def fetch_event(self, sport_key, event_id, markets, bookmakers=None, ttl=None):
-        self.event_calls.append({
-            "sport_key": sport_key, "event_id": event_id, "markets": markets,
-            "bookmakers": bookmakers, "ttl": ttl,
-        })
-        return {
-            "id": event_id, "home_team": "Arsenal", "away_team": "Chelsea",
-            "commence_time": _iso(1), "sport_key": sport_key,
-            "bookmakers": [{
-                "key": PADDY_POWER,
-                "markets": [{"key": "alternate_totals_corners", "outcomes": [
-                    {"name": "Over", "point": 10.5, "price": 2.10},
-                    {"name": "Under", "point": 10.5, "price": 1.80},
-                ]}],
-            }],
+    def __init__(self, events, **sweep):
+        self._events = events
+        self._sweep = sweep
+        self.last_sweep: dict = {}
+
+    def get_events(self):
+        events = copy.deepcopy(self._events)
+        self.last_sweep = {
+            "source": "test", "window_hours": 48.0, "tournaments": 1,
+            "fixtures_listed": len(events), "fixtures_in_window": len(events),
+            "carried_paddy_prices": sum(1 for e in events if e["bookmakers"]),
+            "carried_pinnacle_prices": 0, "next_kickoff": None,
+            **self._sweep,
         }
-
-
-def _client(fixtures, **kw):
-    return CardsApiClient(_StubOddsApi(fixtures), **kw)
-
-
-# --- only Paddy Power, and only the uk region implied by naming it ----------
-
-def test_only_paddy_power_is_requested():
-    """Naming one book keeps the call to a single region.
-
-    Asking for Pinnacle here as well would span uk+eu and, on the billing the
-    July doc describes, double the cost of the whole tool.
-    """
-    stub = _StubOddsApi({"soccer_epl": [{"id": "e1", "commence_time": _iso(0.5)}]})
-    c = CardsApiClient(stub, sport_keys=["soccer_epl"])
-    c.get_events()
-    assert stub.event_calls[0]["bookmakers"] == PADDY_POWER
-    assert "pinnacle" not in stub.event_calls[0]["bookmakers"]
-
-
-def test_the_real_market_keys_are_requested():
-    """`alternate_totals` is GOAL totals, and the bulk endpoint rejects it.
-
-    Requesting it was why this tool never returned a row.
-    """
-    stub = _StubOddsApi({"soccer_epl": [{"id": "e1", "commence_time": _iso(0.5)}]})
-    CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
-    markets = stub.event_calls[0]["markets"]
-    assert "alternate_totals_corners" in markets
-    assert "alternate_totals_cards" in markets
-
-
-# --- the window is the expensive dial --------------------------------------
-
-def test_fixtures_outside_the_window_are_never_called():
-    """Cost per fixture is sweeps x markets, so the window governs spend — and
-    these markets are not even posted this far out."""
-    stub = _StubOddsApi({"soccer_epl": [
-        {"id": "soon", "commence_time": _iso(0.5)},
-        {"id": "far", "commence_time": _iso(settings.cards_window_hours + 5)},
-    ]})
-    CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
-    assert [c["event_id"] for c in stub.event_calls] == ["soon"]
-
-
-def test_kicked_off_fixtures_are_not_called():
-    stub = _StubOddsApi({"soccer_epl": [{"id": "gone", "commence_time": _iso(-1)}]})
-    CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
-    assert stub.event_calls == []
-
-
-def test_cadence_is_tiered_by_time_to_kickoff():
-    """Near kickoff gets the fast cadence; further out is served from cache.
-
-    Driven by the odds cache's per-read TTL rather than a second scheduler, so
-    a 5-minute sweep only costs credits on the fixtures that need it.
-    """
-    stub = _StubOddsApi({"soccer_epl": [
-        {"id": "near", "commence_time": _iso(0.5)},
-        {"id": "mid", "commence_time": _iso(3)},
-    ]})
-    CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
-    ttls = {c["event_id"]: c["ttl"] for c in stub.event_calls}
-    assert ttls["near"] == settings.cards_fast_interval_minutes * 60
-    assert ttls["mid"] == settings.cards_slow_interval_minutes * 60
-    assert ttls["near"] < ttls["mid"]
-
-
-# --- the budget guard ------------------------------------------------------
-
-def test_the_daily_budget_is_a_hard_ceiling(monkeypatch):
-    """The true credit cost of a per-event call is not confirmed — the doc says
-    markets x regions, the accabonus comment says naming books bills as one.
-
-    Until that is measured the sweep must stop rather than discover the rate
-    when the month's quota is gone.
-    """
-    monkeypatch.setattr(settings, "cards_daily_call_budget", 3)
-    stub = _StubOddsApi({"soccer_epl": [
-        {"id": f"e{i}", "commence_time": _iso(0.5)} for i in range(10)
-    ]})
-    c = CardsApiClient(stub, sport_keys=["soccer_epl"])
-    c.get_events()
-    assert len(stub.event_calls) == 3
-    assert c.calls_today == 3
-    # And it stays spent across sweeps within the same day.
-    c.get_events()
-    assert len(stub.event_calls) == 3
-
-
-def test_the_budget_keeps_the_soonest_fixtures():
-    """A cut-off must drop what matters least, not whatever came back first."""
-    stub = _StubOddsApi({"soccer_epl": [
-        {"id": "later", "commence_time": _iso(3)},
-        {"id": "sooner", "commence_time": _iso(0.5)},
-    ]})
-    c = CardsApiClient(stub, sport_keys=["soccer_epl"])
-    import app.cards.client as mod
-    mod.settings.cards_daily_call_budget = 1
-    try:
-        c.get_events()
-    finally:
-        mod.settings.cards_daily_call_budget = 700
-    assert [call["event_id"] for call in stub.event_calls] == ["sooner"]
+        return events
 
 
 # --- the bettingiscool fair side -------------------------------------------
@@ -233,12 +134,11 @@ def test_an_unrelated_fixture_gets_no_fair_price():
 # --- the two vendors join, and value.py stays vendor-agnostic --------------
 
 def test_the_two_sources_join_into_one_valued_row():
-    """End to end: Paddy from TheOddsApi, Pinnacle from bettingiscool.
+    """End to end: Paddy from the source, Pinnacle joined from bettingiscool.
 
     Pinnacle 1.90/1.95 de-vigs to roughly 2.03/1.98; Paddy's 2.10 over is value.
     """
-    stub = _StubOddsApi({"soccer_epl": [{"id": "e1", "commence_time": _iso(0.5)}]})
-    events = CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
+    events = _Source([_paddy_event()]).get_events()
     events = merge_pinnacle(events, _StubBic(_corner_board(), _corner_odds()))
 
     books = {bm["key"] for bm in events[0]["bookmakers"]}
@@ -268,8 +168,7 @@ def test_a_provider_without_a_board_is_reported_not_crashed():
 
 def test_no_fair_price_means_no_row_rather_than_an_unvalued_one():
     """value.py already needs both books; this pins that the join keeps it so."""
-    stub = _StubOddsApi({"soccer_epl": [{"id": "e1", "commence_time": _iso(0.5)}]})
-    events = CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
+    events = _Source([_paddy_event()]).get_events()
     events = merge_pinnacle(events, _StubBic([], {}))     # empty board
     assert compute_value_bets(events, min_edge=-0.50) == []
 
@@ -286,10 +185,7 @@ class _Notifier:
 
 def _valued_client():
     """A client whose sweep yields one Paddy Power event with real value."""
-    return CardsApiClient(
-        _StubOddsApi({"soccer_epl": [{"id": "e1", "commence_time": _iso(0.5)}]}),
-        sport_keys=["soccer_epl"],
-    )
+    return _Source([_paddy_event()])
 
 
 def _reset_dedupe():
@@ -336,8 +232,7 @@ def test_sweep_forgets_bets_that_drop_off(monkeypatch):
     assert sched._cards_notified
 
     # Next sweep finds nothing (fixtures kicked off, markets down).
-    empty = CardsApiClient(_StubOddsApi({"soccer_epl": []}), sport_keys=["soccer_epl"])
-    sched.sweep_cards(empty, bic, _Notifier())
+    sched.sweep_cards(_Source([]), bic, _Notifier())
     assert sched._cards_notified == {}
 
 
@@ -359,7 +254,7 @@ def test_no_cards_client_means_no_sweep():
 
 
 def test_the_job_is_registered_only_when_the_client_exists(monkeypatch):
-    """No ODDS_API_KEY should mean no job, rather than a job that wakes every
+    """No ODDSPAPI_API_KEY should mean no job, rather than a job that wakes every
     five minutes to do nothing."""
     from app.scheduler import start_scheduler
     monkeypatch.setattr(settings, "enable_cards", True)
@@ -379,7 +274,6 @@ def test_the_job_is_registered_only_when_the_client_exists(monkeypatch):
         )
     finally:
         with_client.shutdown(wait=False)
-
 
 
 def test_cards_alerts_are_off_by_default():
@@ -505,7 +399,7 @@ def test_an_unfittable_ladder_is_skipped_not_crashed():
 
 def test_diagnostics_names_a_missing_client():
     from app.routers.cards import diagnose
-    assert "ODDS_API_KEY" in diagnose(None, None)["verdict"]
+    assert "ODDSPAPI_API_KEY" in diagnose(None, None)["verdict"]
 
 
 def test_diagnostics_distinguishes_no_fixtures_from_no_value():
@@ -515,7 +409,7 @@ def test_diagnostics_distinguishes_no_fixtures_from_no_value():
     """
     from app.routers.cards import diagnose
 
-    quiet = CardsApiClient(_StubOddsApi({"soccer_epl": []}), sport_keys=["soccer_epl"])
+    quiet = _Source([])
     quiet.get_events()
     verdict = diagnose(quiet, None)["verdict"]
     assert "within" in verdict and "kickoff" in verdict
@@ -535,234 +429,45 @@ def test_diagnostics_distinguishes_no_fixtures_from_no_value():
 
 def test_diagnostics_reports_paddy_not_posting_the_market():
     from app.routers.cards import diagnose
-
-    class _NoPaddy(_StubOddsApi):
-        def fetch_event(self, *a, **k):
-            event = super().fetch_event(*a, **k)
-            event["bookmakers"] = []          # fixture exists, market not up
-            return event
-
-    client = CardsApiClient(
-        _NoPaddy({"soccer_epl": [{"id": "e1", "commence_time": _iso(0.5)}]}),
-        sport_keys=["soccer_epl"],
-    )
+    client = _Source([_paddy_event(books=False)])      # fixture exists, market not up
     client.get_events()
     assert "not posting" in diagnose(client, None)["verdict"]
 
 
-# --- three tiers: the window widened without the cadence following it ------
-
-def test_the_far_tier_polls_coarsely():
-    """72h of window at the 30-minute cadence would be ~308 credits a fixture,
-    six times a 20k plan. Three days out the only question is whether the
-    market is up yet, which does not need asking every half hour."""
-    stub = _StubOddsApi({"soccer_epl": [
-        {"id": "far", "commence_time": _iso(30)},     # well into the far tier
-        {"id": "mid", "commence_time": _iso(3)},      # inside the slow tier
-        {"id": "near", "commence_time": _iso(0.5)},   # inside the fast tier
-    ]})
-    CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
-    ttls = {c["event_id"]: c["ttl"] for c in stub.event_calls}
-
-    assert ttls["near"] == settings.cards_fast_interval_minutes * 60
-    assert ttls["mid"] == settings.cards_slow_interval_minutes * 60
-    assert ttls["far"] == settings.cards_far_interval_minutes * 60
-    assert ttls["near"] < ttls["mid"] < ttls["far"]
-
-
-def test_the_window_reaches_two_days_out():
-    """Read from config rather than hard-coded, so changing the window is one
-    edit and the test still pins that the boundary is enforced."""
-    inside = settings.cards_window_hours - 2
-    outside = settings.cards_window_hours + 2
-    stub = _StubOddsApi({"soccer_epl": [
-        {"id": "in", "commence_time": _iso(inside)},
-        {"id": "out", "commence_time": _iso(outside)},
-    ]})
-    CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
-    assert [c["event_id"] for c in stub.event_calls] == ["in"]
-
-
-def test_a_budget_cut_off_still_keeps_the_soonest_fixtures():
-    """With a 72h window far more fixtures are due at once, so the daily
-    ceiling matters more — and what it drops must be the least urgent."""
-    stub = _StubOddsApi({"soccer_epl": [
-        {"id": "days_out", "commence_time": _iso(60)},
-        {"id": "tomorrow", "commence_time": _iso(20)},
-        {"id": "tonight", "commence_time": _iso(0.5)},
-    ]})
-    client = CardsApiClient(stub, sport_keys=["soccer_epl"])
-    import app.cards.client as mod
-    mod.settings.cards_daily_call_budget = 2
-    try:
-        client.get_events()
-    finally:
-        mod.settings.cards_daily_call_budget = 700
-    assert [c["event_id"] for c in stub.event_calls] == ["tonight", "tomorrow"]
-
-
-# --- the guard that binds is the vendor's own quota ------------------------
-
-class _QuotaClient(_StubOddsApi):
-    """A stub reporting quota the way TheOddsApi's headers do."""
-
-    def __init__(self, fixtures, remaining, cost=1):
-        super().__init__(fixtures)
-        self.quota_remaining = remaining
-        self.last_call_cost = cost
-
-
-def _many(n):
-    return {"soccer_epl": [
-        {"id": f"e{i}", "commence_time": _iso(0.5 + i * 0.01)} for i in range(n)
-    ]}
-
-
-def test_the_sweep_stops_at_the_quota_reserve():
-    """The reserve is left for the coupon fallback and the goalscorer scans.
-
-    A locally counted budget cannot do this job: it is a guess at the per-call
-    cost, and it resets on every restart. The vendor's remaining-quota header
-    is right regardless.
-    """
-    stub = _QuotaClient(_many(10), remaining=settings.cards_quota_reserve)
-    client = CardsApiClient(stub, sport_keys=["soccer_epl"])
-    client.get_events()
-    assert stub.event_calls == []
-
-
-def test_the_sweep_spends_only_the_quota_above_the_reserve():
-    stub = _QuotaClient(_many(10), remaining=settings.cards_quota_reserve + 3)
-    CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
-    assert len(stub.event_calls) == 3
-
-
-def test_the_real_per_call_cost_is_used_when_the_vendor_reports_it():
-    """The (markets x regions) figure is unmeasured, so it is not assumed.
-
-    At 2 credits a call, headroom of 6 buys 3 calls, not 6.
-    """
-    stub = _QuotaClient(_many(10), remaining=settings.cards_quota_reserve + 6, cost=2)
-    CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
-    assert len(stub.event_calls) == 3
-
-
-def test_the_daily_cap_still_applies_below_the_reserve_limit():
-    """Two guards that fail differently: one bad day must not spend a month."""
-    stub = _QuotaClient(_many(50), remaining=100_000)
-    client = CardsApiClient(stub, sport_keys=["soccer_epl"])
-    import app.cards.client as mod
-    mod.settings.cards_daily_call_budget = 4
-    try:
-        client.get_events()
-    finally:
-        mod.settings.cards_daily_call_budget = 650
-    assert len(stub.event_calls) == 4
-
-
-def test_the_daily_cap_fits_inside_the_monthly_plan():
-    """700/day was 21,000/month against a 20,000 plan — the guard permitted
-    more than the budget it was guarding."""
-    assert settings.cards_daily_call_budget * 30 < 20_000
-
-
-# --- international football is covered, and a dead key is visible ------------
-#
-# An international window returned "No fixture kicks off within 48h" — true,
-# and entirely because no international competition was on the key list. And a
-# misspelled key would have looked exactly the same: list_events answers an
-# unknown key with a 404 that reads as "no fixtures".
-
-def test_the_internationals_are_on_the_sweep():
-    from app.config import settings
-    keys = settings.cards_sport_keys.split(",")
-    assert "soccer_uefa_nations_league" in keys
-    assert "soccer_fifa_world_cup_qualifiers_europe" in keys
-    assert "soccer_uefa_euro_qualification" in keys
-
-
-class _StubWithSports(_StubOddsApi):
-    def __init__(self, fixtures, active):
-        super().__init__(fixtures)
-        self._active = active
-
-    def list_sports(self):
-        return [{"key": k} for k in self._active]
-
-
-def test_a_key_the_vendor_does_not_list_is_named_in_the_sweep():
-    stub = _StubWithSports({}, active=["soccer_epl"])
-    c = CardsApiClient(stub, sport_keys=["soccer_epl", "soccer_uefa_nations_leage"])
-    c.get_events()
-    assert c.last_sweep["inactive_keys"] == ["soccer_uefa_nations_leage"]
-    assert c.last_sweep["sport_keys"] == 2
-
-
-def test_the_sweep_says_what_was_listed_and_when_the_next_game_is():
-    """Listed-but-far and listed-nothing are different answers."""
-    stub = _StubWithSports({"soccer_epl": [
-        {"id": "far", "commence_time": _iso(100)},
-        {"id": "farther", "commence_time": _iso(150)},
-    ]}, active=["soccer_epl"])
-    c = CardsApiClient(stub, sport_keys=["soccer_epl"])
-    c.get_events()
-    assert c.last_sweep["fixtures_in_window"] == 0
-    assert c.last_sweep["fixtures_listed"] == 2
-    assert c.last_sweep["next_kickoff"] is not None
-    assert stub.event_calls == []                 # still spends nothing
-
-
-def test_a_failed_key_check_does_not_break_the_sweep():
-    c = _client({"soccer_epl": [{"id": "e1", "commence_time": _iso(0.5)}]})
-    c.get_events()                                # stub has no list_sports
-    assert c.last_sweep["inactive_keys"] is None
-    assert c.last_sweep["called"] == 1
-
-
-def test_the_empty_verdict_names_the_next_kickoff_and_the_dead_keys():
+def test_an_oddspapi_fair_side_that_is_not_up_yet_says_so():
+    """Pinnacle posts corners late. Paddy priced, Pinnacle not yet, is a
+    normal state and must not send anyone looking at bettingiscool."""
     from app.routers.cards import diagnose
-    stub = _StubWithSports({"soccer_epl": [{"id": "far", "commence_time": _iso(100)}]},
-                           active=["soccer_epl"])
-    c = CardsApiClient(stub, sport_keys=["soccer_epl", "soccer_nope"])
+    client = _Source([_paddy_event()], fair_source="oddspapi:pinnacle")
+    client.get_events()
+    verdict = diagnose(client, None)["verdict"]
+    assert "Pinnacle" in verdict and "bettingiscool" not in verdict.lower()
+
+
+def test_an_oddspapi_fair_side_skips_the_bettingiscool_checks():
+    from app.routers.cards import diagnose
+    from app.cards import laddered, pinnacle
+    pinnacle.LAST_RUN.clear()                     # bettingiscool never ran
+    laddered.LAST_RUN.update({"ladders_fitted": 2, "ladders_refused": 0,
+                              "priceable_paddy_lines": 5, "rows": 0})
+    client = _Source([_paddy_event()], fair_source="oddspapi:pinnacle",
+                     carried_pinnacle_prices=1)
+    client.get_events()
+    try:
+        assert diagnose(client, None)["verdict"].startswith("WORKING")
+    finally:
+        laddered.LAST_RUN.clear()
+
+
+def test_the_empty_verdict_names_the_next_kickoff_and_missing_competitions():
+    from app.routers.cards import diagnose
+    c = _Source([], next_kickoff="2026-10-10T19:45:00Z",
+                unresolved_tournaments=["Narnia Cup"])
     c.get_events()
     verdict = diagnose(c, None)["verdict"]
-    assert "Next listed kickoff" in verdict
-    assert "soccer_nope" in verdict
+    assert "Next listed kickoff: 2026-10-10T19:45:00Z" in verdict
+    assert "Narnia Cup" in verdict
     # Nothing listed anywhere is said outright.
-    empty = CardsApiClient(_StubWithSports({}, active=["soccer_epl"]),
-                           sport_keys=["soccer_epl"])
+    empty = _Source([])
     empty.get_events()
     assert "No upcoming fixture is listed" in diagnose(empty, None)["verdict"]
-
-
-# --- probe: who carries corners/cards for one match --------------------------------
-
-def test_the_probe_asks_by_region_with_no_book_filter_and_reports_every_book():
-    from types import SimpleNamespace
-    from app.routers.cards import probe_books
-
-    calls = []
-
-    class Raw(_StubOddsApi):
-        quota_remaining, last_call_cost = 19000, 2
-
-        def fetch_event(self, sport_key, event_id, markets, bookmakers=None,
-                        ttl=None, regions=None):
-            calls.append({"bookmakers": bookmakers, "regions": regions, "ttl": ttl})
-            return {"home_team": "England", "away_team": "Spain",
-                    "commence_time": _iso(20), "bookmakers": [
-                        {"key": "williamhill", "markets": [{"key": "alternate_totals_corners"}]},
-                        {"key": "paddypower", "markets": [{"key": "alternate_totals_cards"},
-                                                          {"key": "alternate_totals_corners"}]},
-                    ]}
-
-    raw = Raw({"soccer_uefa_nations_league": [
-        {"id": "e1", "commence_time": _iso(20), "home_team": "England", "away_team": "Spain"}]})
-    cards = CardsApiClient(raw, sport_keys=["soccer_uefa_nations_league"])
-    req = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(cards_client=cards)))
-    out = probe_books(req)
-    assert calls == [{"bookmakers": None, "regions": "uk", "ttl": 0}]
-    assert out["match"] == "England vs Spain"
-    assert out["paddypower_present"] is True
-    assert out["paddypower_markets"] == ["alternate_totals_cards", "alternate_totals_corners"]
-    assert "williamhill" in out["bookmakers"]

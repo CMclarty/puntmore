@@ -32,8 +32,9 @@ def get_card_value_bets(
     client = request.app.state.cards_client
     if client is None:
         return []
-    # Paddy Power from TheOddsApi, Pinnacle from bettingiscool — joined into
-    # one event before valuing, so value.py stays vendor-agnostic.
+    # Paddy Power and Pinnacle from OddsPapi, on one fixture id; bettingiscool
+    # only for an event that arrives without Pinnacle. Joined before valuing,
+    # so value.py stays vendor-agnostic.
     events = merge_pinnacle(
         client.get_events(), getattr(request.app.state, "odds_provider", None)
     )
@@ -108,68 +109,53 @@ def diagnose(client, pinnacle) -> dict:
     fair = dict(getattr(pinnacle_src, "LAST_RUN", {}) or {})
     priced = dict(getattr(laddered, "LAST_RUN", {}) or {})
 
+    oddspapi_fair = str(sweep.get("fair_source", "")).startswith("oddspapi")
     if client is None:
         verdict = (
-            "No cards client — ODDS_API_KEY is not set, so Paddy Power's prices "
-            "are never fetched."
+            "No cards client — ODDSPAPI_API_KEY is not set, so Paddy Power's "
+            "prices are never fetched."
         )
     elif not sweep:
         verdict = "No sweep has run yet. Open the feed or wait for the 5-minute tick."
+    elif sweep.get("error"):
+        verdict = f"The last sweep failed before fetching odds: {sweep['error']}"
     elif sweep.get("fixtures_in_window", 0) == 0:
         nxt = sweep.get("next_kickoff")
-        inactive = sweep.get("inactive_keys") or []
+        missing = sweep.get("unresolved_tournaments") or []
         verdict = (
             f"No fixture kicks off within {sweep.get('window_hours')}h, so nothing "
-            f"was fetched. These markets are only posted near kickoff — this is "
+            f"was priced. These markets are only posted near kickoff — this is "
             f"the normal state between matches, not a failure. "
             + (f"Next listed kickoff: {nxt}. " if nxt else
                f"No upcoming fixture is listed in ANY of the "
-               f"{sweep.get('sport_keys')} covered competitions. ")
-            + (f"{len(inactive)} configured key(s) not currently listed by "
-               f"TheOddsApi (out of season, or misspelled): "
-               f"{', '.join(inactive)}." if inactive else "")
+               f"{sweep.get('tournaments')} covered competitions. ")
+            + (f"{len(missing)} configured competition(s) not found on OddsPapi: "
+               f"{', '.join(missing)}." if missing else "")
         ).strip()
     elif sweep.get("carried_paddy_prices", 0) == 0:
         verdict = (
-            f"{sweep.get('called')} fixture(s) called and NONE carried Paddy Power "
-            f"corners/cards prices. Paddy Power is not posting these markets on "
-            f"these fixtures yet."
+            f"{sweep.get('fixtures_in_window')} fixture(s) in range and NONE "
+            f"carried Paddy Power corners/cards prices. Paddy Power is not "
+            f"posting these markets on these fixtures yet."
         )
+    elif oddspapi_fair and sweep.get("carried_pinnacle_prices", 0) == 0:
+        verdict = (
+            f"Paddy Power prices {sweep.get('carried_paddy_prices')} fixture(s) "
+            f"but Pinnacle posts corners/cards on none of them yet, so there is "
+            f"no fair price to measure against. Pinnacle posts these late — "
+            f"normal until close to kickoff."
+        )
+    elif oddspapi_fair:
+        verdict = None
     elif not pinnacle or not (hasattr(pinnacle, "board") and hasattr(pinnacle, "odds_for")):
         verdict = (
             "The coupon odds provider is not bettingiscool, so there is no "
             "Pinnacle corners board to price against. Set BETTINGISCOOL_API_KEY."
         )
-    elif fair.get("derived_fixtures", 0) == 0:
-        verdict = (
-            f"bettingiscool's board ({fair.get('board_fixtures', 0)} fixtures) "
-            f"carries no derived corners/cards events, so there is no fair price "
-            f"to measure Paddy Power against."
-        )
-    elif fair.get("matched", 0) == 0:
-        verdict = (
-            f"{fair.get('derived_fixtures')} derived fixture(s) on the board but "
-            f"none matched a Paddy Power fixture by name."
-        )
-    elif fair.get("no_totals", 0) and not priced.get("ladders_fitted"):
-        verdict = (
-            f"{fair.get('no_totals')} matched fixture(s) carry no totals, so no "
-            f"ladder could be built."
-        )
-    elif priced.get("ladders_fitted", 0) == 0:
-        verdict = (
-            f"No ladder was fittable — {priced.get('ladders_refused', 0)} refused. "
-            f"A fixture needs at least 2 two-sided Pinnacle rungs."
-        )
-    elif priced.get("rows", 0) == 0:
-        verdict = (
-            f"WORKING: {priced.get('ladders_fitted')} ladder(s) fitted and "
-            f"{priced.get('priceable_paddy_lines', 0)} Paddy Power line(s) priced, "
-            f"but none cleared the value guards. That is the tool doing its job — "
-            f"most lines hold no edge."
-        )
     else:
-        verdict = f"{priced.get('rows')} value row(s) found."
+        verdict = None
+    if verdict is None:
+        verdict = _pricing_verdict(fair if not oddspapi_fair else None, priced)
 
     return {
         "verdict": verdict,
@@ -180,76 +166,39 @@ def diagnose(client, pinnacle) -> dict:
     }
 
 
-@router.get("/cards/probe-books")
-def probe_books(
-    request: Request,
-    region: str = "uk",
-    sport: str | None = None,
-    event_id: str | None = None,
-    markets: str | None = None,
-):
-    """Which bookmakers and markets TheOddsApi returns for ONE match.
-
-    COSTS CREDITS — one per-event call (markets x regions, so ~2), on demand,
-    never on a schedule. The sweep names Paddy Power, so an empty answer there
-    cannot say whether Paddy's corners are not up YET, are filed under
-    different market keys, or are not in this vendor's feed at all. This asks
-    by REGION with no bookmaker filter, so the answer is everything the vendor
-    carries for these markets on this match.
-
-    Defaults to the soonest fixture the sweep has in range. `markets` overrides
-    the configured keys, to try another spelling.
-    """
-    cards = request.app.state.cards_client
-    raw = getattr(cards, "_client", None)
-    if cards is None or raw is None:
-        return {"error": "ODDS_API_KEY is not set"}
-    if not hasattr(cards, "_due_fixtures"):
-        return {"error": "Paddy Power's side is OddsPapi now — this probe is "
-                         "TheOddsApi's. Use /api/cards/oddspapi-check."}
-
-    if event_id is None or sport is None:
-        due = cards._due_fixtures()          # FREE: the fixture lists only
-        if not due:
-            return {"error": "no fixture in range to probe — try nearer a match"}
-        sport, fixture, _ = due[0]
-        event_id = fixture.get("id")
-        match = f"{fixture.get('home_team')} vs {fixture.get('away_team')}"
-        kickoff = fixture.get("commence_time")
-    else:
-        match = kickoff = None
-
-    wanted = markets or settings.cards_market_keys
-    try:
-        # ttl=0: a cached answer would defeat the point.
-        event = raw.fetch_event(sport, event_id, wanted, regions=region, ttl=0)
-    except Exception as exc:
-        return {"error": str(exc), "sport": sport, "event_id": event_id,
-                "markets_requested": wanted}
-
-    books: dict[str, list[str]] = {}
-    for bm in (event or {}).get("bookmakers", []):
-        books[bm.get("key")] = sorted(m.get("key") for m in bm.get("markets", []))
-    paddy = books.get("paddypower")
-    return {
-        "match": match or f"{event.get('home_team')} vs {event.get('away_team')}",
-        "kickoff": kickoff or event.get("commence_time"),
-        "sport": sport,
-        "region_requested": region,
-        "markets_requested": wanted,
-        "bookmakers": books,
-        "paddypower_present": paddy is not None,
-        "paddypower_markets": paddy or [],
-        "quota_remaining": getattr(raw, "quota_remaining", None),
-        "last_call_cost": getattr(raw, "last_call_cost", None),
-        "reading": (
-            "Paddy Power listed with markets: the feed carries them — the sweep "
-            "should price this match. Other books listed but not Paddy Power: "
-            "the vendor carries these markets, not from Paddy (yet). NO books at "
-            "all: nobody has posted them for this match yet, or the market keys "
-            "are wrong — try again nearer kickoff, or another `markets` spelling."
-        ),
-    }
+def _pricing_verdict(fair: dict | None, priced: dict) -> str:
+    """Past the sweep: the bettingiscool join (when that is the fair side),
+    then the ladder fit, then the value guards."""
+    if fair is not None:
+        if fair.get("derived_fixtures", 0) == 0:
+            return (
+                f"bettingiscool's board ({fair.get('board_fixtures', 0)} fixtures) "
+                f"carries no derived corners/cards events, so there is no fair "
+                f"price to measure Paddy Power against."
+            )
+        if fair.get("matched", 0) == 0:
+            return (
+                f"{fair.get('derived_fixtures')} derived fixture(s) on the board "
+                f"but none matched a Paddy Power fixture by name."
+            )
+        if fair.get("no_totals", 0) and not priced.get("ladders_fitted"):
+            return (
+                f"{fair.get('no_totals')} matched fixture(s) carry no totals, so "
+                f"no ladder could be built."
+            )
+    if priced.get("ladders_fitted", 0) == 0:
+        return (
+            f"No ladder was fittable — {priced.get('ladders_refused', 0)} refused. "
+            f"A fixture needs at least 2 two-sided Pinnacle rungs."
+        )
+    if priced.get("rows", 0) == 0:
+        return (
+            f"WORKING: {priced.get('ladders_fitted')} ladder(s) fitted and "
+            f"{priced.get('priceable_paddy_lines', 0)} Paddy Power line(s) priced, "
+            f"but none cleared the value guards. That is the tool doing its job — "
+            f"most lines hold no edge."
+        )
+    return f"{priced.get('rows')} value row(s) found."
 
 
 @router.get("/cards/oddspapi-check")

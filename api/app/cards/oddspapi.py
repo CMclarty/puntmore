@@ -242,11 +242,15 @@ def to_events(fixtures, markets, names, *, now=None, window_hours=None,
     window = timedelta(hours=window_hours if window_hours is not None
                        else settings.cards_window_hours)
     counts = {"fixtures_listed": 0, "fixtures_in_window": 0,
-              "carried_paddy_prices": 0, "carried_pinnacle_prices": 0, "unnamed": 0}
+              "carried_paddy_prices": 0, "carried_pinnacle_prices": 0, "unnamed": 0,
+              "next_kickoff": None}
     events = []
+    upcoming = []
     for fx in _as_list(fixtures):
         counts["fixtures_listed"] += 1
         start = _parse_start(_first(fx, "startTime", "start_time", "commence_time"))
+        if start is not None and start > now:
+            upcoming.append(start)
         if start is None or not (timedelta(0) < start - now <= window):
             continue
         counts["fixtures_in_window"] += 1
@@ -283,6 +287,8 @@ def to_events(fixtures, markets, names, *, now=None, window_hours=None,
             "fair_source": "oddspapi" if fair_book else None,
             "bookmakers": books,
         })
+    if upcoming:
+        counts["next_kickoff"] = min(upcoming).strftime("%Y-%m-%dT%H:%M:%SZ")
     return events, counts
 
 
@@ -351,8 +357,11 @@ class OddsPapiClient:
     def participants(self):
         return self._cached(self._ref, "participants", "/participants", sportId=SOCCER)
 
-    def tournaments(self):
-        return self._cached(self._ref, "tournaments", "/tournaments", sportId=SOCCER)
+    def tournaments(self, sport: int = SOCCER):
+        return self._cached(self._ref, ("tournaments", sport), "/tournaments", sportId=sport)
+
+    def sports(self):
+        return self._cached(self._ref, "sports", "/sports")
 
     def odds_by_tournaments(self, ids: list[int], bookmaker: str = PADDY_POWER):
         key = ("odds", tuple(ids), bookmaker)
@@ -421,6 +430,8 @@ def catalogue_index(catalogue) -> dict[str, dict]:
             "name": str(_first(m, "marketName", "name") or ""),
             "line": line,
             "period": str(_first(m, "period", "periodName") or ""),
+            "player_prop": bool(m.get("playerProp")),
+            "sport": _first(m, "sportId", "sport_id"),
         }
     return out
 
@@ -466,6 +477,34 @@ def coverage(fixtures, index: dict[str, dict], bookmaker: str) -> dict:
             "lines_seen": sorted(lines_seen.get(key, set()), key=lambda x: float(x))[:30],
         }
     return {"bookmaker": bookmaker, "fixtures_with_prices": n, "market_types": report}
+
+
+def player_prop_sample(fixtures, index: dict[str, dict], bookmaker: str,
+                       players: int = 5) -> dict | None:
+    """The first player-prop market this book prices, raw but trimmed to a few
+    players — for reading the shape (where a player's NAME lives, if anywhere)
+    before building on it. None if the book prices no player props here."""
+    for fx in _as_list(fixtures):
+        book = ((fx.get("bookmakerOdds") or {}).get(bookmaker)) or {}
+        for mid, market in (book.get("markets") or {}).items():
+            info = index.get(str(mid)) or {}
+            if not info.get("player_prop"):
+                continue
+            outcomes = {}
+            for oid, o in list((market.get("outcomes") or {}).items())[:3]:
+                ps = (o or {}).get("players") or {}
+                outcomes[oid] = {**{k: v for k, v in (o or {}).items() if k != "players"},
+                                 "players": dict(list(ps.items())[:players]),
+                                 "players_total": len(ps)}
+            return {
+                "fixture": {k: fx.get(k) for k in (
+                    "fixtureId", "participant1Id", "participant2Id",
+                    "participant1Name", "participant2Name", "startTime", "tournamentId")},
+                "market_id": mid, "market": info,
+                "market_raw_keys": sorted(k for k in market if k != "outcomes"),
+                "outcomes": outcomes,
+            }
+    return None
 
 
 class OddsPapiPaddySource:

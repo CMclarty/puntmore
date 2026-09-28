@@ -18,9 +18,6 @@ from .security import (
     MIN_PASSWORD_LENGTH,
 )
 from .odds.client import TheOddsApiClient
-from . import coupon_types
-from .providers import odds_api
-from .providers.odds_api import TheOddsApiProvider
 from .providers.bettingiscool import (
     BettingIsCoolProvider,
     BettingIsCoolProviderNotConfigured,
@@ -43,7 +40,6 @@ from .routers import auth as auth_router
 from .routers import state as state_router
 from .routers import diagnostics as diagnostics_router
 from . import diagnostics
-from .cards.client import CardsApiClient
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -86,40 +82,36 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
+    # TheOddsApi now feeds ONLY Goalscorers and AccaBonus, pending their move
+    # to OddsPapi. The cards tool and the coupon tracker no longer touch it.
     if settings.odds_api_key:
         odds_client = TheOddsApiClient(
             settings.odds_api_key, cache_ttl=settings.odds_cache_ttl
         )
-        app.state.arbs_client = odds_client
-        app.state.cards_client = CardsApiClient(odds_client)
     else:
         odds_client = None
-        app.state.arbs_client = None
-        app.state.cards_client = None
-    # Paddy Power's corners/cards come from OddsPapi when it is configured:
-    # TheOddsApi does not carry them (cards/oddspapi.py). Pinnacle's side comes
-    # from OddsPapi too (`oddspapi_fair_book`), falling back to bettingiscool
-    # in merge_pinnacle for any fixture it does not carry.
+    app.state.arbs_client = odds_client
+
+    # ONE OddsPapi client for every tool: it bills per request and rate-limits
+    # per endpoint, so the request spacing and the daily budget must be shared,
+    # not kept per tool.
+    app.state.oddspapi_client = None
+    app.state.cards_client = None
     if settings.oddspapi_api_key:
         from .cards.oddspapi import OddsPapiClient, OddsPapiPaddySource
-        app.state.cards_client = OddsPapiPaddySource(
-            OddsPapiClient(settings.oddspapi_api_key)
-        )
+        app.state.oddspapi_client = OddsPapiClient(settings.oddspapi_api_key)
+        app.state.cards_client = OddsPapiPaddySource(app.state.oddspapi_client)
         logger.info("Cards: Paddy Power side from OddsPapi, fair side from %s",
                     f"OddsPapi {settings.oddspapi_fair_book}"
                     if settings.oddspapi_fair_book else "bettingiscool")
 
     # Coupon odds provider (behind the OddsProvider seam).
     #
-    # bettingiscool is the live source (SPEC §5) and is implemented. Without a
-    # key it degrades to TheOddsApi rather than to the mock: a deployed
-    # instance must keep pricing real legs. Note TheOddsApi cannot derive
-    # Win-and-Over off the score grid, so that fallback prices compound legs
-    # naively — it is a stopgap, not an equivalent.
-    #
-    # TheOddsApi pulls one full /v4/sports/{sport}/odds response per sport and
-    # reuses it for coupon_odds_cache_ttl across every leg and the 10-min
-    # refresh loop.
+    # bettingiscool is the live source (SPEC §5). There is no second real
+    # source: the TheOddsApi fallback was removed (Sept 2026) — it could price
+    # h2h + totals only, so six of the nine coupon types came up blank on it
+    # anyway. Without a key the mock is used, which prices NOTHING, and that is
+    # said loudly here and at /api/ready.
     source = settings.coupon_odds_source
     provider = None
 
@@ -132,18 +124,8 @@ async def lifespan(app: FastAPI):
                 )
             except BettingIsCoolProviderNotConfigured as exc:
                 logger.error("bettingiscool provider unavailable: %s", exc)
-        else:
-            logger.warning(
-                "COUPON_ODDS_SOURCE=bettingiscool but BETTINGISCOOL_API_KEY is "
-                "unset — falling back to TheOddsApi for coupon pricing."
-            )
-
-    if provider is None and odds_client is not None and source in (
-        "bettingiscool", "theoddsapi",
-    ):
-        provider = TheOddsApiProvider(
-            odds_client, cache_ttl=settings.coupon_odds_cache_ttl
-        )
+    else:
+        logger.error("COUPON_ODDS_SOURCE=%r is not a known source", source)
 
     app.state.odds_provider = provider or MockOddsProvider()
     logger.info(
@@ -151,38 +133,13 @@ async def lifespan(app: FastAPI):
         type(app.state.odds_provider).__name__, source,
         settings.coupon_odds_cache_ttl,
     )
-    # Say OUT LOUD what a degraded provider cannot price. Both fallbacks fail
-    # SILENTLY and identically to a bad photo: the legs save, the coupon opens,
-    # every row simply has no fair odds. A "Team to Score 2" sheet on TheOddsApi
-    # is 154 selections and 154 blanks, which reads as "the scan is broken"
-    # rather than "this deploy has no bettingiscool key" — the actual cause.
+    # A blank tracker from a missing key looks exactly like a failed scan: the
+    # legs save, the coupon opens, every row has no fair odds. Say so.
     if isinstance(app.state.odds_provider, MockOddsProvider):
         logger.warning(
             "COUPON PRICING IS MOCKED — no odds provider is configured, so "
             "EVERY selection will show blank fair odds. Set "
-            "BETTINGISCOOL_API_KEY (or ODDS_API_KEY) to price real legs."
-        )
-    elif isinstance(app.state.odds_provider, TheOddsApiProvider):
-        logger.warning(
-            "Coupon pricing is on the TheOddsApi FALLBACK. It serves h2h + "
-            "totals only, so these coupon types cannot price at all and every "
-            "selection on them will be blank: %s. Set BETTINGISCOOL_API_KEY to "
-            "restore them.",
-            ", ".join(
-                t.label for t in coupon_types.COUPON_TYPES
-                if odds_api.unsupported_reason(t.selection) is not None
-            ),
-        )
-    # The default TTL suits bettingiscool (500k tokens/DAY). TheOddsApi bills
-    # 500 credits/MONTH, where a short cache burns the whole allowance in hours.
-    if (
-        isinstance(app.state.odds_provider, TheOddsApiProvider)
-        and settings.coupon_odds_cache_ttl < 72000
-    ):
-        logger.warning(
-            "COUPON_ODDS_CACHE_TTL=%ss with TheOddsApi: the free tier is 500 "
-            "credits/MONTH and this will exhaust it. Raise to 86400.",
-            settings.coupon_odds_cache_ttl,
+            "BETTINGISCOOL_API_KEY to price real legs."
         )
 
     # A real provider is always WRAPPED: every price on a priced grid is read
@@ -419,7 +376,7 @@ def ready():
     # ignoring every uploaded image.
     #
     # The odds entry NAMES the provider rather than saying "live". "live" was
-    # actively misleading: the TheOddsApi fallback reported live while being
+    # actively misleading: a since-removed fallback reported live while being
     # unable to price six of the nine coupon types, so a deploy showing every
     # selection blank looked healthy here. `degraded` is the one-word answer to
     # "why is nothing pricing", and `cannot_price` says exactly which coupons
@@ -428,7 +385,7 @@ def ready():
     odds = {
         "provider": type(odds_provider).__name__ if odds_provider else None,
         "source": settings.coupon_odds_source,
-        "degraded": isinstance(odds_provider, (MockOddsProvider, TheOddsApiProvider)),
+        "degraded": isinstance(odds_provider, MockOddsProvider),
     }
     # The last pricing pass, when the live provider ran one. This is the
     # difference between "the feed is down", "the fixtures aren't matching" and
@@ -439,11 +396,6 @@ def ready():
         odds["last_pass"] = last_pass
     if isinstance(odds_provider, MockOddsProvider):
         odds["cannot_price"] = ["ALL — no odds provider configured"]
-    elif isinstance(odds_provider, TheOddsApiProvider):
-        odds["cannot_price"] = [
-            t.label for t in coupon_types.COUPON_TYPES
-            if odds_api.unsupported_reason(t.selection) is not None
-        ]
     providers = {
         "ocr": "mock" if isinstance(
             getattr(app.state, "ocr_provider", None), MockOCRProvider

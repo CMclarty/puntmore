@@ -315,21 +315,27 @@ defaults to `bettingiscool`); it feeds the score grid in item 1.
       the seam absorbed it as designed.
 - **Known risk (accepted):** one-person vendor. The seam is the mitigation.
 
-### 7. If Cards/Corners is ever re-enabled, it needs rebuilding
-Not scheduled — the tool is gated off (`ENABLE_CARDS=False`) and nothing
-depends on it. Logged so the breakage isn't rediscovered by surprise.
-
-`cards/client.py` requests `alternate_totals` from TheOddsApi's **bulk**
-endpoint. That endpoint serves featured markets only and rejects the request
-with `INVALID_MARKET`, so the tool has never returned a row — and
-`alternate_totals` is *goal* totals anyway, not cards or corners. Real corners
-and cards markets exist (`alternate_totals_corners`, `alternate_totals_cards`)
-but only on the **per-event** endpoint, at `events × markets × regions` credits
-per sweep, and Paddy Power did not price them on any fixture sampled.
-
-Full evidence, including the caveats on that sampling, is in
-`docs/provider-verification.md` — read it before spending credits re-deriving
-this.
+### 7. Remove TheOddsApi throughout — IN PROGRESS (Sept 2026)
+User decision (28 Sept 2026): one odds vendor, OddsPapi, alongside bettingiscool
+for the coupon tracker. TheOddsApi is cancelled at the next renewal.
+- **Done:** cards on OddsPapi (Paddy AND Pinnacle, joined on fixture id; the
+  TheOddsApi per-event sweep deleted — TheOddsApi never carried Paddy's
+  corners/cards). The coupon tracker's `TheOddsApiProvider` fallback deleted
+  — it could not price six of the nine coupon types; without a bettingiscool
+  key the tracker is now mocked, loudly.
+- **Next — Goalscorers** (live): bet365 vs Pinnacle first goalscorer. First
+  read `/api/diagnostics/oddspapi?tournament=17` near a Premier League
+  kickoff (Pinnacle posts first goalscorer ~45 min before) — it shows the
+  first-goalscorer market id and where a PLAYER'S NAME lives in a player-prop
+  market. That decides how names are matched; do not guess it.
+- **Then — AccaBonus** (hidden): bet365 vs Pinnacle moneylines over several
+  sports. `/api/diagnostics/oddspapi?sport=<id>&tournament=<id>` lists
+  OddsPapi's sport ids and a sport's competitions, and each book's coverage.
+- **Last:** delete `odds/client.py`, `ODDS_API_KEY`, `odds_cache_ttl`,
+  `cards_quota_reserve` and `arbs_client` once nothing reads them.
+- **Also open:** an OddsPapi coupon provider behind `COUPON_ODDS_SOURCE` (its
+  Pinnacle carries 1X2, a totals ladder and team totals), shadowed against
+  bettingiscool before it is trusted.
 
 ### 8. Bring back the P&L battle skin
 Removed in August 2026 (Callum's call) to keep attention on finishing the

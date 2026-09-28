@@ -60,6 +60,86 @@ def get_errors(_: None = Depends(require_admin_or_key)):
     return diagnostics.snapshot()
 
 
+@router.get("/oddspapi")
+def oddspapi_check(
+    request: Request,
+    tournament: int = 17,
+    books: str = "bet365,pinnacle",
+    sport: int = 10,
+    find: str = "scorer",
+    tournament_find: str = "",
+    _: None = Depends(require_admin_or_key),
+):
+    """What OddsPapi carries for the tools still on TheOddsApi — read BEFORE
+    porting Goalscorers (bet365 vs Pinnacle first goalscorer) and AccaBonus
+    (bet365 vs Pinnacle moneylines, several sports).
+
+    Costs one request per book named (odds for ONE tournament), plus the
+    sports list and the sport's tournament list on first use (cached a day).
+
+      - `catalogue_matches`: markets whose name contains `find` for `sport`
+        — the first-goalscorer market ids, and whether they are player props.
+      - `coverage`: per book, two-sided lines per fixture by market type.
+      - `player_prop_sample`: per book, one player-prop market raw (a few
+        players) — where a player's NAME lives decides how names are matched.
+      - `sports` / `tournament_search`: ids for AccaBonus's other sports.
+    """
+    from ..cards.oddspapi import (
+        _as_list, _first, catalogue_index, coverage, player_prop_sample,
+        tournament_names,
+    )
+    client = getattr(request.app.state, "oddspapi_client", None)
+    if client is None:
+        return {"error": "OddsPapi is not configured — set ODDSPAPI_API_KEY."}
+    out: dict = {"tournament": tournament, "sport": sport}
+    index = {}
+    try:
+        cat = client.catalogue()
+        index = catalogue_index(cat)
+        words = [w.strip().lower() for w in find.split(",") if w.strip()]
+        out["catalogue_matches"] = [
+            {"market_id": mid, **info}
+            for mid, info in index.items()
+            if str(info.get("sport")) == str(sport)
+            and any(w in (info["name"] + " " + info["type"]).lower() for w in words)
+        ][:40]
+        out["catalogue_matches_raw_first"] = next((
+            m for m in _as_list(cat)
+            if out["catalogue_matches"]
+            and str(_first(m, "marketId", "id")) == out["catalogue_matches"][0]["market_id"]
+        ), None)
+    except Exception as exc:
+        out["catalogue_error"] = str(exc)
+    try:
+        out["sports"] = {
+            str(_first(x, "sportId", "id")): _first(x, "sportName", "name", "slug")
+            for x in _as_list(client.sports())
+        }
+    except Exception as exc:
+        out["sports_error"] = str(exc)
+    if sport != 10 or tournament_find:
+        try:
+            known = tournament_names(client.tournaments(sport))
+            words = [w.strip().lower() for w in tournament_find.split(",") if w.strip()]
+            out["tournament_count"] = len(known)
+            out["tournament_search"] = {
+                str(i): n for i, n in sorted(known.items())
+                if not words or any(w in n.lower() for w in words)
+            } if words else dict(list(sorted(known.items()))[:60])
+        except Exception as exc:
+            out["tournaments_error"] = str(exc)
+    out["coverage"], out["player_prop_sample"] = {}, {}
+    for book in [b.strip() for b in books.split(",") if b.strip()]:
+        try:
+            fixtures = client.odds_by_tournaments([tournament], bookmaker=book)
+            out["coverage"][book] = coverage(fixtures, index, book)
+            out["player_prop_sample"][book] = player_prop_sample(fixtures, index, book)
+        except Exception as exc:
+            out["coverage"][book] = {"error": str(exc)}
+    out["requests_today"] = client.requests_today
+    return out
+
+
 @router.delete("/errors")
 def clear_errors(_: None = Depends(require_admin_or_key)):
     """Drop the buffer, so the next reproduction starts from a clean slate."""

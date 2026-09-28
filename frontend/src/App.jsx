@@ -30,9 +30,8 @@ const FOCUSED_ROOTS = ['/pnl']
 const IS_FOCUSED = FOCUSED_ROOTS.some(r => ENTRY_PATH === r || ENTRY_PATH.startsWith(r + '/'))
 
 // AccaBonusPage and CardsPage are surfaced only to a grant that includes them
-// (i.e. "*"), reached via the nav's "More" sheet. Their feeds are empty until
-// ODDS_API_KEY is set / the cards client is rebuilt (docs/provider-verification).
-// tracker below. Re-import and restore the routes to bring them back.
+// (i.e. "*"), reached via the nav's "More" sheet. Cards needs ODDSPAPI_API_KEY;
+// AccaBonus still needs ODDS_API_KEY until it moves to OddsPapi.
 
 export default function App() {
   const [user, setUser] = useState(null)
