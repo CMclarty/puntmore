@@ -45,6 +45,15 @@ const TOOLS = [
     ),
   },
   {
+    tool: 'boost', name: 'Boost', to: '/boost', sub: 'Virtuals',
+    matches: (p) => p.startsWith('/boost'),
+    icon: (
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="5,12 11,6 17,12"/><polyline points="5,17 11,11 17,17"/>
+      </svg>
+    ),
+  },
+  {
     tool: 'shop', name: 'Shop', to: '/shop', sub: 'Visits', priv: true,
     matches: (p) => p.startsWith('/shop'),
     icon: (
