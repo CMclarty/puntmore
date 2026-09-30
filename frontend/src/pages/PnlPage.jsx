@@ -610,6 +610,10 @@ export default function PnlPage({ category = 'dogs' }) {
           {/* Actions ride in their own group so they anchor right as a unit and
               wrap together, rather than each fighting for the auto margin. */}
           <div className={styles.actions}>
+            {/* Virtuals boosts are priced on /boost — one tap there and back. */}
+            {category === 'virtuals' && (
+              <Link className={styles.boostHop} to="/boost">Boost calc</Link>
+            )}
             {/* Hop to the other ledger. */}
             <Link className={styles.hop} to={`/pnl/${other}`}>{otherLabel}</Link>
             {bets.length > 0 && (

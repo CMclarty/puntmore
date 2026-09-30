@@ -150,6 +150,19 @@
   padding: 2px 7px;
 }
 
+.boostHop {
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--accent-soft);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 4px 10px;
+}
+
 .undo {
   border: 1px solid var(--line);
   border-radius: 5px;

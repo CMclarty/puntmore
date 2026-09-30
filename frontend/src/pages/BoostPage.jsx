@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import OddsWheel from '../components/OddsWheel'
 import { FIELDS, RUNNER_COUNTS, priceBoost } from '../boost'
 import styles from './BoostPage.module.css'
@@ -63,7 +64,9 @@ export default function BoostPage() {
   return (
     <div className={styles.page}>
       <div className={styles.head}>
-        <span>Virtual boost</span><span className={styles.tag}>Calculator</span>
+        <span>Virtual boost</span>
+        {/* Straight back to the virtuals ledger to log the bet. */}
+        <Link className={styles.back} to="/pnl/virtuals">Virtuals P&amp;L</Link>
       </div>
 
       <section className={styles.block}>
