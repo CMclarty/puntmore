@@ -84,10 +84,12 @@ export function nearestTick(v, rungs = LADDER) {
  *   value is still null (nothing is filed); tapping fires onActivate.
  * onActivate: fired when a ghost wheel is tapped. Spinning one activates it too,
  *   via onChange. Stable (useCallback), like onChange.
+ * decimalOnly: the ladder's labels are already decimals, so drop the second,
+ *   quieter decimal beside each rung (the Boost page works in decimal only).
  */
 function OddsWheel({
   value, onChange, label, id, seat = DEFAULT_PRICE, onTouch,
-  ghost = false, onActivate, ladder = LADDER,
+  ghost = false, onActivate, ladder = LADDER, decimalOnly = false,
 }) {
   const ref = useRef(null)
   const settle = useRef(null)
@@ -190,7 +192,7 @@ function OddsWheel({
               aria-label={`${t.label}, decimal ${t.dec.toFixed(2)}`}
             >
               <span className={styles.frac}>{t.label}</span>
-              <span className={styles.dec}>{t.dec.toFixed(2)}</span>
+              {!decimalOnly && <span className={styles.dec}>{t.dec.toFixed(2)}</span>}
             </div>
           ))}
           <div className={styles.spacer} />

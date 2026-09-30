@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { FRACTIONAL_LADDER, fractionToDecimal } from '../odds'
+import OddsWheel from '../components/OddsWheel'
 import { FIELDS, RUNNER_COUNTS, priceBoost } from '../boost'
 import styles from './BoostPage.module.css'
 
@@ -9,42 +9,37 @@ import styles from './BoostPage.module.css'
  * answered in a few taps: runners, then a common boost or the two prices.
  */
 
-// Prices a virtual boost realistically starts from or lands on.
-const PRICES = FRACTIONAL_LADDER.filter(f => {
-  const d = fractionToDecimal(f)
-  return d >= 2 && d <= 26
-})
-
-// The boosts that come round most often, one tap each.
-const PRESETS = [
-  ['6/4', '2/1'], ['7/4', '5/2'], ['2/1', '3/1'], ['3/1', '4/1'],
-  ['3/1', '5/1'], ['11/2', '7/1'], ['7/1', '9/1'],
+// The prices virtual cards actually show, in decimal, from evens up. A boost
+// starts and lands on one of these, so it's a short wheel.
+const DECIMALS = [
+  2, 2.1, 2.2, 2.25, 2.38, 2.5, 2.62, 2.75, 2.88, 3, 3.25, 3.5, 3.75, 4, 4.33,
+  4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 11, 12, 13, 15, 17, 19, 21,
 ]
+const LADDER = DECIMALS.map(d => ({ label: d.toFixed(2), dec: d }))
+const DEFAULT = 4
 
 // EV below this is inside the model's ±1% noise — say so rather than call it.
 const THIN = 0.02
 
 const pct = (v, dp = 0) => (v * 100).toFixed(dp) + '%'
 const signed = v => (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1) + '%'
-// Break-even prices rarely land on a board price, so show them unrounded.
-const toFraction = d => (d - 1).toFixed(1) + '/1'
+const dec = d => d.toFixed(2)
 
 export default function BoostPage() {
   const [runners, setRunners] = useState(null)
-  const [price, setPrice] = useState('')     // fractional strings from the ladder
-  const [boosted, setBoosted] = useState('')
+  const [price, setPrice] = useState(DEFAULT)      // decimal odds
+  const [boosted, setBoosted] = useState(DEFAULT)
   const [places, setPlaces] = useState(null) // null = the field's usual terms
   const [terms, setTerms] = useState(null)
 
   const pickRunners = n => { setRunners(n); setPlaces(null); setTerms(null) }
-  const pickPreset = ([a, b]) => { setPrice(a); setBoosted(b) }
 
   const r = useMemo(() => {
-    if (!runners || !price || !boosted) return null
+    if (!runners || !(boosted > price)) return null
     return priceBoost({
       runners,
-      price: fractionToDecimal(price),
-      boosted: fractionToDecimal(boosted),
+      price,
+      boosted,
       places: places ?? undefined,
       terms: terms ?? undefined,
     })
@@ -63,7 +58,7 @@ export default function BoostPage() {
       ? { word: 'Skip', tone: 'neg', ev: best }
       : { word: ew ? 'Each way' : 'Win only', tone: best < THIN ? 'thin' : 'pos', ev: best, thin: best < THIN }
   }
-  const noBoost = price && boosted && fractionToDecimal(boosted) <= fractionToDecimal(price)
+  const noBoost = runners && !(boosted > price)
 
   return (
     <div className={styles.page}>
@@ -85,42 +80,23 @@ export default function BoostPage() {
       </section>
 
       <section className={styles.block}>
-        <div className={styles.label}>Boost</div>
-        <div className={styles.presets} role="group" aria-label="Common boosts">
-          {PRESETS.map(p => {
-            const on = price === p[0] && boosted === p[1]
-            return (
-              <button
-                key={p.join('-')} type="button" aria-pressed={on}
-                className={`${styles.chip} ${styles.preset} ${on ? styles.on : ''}`}
-                onClick={() => pickPreset(p)}
-              >{p[0]}<span className={styles.arrow}>→</span>{p[1]}</button>
-            )
-          })}
-        </div>
         <div className={styles.prices}>
-          <select
-            className={styles.select} value={price} aria-label="Price before boost"
-            onChange={e => setPrice(e.target.value)}
-          >
-            <option value="" disabled>Price</option>
-            {PRICES.map(f => <option key={f} value={f}>{f}</option>)}
-          </select>
+          <OddsWheel
+            id="boost-price" label="Price" ladder={LADDER} decimalOnly
+            value={price} seat={DEFAULT} onChange={setPrice}
+          />
           <span className={styles.arrowBig}>→</span>
-          <select
-            className={styles.select} value={boosted} aria-label="Boosted price"
-            onChange={e => setBoosted(e.target.value)}
-          >
-            <option value="" disabled>Boosted</option>
-            {PRICES.map(f => <option key={f} value={f}>{f}</option>)}
-          </select>
+          <OddsWheel
+            id="boost-boosted" label="Boosted" ladder={LADDER} decimalOnly
+            value={boosted} seat={DEFAULT} onChange={setBoosted}
+          />
         </div>
       </section>
 
       <div className={`${styles.result} ${verdict ? styles[verdict.tone] : ''}`}>
         {!r ? (
           <div className={styles.waiting}>
-            {noBoost ? 'Boosted price is no higher than the price.' : 'Pick runners and a boost.'}
+            {noBoost ? 'Spin the boosted price above the price.' : 'Pick the runners.'}
           </div>
         ) : (
           <>
@@ -132,7 +108,7 @@ export default function BoostPage() {
               {verdict.thin
                 ? 'Within the model’s ±1% — marginal.'
                 : verdict.word === 'Skip'
-                  ? `Needs ${toFraction(r.breakEvenEw)} each way, ${toFraction(r.fairWin)} win only.`
+                  ? `Needs ${dec(r.breakEvenEw)} each way, ${dec(r.fairWin)} win only.`
                   : 'EV per £1 staked in total.'}
             </div>
             <div className={styles.stats}>
