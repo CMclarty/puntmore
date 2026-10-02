@@ -465,6 +465,9 @@ export default function PnlPage({ category = 'dogs' }) {
   // screen. Lives apart from the headline stats, which always read all-time /
   // month-to-date regardless of what the chart shows.
   const [zoom, setZoom] = useState('month')
+  // Staff tip entry (virtuals): closed by default so its row goes to the
+  // charts; the "tip" action opens it, and it closes again once filed.
+  const [tipOpen, setTipOpen] = useState(false)
   const cycleZoom = useCallback(() => {
     setZoom(r => ZOOM_RANGES[(ZOOM_RANGES.indexOf(r) + 1) % ZOOM_RANGES.length])
   }, [])
@@ -614,6 +617,11 @@ export default function PnlPage({ category = 'dogs' }) {
             {category === 'virtuals' && (
               <Link className={styles.boostHop} to="/boost">Boost calc</Link>
             )}
+            {category === 'virtuals' && (
+              <button className={styles.undo} onClick={() => setTipOpen(o => !o)} aria-expanded={tipOpen}>
+                {tipOpen ? 'close tip' : 'tip'}
+              </button>
+            )}
             {/* Hop to the other ledger. */}
             <Link className={styles.hop} to={`/pnl/${other}`}>{otherLabel}</Link>
             {bets.length > 0 && (
@@ -645,7 +653,8 @@ export default function PnlPage({ category = 'dogs' }) {
         </div>
       </section>
 
-      <PnlEntry onAdd={handleAdd} busy={busy} category={category} />
+      <PnlEntry onAdd={handleAdd} busy={busy} category={category}
+                tipOpen={tipOpen} onTipDone={() => setTipOpen(false)} />
 
       {/* Saved. Centred over the page rather than pinned to the pad so it can't
           be read as part of the entry — it's a receipt for one that's already
@@ -738,7 +747,7 @@ function ResultKey({ kind, label, net, onClick, disabled }) {
 
 // Own component with local state: typing here re-renders only this small tree,
 // never the chart above — which is what caused the input lag.
-function PnlEntry({ onAdd, busy, category }) {
+function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
   // The two ledgers track different things about a bet. Dogs measures the price
   // against the Betfair SP; virtuals doesn't (there is no BFSP on a virtual
   // race) and instead records whether the bet was each-way, which changes both
@@ -893,6 +902,7 @@ function PnlEntry({ onAdd, busy, category }) {
     if (!canTip) return
     onAdd({ amount: -Math.round(tipV * 100) / 100, is_tip: true })
     setTip('')
+    onTipDone()
   }
 
   // Keyboard Enter files a LOSS — which is what it always did, since 'lose' was
@@ -1045,8 +1055,10 @@ function PnlEntry({ onAdd, busy, category }) {
       )}
 
       {/* Staff tip — a cash loss, not a bet. Its own amount and button, kept
-          clear of the bet entry so it can't inherit a stake, odds or result. */}
-      {isVirtuals && (
+          clear of the bet entry so it can't inherit a stake, odds or result.
+          Hidden until the "tip" action opens it: tips are occasional, and the
+          row it held is better spent on the charts. */}
+      {isVirtuals && tipOpen && (
         <div className={styles.tipRow}>
           <label className={styles.tipField}>
             <span className={styles.fieldLabel}>Staff tip</span>
@@ -1061,6 +1073,7 @@ function PnlEntry({ onAdd, busy, category }) {
                 type="text"
                 placeholder="0.00"
                 aria-label="Staff tip amount"
+                autoFocus
                 autoComplete="off"
               />
             </div>
