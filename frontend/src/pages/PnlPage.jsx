@@ -545,6 +545,26 @@ export default function PnlPage({ category = 'dogs' }) {
   const measured = bets.filter(hasEv)
   const evTotal = measured.length ? measured.reduce((s, b) => s + evOf(b), 0) : null
   const spBeat = measured.filter(b => b.price_taken > b.bfsp).length
+
+  // Betting days, by LOCAL calendar date: how many finished up and how many
+  // down. A day counts only if it had a bet on it; a tip that day still moves
+  // its result (it is real money out), but a tip alone doesn't make a betting
+  // day. A day netting exactly zero is neither, so up + down can fall short of
+  // 100%.
+  const dayNet = new Map(), betDays = new Set()
+  for (const b of bets) {
+    const d = parseDate(b.created_at)
+    const key = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate()
+    dayNet.set(key, (dayNet.get(key) || 0) + b.amount)
+    if (!b.is_tip) betDays.add(key)
+  }
+  let daysUp = 0, daysDown = 0
+  for (const key of betDays) {
+    const v = Math.round(dayNet.get(key) * 100)
+    if (v > 0) daysUp++
+    else if (v < 0) daysDown++
+  }
+  const dayPct = n => Math.round(100 * n / betDays.size) + '%'
   // The all-time variance replay: heads the subline and feeds the all-time
   // chart, so it runs once per bet, not once for each.
   const allSim = useMemo(() => simulate(bets), [bets])
@@ -596,6 +616,11 @@ export default function PnlPage({ category = 'dogs' }) {
         </div>
         <div className={styles.subline}>
           <span><b>{winrate}</b> win</span>
+          {betDays.size > 0 && (
+            <span>
+              {betDays.size} day{betDays.size === 1 ? '' : 's'}: <b className={styles.pctHigh}>{dayPct(daysUp)}</b> up <b className={styles.pctLow}>{dayPct(daysDown)}</b> down
+            </span>
+          )}
           {roi !== null && <span><b>{roi}</b> ROI on {money(turnover)}</span>}
           {/* Doubles as the chart's legend — the dash matches the overlaid line. */}
           {evTotal !== null && (
