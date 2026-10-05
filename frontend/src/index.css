@@ -46,13 +46,22 @@ body {
    shrinking: the shell grew past the screen and the Enter button ended up
    ~70px below the fold on a phone. Bounding the height makes flex:1 mean what
    the page CSS assumes it means; taller pages still scroll inside .main. */
+/*
+   Pinned to the screen's edges rather than sized with 100dvh: installed to the
+   home screen (black-translucent status bar, viewport-fit=cover) iOS reports
+   100vh/100dvh roughly a status bar SHORT of the screen, so the shell stopped
+   ~60pt above the bottom and left a blank strip under the dock. A fixed box
+   with top and bottom at 0 is the screen's own height in every mode. Auto
+   side margins with left/right 0 still centre it on a wide screen. */
 #root {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
   max-width: 480px;
-  width: 100%;
   margin: 0 auto;
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
