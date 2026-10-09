@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { getBets, addBet, deleteBet } from '../api'
 import OddsWheel, { DEFAULT_PRICE, TERMS_LADDER, DEFAULT_TERMS } from '../components/OddsWheel'
-import { simulate } from '../pnlVariance'
+import { simulate, winHalfResult } from '../pnlVariance'
 import styles from './PnlPage.module.css'
 
 /**
@@ -569,6 +569,16 @@ export default function PnlPage({ category = 'dogs' }) {
   // chart, so it runs once per bet, not once for each.
   const allSim = useMemo(() => simulate(bets), [bets])
 
+  // Each-way, split into its two bets. The combined return only settles as
+  // 0, place alone, or place + win, so the win half is recovered exactly
+  // (winHalfResult) and the place half is the rest. Each half staked
+  // stake / 2. Needs the price taken to do that split.
+  const ewBets = bets.filter(b => b.each_way && b.stake != null && b.price_taken != null)
+  const ewWin = ewBets.reduce((a, b) => a + winHalfResult(b), 0)
+  const ewPlace = ewBets.reduce((a, b) => a + b.amount, 0) - ewWin
+  const ewHalfStake = ewBets.reduce((a, b) => a + b.stake / 2, 0)
+  const ewRoi = v => pctSigned(100 * v / ewHalfStake)
+
 
   // Only called when a bet is actually submitted — so the chart re-renders once
   // per bet, never per keystroke (the entry lives in its own component below).
@@ -616,6 +626,12 @@ export default function PnlPage({ category = 'dogs' }) {
         </div>
         <div className={styles.subline}>
           <span><b>{winrate}</b> win</span>
+          {ewBets.length > 0 && (
+            <span>
+              {ewBets.length} e/w: win <b className={ewWin < 0 ? styles.pctLow : styles.pctHigh}>{signed(ewWin)}</b> ({ewRoi(ewWin)})
+              {' '}place <b className={ewPlace < 0 ? styles.pctLow : styles.pctHigh}>{signed(ewPlace)}</b> ({ewRoi(ewPlace)})
+            </span>
+          )}
           {betDays.size > 0 && (
             <span>
               {betDays.size} day{betDays.size === 1 ? '' : 's'}: <b className={styles.pctHigh}>{dayPct(daysUp)}</b> up <b className={styles.pctLow}>{dayPct(daysDown)}</b> down
