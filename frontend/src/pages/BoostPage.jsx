@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import OddsWheel from '../components/OddsWheel'
 import { FIELDS, RUNNER_COUNTS, priceBoost } from '../boost'
@@ -27,13 +27,39 @@ const signed = v => (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1) + '%'
 const dec = d => d.toFixed(2)
 
 export default function BoostPage() {
-  const [runners, setRunners] = useState(null)
+  // Shared with the virtuals P&L's runners wheel (same race, one after the
+  // other), so a field picked on either page is already set on the other.
+  const [runners, setRunners] = useState(() => {
+    try {
+      const n = Number(localStorage.getItem('virtuals.runners'))
+      return FIELDS[n] ? n : null
+    } catch { return null }
+  })
   const [price, setPrice] = useState(DEFAULT)      // decimal odds
   const [boosted, setBoosted] = useState(DEFAULT)
   const [places, setPlaces] = useState(null) // null = the field's usual terms
   const [terms, setTerms] = useState(null)
 
-  const pickRunners = n => { setRunners(n); setPlaces(null); setTerms(null) }
+  const pickRunners = n => {
+    setRunners(n); setPlaces(null); setTerms(null)
+    try { localStorage.setItem('virtuals.runners', String(n)) } catch { /* private mode */ }
+  }
+
+  // The boosted price is derived FROM the price, so the boosted wheel follows
+  // the price wheel: it keeps however many rungs above the price it was set,
+  // so an untouched boosted wheel sits on the price and a spin of the price
+  // carries a set boost along with it rather than leaving it behind.
+  // Read through a ref so the handler stays stable (OddsWheel needs that) and
+  // the two updates are plain values, not one setter nested in another.
+  const cur = useRef({ price, boosted })
+  cur.current = { price, boosted }
+  const onPrice = useCallback(next => {
+    const at = d => DECIMALS.indexOf(d)
+    const { price: prev, boosted: b } = cur.current
+    const gap = Math.max(0, at(b) - at(prev))
+    setPrice(next)
+    setBoosted(DECIMALS[Math.min(DECIMALS.length - 1, at(next) + gap)])
+  }, [])
 
   const r = useMemo(() => {
     if (!runners || !(boosted > price)) return null
@@ -86,7 +112,7 @@ export default function BoostPage() {
         <div className={styles.prices}>
           <OddsWheel
             id="boost-price" label="Price" ladder={LADDER} decimalOnly
-            value={price} seat={DEFAULT} onChange={setPrice}
+            value={price} seat={DEFAULT} onChange={onPrice}
           />
           <span className={styles.arrowBig}>→</span>
           <OddsWheel

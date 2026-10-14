@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { getBets, addBet, deleteBet } from '../api'
-import OddsWheel, { DEFAULT_PRICE, TERMS_LADDER, DEFAULT_TERMS } from '../components/OddsWheel'
+import OddsWheel, { DEFAULT_PRICE } from '../components/OddsWheel'
+import { FIELDS, RUNNER_COUNTS } from '../boost'
 import { simulate, winHalfResult } from '../pnlVariance'
 import styles from './PnlPage.module.css'
 
@@ -468,6 +469,15 @@ export default function PnlPage({ category = 'dogs' }) {
   // Staff tip entry (virtuals): closed by default so its row goes to the
   // charts; the "tip" action opens it, and it closes again once filed.
   const [tipOpen, setTipOpen] = useState(false)
+  // The secondary metrics, folded away by default; remembered per device.
+  const [more, setMoreState] = useState(() => {
+    try { return localStorage.getItem('pnl.more') === '1' } catch { return false }
+  })
+  const setMore = f => setMoreState(m => {
+    const v = f(m)
+    try { localStorage.setItem('pnl.more', v ? '1' : '0') } catch { /* private mode */ }
+    return v
+  })
   const cycleZoom = useCallback(() => {
     setZoom(r => ZOOM_RANGES[(ZOOM_RANGES.indexOf(r) + 1) % ZOOM_RANGES.length])
   }, [])
@@ -610,53 +620,15 @@ export default function PnlPage({ category = 'dogs' }) {
   return (
     <div className={styles.page}>
       <section className={styles.top}>
+        {/* One header line: the ledger, its bet count, and the actions. The
+            actions used to wrap onto a row of their own under the stats —
+            height that now goes to the charts. */}
         <div className={styles.eyebrow}>
-          <span>Total profit · {label}</span><span className={styles.me}>Private</span>
-        </div>
-        <div className={styles.stats}>
-          <div className={styles.stat}>
-            <div className={`${styles.figure} ${styles.total} ${total < 0 ? styles.neg : styles.pos}`}>{signed(total)}</div>
-            <div className={styles.statCount}>{wagers.length} bet{wagers.length === 1 ? '' : 's'}</div>
-          </div>
-          <div className={styles.stat}>
-            <div className={styles.statLabel}>Month to date</div>
-            <div className={`${styles.figure} ${styles.mtd} ${mtd < 0 ? styles.neg : styles.pos}`}>{signed(mtd)}</div>
-            <div className={styles.statCount}>{mtdCount} bet{mtdCount === 1 ? '' : 's'}</div>
-          </div>
-        </div>
-        <div className={styles.subline}>
-          <span><b>{winrate}</b> win</span>
-          {ewBets.length > 0 && (
-            <span>
-              {ewBets.length} e/w: win <b className={ewWin < 0 ? styles.pctLow : styles.pctHigh}>{signed(ewWin)}</b> ({ewRoi(ewWin)})
-              {' '}place <b className={ewPlace < 0 ? styles.pctLow : styles.pctHigh}>{signed(ewPlace)}</b> ({ewRoi(ewPlace)})
-            </span>
-          )}
-          {betDays.size > 0 && (
-            <span>
-              {betDays.size} day{betDays.size === 1 ? '' : 's'}: <b className={styles.pctHigh}>{dayPct(daysUp)}</b> up <b className={styles.pctLow}>{dayPct(daysDown)}</b> down
-            </span>
-          )}
-          {roi !== null && <span><b>{roi}</b> ROI on {money(turnover)}</span>}
-          {/* Doubles as the chart's legend — the dash matches the overlaid line. */}
-          {evTotal !== null && (
-            <span className={styles.spTag}>
-              <b>{signed(evTotal)}</b> EV · {spBeat}/{measured.length}
-            </span>
-          )}
-          {/* Legend for the shaded band: the swatch matches it. */}
-          {allSim && (
-            <span className={styles.simTag}>
-              <b className={pctClass(allSim.percentile)}>p{Math.round(allSim.percentile)}</b> luck · {allSim.simmed}/{allSim.total} simmed
-            </span>
-          )}
-          <span>last <b>{wagers.length ? signed(wagers[wagers.length - 1].amount) : '—'}</b></span>
-          {/* Actions ride in their own group so they anchor right as a unit and
-              wrap together, rather than each fighting for the auto margin. */}
+          <span>{label} · {wagers.length} bet{wagers.length === 1 ? '' : 's'}</span>
           <div className={styles.actions}>
             {/* Virtuals boosts are priced on /boost — one tap there and back. */}
             {category === 'virtuals' && (
-              <Link className={styles.boostHop} to="/boost">Boost calc</Link>
+              <Link className={styles.boostHop} to="/boost">Boost</Link>
             )}
             {category === 'virtuals' && (
               <button className={styles.undo} onClick={() => setTipOpen(o => !o)} aria-expanded={tipOpen}>
@@ -666,16 +638,64 @@ export default function PnlPage({ category = 'dogs' }) {
             {/* Hop to the other ledger. */}
             <Link className={styles.hop} to={`/pnl/${other}`}>{otherLabel}</Link>
             {bets.length > 0 && (
-              <>
-                {/* A plain link, not a fetch: the session cookie rides along and
-                    the browser handles the download, so there is no blob to build
-                    or object URL to revoke. */}
-                <a className={styles.export} href={`/api/pnl/${category}/bets.csv`} download>csv</a>
-                <button className={styles.undo} onClick={undoLast} disabled={busy}>undo last</button>
-              </>
+              <button className={styles.undo} onClick={undoLast} disabled={busy}>undo</button>
             )}
           </div>
         </div>
+        <div className={styles.stats}>
+          <div className={`${styles.figure} ${styles.total} ${total < 0 ? styles.neg : styles.pos}`}>{signed(total)}</div>
+          <div className={styles.stat}>
+            <div className={styles.statLabel}>Month · {mtdCount} bet{mtdCount === 1 ? '' : 's'}</div>
+            <div className={`${styles.figure} ${styles.mtd} ${mtd < 0 ? styles.neg : styles.pos}`}>{signed(mtd)}</div>
+          </div>
+        </div>
+        {/* The headline metrics on ONE line, the rest a tap away. Every figure
+            here earned its place, but six wrapping lines of them were eating
+            the charts; these four are the ones read at a glance, and EV and
+            luck stay because they are the legends for the dashed line and the
+            shaded band. */}
+        <button
+          type="button" className={styles.subline}
+          onClick={() => setMore(m => !m)} aria-expanded={more}
+        >
+          <span><b>{winrate}</b> win</span>
+          {roi !== null && <span><b>{roi}</b> ROI</span>}
+          {evTotal !== null && (
+            <span className={styles.spTag}><b>{signed(evTotal)}</b> EV</span>
+          )}
+          {allSim && (
+            <span className={styles.simTag}>
+              <b className={pctClass(allSim.percentile)}>p{Math.round(allSim.percentile)}</b> luck
+            </span>
+          )}
+          <span className={styles.more}>{more ? 'less ▴' : 'more ▾'}</span>
+        </button>
+        {more && (
+          <div className={styles.details}>
+            {roi !== null && <span>turnover <b>{money(turnover)}</b></span>}
+            {betDays.size > 0 && (
+              <span>
+                {betDays.size} day{betDays.size === 1 ? '' : 's'}: <b className={styles.pctHigh}>{dayPct(daysUp)}</b> up <b className={styles.pctLow}>{dayPct(daysDown)}</b> down
+              </span>
+            )}
+            {ewBets.length > 0 && (
+              <span>
+                {ewBets.length} e/w: win <b className={ewWin < 0 ? styles.pctLow : styles.pctHigh}>{signed(ewWin)}</b> ({ewRoi(ewWin)})
+                {' '}place <b className={ewPlace < 0 ? styles.pctLow : styles.pctHigh}>{signed(ewPlace)}</b> ({ewRoi(ewPlace)})
+              </span>
+            )}
+            {evTotal !== null && <span>beat SP <b>{spBeat}/{measured.length}</b></span>}
+            {allSim && <span>simmed <b>{allSim.simmed}/{allSim.total}</b></span>}
+            <span>last <b>{wagers.length ? signed(wagers[wagers.length - 1].amount) : '—'}</b></span>
+            {/* Export lives here, folded away: it is used rarely, and on the
+                header line it pushed the actions onto a second row. A plain
+                link, not a fetch — the session cookie rides along and the
+                browser handles the download. */}
+            {bets.length > 0 && (
+              <a className={styles.export} href={`/api/pnl/${category}/bets.csv`} download>csv</a>
+            )}
+          </div>
+        )}
         {error && <p className={styles.error}>{error}</p>}
         {/* Two charts, near and far. The top one zooms — swipe right for a
             longer window, left for a shorter — and answers "how is it going
@@ -788,6 +808,31 @@ function ResultKey({ kind, label, net, onClick, disabled }) {
 
 // Own component with local state: typing here re-renders only this small tree,
 // never the chart above — which is what caused the input lag.
+/**
+ * Virtuals each-way terms come from the FIELD SIZE, not a separate wheel: the
+ * A McLean cards pay a fixed set of terms per runner count (boost.js::FIELDS,
+ * read off 1,449 settled races). So the slip only has to say how many ran.
+ *
+ * The runner count is shared with the Boost page through localStorage — the
+ * two are used one after the other for the same race — and remembered between
+ * bets, since consecutive races are usually the same kind.
+ */
+const RUNNERS_KEY = 'virtuals.runners'
+const RUNNERS_LADDER = RUNNER_COUNTS.map(n => ({ label: String(n), dec: n }))
+const DEFAULT_RUNNERS = 10
+function readRunners() {
+  try {
+    const n = Number(localStorage.getItem(RUNNERS_KEY))
+    return FIELDS[n] ? n : DEFAULT_RUNNERS
+  } catch { return DEFAULT_RUNNERS }
+}
+function saveRunners(n) {
+  try { localStorage.setItem(RUNNERS_KEY, String(n)) } catch { /* private mode */ }
+}
+// Place terms as the fraction of the odds (0.2 = 1/5), and how to say them.
+const termsFor = n => 1 / FIELDS[n].terms
+const termsLabel = n => `1/${FIELDS[n].terms} · ${FIELDS[n].places} places`
+
 function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
   // The two ledgers track different things about a bet. Dogs measures the price
   // against the Betfair SP; virtuals doesn't (there is no BFSP on a virtual
@@ -818,7 +863,8 @@ function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
   const [spOn, setSpOn] = useState(false)
   // Virtuals only: each-way and the place terms it pays at.
   const [ew, setEw] = useState(false)
-  const [terms, setTerms] = useState(DEFAULT_TERMS)
+  const [runners, setRunners] = useState(readRunners)
+  const terms = termsFor(runners)
   // THE RESULT BUTTON IS THE COMMIT. There is no Enter: a bet is stake (already
   // pre-filled) plus one tap on the outcome, which is the whole entry. Nothing
   // is "selected" here, so there is no result state to hold — the tapped result
@@ -856,7 +902,7 @@ function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
   // activates on its own rather than needing the tap first.
   const onBspChange = useCallback(v => { setPending(null); setBsp(v); setSpOn(true) }, [])
   const onBspActivate = useCallback(() => { setPending(null); setSpOn(true) }, [])
-  const onTermsChange = useCallback(v => { setPending(null); setTerms(v) }, [])
+  const onRunnersChange = useCallback(v => { setPending(null); setRunners(v); saveRunners(v) }, [])
 
   // What the BFSP wheel shows — the odds taken until spun — is the same whether
   // it is tracking or recording. Only `spOn` decides whether it is FILED, and
@@ -954,53 +1000,50 @@ function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
 
   return (
     <section className={styles.pad}>
-      <label className={styles.field}>
-        <span className={styles.fieldLabel}>
-          {isVirtuals && ew ? 'Stake (each way)' : 'Stake'}
-        </span>
-        <div className={styles.display}>
-          <span className={styles.currency}>£</span>
-          <input
-            className={styles.amountInput}
-            value={stake}
-            onChange={onStakeChange}
-            onKeyDown={onEnterKey}
-            inputMode="decimal"
-            type="text"
-            placeholder="0.00"
-            aria-label="Stake"
-            autoComplete="off"
-          />
-        </div>
-      </label>
-
-      {/* Each-way is two bets, so the money actually leaving is double the unit
-          typed above. Say so on the line itself — an EW stake that reads as the
-          unit is the easiest figure on this page to get wrong. */}
-      {isVirtuals && ew && hasStake && (
-        <div className={styles.vsSpLine}>
-          outlay <b>{exact(outlay)}</b> · 2 × {exact(stakeV)}
-        </div>
-      )}
-
-      {/* Win-only vs each-way decides both the outlay and which results can
-          happen, so it sits above the wheels rather than beside them. */}
-      {isVirtuals && (
-        <div className={styles.ewToggle} role="group" aria-label="Each way">
-          <button
-            type="button"
-            className={`${styles.res} ${!ew ? styles.on : ''}`}
-            aria-pressed={!ew}
-            onClick={() => { setPending(null); setEw(false); if (!stakeEdited) setStake(DEFAULT_STAKE) }}
-          >Win only</button>
-          <button
-            type="button"
-            className={`${styles.res} ${ew ? styles.on : ''}`}
-            aria-pressed={ew}
-            onClick={() => { setPending(null); setEw(true); if (!stakeEdited) setStake(DEFAULT_STAKE_EW) }}
-          >E/W</button>
-        </div>
-      )}
+      {/* Stake, with the virtuals' win-only / each-way switch beside it rather
+          than on a row of its own: the two are set together, and the row they
+          shared is height the charts above can use. Each-way doubles what
+          leaves, so the outlay rides in the label line. */}
+      <div className={styles.stakeRow}>
+        <label className={styles.field}>
+          <span className={styles.fieldLabel}>
+            {isVirtuals && ew ? 'Stake (each way)' : 'Stake'}
+            {isVirtuals && ew && hasStake && (
+              <span className={styles.outlay}>outlay <b>{exact(outlay)}</b></span>
+            )}
+          </span>
+          <div className={styles.display}>
+            <span className={styles.currency}>£</span>
+            <input
+              className={styles.amountInput}
+              value={stake}
+              onChange={onStakeChange}
+              onKeyDown={onEnterKey}
+              inputMode="decimal"
+              type="text"
+              placeholder="0.00"
+              aria-label="Stake"
+              autoComplete="off"
+            />
+          </div>
+        </label>
+        {isVirtuals && (
+          <div className={styles.ewToggle} role="group" aria-label="Each way">
+            <button
+              type="button"
+              className={`${styles.res} ${!ew ? styles.on : ''}`}
+              aria-pressed={!ew}
+              onClick={() => { setPending(null); setEw(false); if (!stakeEdited) setStake(DEFAULT_STAKE) }}
+            >Win</button>
+            <button
+              type="button"
+              className={`${styles.res} ${ew ? styles.on : ''}`}
+              aria-pressed={ew}
+              onClick={() => { setPending(null); setEw(true); if (!stakeEdited) setStake(DEFAULT_STAKE_EW) }}
+            >E/W</button>
+          </div>
+        )}
+      </div>
 
       {/* THE ENTRY. Not a selection to be confirmed later — a tap here files the
           bet, which is why each button carries the figure it will file.
@@ -1043,12 +1086,12 @@ function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
         </div>
         {isVirtuals ? (ew && (
           <div className={styles.wheelCol}>
-            {/* Terms are a property of the race, printed on the slip — almost
-                always 1/4, which is where the wheel rests. */}
+            {/* Field size; the place terms follow from it (see FIELDS). */}
             <OddsWheel
-              id="pnlTerms" label="Place terms" value={terms}
-              onChange={onTermsChange} ladder={TERMS_LADDER}
+              id="pnlRunners" label="Runners" value={runners} seat={runners}
+              onChange={onRunnersChange} ladder={RUNNERS_LADDER} decimalOnly
             />
+            <div className={styles.wNoteStatic}>{termsLabel(runners)}</div>
           </div>
         )) : (
         <div className={styles.wheelCol}>
@@ -1082,7 +1125,7 @@ function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
             Record <b className={pendingNet > 0 ? styles.pos : styles.neg}>{signedExact(pendingNet)}</b>?
             <span className={styles.confirmSub}>
               {exact(outlay)} at {odds.toFixed(2)} · {pending}
-              {isVirtuals && ew ? ` · e/w ${TERMS_LADDER.find(t => t.dec === terms)?.label ?? ''}` : ''}
+              {isVirtuals && ew ? ` · e/w ${runners} ran, ${termsLabel(runners)}` : ''}
             </span>
           </p>
           <div className={styles.confirmBtns}>
