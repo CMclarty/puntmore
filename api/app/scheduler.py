@@ -8,6 +8,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_ERROR
 
 from .config import settings
+from .notifications.routes import notify_rows
 from .coupon_images import delete_coupon_image
 from .database import SessionLocal
 from .models import Coupon, Leg
@@ -146,15 +147,11 @@ def refresh_all_live_coupons(odds_provider, notifier=None, db=None) -> int:
 
             db.commit()
 
-            if notifier and value_legs:
-                lines = "\n".join(
-                    f"  {l.match_name} ({l.pick}) — your: {l.odds}, "
-                    f"fair: {l.fair_odds:.2f}, value: +{l.value:.1%}"
-                    for l in value_legs
-                )
-                notifier.send(
-                    f":moneybag: {len(value_legs)} new/changed value leg(s):\n{lines}"
-                )
+            notify_rows(notifier, "coupons", ":moneybag: {n} new/changed value leg(s):", [
+                (l.value, f"  {l.match_name} ({l.pick}) — your: {l.odds}, "
+                          f"fair: {l.fair_odds:.2f}, value: +{l.value:.1%}")
+                for l in value_legs
+            ])
     finally:
         if close:
             db.close()
@@ -224,17 +221,14 @@ def sweep_cards(cards_client, pinnacle=None, notifier=None) -> int:
     # Alerts stay off until the feed has been proven against real prices —
     # a value tool that alerts before anyone has checked it trains trust it has
     # not earned. The sweep still runs, and the rows are still on the screen.
-    if notifier and fresh and settings.cards_discord_alerts:
-        lines = "\n".join(
-            f"  {r.home_team} v {r.away_team} — {r.side} {r.line} "
-            f"({r.market_key.replace('alternate_totals_', '')}): "
-            f"paddy {r.paddy_odds}, fair {r.fair_odds:.2f}, +{r.edge:.1%}"
+    if fresh and settings.cards_discord_alerts:
+        from .routers.cards import market_name
+        notify_rows(notifier, "paddy", ":triangular_flag_on_post: Paddy — {n} new/changed value bet(s):", [
+            (r.edge, f"  {r.home_team} v {r.away_team} — {r.side[0]}{r.line:g} "
+                     f"{market_name(r.market_key)} @ {r.paddy_odds}, "
+                     f"fair {r.fair_odds:.2f}, +{r.edge:.1%}")
             for r in fresh
-        )
-        notifier.send(
-            f":triangular_flag_on_post: {len(fresh)} new/changed cards value "
-            f"bet(s):\n{lines}"
-        )
+        ])
     return len(rows)
 
 
@@ -307,8 +301,38 @@ def build_goalscorer_watchlist(scheduler, client, notifier=None) -> int:
     return len(watch)
 
 
+# 365 acca boost picks already alerted, and at what tier. In memory and swept
+# every pass, for the same reasons as _cards_notified.
+_acca_notified: dict[tuple, str] = {}
+
+
+def sweep_accabonus(arbs_client, notifier=None) -> int:
+    """Post 365 acca boost picks that are new or changed tier. Returns rows."""
+    if arbs_client is None:
+        return 0
+    from .routers.accabonus import build_feed
+    rows = build_feed(arbs_client, settings.accabonus_alert_min_edge)
+    fresh, seen = [], set()
+    for r in rows:
+        key = (r.match, r.pick)
+        seen.add(key)
+        tier = value_tier(r.value)
+        if tier and _acca_notified.get(key) != tier:
+            fresh.append(r)
+        if tier:
+            _acca_notified[key] = tier
+    for key in [k for k in _acca_notified if k not in seen]:
+        del _acca_notified[key]
+    if settings.accabonus_discord_alerts:
+        notify_rows(notifier, "365", ":rocket: 365 acca boost — {n} new/changed value pick(s):", [
+            (r.value, f"  {r.match} ({r.sport}) — {r.pick} @ {r.odds}, +{r.value:.1%}")
+            for r in fresh
+        ])
+    return len(rows)
+
+
 def start_scheduler(
-    odds_provider, notifier=None, odds_client=None, cards_client=None,
+    odds_provider, notifier=None, odds_client=None, cards_client=None, arbs_client=None,
 ) -> BackgroundScheduler:
     """Create, configure, and start the background scheduler."""
     scheduler = BackgroundScheduler()
@@ -363,6 +387,18 @@ def start_scheduler(
                 "pinnacle": odds_provider,
                 "notifier": notifier,
             },
+        )
+
+    if settings.enable_accabonus and arbs_client is not None:
+        scheduler.add_job(
+            sweep_accabonus,
+            trigger="interval",
+            minutes=settings.accabonus_alert_minutes,
+            id="accabonus_alerts",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+            kwargs={"arbs_client": arbs_client, "notifier": notifier},
         )
 
     # First-goalscorer pipeline: rebuild the watchlist daily, and once now so a

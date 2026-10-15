@@ -121,17 +121,15 @@ def scan_and_store(
     db.commit()
 
     new_value = [r for r in rows if r.player not in prior]
-    if notifier and new_value:
+    if new_value:
+        from ..notifications.routes import notify_rows
         tag = "IN-PLAY " if inplay else ""
-        lines = "\n".join(
-            f"  {r.player} — bet365: {r.bet365_price}, fair: {r.fair_price}, "
-            f"value: +{r.edge:.1%}"
+        match = new_value[0].match_name.replace("{", "{{").replace("}", "}}")
+        notify_rows(notifier, "365", f":soccer: 365 — {tag}first-goalscorer value ({match}):", [
+            (r.edge, f"  {r.player} — bet365: {r.bet365_price}, fair: {r.fair_price}, "
+                     f"value: +{r.edge:.1%}")
             for r in new_value
-        )
-        match = new_value[0].match_name
-        notifier.send(
-            f":soccer: {tag}first-goalscorer value ({match}):\n{lines}"
-        )
+        ])
 
     return stored
 

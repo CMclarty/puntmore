@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     anthropic_api_key: str = ""
     discord_webhook_url: str = ""
+    # Per-tool / per-edge Discord channels, e.g.
+    # "coupons=URL paddy=URL paddy@0.08=URL 365=URL" — see
+    # notifications/routes.py. Unrouted alerts use DISCORD_WEBHOOK_URL.
+    discord_routes: str = ""
     upload_dir: str = "uploads"
     # Largest coupon photo accepted, in MB. A phone photo is 2-6 MB, so this is
     # generous — it exists because the request body is held in memory and then
@@ -191,6 +195,13 @@ class Settings(BaseSettings):
     # The quota reserve is the backstop either way — AccaBonus stops before the
     # reserve for the same reason the cards sweep does.
     accabonus_cache_ttl: int = 3600
+    # Discord alerts for the 365 acca boost: a pick is posted when it first
+    # clears this edge or its value tier changes. The check runs every
+    # `accabonus_alert_minutes` and reads THROUGH the cache above, so it costs
+    # no more than the cache TTL already allows.
+    accabonus_discord_alerts: bool = True
+    accabonus_alert_min_edge: float = 0.02
+    accabonus_alert_minutes: int = 30
     # Coupon tracker odds source (behind the OddsProvider seam).
     # "bettingiscool" (default, user decision July 2026) prices coupon legs
     # Pinnacle-referenced via BettingIsCoolProvider. "theoddsapi" is retained

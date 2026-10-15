@@ -601,8 +601,12 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   the same unbounded-dict leak `ttl_cache.py` exists to prevent.
 
 ### Notification provider (`app/notifications/`)
-`send(message)`. `DiscordNotificationProvider` (`DISCORD_WEBHOOK_URL`) →
-`NullNotificationProvider` (no webhook). Value-bet alerts from the refresh loop
+`send(message)`. `RoutedNotifier` (`DISCORD_WEBHOOK_URL` + `DISCORD_ROUTES`) →
+`NullNotificationProvider` (neither set). Value alerts go through
+`notify_rows(notifier, tool, header, rows)`, which routes each row to its
+tool's channel — or a higher edge band's (`paddy@0.08=URL`) — and falls back
+to the default webhook; system messages always use the default. Tools:
+`coupons`, `paddy`, `365` (acca boost + goalscorers). Value-bet alerts from the refresh loop
 are deduped via `legs.notified_tier` (notify only on new/changed tier) — keep
 that behaviour when touching the loop, or live coupons re-alert every 10 min.
 

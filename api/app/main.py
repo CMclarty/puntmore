@@ -30,7 +30,8 @@ from .providers.claude_ocr import ClaudeOCRProvider
 from .providers.gemini_ocr import GeminiOCRProvider
 from .providers.mock_ocr import MockOCRProvider
 from .providers.verified_ocr import VerifiedOCRProvider, describe_ocr
-from .notifications.discord import DiscordNotificationProvider, NullNotificationProvider
+from .notifications.discord import NullNotificationProvider
+from .notifications.routes import RoutedNotifier
 from .scheduler import cleanup_kicked_off_legs, cleanup_old_coupons, start_scheduler
 from .routers import coupons
 from .routers.upload import router as upload_router
@@ -212,10 +213,9 @@ async def lifespan(app: FastAPI):
         )
     logger.info("OCR provider: %s", describe_ocr(app.state.ocr_provider))
 
-    if settings.discord_webhook_url:
-        app.state.notifier = DiscordNotificationProvider(settings.discord_webhook_url)
-    else:
-        app.state.notifier = NullNotificationProvider()
+    # Per-tool / per-edge channels (DISCORD_ROUTES) over the default webhook.
+    routed = RoutedNotifier(settings.discord_webhook_url, settings.discord_routes)
+    app.state.notifier = routed if routed.configured else NullNotificationProvider()
 
     # Startup cleanup (catches anything missed while container was down) — the
     # kicked-off sweep especially, since a redeploy is exactly when a coupon
@@ -228,6 +228,7 @@ async def lifespan(app: FastAPI):
         notifier=app.state.notifier,
         odds_client=odds_client,
         cards_client=app.state.cards_client,
+        arbs_client=app.state.arbs_client,
     )
     app.state.scheduler = scheduler
 
