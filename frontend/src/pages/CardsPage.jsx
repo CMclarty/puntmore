@@ -108,7 +108,6 @@ export default function CardsPage() {
   const [items, setItems] = useState(null)
   const [error, setError] = useState(null)
   const [why, setWhy] = useState(null)
-  const [updated, setUpdated] = useState(null)
 
   useEffect(() => {
     try { localStorage.setItem(TAB_KEY, tab) } catch { /* private mode */ }
@@ -124,7 +123,6 @@ export default function CardsPage() {
       .then(async data => {
         if (!live) return
         setItems(data)
-        setUpdated(new Date())
         if (!data.length) {
           try { setWhy((await getCardsDiagnostics()).verdict) } catch { /* plain empty state */ }
         }
@@ -178,21 +176,12 @@ export default function CardsPage() {
               aria-pressed={tab === k} onClick={() => setTab(k)}>{label}</button>
           ))}
         </nav>
-        <span className={f.updated}>
-          {updated ? updated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-        </span>
       </header>
 
       <div className={`${f.filterBar} ${applied ? f.filtered : ''}`}>
         <button type="button" className={f.summary} aria-expanded={open} onClick={() => setOpen(o => !o)}>
           {applied || 'All bets'}
         </button>
-        {tab !== 'value' && (
-          <button type="button" className={`${f.chip} ${fl.onePerMatch ? f.chipOn : ''}`}
-            aria-pressed={fl.onePerMatch} onClick={() => setF({ onePerMatch: !fl.onePerMatch })}>
-            1 per match
-          </button>
-        )}
         <button type="button" className={f.filterToggle} aria-expanded={open} onClick={() => setOpen(o => !o)}>
           Filters {open ? '▴' : '▾'}
         </button>
@@ -221,6 +210,13 @@ export default function CardsPage() {
             {applied && <button type="button" className={f.reset} onClick={() => setF(NO_FILTERS)}>Reset</button>}
           </div>
         </div>
+      )}
+
+      {tab !== 'value' && (
+        <button type="button" className={`${f.fab} ${fl.onePerMatch ? f.fabOn : ''}`}
+          aria-pressed={fl.onePerMatch} onClick={() => setF({ onePerMatch: !fl.onePerMatch })}>
+          1 per match
+        </button>
       )}
 
       {error && <p className={f.error}>{error}</p>}

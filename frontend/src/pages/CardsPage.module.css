@@ -21,11 +21,6 @@
   margin-bottom: -1px;
 }
 .on { color: var(--ink); border-bottom-color: var(--accent); }
-.updated {
-  display: flex; align-items: center; gap: 10px;
-  padding-bottom: 9px;
-  font-family: var(--font-mono); font-size: 11px; color: var(--faint);
-}
 
 .filterBar {
   display: flex; align-items: center; gap: 10px;
@@ -51,7 +46,7 @@
 .chipOn { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); font-weight: 600; }
 .reset { margin-left: auto; border: none; background: none; font-size: 12px; color: var(--accent); }
 
-.list { display: flex; flex-direction: column; }
+.list { display: flex; flex-direction: column; padding-bottom: 72px; }  /* clear of the floating button */
 .row {
   display: grid;
   grid-template-columns: 22px 1fr 52px 62px;
@@ -77,3 +72,15 @@
 
 .empty { padding: 24px 12px; font-size: 13px; color: var(--muted); }
 .error { padding: 12px; font-size: 12px; color: var(--red); }
+
+/* Refund / Boost: "1 per match", floating bottom-right, level with the tool
+   switcher in the dock (BottomNav: 12px + safe area from the bottom). */
+.fab {
+  position: fixed; z-index: 51;
+  right: 16px; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  min-height: 44px; padding: 0 18px; border-radius: 999px;
+  border: 1px solid var(--ink); background: var(--paper); color: var(--ink);
+  font-size: 14px; font-weight: 700;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+.fabOn { background: var(--ink); color: var(--paper); }

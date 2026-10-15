@@ -592,8 +592,9 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   under one line naming what is applied — never an always-open panel.
   Refund and Boost show a SCORE column: Kelly growth scaled so the best leg
   on the list is 100 (relative, so it reads at a glance).
-  Both have a "1 per match" toggle on the filter line (keeps each match's
-  top-scoring leg — an acca takes one leg per game).
+  Both have a floating "1 per match" button bottom-right (keeps each match's
+  top-scoring leg — an acca takes one leg per game). NO clock / "updated"
+  time or other decoration in the header: Callum has asked twice.
   Refund = the insurance offer; **Acca Boost** (`accaBoost.js`) = winnings +10/20/30%
   on 4/5/6 legs, win-or-lose, each leg scored in its best fold. Both are a
   plain list of qualifying legs, best down — NO recommended acca on the page
