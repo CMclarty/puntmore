@@ -245,7 +245,10 @@ export default function CardsPage() {
 
       {fetchedAt && (
         <p className={styles.meta}>
-          {loading ? 'Refreshing…' : `${shown.length} match${shown.length !== 1 ? 'es' : ''}`}
+          {loading ? 'Refreshing…' : filters.sort === 'combo'
+            ? (n => `${n} option${n !== 1 ? 's' : ''} · `)(shown.reduce((k, i) => k + i.bets.length, 0))
+            : ''}
+          {!loading && `${shown.length} match${shown.length !== 1 ? 'es' : ''}`}
           {!loading && shown.length !== items.length ? ` of ${items.length}` : ''}
           {' · '}
           {fetchedAt.toLocaleTimeString()}
@@ -303,7 +306,25 @@ export default function CardsPage() {
       )}
 
       <div className={styles.feed}>
-        {shown.map((item) => {
+        {/* Acca insurance mode: every option as its own row, best score first
+            — the ranking IS the answer, so it is not hidden inside matches. */}
+        {filters.sort === 'combo' && shown
+          .flatMap(item => item.bets.map(bet => ({ bet, item, score: comboScore(bet) })))
+          .sort((x, y) => y.score - x.score)
+          .map(({ bet, item, score }) => (
+            <div key={item.event_id + bet.pick} className={f.flatRow}>
+              <span className={f.flatScore} title={`EV of an insured ${acca.legs}-fold of legs like this`}>
+                {pct(score)}
+              </span>
+              <span className={f.flatWhat}>
+                <span className={f.flatPick}>{bet.pick}</span>
+                <span className={f.flatMatch}>{item.match}</span>
+              </span>
+              <span className={`${styles.odds} ${styles.mono}`}>{bet.odds.toFixed(2)}</span>
+              <span className={`${styles.badge} ${styles[valueTier(bet.value)]}`}>{fmt(bet.value)}</span>
+            </div>
+          ))}
+        {filters.sort !== 'combo' && shown.map((item) => {
           const isOpen = openId === item.event_id
           return (
             <div key={item.event_id} className={styles.matchBlock}>
@@ -323,11 +344,6 @@ export default function CardsPage() {
                   {item.bets.map((bet, i) => (
                     <div key={i} className={styles.betRow}>
                       <span className={styles.pick}>{bet.pick}</span>
-                      {filters.sort === 'combo' && (
-                        <span className={f.score} title={`EV of an insured ${acca.legs}-fold of legs like this`}>
-                          {pct(comboScore(bet))}
-                        </span>
-                      )}
                       <span className={`${styles.odds} ${styles.mono}`}>{bet.odds.toFixed(2)}</span>
                       <span className={`${styles.badge} ${styles[valueTier(bet.value)]}`}>
                         {fmt(bet.value)}
