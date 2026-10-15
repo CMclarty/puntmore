@@ -4,7 +4,7 @@ import { getCardsFeed, getCardsDiagnostics } from '../api'
 import ThresholdControl from '../components/ThresholdControl'
 import styles from './FeedPage.module.css'
 import f from './CardsPage.module.css'
-import { DEFAULTS as ACCA_DEFAULTS, bestAcca, legScore } from '../accaInsurance'
+import { DEFAULTS as ACCA_DEFAULTS, legScore } from '../accaInsurance'
 
 const DEBOUNCE_MS = 400
 const DEFAULT_EV = 98  // preset: show everything at or above 98% EV
@@ -31,7 +31,7 @@ const WITHIN_H = [null, 3, 12, 24]        // hours to kick-off; null = any
 // 1.2 or longer, stake back (as a bonus) if exactly one leg loses. It ranks
 // legs by the offer's own EV (accaInsurance.js::legScore) — value AND hit
 // rate, because a short winner keeps the acca inside the one-loser refund —
-// and builds the best qualifying acca from what is on screen. The 1.2 floor
+// and lists every option by it, best first. The 1.2 floor
 // is this preset's alone; every other preset shows shorter prices too.
 // Its EV floor is LOW (95) on purpose: the refund carries value of its own,
 // so a leg a little under fair can still make a positive insured acca.
@@ -70,7 +70,9 @@ export default function CardsPage() {
   const [filters, setFilters] = useState(loadFilters)
   const threshold = filters.ev
   const [showFilters, setShowFilters] = useState(false)
-  const [acca, setAcca] = useState(loadAcca)
+  // The offer's settings (legs, refund worth, cap) come from the calculator
+  // page at /paddy/acca, which owns editing them.
+  const [acca] = useState(loadAcca)
   const comboScore = b => legScore(b, acca)
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
@@ -110,9 +112,7 @@ export default function CardsPage() {
   useEffect(() => {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(filters)) } catch { /* private mode */ }
   }, [filters])
-  useEffect(() => {
-    try { localStorage.setItem(ACCA_KEY, JSON.stringify(acca)) } catch { /* private mode */ }
-  }, [acca])
+
 
   function refetch(ev) {
     clearTimeout(debounceRef.current)
@@ -158,16 +158,6 @@ export default function CardsPage() {
     }
   }).filter(Boolean).sort((a, b) => b.rank - a.rank)
 
-  // The insured acca, built from the legs currently shown.
-  const insured = filters.sort === 'combo'
-    ? bestAcca(shown.flatMap(i => i.bets.map(b => ({ ...b, matchId: i.event_id, match: i.match }))), acca)
-    : null
-  const setAccaField = (k, v) => {
-    let n = parseFloat(v)
-    if (!Number.isFinite(n) || n < 0) return
-    if (k === 'legs') n = Math.min(10, Math.max(2, Math.round(n)))   // a whole fold count
-    setAcca(a => ({ ...a, [k]: n }))
-  }
 
   function toggleRow(id) {
     setOpenId(prev => prev === id ? null : id)
@@ -232,6 +222,7 @@ export default function CardsPage() {
                 aria-pressed={filters.within === h} onClick={() => edit({ within: h })}>{h == null ? 'any' : `< ${h}h`}</button>
             ))}
           </div>
+          <Link className={f.calcLink} to="/paddy/acca">Acca insurance calculator & settings ›</Link>
           <div className={f.row}>
             <span className={f.label}>Competition</span>
             <select className={f.select} value={filters.comp ?? ''}
@@ -256,54 +247,6 @@ export default function CardsPage() {
         </p>
       )}
       {error && <p className={styles.error}>{error}</p>}
-
-      {filters.sort === 'combo' && (
-        <div className={f.acca}>
-          <div className={f.accaHead}>
-            <span>Insured {acca.legs}-fold</span>
-            {insured && <b className={insured.evPct >= 0 ? f.pos : f.neg}>{pct(insured.evPct)} EV</b>}
-          </div>
-          {insured ? (
-            <>
-              {insured.picks.map(l => (
-                <div key={l.matchId + l.pick} className={f.accaLeg}>
-                  <span className={f.accaMatch}>{l.match}</span>
-                  <span>{l.pick}</span>
-                  <span className={styles.mono}>{l.odds.toFixed(2)}</span>
-                </div>
-              ))}
-              <div className={f.accaSum}>
-                odds <b>{insured.accaOdds.toFixed(2)}</b> · acca <b>{(insured.rawAccaPct * 100).toFixed(1)}%</b>
-                {' '}· all win <b>{(insured.pWin * 100).toFixed(1)}%</b>
-                {' '}· refund <b>{(insured.pRefund * 100).toFixed(1)}%</b>
-                {' '}· full loss <b>{(insured.pLoss * 100).toFixed(1)}%</b>
-                <br />£{acca.stake} stake: EV <b>{pct(insured.evPct)}</b> = <b>£{insured.evGbp.toFixed(2)}</b>
-                {acca.stake > acca.refundCap && <> · stake over the £{acca.refundCap} cap is uninsured</>}
-              </div>
-            </>
-          ) : (
-            <p className={f.accaNone}>Needs {acca.legs} legs at {LOW_ODDS_FLOOR}+ from different matches.</p>
-          )}
-          <Link className={f.accaCalc} to="/paddy/acca"
-            state={insured ? { legs: insured.picks.map(l => ({ odds: l.odds, fair: l.odds / (1 + l.value), name: `${l.match} · ${l.pick}` })) } : undefined}
-          >Open in calculator ›</Link>
-          <div className={f.accaCfg}>
-            {[['stake', 'Stake £'], ['refundCap', 'Refund cap £'], ['refundValue', 'Refund worth'], ['legs', 'Legs']].map(([k, l]) => (
-              <label key={k}>{l}
-                <input type="number" inputMode="decimal" defaultValue={acca[k]}
-                  step={k === 'refundValue' ? 0.05 : 1} min={k === 'legs' ? 2 : 0}
-                  onChange={e => setAccaField(k, e.target.value)} />
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {!loading && !error && items.length === 0 && (
-        <p className={styles.empty}>
-          {why ?? 'No value bets at this threshold.'}
-        </p>
-      )}
 
       <div className={styles.feed}>
         {/* Acca insurance mode: every option as its own row, best score first
