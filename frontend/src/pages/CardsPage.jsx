@@ -35,7 +35,7 @@ const MAX_ODDS = [null, 1.5, 2, 3, 5]
 const MIN_VALUE = [0, 0.02, 0.04, 0.06]               // Value tab only
 const SORTS = [['best', 'Best'], ['shortest', 'Shortest']]
 const FILTER_KEY = 'paddy.filters'
-const NO_FILTERS = { markets: MARKETS, within: null, maxOdds: null, minValue: 0, sort: 'best' }
+const NO_FILTERS = { markets: MARKETS, within: null, maxOdds: null, minValue: 0, sort: 'best', onePerMatch: false }
 function loadFilters() {
   try {
     const v = JSON.parse(localStorage.getItem(FILTER_KEY))
@@ -149,6 +149,13 @@ export default function CardsPage() {
     ? bets.filter(b => b.value >= fl.minValue).map(b => ({ b, s: b.value }))
     : bets.filter(b => b.odds >= ACCA_FLOOR)
       .map(b => ({ b, s: refund ? legScore(b, ACCA_DEFAULTS) : boostLegScore(b).growth }))
+  // Refund / Boost: one selection per match — the highest-scoring one, since
+  // an acca takes a single leg from each game.
+  if (tab !== 'value' && fl.onePerMatch) {
+    const top = new Map()
+    for (const x of list) if (!top.has(x.b.matchId) || x.s > top.get(x.b.matchId).s) top.set(x.b.matchId, x)
+    list.splice(0, list.length, ...top.values())
+  }
   list.sort(fl.sort === 'shortest'
     ? (x, y) => x.b.odds - y.b.odds || y.s - x.s
     : (x, y) => y.s - x.s)
@@ -176,15 +183,24 @@ export default function CardsPage() {
         </span>
       </header>
 
-      <button type="button" className={`${f.filterBar} ${applied ? f.filtered : ''}`}
-        aria-expanded={open} onClick={() => setOpen(o => !o)}>
-        <span>{applied || 'All bets'}</span>
-        <span className={f.filterToggle}>Filters {open ? '▴' : '▾'}</span>
-      </button>
+      <div className={`${f.filterBar} ${applied ? f.filtered : ''}`}>
+        <button type="button" className={f.summary} aria-expanded={open} onClick={() => setOpen(o => !o)}>
+          {applied || 'All bets'}
+        </button>
+        {tab !== 'value' && (
+          <button type="button" className={`${f.chip} ${fl.onePerMatch ? f.chipOn : ''}`}
+            aria-pressed={fl.onePerMatch} onClick={() => setF({ onePerMatch: !fl.onePerMatch })}>
+            1 per match
+          </button>
+        )}
+        <button type="button" className={f.filterToggle} aria-expanded={open} onClick={() => setOpen(o => !o)}>
+          Filters {open ? '▴' : '▾'}
+        </button>
+      </div>
       {open && (
         <div className={f.panel}>
           <div className={f.group} role="group" aria-label="Market">
-            <Chips icons options={MARKETS.map(m => [m, m])} isOn={m => fl.markets.includes(m)}
+            <Chips icons options={MARKETS.map(m => [m, m[0].toUpperCase() + m.slice(1)])} isOn={m => fl.markets.includes(m)}
               onPick={m => setF({ markets: fl.markets.includes(m) ? fl.markets.filter(x => x !== m) : [...fl.markets, m] })} />
           </div>
           <div className={f.group}><span className={f.label}>Kick-off</span>
