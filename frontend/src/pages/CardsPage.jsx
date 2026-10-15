@@ -36,11 +36,12 @@ const MAX_ODDS = [null, 1.5, 2, 3, 5]
 const MIN_VALUE = [0, 0.02, 0.04, 0.06]               // Value tab only
 const SORTS = [['best', 'Best'], ['shortest', 'Shortest']]
 const FILTER_KEY = 'paddy.filters'
-const NO_FILTERS = { markets: MARKETS, within: null, comp: null, maxOdds: null, minValue: 0, sort: 'best' }
+const NO_FILTERS = { markets: MARKETS, within: null, maxOdds: null, minValue: 0, sort: 'best' }
 function loadFilters() {
   try {
     const v = JSON.parse(localStorage.getItem(FILTER_KEY))
-    if (v && Array.isArray(v.markets)) return { ...NO_FILTERS, ...v }
+    // `comp` was a league filter (removed); a saved one must not hide rows.
+    if (v && Array.isArray(v.markets)) { const { comp, ...rest } = v; return { ...NO_FILTERS, ...rest } } // eslint-disable-line no-unused-vars
   } catch { /* none saved, or private mode */ }
   return NO_FILTERS
 }
@@ -52,14 +53,11 @@ function inWindow(iso, within, now) {
   if (within === 'later') return ko >= midnight.getTime()
   return ko - now <= within * 3600_000
 }
-const compLabel = k => (k || 'other').replace(/^soccer_?/, '').replace(/_/g, ' ')
-  .replace(/\b\w/g, c => c.toUpperCase()) || 'Other'
 // What is applied, in a few words; empty when nothing is.
 function summary(fl, tab) {
   const bits = []
   if (fl.markets.length < MARKETS.length) bits.push(fl.markets.length ? fl.markets.join(', ') : 'no markets')
   if (fl.within != null) bits.push(WITHIN.find(([w]) => w === fl.within)[1])
-  if (fl.comp != null) bits.push(compLabel(fl.comp))
   if (fl.maxOdds != null) bits.push(`≤ ${fl.maxOdds.toFixed(2)}`)
   if (tab === 'value' && fl.minValue > 0) bits.push(`${(100 + fl.minValue * 100).toFixed(0)}%+`)
   if (fl.sort === 'shortest') bits.push('shortest first')
@@ -138,10 +136,8 @@ export default function CardsPage() {
 
   // Every bet, flat, carrying its match and kick-off, through the filters.
   const now = Date.now()
-  const comps = [...new Set((items || []).map(i => i.sport_key || ''))].sort()
   const bets = (items || [])
-    .filter(item => (fl.comp == null || (item.sport_key || '') === fl.comp)
-      && inWindow(item.commence_time, fl.within, now))
+    .filter(item => inWindow(item.commence_time, fl.within, now))
     .flatMap(item => item.bets.map(b => ({
       ...b, match: item.match, matchId: item.event_id, commence_time: item.commence_time,
     })))
@@ -205,13 +201,6 @@ export default function CardsPage() {
           )}
           <div className={f.group}><span className={f.label}>Sort</span>
             <Chips options={SORTS} isOn={k => fl.sort === k} onPick={k => setF({ sort: k })} />
-          </div>
-          <div className={f.group}><span className={f.label}>League</span>
-            <select className={f.select} value={fl.comp ?? ''} aria-label="League"
-              onChange={e => setF({ comp: e.target.value === '' ? null : e.target.value })}>
-              <option value="">All</option>
-              {comps.map(c => <option key={c} value={c}>{compLabel(c)}</option>)}
-            </select>
             {applied && <button type="button" className={f.reset} onClick={() => setF(NO_FILTERS)}>Reset</button>}
           </div>
         </div>

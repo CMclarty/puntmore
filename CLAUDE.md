@@ -588,7 +588,7 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   page is THREE TABS — Value (singles at fair or better), Refund (the
   insurance offer), Boost — each ONE list, best down (Callum, Oct 2026:
   "this is a tool — keep it clean"; open, tap one of three, bet in seconds).
-  Filters (market, kick-off, max odds, min value, sort, league) are FOLDED
+  Filters (market, kick-off, max odds, min value, sort) are FOLDED
   under one line naming what is applied — never an always-open panel.
   Growth numbers are not shown; the order is the ranking.
   Refund = the insurance offer; **Acca Boost** (`accaBoost.js`) = winnings +10/20/30%
