@@ -256,6 +256,8 @@ export default function CardsPage() {
           {' · '}cached 24 h
         </p>
       )}
+      {/* First load: say so, rather than a blank page while prices compute. */}
+      {loading && !fetchedAt && <p className={styles.meta}>Loading prices…</p>}
       {error && <p className={styles.error}>{error}</p>}
 
       <div className={styles.feed}>

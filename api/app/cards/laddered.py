@@ -31,6 +31,9 @@ None of those three should be relaxed to make more rows appear. Fewer, better
 rows is the entire design.
 """
 import logging
+import threading
+
+from ..ttl_cache import MISS, TTLCache
 
 from ..pricing.counts.config import CARDS, CORNERS, GOALS, ModelConfig
 from ..pricing.counts.errors import LadderError
@@ -43,6 +46,24 @@ logger = logging.getLogger("uvicorn.error")
 
 # Counts from the most recent call, for /cards/diagnostics.
 LAST_RUN: dict = {}
+
+# Fits and line prices, keyed by the exact Pinnacle ladder they came from.
+# A fit is ~40 optimiser runs (the uncertainty band refits it several ways),
+# ~1.3 s a fixture: 55 fixtures took ~76 s, every 2-minute sweep and every
+# page load (live, 15 Oct — the page timed out blank). Pinnacle's ladder
+# rarely moves between sweeps, so an unchanged ladder reuses its fit and only
+# the edges (cheap) are recomputed. Bounded, like every cache here.
+_FITS = TTLCache(ttl=6 * 3600, maxsize=2000)
+_PRICES = TTLCache(ttl=6 * 3600, maxsize=10000)
+_REFUSED = object()
+# One pricing pass at a time: a page load during a sweep waits, then reads the
+# fits the sweep just cached, instead of computing the same ones beside it.
+_PRICING_LOCK = threading.Lock()
+
+
+def _signature(event: dict, market_key: str, sport_key: str, outcomes: list[dict]) -> tuple:
+    return (event.get("id"), market_key, sport_key,
+            tuple(sorted((o.get("name"), o.get("point"), o.get("price")) for o in outcomes)))
 
 # Below this many two-sided Pinnacle rungs the fixture is skipped entirely.
 # Two rungs pin a mean and let the prior hold the shape; one rung pins nothing.
@@ -89,7 +110,12 @@ def ladder_from(outcomes: list[dict], fixture_id: str, market: str,
     return Ladder(fixture_id, market, rungs, league=league)
 
 
-def compute_laddered_value(
+def compute_laddered_value(events: list[dict], min_edge: float) -> list[CardValueRow]:
+    with _PRICING_LOCK:
+        return _compute_laddered_value(events, min_edge)
+
+
+def _compute_laddered_value(
     events: list[dict], min_edge: float,
 ) -> list[CardValueRow]:
     """Value rows for every line Paddy Power quotes, priced off Pinnacle's ladder.
@@ -130,13 +156,19 @@ def compute_laddered_value(
                 refused += 1
                 continue
 
-            try:
-                fit = fit_ladder(ladder, config)
-            except LadderError as exc:
+            sig = _signature(event, market_key, sport_key, pin_outcomes)
+            fit = _FITS.get(sig)
+            if fit is MISS:
+                try:
+                    fit = fit_ladder(ladder, config)
+                except LadderError as exc:
+                    fit = _REFUSED
+                    logger.info(
+                        "cards: %s %s not fittable — %s", event.get("id"), market_key, exc
+                    )
+                _FITS.set(sig, fit)
+            if fit is _REFUSED:
                 refused += 1
-                logger.info(
-                    "cards: %s %s not fittable — %s", event.get("id"), market_key, exc
-                )
                 continue
             fitted += 1
 
@@ -146,9 +178,14 @@ def compute_laddered_value(
                 if not is_priceable(line, config):
                     continue
                 priceable_lines += 1
-                try:
-                    priced = price_line(fit, line, ladder)
-                except LadderError:
+                priced = _PRICES.get((sig, line))
+                if priced is MISS:
+                    try:
+                        priced = price_line(fit, line, ladder)
+                    except LadderError:
+                        priced = _REFUSED
+                    _PRICES.set((sig, line), priced)
+                if priced is _REFUSED:
                     continue
 
                 for side in ("Over", "Under"):
