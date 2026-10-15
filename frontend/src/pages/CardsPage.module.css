@@ -1,5 +1,26 @@
-/* Cards page filters: one row of presets, and the filters behind a toggle. */
-.presets {
+/* Paddy: three tabs (Value / Acca Refund / Acca Boost), one shared chip row
+   of filters under them, and a sort bar inside the Value tab. */
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px 0;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.tab {
+  border: none;
+  background: none;
+  padding: 7px 10px 9px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+}
+.tabOn { color: var(--ink); border-bottom-color: var(--accent); }
+
+.chips, .subbar {
   display: flex;
   gap: 6px;
   padding: 8px 12px;
@@ -9,7 +30,11 @@
   flex-shrink: 0;
   align-items: center;
 }
-.presets::-webkit-scrollbar { display: none; }
+.chips::-webkit-scrollbar, .subbar::-webkit-scrollbar { display: none; }
+.subbar { padding-top: 6px; padding-bottom: 6px; }
+.sep { flex: 0 0 1px; align-self: stretch; background: var(--line-strong); margin: 2px 2px; }
+
+.gear { font-size: 18px; color: var(--muted); text-decoration: none; padding: 0 4px; }
 
 .chip {
   flex: 0 0 auto;
@@ -24,7 +49,6 @@
   text-transform: capitalize;
 }
 .on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
-.custom { cursor: default; }
 
 .more {
   flex: 0 0 auto;
@@ -37,17 +61,7 @@
   white-space: nowrap;
 }
 
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 12px 10px;
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
-}
-.row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .label {
-  width: 84px;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -79,7 +93,6 @@
 .flatWhat { display: flex; flex-direction: column; min-width: 0; }
 .flatPick { font-size: 13px; color: var(--ink); }
 .flatMatch { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.calcLink { font-size: 12px; color: var(--accent); text-decoration: none; font-weight: 600; }
 
 /* Column titles over the lists. */
 .colHead, .matchHead {

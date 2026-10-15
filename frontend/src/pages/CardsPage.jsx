@@ -4,32 +4,38 @@ import { getCardsFeed, getCardsDiagnostics } from '../api'
 import ThresholdControl from '../components/ThresholdControl'
 import styles from './FeedPage.module.css'
 import f from './CardsPage.module.css'
-import { DEFAULTS as ACCA_DEFAULTS, bestAcca, legAcca, legScore } from '../accaInsurance'
+import { DEFAULTS as ACCA_DEFAULTS, bestAcca, growthOf, legAcca, legScore, trueProb } from '../accaInsurance'
 import { bestBoostAcca, boostLegScore } from '../accaBoost'
 
-const DEBOUNCE_MS = 400
-const DEFAULT_EV = 98  // preset: show everything at or above 98% EV
-
-function valueTier(v) {
-  if (v >= 0.06) return 'hi'
-  if (v >= 0.04) return 'mid'
-  if (v > 0) return 'lo'
-  return 'neg'
-}
-
-// Edge fraction → %EV (bet odds as % of fair). 0.02 → "102.0%"
-function fmt(v) {
-  return `${((1 + v) * 100).toFixed(1)}%`
-}
-
-// "Over 2.5 goals" → "O2.5 goals": the board's own shorthand, and narrower.
-const shortPick = p => p.replace(/^Over /, 'O').replace(/^Under /, 'U')
+/**
+ * Paddy — Paddy Power's corners, cards, goals and saves against fair prices.
+ *
+ * THREE TABS, one per job (Oct 2026; it had grown eight presets and a
+ * seven-row filter panel that mixed offers with plain filters):
+ *   Value        single bets. Sort by value (grouped by match), by growth as
+ *                a single (Kelly, so a long value bet ranks on its merits),
+ *                or shortest odds first. Its own EV threshold and odds range.
+ *   Acca Refund  the acca insurance offer (5-fold, 1.20+, stake back as a
+ *                bonus if exactly one leg loses) — accaInsurance.js.
+ *   Acca Boost   winnings +10/20/30% on a 4/5/6-fold, 1.20+ — accaBoost.js.
+ * Both acca tabs list every option ranked by GROWTH — the expected log-growth
+ * of an acca with that leg at the acca's own optimal stake — under the best
+ * qualifying acca. Money in the pocket over theoretical EV (Callum's call).
+ *
+ * ONE chip row under the tabs filters all three: markets, kick-off, league.
+ */
 
 const MARKETS = ['corners', 'cards', 'goals', 'saves']
-const MAX_ODDS = [null, 1.5, 2, 3, 5]          // null = any
-// Kick-off window: within 1h or 3h, the rest of TODAY (local), or LATER than
-// today. null = any.
-const WITHIN = [[null, 'any'], [1, '< 1h'], [3, '< 3h'], ['today', 'Today'], ['later', 'Later']]
+const MAX_ODDS = [null, 1.5, 2, 3, 5]
+const MIN_ODDS = [null, 1.2]
+const ACCA_FLOOR = ACCA_DEFAULTS.minOdds          // both offers: every leg 1.20+
+// The acca tabs fetch down to 95% of fair: the refund / boost carries value of
+// its own, so a leg a little under fair can still belong in a good acca.
+const ACCA_EV = 95
+const DEFAULT_EV = 98
+
+// Kick-off window: within 1h or 3h, the rest of TODAY (local), or LATER.
+const WITHIN = [[null, 'Any'], [1, '< 1h'], [3, '< 3h'], ['today', 'Today'], ['later', 'Later']]
 function inWindow(kickoff, within, now) {
   if (within == null) return true
   const ko = new Date(kickoff).getTime()
@@ -39,92 +45,73 @@ function inWindow(kickoff, within, now) {
   return ko - now <= within * 3600_000
 }
 
-// One tap sets the lot. EV is the server-side threshold; the rest filter the
-// rows that come back. Touching any filter afterwards makes it "Custom".
-// The "Acca Min" preset is for the acca insurance offer: a 5-fold, every leg
-// 1.2 or longer, stake back (as a bonus) if exactly one leg loses. It ranks
-// every option by GROWTH (accaInsurance.js::kellyGrowth): the expected
-// log-growth of an insured acca with that leg, at the acca's own optimal
-// stake. No bankroll, no dial — an acca that mostly loses cannot be staked
-// heavily, so short legs that keep it paying back (win or refund) rise, and a
-// long leg only ranks if its edge pays for the swing. Money in the pocket
-// over theoretical EV (Callum's call, Oct 2026). The best qualifying acca
-// heads the list. The 1.2 floor is this preset's alone; its EV floor is low
-// (95) because the refund carries value of its own.
-const LOW_ODDS_FLOOR = ACCA_DEFAULTS.minOdds
-const ACCA_KEY = 'paddy.acca'
-function loadAcca() {
-  try { return { ...ACCA_DEFAULTS, ...JSON.parse(localStorage.getItem(ACCA_KEY)) } } catch { return ACCA_DEFAULTS }
+const TABS = [['value', 'Value'], ['refund', 'Acca Refund'], ['boost', 'Acca Boost']]
+const SORTS = [['value', 'Value'], ['single', 'Growth'], ['shortest', 'Shortest']]
+
+const VIEW_KEY = 'paddy.view'
+const DEFAULT_VIEW = {
+  tab: 'value',
+  markets: MARKETS, within: null, comp: null,               // shared
+  value: { ev: DEFAULT_EV, sort: 'value', minOdds: null, maxOdds: null },
 }
-const pct = v => (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1) + '%'
-// Growth per bet is small (a few %): two decimals.
-const growthPct = v => (v * 100).toFixed(2) + '%'
-
-const GROWTH_TIP = 'Growth per bet of an insured acca with this leg, at its optimal stake — higher is better'
-
-const PRESETS = [
-  { id: 'all', label: 'All', ev: DEFAULT_EV, markets: MARKETS, maxOdds: null, within: null },
-  // The acca BOOST offer: winnings +10% on a 4-fold, +20% on 5, +30% on 6.
-  // Same growth maths (accaBoost.js), win-or-lose with no refund; each leg is
-  // scored in whichever boosted fold grows fastest.
-  { id: 'boost', label: 'Acca Boost', ev: 95, markets: MARKETS, maxOdds: null, within: null,
-    minOdds: LOW_ODDS_FLOOR, sort: 'boost' },
-  { id: 'low', label: 'Acca Min', ev: 95, markets: MARKETS, maxOdds: null, within: null,
-    minOdds: LOW_ODDS_FLOOR, sort: 'combo' },
-  { id: 'best', label: 'Best', ev: 105, markets: MARKETS, maxOdds: 5, within: null },
-  { id: 'cc', label: 'Corners & cards', ev: 103, markets: ['corners', 'cards'], maxOdds: null, within: null },
-  { id: 'goals', label: 'Goals', ev: 102, markets: ['goals'], maxOdds: null, within: null },
-  { id: 'saves', label: 'Saves', ev: 103, markets: ['saves'], maxOdds: null, within: null },
-  { id: 'soon', label: 'Starts in 3h', ev: 102, markets: MARKETS, maxOdds: null, within: 3 },
-]
-const STORE_KEY = 'cards.filters'
-
-function loadFilters() {
+function loadView() {
   try {
-    const v = JSON.parse(localStorage.getItem(STORE_KEY))
-    if (v && Array.isArray(v.markets) && typeof v.ev === 'number') return v
+    const v = JSON.parse(localStorage.getItem(VIEW_KEY))
+    if (v && Array.isArray(v.markets) && v.value) return { ...DEFAULT_VIEW, ...v }
   } catch { /* none saved, or private mode */ }
-  return { ...PRESETS[0], preset: 'all', comp: null }
+  return DEFAULT_VIEW
+}
+function loadRefundSettings() {
+  try { return { ...ACCA_DEFAULTS, ...JSON.parse(localStorage.getItem('paddy.acca')) } } catch { return ACCA_DEFAULTS }
 }
 
-// "soccer_uefa_champs_league" → "Uefa Champs League"
+function valueTier(v) {
+  if (v >= 0.06) return 'hi'
+  if (v >= 0.04) return 'mid'
+  if (v > 0) return 'lo'
+  return 'neg'
+}
+const fmt = v => `${((1 + v) * 100).toFixed(1)}%`                 // edge → %EV
+const pct = v => (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1) + '%'
+const growthPct = v => (v * 100).toFixed(2) + '%'                // a few %: 2dp
+const shortPick = p => p.replace(/^Over /, 'O').replace(/^Under /, 'U')
 const compLabel = k => (k || 'other').replace(/^soccer_?/, '').replace(/_/g, ' ')
   .replace(/\b\w/g, c => c.toUpperCase()) || 'Other'
+// A bet's growth placed on its own, at its Kelly stake.
+const singleGrowth = b => {
+  const p = trueProb(b)
+  return growthOf([[p, b.odds - 1], [1 - p, -1]])
+}
 
 export default function CardsPage() {
-  const [filters, setFilters] = useState(loadFilters)
-  const threshold = filters.ev
-  const [showFilters, setShowFilters] = useState(false)
-  // The offer's settings (legs, refund worth, cap) come from the calculator
-  // page at /paddy/acca, which owns editing them.
-  const [acca] = useState(loadAcca)
   const navigate = useNavigate()
-  const comboScore = b => legScore(b, acca)
+  const [view, setView] = useState(loadView)
+  const [refundCfg] = useState(loadRefundSettings)
+  const [showOdds, setShowOdds] = useState(false)
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [fetchedAt, setFetchedAt] = useState(null)
   const [openId, setOpenId] = useState(null)
-  // Only fetched when the feed comes back empty. An empty screen has several
-  // causes and they look identical here — "no fixtures near kickoff" and "the
-  // model found no value" are both normal, and neither should read as broken.
+  // Fetched only when the feed comes back empty: an empty screen has several
+  // causes, and "nothing near kickoff" or "no value" must not read as broken.
   const [why, setWhy] = useState(null)
   const debounceRef = useRef(null)
 
-  const fetchFeed = useCallback(async (ev) => {
+  const tab = view.tab
+  const acca = tab !== 'value'
+  const ev = acca ? ACCA_EV : view.value.ev
+
+  const fetchFeed = useCallback(async (evPct) => {
     setLoading(true)
     setError(null)
     try {
-      const data = await getCardsFeed(ev / 100 - 1)
+      const data = await getCardsFeed(evPct / 100 - 1)
       setItems(data)
       setFetchedAt(new Date())
       setWhy(null)
       if (data.length === 0) {
-        // Best effort: an explanation is a nicety, so its failure must not
-        // surface as an error over a feed that loaded perfectly well.
-        try {
-          setWhy((await getCardsDiagnostics()).verdict)
-        } catch { /* leave the plain empty state */ }
+        try { setWhy((await getCardsDiagnostics()).verdict) } catch { /* plain empty state */ }
       }
     } catch (err) {
       setError(err.message)
@@ -133,178 +120,152 @@ export default function CardsPage() {
     }
   }, [])
 
-  useEffect(() => { fetchFeed(threshold) }, []) // eslint-disable-line
+  // The server applies the EV floor, so a tab with a different floor refetches.
+  useEffect(() => {
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => fetchFeed(ev), fetchedAt ? 400 : 0)
+  }, [ev]) // eslint-disable-line
 
   useEffect(() => {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(filters)) } catch { /* private mode */ }
-  }, [filters])
+    try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)) } catch { /* private mode */ }
+  }, [view])
 
-
-  function refetch(ev) {
-    clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => fetchFeed(ev), DEBOUNCE_MS)
-  }
-
-  function handleThresholdChange(val) {
-    setFilters(x => ({ ...x, ev: val, preset: 'custom' }))
-    refetch(val)
-  }
-
-  function applyPreset(p) {
-    setFilters(x => ({ ...p, preset: p.id, comp: x.comp }))
-    if (p.ev !== threshold) refetch(p.ev)
-  }
-
-  const edit = patch => setFilters(x => ({ ...x, ...patch, preset: 'custom' }))
-  const toggleMarket = m => edit({
-    markets: filters.markets.includes(m) ? filters.markets.filter(x => x !== m) : [...filters.markets, m],
+  const set = patch => setView(v => ({ ...v, ...patch }))
+  const setValue = patch => setView(v => ({ ...v, value: { ...v.value, ...patch } }))
+  const toggleMarket = m => set({
+    markets: view.markets.includes(m) ? view.markets.filter(x => x !== m) : [...view.markets, m],
   })
 
-  // Client-side: market, odds, time to kick-off and competition. A match
-  // stays only if one of its bets survives, and its badge is the best of those.
+  // --- What this tab shows ---------------------------------------------------
   const now = Date.now()
   const comps = [...new Set(items.map(i => i.sport_key || ''))].sort()
-  // Both acca views list every option on its own row rather than by match.
-  const boostMode = filters.sort === 'boost'
-  const flat = filters.sort === 'combo' || filters.sort === 'shortest' || boostMode
+  const minOdds = acca ? ACCA_FLOOR : view.value.minOdds
+  const maxOdds = acca ? null : view.value.maxOdds
   const shown = items.map(item => {
-    if (filters.comp != null && (item.sport_key || '') !== filters.comp) return null
-    if (!inWindow(item.commence_time, filters.within, now)) return null
-    const combo = filters.sort === 'combo'
+    if (view.comp != null && (item.sport_key || '') !== view.comp) return null
+    if (!inWindow(item.commence_time, view.within, now)) return null
     const bets = item.bets.filter(b =>
-      (!b.market || filters.markets.includes(b.market)) &&
-      (filters.maxOdds == null || b.odds <= filters.maxOdds) &&
-      (filters.minOdds == null || b.odds >= filters.minOdds))
+      (!b.market || view.markets.includes(b.market)) &&
+      (maxOdds == null || b.odds <= maxOdds) &&
+      (minOdds == null || b.odds >= minOdds))
     if (!bets.length) return null
-    if (combo) bets.sort((x, y) => comboScore(y) - comboScore(x))
-    return {
-      ...item, bets,
-      best_value: Math.max(...bets.map(b => b.value)),
-      rank: combo ? Math.max(...bets.map(comboScore)) : Math.max(...bets.map(b => b.value)),
-    }
-  }).filter(Boolean).sort((a, b) => b.rank - a.rank)
+    return { ...item, bets, best_value: Math.max(...bets.map(b => b.value)) }
+  }).filter(Boolean).sort((a, b) => b.best_value - a.best_value)
 
-  // Acca view: every option as a row, and the best qualifying acca from them.
-  const flatRows = flat ? shown
+  // Every view but "Value by value" is one row per option.
+  const sort = acca ? tab : view.value.sort
+  const flat = sort !== 'value'
+  const rows = !flat ? [] : shown
     .flatMap(item => item.bets.map(bet => {
-      if (boostMode) {
-        // Paid = the acca winning: the boost has no refund.
-        const r = boostLegScore(bet)
+      if (sort === 'boost') {
+        const r = boostLegScore(bet)                 // paid = the acca wins
         return { bet, item, score: r.growth, paid: r.pWin }
       }
-      const r = legAcca(bet, acca)
-      return { bet, item, score: comboScore(bet), paid: r.pWin + r.pRefund }
+      if (sort === 'refund') {
+        const r = legAcca(bet, refundCfg)            // paid = win or refund
+        return { bet, item, score: legScore(bet, refundCfg), paid: r.pWin + r.pRefund }
+      }
+      return { bet, item, score: singleGrowth(bet).growth, paid: trueProb(bet) }
     }))
-    .sort(filters.sort === 'shortest'
+    .sort(sort === 'shortest'
       ? (x, y) => x.bet.odds - y.bet.odds || y.bet.value - x.bet.value
-      : (x, y) => y.score - x.score) : []
-  const candidates = flatRows.map(({ bet, item }) => ({ ...bet, matchId: item.event_id, match: item.match }))
-  const best = filters.sort === 'combo' ? bestAcca(candidates, acca)
-    : boostMode ? bestBoostAcca(candidates)
+      : (x, y) => y.score - x.score)
+  const candidates = rows.map(({ bet, item }) => ({ ...bet, matchId: item.event_id, match: item.match }))
+  const best = tab === 'refund' ? bestAcca(candidates, refundCfg)
+    : tab === 'boost' ? bestBoostAcca(candidates)
     : null
   const bestKeys = new Set((best?.picks || []).map(p => p.matchId + p.pick))
-
-
-  function toggleRow(id) {
-    setOpenId(prev => prev === id ? null : id)
-  }
+  const paidTip = tab === 'refund' ? 'How often an acca with this leg pays back (win or refund)'
+    : tab === 'boost' ? 'How often an acca with this leg wins'
+    : 'Chance this bet wins'
+  const scoreTip = acca
+    ? 'Growth per bet of an acca with this leg, at its optimal stake — higher is better'
+    : 'Growth per bet placed on its own, at its optimal (Kelly) stake'
+  const options = shown.reduce((k, i) => k + i.bets.length, 0)
 
   return (
     <div className={styles.page}>
       <div className={styles.header}>
         <span className={styles.title}>Paddy</span>
-        {/* Remounted per preset so its text box shows the preset's figure. */}
-        <ThresholdControl key={filters.preset} value={threshold} onChange={handleThresholdChange} />
+        {tab === 'value' && (
+          <ThresholdControl key="value" value={view.value.ev} onChange={v => setValue({ ev: v })} />
+        )}
+        {tab === 'refund' && (
+          <Link className={f.gear} to="/paddy/acca" aria-label="Refund settings and calculator">⚙</Link>
+        )}
       </div>
 
-      <div className={f.presets} role="group" aria-label="Filter presets">
-        {PRESETS.map(p => (
-          <button key={p.id} type="button"
-            className={`${f.chip} ${filters.preset === p.id ? f.on : ''}`}
-            aria-pressed={filters.preset === p.id} onClick={() => applyPreset(p)}
-          >{p.label}</button>
+      <nav className={f.tabs} aria-label="Paddy views">
+        {TABS.map(([k, label]) => (
+          <button key={k} type="button" className={`${f.tab} ${tab === k ? f.tabOn : ''}`}
+            aria-pressed={tab === k} onClick={() => set({ tab: k })}>{label}</button>
         ))}
-        {filters.preset === 'custom' && <span className={`${f.chip} ${f.on} ${f.custom}`}>Custom</span>}
-        <button type="button" className={f.more} onClick={() => setShowFilters(s => !s)}
-          aria-expanded={showFilters}>
-          {showFilters ? 'Hide filters ▴' : 'Filters ▾'}
-        </button>
+      </nav>
+
+      {/* Shared by all three tabs. */}
+      <div className={f.chips} role="group" aria-label="Filters">
+        {MARKETS.map(m => (
+          <button key={m} type="button" className={`${f.chip} ${view.markets.includes(m) ? f.on : ''}`}
+            aria-pressed={view.markets.includes(m)} onClick={() => toggleMarket(m)}>{m}</button>
+        ))}
+        <span className={f.sep} />
+        {WITHIN.map(([w, label]) => (
+          <button key={label} type="button" className={`${f.chip} ${view.within === w ? f.on : ''}`}
+            aria-pressed={view.within === w} onClick={() => set({ within: w })}>{label}</button>
+        ))}
+        <span className={f.sep} />
+        <select className={f.select} value={view.comp ?? ''} aria-label="League"
+          onChange={e => set({ comp: e.target.value === '' ? null : e.target.value })}>
+          <option value="">All leagues</option>
+          {comps.map(c => <option key={c} value={c}>{compLabel(c)}</option>)}
+        </select>
       </div>
 
-      {showFilters && (
-        <div className={f.panel}>
-          <div className={f.row}>
-            <span className={f.label}>Market</span>
-            {MARKETS.map(m => (
-              <button key={m} type="button" className={`${f.chip} ${filters.markets.includes(m) ? f.on : ''}`}
-                aria-pressed={filters.markets.includes(m)} onClick={() => toggleMarket(m)}>{m}</button>
-            ))}
-          </div>
-          <div className={f.row}>
-            <span className={f.label}>Max odds</span>
-            {MAX_ODDS.map(o => (
-              <button key={o ?? 'any'} type="button" className={`${f.chip} ${filters.maxOdds === o ? f.on : ''}`}
-                aria-pressed={filters.maxOdds === o} onClick={() => edit({ maxOdds: o })}>{o ?? 'any'}</button>
-            ))}
-          </div>
-          <div className={f.row}>
-            <span className={f.label}>Min odds</span>
-            {[null, LOW_ODDS_FLOOR].map(o => (
-              <button key={o ?? 'any'} type="button" className={`${f.chip} ${(filters.minOdds ?? null) === o ? f.on : ''}`}
-                aria-pressed={(filters.minOdds ?? null) === o} onClick={() => edit({ minOdds: o })}>{o ?? 'any'}</button>
-            ))}
-          </div>
-          <div className={f.row}>
-            <span className={f.label}>Sort by</span>
-            {[['value', 'Value'], ['combo', 'Acca growth'], ['boost', 'Boost growth'], ['shortest', 'Shortest odds']].map(([k, l]) => (
-              <button key={k} type="button" className={`${f.chip} ${(filters.sort ?? 'value') === k ? f.on : ''}`}
-                aria-pressed={(filters.sort ?? 'value') === k} onClick={() => edit({ sort: k })}>{l}</button>
-            ))}
-          </div>
-          <div className={f.row}>
-            <span className={f.label}>Kick-off</span>
-            {WITHIN.map(([w, label]) => (
-              <button key={label} type="button" className={`${f.chip} ${filters.within === w ? f.on : ''}`}
-                aria-pressed={filters.within === w} onClick={() => edit({ within: w })}>{label}</button>
-            ))}
-          </div>
-          <Link className={f.calcLink} to="/paddy/acca">Acca insurance calculator & settings ›</Link>
-          <div className={f.row}>
-            <span className={f.label}>Competition</span>
-            <select className={f.select} value={filters.comp ?? ''}
-              onChange={e => setFilters(x => ({ ...x, comp: e.target.value === '' ? null : e.target.value }))}>
-              <option value="">All</option>
-              {comps.map(c => <option key={c} value={c}>{compLabel(c)}</option>)}
-            </select>
-          </div>
+      {tab === 'value' && (
+        <div className={f.subbar}>
+          {SORTS.map(([k, label]) => (
+            <button key={k} type="button" className={`${f.chip} ${view.value.sort === k ? f.on : ''}`}
+              aria-pressed={view.value.sort === k} onClick={() => setValue({ sort: k })}>{label}</button>
+          ))}
+          <button type="button" className={f.more} onClick={() => setShowOdds(s => !s)} aria-expanded={showOdds}>
+            Odds{view.value.minOdds || view.value.maxOdds
+              ? ` ${view.value.minOdds ?? ''}–${view.value.maxOdds ?? ''}` : ''} {showOdds ? '▴' : '▾'}
+          </button>
+        </div>
+      )}
+      {tab === 'value' && showOdds && (
+        <div className={f.subbar}>
+          <span className={f.label}>Min</span>
+          {MIN_ODDS.map(o => (
+            <button key={o ?? 'any'} type="button" className={`${f.chip} ${view.value.minOdds === o ? f.on : ''}`}
+              onClick={() => setValue({ minOdds: o })}>{o ?? 'any'}</button>
+          ))}
+          <span className={f.label}>Max</span>
+          {MAX_ODDS.map(o => (
+            <button key={o ?? 'any'} type="button" className={`${f.chip} ${view.value.maxOdds === o ? f.on : ''}`}
+              onClick={() => setValue({ maxOdds: o })}>{o ?? 'any'}</button>
+          ))}
         </div>
       )}
 
-      {fetchedAt && (
-        <p className={styles.meta}>
-          {loading ? 'Refreshing…' : flat
-            ? (n => `${n} option${n !== 1 ? 's' : ''} · `)(shown.reduce((k, i) => k + i.bets.length, 0))
-            : ''}
-          {!loading && `${shown.length} match${shown.length !== 1 ? 'es' : ''}`}
-          {!loading && shown.length !== items.length ? ` of ${items.length}` : ''}
-          {' · '}
-          {fetchedAt.toLocaleTimeString()}
-          {' · '}cached 24 h
-        </p>
-      )}
-      {/* First load: say so, rather than a blank page while prices compute. */}
-      {loading && !fetchedAt && <p className={styles.meta}>Loading prices…</p>}
+      <p className={styles.meta}>
+        {loading && !fetchedAt ? 'Loading prices…'
+          : loading ? 'Refreshing…'
+          : fetchedAt ? `${flat ? `${options} option${options !== 1 ? 's' : ''} · ` : ''}${shown.length} match${shown.length !== 1 ? 'es' : ''} · updated ${fetchedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+          : ''}
+        {acca && fetchedAt && !loading ? ` · legs ${ACCA_FLOOR}+` : ''}
+      </p>
       {error && <p className={styles.error}>{error}</p>}
+      {!loading && !error && fetchedAt && items.length === 0 && (
+        <p className={styles.empty}>{why ?? 'No value bets at this threshold.'}</p>
+      )}
 
       <div className={styles.feed}>
-        {/* Acca insurance mode: every option as its own row, best score first
-            — the ranking IS the answer, so it is not hidden inside matches. */}
-        {/* Acca view: the best qualifying acca first, as one row (tap: open
-            it in the calculator), then every option ranked by growth. */}
-        {flat && best && (
-          <button type="button" className={`${f.flatRow} ${f.bestRow}`} disabled={boostMode} onClick={() => navigate('/paddy/acca', {
-            state: { legs: best.picks.map(l => ({ odds: l.odds, fair: l.odds / (1 + l.value), name: `${l.match} · ${l.pick}` })) },
-          })}>
+        {best && (
+          <button type="button" className={`${f.flatRow} ${f.bestRow}`} disabled={tab === 'boost'}
+            onClick={() => navigate('/paddy/acca', {
+              state: { legs: best.picks.map(l => ({ odds: l.odds, fair: l.odds / (1 + l.value), name: `${l.match} · ${l.pick}` })) },
+            })}>
             <span className={f.flatScore}>{growthPct(best.growth)}</span>
             <span className={f.flatWhat}>
               <span className={f.flatPick}>★ Best {best.picks.length}-fold{best.boost ? ` · +${Math.round(best.boost * 100)}% boost` : ''}</span>
@@ -312,62 +273,53 @@ export default function CardsPage() {
             </span>
             <span className={f.oddsCell}>
               <span className={`${styles.odds} ${styles.mono}`}>{best.accaOdds.toFixed(2)}</span>
-              <span className={f.paid} title={boostMode ? 'Chance the acca wins' : 'Paid back (win or refund)'}>{Math.round((best.pWin + (best.pRefund || 0)) * 100)}%</span>
+              <span className={f.paid}>{Math.round((best.pWin + (best.pRefund || 0)) * 100)}%</span>
             </span>
-            <span className={f.right}>{boostMode ? '' : '›'}</span>
+            <span className={f.right}>{tab === 'refund' ? '›' : ''}</span>
           </button>
         )}
-        {flat && shown.length > 0 && (
+
+        {flat && rows.length > 0 && (
           <div className={`${f.flatRow} ${f.colHead}`}>
-            <span title={GROWTH_TIP}>Growth</span>
-            <span>Bet</span><span title="Odds, and under them how often the acca pays back (win or refund)">Odds</span><span className={f.right}>Value</span>
+            <span title={scoreTip}>{sort === 'shortest' ? 'Single' : 'Growth'}</span>
+            <span>Bet</span><span title={paidTip}>Odds</span><span className={f.right}>Value</span>
           </div>
         )}
-        {flat && flatRows.map(({ bet, item, score, paid }) => (
-            <div key={item.event_id + bet.pick} className={f.flatRow}>
-              <span className={f.flatScore} title={GROWTH_TIP}>{growthPct(score)}</span>
-              <span className={f.flatWhat}>
-                <span className={f.flatPick}>{bestKeys.has(item.event_id + bet.pick) ? '★ ' : ''}{shortPick(bet.pick)}</span>
-                <span className={f.flatMatch}>{item.match}</span>
-              </span>
-              {/* Odds, and under them how often an acca with this leg pays
-                  something back (a win or the refund). */}
-              <span className={f.oddsCell}>
-                <span className={`${styles.odds} ${styles.mono}`}>{bet.odds.toFixed(2)}</span>
-                <span className={f.paid} title={boostMode ? 'Chance the acca wins' : 'Paid back (win or refund)'}>{Math.round(paid * 100)}%</span>
-              </span>
-              <span className={`${styles.badge} ${styles[valueTier(bet.value)]}`}>{fmt(bet.value)}</span>
-            </div>
-          ))}
+        {flat && rows.map(({ bet, item, score, paid }) => (
+          <div key={item.event_id + bet.pick} className={f.flatRow}>
+            <span className={f.flatScore} title={scoreTip}>{growthPct(score)}</span>
+            <span className={f.flatWhat}>
+              <span className={f.flatPick}>{bestKeys.has(item.event_id + bet.pick) ? '★ ' : ''}{shortPick(bet.pick)}</span>
+              <span className={f.flatMatch}>{item.match}</span>
+            </span>
+            <span className={f.oddsCell}>
+              <span className={`${styles.odds} ${styles.mono}`}>{bet.odds.toFixed(2)}</span>
+              <span className={f.paid} title={paidTip}>{Math.round(paid * 100)}%</span>
+            </span>
+            <span className={`${styles.badge} ${styles[valueTier(bet.value)]}`}>{fmt(bet.value)}</span>
+          </div>
+        ))}
+
         {!flat && shown.length > 0 && (
-          <div className={f.matchHead}>
-            <span>Match</span><span>Best value</span>
-          </div>
+          <div className={f.matchHead}><span>Match</span><span>Best value</span></div>
         )}
-        {!flat && shown.map((item) => {
+        {!flat && shown.map(item => {
           const isOpen = openId === item.event_id
           return (
             <div key={item.event_id} className={styles.matchBlock}>
-              <button
-                className={`${styles.matchRow} ${isOpen ? styles.matchRowOpen : ''}`}
-                onClick={() => toggleRow(item.event_id)}
-              >
+              <button className={`${styles.matchRow} ${isOpen ? styles.matchRowOpen : ''}`}
+                onClick={() => setOpenId(id => id === item.event_id ? null : item.event_id)}>
                 <span className={styles.match}>{item.match}</span>
-                <span className={`${styles.badge} ${styles[valueTier(item.best_value)]}`}>
-                  {fmt(item.best_value)}
-                </span>
+                <span className={`${styles.badge} ${styles[valueTier(item.best_value)]}`}>{fmt(item.best_value)}</span>
                 <span className={`${styles.chevron} ${isOpen ? styles.chevronOpen : ''}`}>›</span>
               </button>
-
               {isOpen && (
                 <div className={styles.bets}>
-                  {item.bets.map((bet, i) => (
+                  {[...item.bets].sort((a, b) => b.value - a.value).map((bet, i) => (
                     <div key={i} className={styles.betRow}>
                       <span className={styles.pick}>{shortPick(bet.pick)}</span>
                       <span className={`${styles.odds} ${styles.mono}`}>{bet.odds.toFixed(2)}</span>
-                      <span className={`${styles.badge} ${styles[valueTier(bet.value)]}`}>
-                        {fmt(bet.value)}
-                      </span>
+                      <span className={`${styles.badge} ${styles[valueTier(bet.value)]}`}>{fmt(bet.value)}</span>
                     </div>
                   ))}
                 </div>

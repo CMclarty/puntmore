@@ -584,8 +584,10 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
 - **Acca views rank by Kelly growth** (Oct 2026): every offer's view scores a
   leg by the expected log-growth of an acca with it at that acca's OWN
   optimal stake (`accaInsurance.js::growthOf`) — bankroll-free, no risk dial;
-  short legs that keep an acca paying back rise without an odds cap. Acca Min
-  = the insurance offer; **Acca Boost** (`accaBoost.js`) = winnings +10/20/30%
+  short legs that keep an acca paying back rise without an odds cap. The
+  page is THREE TABS — Value (singles), Acca Refund (the insurance offer),
+  Acca Boost — under one shared chip row (markets, kick-off, league).
+  Acca Refund = the insurance offer; **Acca Boost** (`accaBoost.js`) = winnings +10/20/30%
   on 4/5/6 legs, win-or-lose, each leg scored in its best fold. Both head the
   list with the best qualifying acca (one leg per match). Tested by vitest.
 - `cards/pinnacle.py` returns **RAW** prices. De-vigging lives in
