@@ -1,0 +1,65 @@
+/* Cards page filters: one row of presets, and the filters behind a toggle. */
+.presets {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+  align-items: center;
+}
+.presets::-webkit-scrollbar { display: none; }
+
+.chip {
+  flex: 0 0 auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 11px;
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.custom { cursor: default; }
+
+.more {
+  flex: 0 0 auto;
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 5px 2px;
+  white-space: nowrap;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.label {
+  width: 84px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.select {
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 13px;
+  padding: 5px 8px;
+  max-width: 220px;
+}

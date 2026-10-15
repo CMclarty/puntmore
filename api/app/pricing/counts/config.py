@@ -34,6 +34,12 @@ CORNERS_D_PRIOR_DEFAULT = 1.19
 # ladders in the same league once enough have been seen.
 CARDS_D_PRIOR_DEFAULT = 1.10
 
+# Match goals: close to Poisson (D = 1). 1.05 is a placeholder like the cards
+# one, not a measurement. Pinnacle's goals ladder is usually deep enough
+# (4+ rungs over 3+ counts) that the fit identifies D itself and drops it.
+GOALS_MAX = 20
+GOALS_D_PRIOR_DEFAULT = 1.05
+
 
 @dataclass(frozen=True)
 class ModelConfig:
@@ -105,4 +111,13 @@ CARDS = ModelConfig(
     # ladder cannot speak to.
     min_priceable_line=0.5,
     max_priceable_line=6.5,
+)
+GOALS = ModelConfig(
+    grid_max=GOALS_MAX,
+    d_priors={},
+    d_prior_default=GOALS_D_PRIOR_DEFAULT,
+    # 0.5-5.5 is the range books post a match-goals ladder over; past six
+    # goals is a tail no ladder speaks to.
+    min_priceable_line=0.5,
+    max_priceable_line=5.5,
 )

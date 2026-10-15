@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { getCardsFeed, getCardsDiagnostics } from '../api'
 import ThresholdControl from '../components/ThresholdControl'
 import styles from './FeedPage.module.css'
+import f from './CardsPage.module.css'
 
 const DEBOUNCE_MS = 400
 const DEFAULT_EV = 98  // preset: show everything at or above 98% EV
@@ -18,8 +19,38 @@ function fmt(v) {
   return `${((1 + v) * 100).toFixed(1)}%`
 }
 
+const MARKETS = ['corners', 'cards', 'goals', 'saves']
+const MAX_ODDS = [null, 2, 3, 5]          // null = any
+const WITHIN_H = [null, 3, 12, 24]        // hours to kick-off; null = any
+
+// One tap sets the lot. EV is the server-side threshold; the rest filter the
+// rows that come back. Touching any filter afterwards makes it "Custom".
+const PRESETS = [
+  { id: 'all', label: 'All', ev: DEFAULT_EV, markets: MARKETS, maxOdds: null, within: null },
+  { id: 'best', label: 'Best', ev: 105, markets: MARKETS, maxOdds: 5, within: null },
+  { id: 'cc', label: 'Corners & cards', ev: 103, markets: ['corners', 'cards'], maxOdds: null, within: null },
+  { id: 'goals', label: 'Goals', ev: 102, markets: ['goals'], maxOdds: null, within: null },
+  { id: 'saves', label: 'Saves', ev: 103, markets: ['saves'], maxOdds: null, within: null },
+  { id: 'soon', label: 'Starting soon', ev: 102, markets: MARKETS, maxOdds: null, within: 3 },
+]
+const STORE_KEY = 'cards.filters'
+
+function loadFilters() {
+  try {
+    const v = JSON.parse(localStorage.getItem(STORE_KEY))
+    if (v && Array.isArray(v.markets) && typeof v.ev === 'number') return v
+  } catch { /* none saved, or private mode */ }
+  return { ...PRESETS[0], preset: 'all', comp: null }
+}
+
+// "soccer_uefa_champs_league" → "Uefa Champs League"
+const compLabel = k => (k || 'other').replace(/^soccer_?/, '').replace(/_/g, ' ')
+  .replace(/\b\w/g, c => c.toUpperCase()) || 'Other'
+
 export default function CardsPage() {
-  const [threshold, setThreshold] = useState(DEFAULT_EV)
+  const [filters, setFilters] = useState(loadFilters)
+  const threshold = filters.ev
+  const [showFilters, setShowFilters] = useState(false)
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -55,11 +86,46 @@ export default function CardsPage() {
 
   useEffect(() => { fetchFeed(threshold) }, []) // eslint-disable-line
 
-  function handleThresholdChange(val) {
-    setThreshold(val)
+  useEffect(() => {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(filters)) } catch { /* private mode */ }
+  }, [filters])
+
+  function refetch(ev) {
     clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => fetchFeed(val), DEBOUNCE_MS)
+    debounceRef.current = setTimeout(() => fetchFeed(ev), DEBOUNCE_MS)
   }
+
+  function handleThresholdChange(val) {
+    setFilters(x => ({ ...x, ev: val, preset: 'custom' }))
+    refetch(val)
+  }
+
+  function applyPreset(p) {
+    setFilters(x => ({ ...p, preset: p.id, comp: x.comp }))
+    if (p.ev !== threshold) refetch(p.ev)
+  }
+
+  const edit = patch => setFilters(x => ({ ...x, ...patch, preset: 'custom' }))
+  const toggleMarket = m => edit({
+    markets: filters.markets.includes(m) ? filters.markets.filter(x => x !== m) : [...filters.markets, m],
+  })
+
+  // Client-side: market, odds, time to kick-off and competition. A match
+  // stays only if one of its bets survives, and its badge is the best of those.
+  const now = Date.now()
+  const comps = [...new Set(items.map(i => i.sport_key || ''))].sort()
+  const shown = items.map(item => {
+    if (filters.comp != null && (item.sport_key || '') !== filters.comp) return null
+    if (filters.within != null) {
+      const ko = new Date(item.commence_time).getTime()
+      if (!(ko - now <= filters.within * 3600_000)) return null
+    }
+    const bets = item.bets.filter(b =>
+      (!b.market || filters.markets.includes(b.market)) &&
+      (filters.maxOdds == null || b.odds <= filters.maxOdds))
+    if (!bets.length) return null
+    return { ...item, bets, best_value: Math.max(...bets.map(b => b.value)) }
+  }).filter(Boolean).sort((a, b) => b.best_value - a.best_value)
 
   function toggleRow(id) {
     setOpenId(prev => prev === id ? null : id)
@@ -69,12 +135,62 @@ export default function CardsPage() {
     <div className={styles.page}>
       <div className={styles.header}>
         <span className={styles.title}>Cards &amp; Corners</span>
-        <ThresholdControl value={threshold} onChange={handleThresholdChange} />
+        {/* Remounted per preset so its text box shows the preset's figure. */}
+        <ThresholdControl key={filters.preset} value={threshold} onChange={handleThresholdChange} />
       </div>
+
+      <div className={f.presets} role="group" aria-label="Filter presets">
+        {PRESETS.map(p => (
+          <button key={p.id} type="button"
+            className={`${f.chip} ${filters.preset === p.id ? f.on : ''}`}
+            aria-pressed={filters.preset === p.id} onClick={() => applyPreset(p)}
+          >{p.label}</button>
+        ))}
+        {filters.preset === 'custom' && <span className={`${f.chip} ${f.on} ${f.custom}`}>Custom</span>}
+        <button type="button" className={f.more} onClick={() => setShowFilters(s => !s)}
+          aria-expanded={showFilters}>
+          {showFilters ? 'Hide filters ▴' : 'Filters ▾'}
+        </button>
+      </div>
+
+      {showFilters && (
+        <div className={f.panel}>
+          <div className={f.row}>
+            <span className={f.label}>Market</span>
+            {MARKETS.map(m => (
+              <button key={m} type="button" className={`${f.chip} ${filters.markets.includes(m) ? f.on : ''}`}
+                aria-pressed={filters.markets.includes(m)} onClick={() => toggleMarket(m)}>{m}</button>
+            ))}
+          </div>
+          <div className={f.row}>
+            <span className={f.label}>Max odds</span>
+            {MAX_ODDS.map(o => (
+              <button key={o ?? 'any'} type="button" className={`${f.chip} ${filters.maxOdds === o ? f.on : ''}`}
+                aria-pressed={filters.maxOdds === o} onClick={() => edit({ maxOdds: o })}>{o ?? 'any'}</button>
+            ))}
+          </div>
+          <div className={f.row}>
+            <span className={f.label}>Kick-off</span>
+            {WITHIN_H.map(h => (
+              <button key={h ?? 'any'} type="button" className={`${f.chip} ${filters.within === h ? f.on : ''}`}
+                aria-pressed={filters.within === h} onClick={() => edit({ within: h })}>{h == null ? 'any' : `< ${h}h`}</button>
+            ))}
+          </div>
+          <div className={f.row}>
+            <span className={f.label}>Competition</span>
+            <select className={f.select} value={filters.comp ?? ''}
+              onChange={e => setFilters(x => ({ ...x, comp: e.target.value === '' ? null : e.target.value }))}>
+              <option value="">All</option>
+              {comps.map(c => <option key={c} value={c}>{compLabel(c)}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
 
       {fetchedAt && (
         <p className={styles.meta}>
-          {loading ? 'Refreshing…' : `${items.length} match${items.length !== 1 ? 'es' : ''}`}
+          {loading ? 'Refreshing…' : `${shown.length} match${shown.length !== 1 ? 'es' : ''}`}
+          {!loading && shown.length !== items.length ? ` of ${items.length}` : ''}
           {' · '}
           {fetchedAt.toLocaleTimeString()}
           {' · '}cached 24 h
@@ -89,7 +205,7 @@ export default function CardsPage() {
       )}
 
       <div className={styles.feed}>
-        {items.map((item) => {
+        {shown.map((item) => {
           const isOpen = openId === item.event_id
           return (
             <div key={item.event_id} className={styles.matchBlock}>
@@ -120,8 +236,8 @@ export default function CardsPage() {
             </div>
           )
         })}
-        {!loading && items.length === 0 && !error && (
-          <p className={styles.empty}>No matches at this threshold.</p>
+        {!loading && items.length > 0 && shown.length === 0 && (
+          <p className={styles.empty}>Nothing matches these filters.</p>
         )}
       </div>
     </div>

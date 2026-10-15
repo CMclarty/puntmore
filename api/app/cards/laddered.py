@@ -32,7 +32,7 @@ rows is the entire design.
 """
 import logging
 
-from ..pricing.counts.config import CARDS, CORNERS, ModelConfig
+from ..pricing.counts.config import CARDS, CORNERS, GOALS, ModelConfig
 from ..pricing.counts.errors import LadderError
 from ..pricing.counts.fit import fit_ladder
 from ..pricing.counts.ladder import Ladder, Rung
@@ -50,10 +50,12 @@ MIN_RUNGS_TO_PRICE = 2
 
 CORNERS_MARKET = "alternate_totals_corners"
 CARDS_MARKET = "alternate_totals_cards"
+GOALS_MARKET = "totals_goals"     # cards/oddspapi.py::GOALS
 
 _CONFIGS: dict[str, ModelConfig] = {
     CORNERS_MARKET: CORNERS,
     CARDS_MARKET: CARDS,
+    GOALS_MARKET: GOALS,
 }
 
 

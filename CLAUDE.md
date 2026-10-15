@@ -526,6 +526,10 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   ("wait 0.80 seconds"), which on 28 Sept cost a whole chunk of five
   competitions. `OddsPapiClient` spaces requests by `MIN_REQUEST_GAP` and
   retries a 429 ONCE after the wait it names. Don't parallelise the sweep.
+- **Match GOALS totals run through the same ladder model** (Oct 2026):
+  Paddy's goals lines and Pinnacle's goals ladder both from OddsPapi
+  (`totals_goals`), fitted by `pricing/counts` under `GOALS` (bounds 0.5-5.5,
+  D prior 1.05 — a placeholder, like the cards one). Same three guards.
 - **Goalkeeper SAVES are priced off Bookie Bashing, not Pinnacle**
   (`cards/saves.py`, Oct 2026). Pinnacle posts no saves ladder; Bookie Bashing
   publishes fair saves prices behind Callum's login, so they are read by

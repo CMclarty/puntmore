@@ -149,7 +149,7 @@ def test_a_sweep_costs_a_few_requests_however_many_games_and_caches(monkeypatch)
     src.get_events()                                  # within the TTL: all cached
     assert len(fake.calls) == first
     assert src.last_sweep["source"] == "oddspapi"
-    assert src.last_sweep["catalogue_corner_card_markets"] == 3
+    assert src.last_sweep["catalogue_total_markets"] == 4   # corners x2, cards, goals
 
 
 def test_the_daily_request_budget_stops_the_client(monkeypatch):

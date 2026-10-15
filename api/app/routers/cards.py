@@ -26,6 +26,13 @@ def price_events(events, min_edge):
     rows.sort(key=lambda r: r.edge, reverse=True)
     return rows
 
+def market_name(market_key: str) -> str:
+    """corners | cards | goals | saves, from whichever key a vendor used."""
+    for word in ("corners", "cards", "goals", "saves"):
+        if word in market_key:
+            return word
+    return market_key
+
 router = APIRouter()
 
 
@@ -61,12 +68,15 @@ def build_feed(client, min_edge: float, pinnacle=None) -> list[CardFeedItem]:
                 "event_id": bet.event_id,
                 "match": f"{bet.home_team} vs {bet.away_team}",
                 "commence_time": bet.commence_time,
+                "sport_key": bet.sport_key,
                 "bets": [],
             }
+        market = market_name(bet.market_key)
         groups[bet.event_id]["bets"].append(CardFeedBet(
-            pick=f"{bet.side} {bet.line} ({bet.market_label})",
+            pick=f"{bet.side} {bet.line:g} {market}",
             odds=bet.paddy_odds,
             value=bet.edge,
+            market=market,
         ))
 
     result = []
@@ -76,6 +86,7 @@ def build_feed(client, min_edge: float, pinnacle=None) -> list[CardFeedItem]:
             event_id=g["event_id"],
             match=g["match"],
             commence_time=g["commence_time"],
+            sport_key=g["sport_key"],
             best_value=max(b.value for b in g["bets"]),
             bets=g["bets"],
         ))

@@ -176,12 +176,15 @@ class CardFeedBet(BaseModel):
     pick: str
     odds: float
     value: float
+    # corners | cards | goals | saves — what the page filters on.
+    market: str = ""
 
 
 class CardFeedItem(BaseModel):
     event_id: str
     match: str
     commence_time: str
+    sport_key: str = ""
     best_value: float
     bets: list[CardFeedBet]
 

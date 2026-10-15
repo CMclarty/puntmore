@@ -766,3 +766,52 @@ def test_the_probe_asks_by_region_with_no_book_filter_and_reports_every_book():
     assert out["paddypower_present"] is True
     assert out["paddypower_markets"] == ["alternate_totals_cards", "alternate_totals_corners"]
     assert "williamhill" in out["bookmakers"]
+
+
+# --- match goals: the same ladder model over Pinnacle's goals ladder --------
+
+def _goals_event(pin_lines, paddy_lines):
+    def book(key, lines):
+        outcomes = []
+        for line, (over, under) in sorted(lines.items()):
+            outcomes.append({"name": "Over", "point": line, "price": over})
+            outcomes.append({"name": "Under", "point": line, "price": under})
+        return {"key": key, "markets": [{"key": "totals_goals", "outcomes": outcomes}]}
+    return [{
+        "id": "g1", "home_team": "Arsenal", "away_team": "Chelsea",
+        "commence_time": _iso(0.5), "sport_key": "soccer_epl",
+        "bookmakers": [book("pinnacle", pin_lines), book(PADDY_POWER, paddy_lines)],
+    }]
+
+
+# A realistic Pinnacle goals ladder around 2.7 goals.
+PIN_GOALS = {1.5: (1.30, 3.75), 2.5: (1.95, 1.93), 3.5: (3.30, 1.36), 4.5: (6.25, 1.14)}
+
+
+def test_goals_lines_paddy_quotes_are_priced_off_pinnacles_goals_ladder():
+    from app.cards.laddered import compute_laddered_value
+    # Paddy's 3.0 is a line Pinnacle does not quote; 2.5 over at 2.30 is long.
+    rows = compute_laddered_value(_goals_event(PIN_GOALS, {2.5: (2.30, 1.62), 3.0: (2.40, 1.55)}), -0.5)
+    assert rows and {r.market_key for r in rows} == {"totals_goals"}
+    over25 = next(r for r in rows if r.line == 2.5 and r.side == "Over")
+    assert over25.fair_odds == pytest.approx(1.97, abs=0.05)
+    assert over25.edge > 0.10
+
+
+def test_goals_lines_outside_the_bounds_are_never_priced():
+    from app.cards.laddered import compute_laddered_value
+    rows = compute_laddered_value(_goals_event(PIN_GOALS, {6.5: (15.0, 1.01)}), -1.0)
+    assert rows == []
+
+
+def test_the_feed_says_which_market_and_competition_each_bet_is():
+    from app.routers.cards import build_feed
+
+    class _Client:
+        def get_events(self):
+            return _goals_event(PIN_GOALS, {2.5: (2.30, 1.62)})
+
+    feed = build_feed(_Client(), -0.5)
+    assert feed[0].sport_key == "soccer_epl"
+    bet = next(b for b in feed[0].bets if b.pick.startswith("Over"))
+    assert (bet.market, bet.pick) == ("goals", "Over 2.5 goals")

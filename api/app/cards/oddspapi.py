@@ -150,9 +150,9 @@ def corner_card_markets(catalogue) -> dict[str, tuple[str, float, dict[str, str]
 
 def match_total_markets(catalogue, kinds=(CORNERS, CARDS, SAVES, GOALS)
                         ) -> dict[str, tuple[str, float, dict[str, str]]]:
-    """As corner_card_markets, for any of `kinds`. The sweep takes corners,
-    cards and saves (saves priced off Bookie Bashing, cards/saves.py); the
-    check also reports match goals."""
+    """As corner_card_markets, for any of `kinds`. The sweep takes all four:
+    corners, cards and goals priced off Pinnacle's ladder, saves off Bookie
+    Bashing (cards/saves.py)."""
     out = {}
     for m in _as_list(catalogue):
         name = str(_first(m, "marketName", "name", "marketType", "type") or "")
@@ -532,9 +532,10 @@ class OddsPapiPaddySource:
         errors = []
         try:
             # Saves ride along on Paddy's side; their fair price comes from
-            # Bookie Bashing (cards/saves.py), never from a book here.
+            # Bookie Bashing (cards/saves.py), never from a book here. Goals
+            # are priced off Pinnacle's goals ladder like corners and cards.
             markets = match_total_markets(self._client.catalogue(),
-                                          kinds=(CORNERS, CARDS, SAVES))
+                                          kinds=(CORNERS, CARDS, SAVES, GOALS))
             names = participant_names(self._client.participants())
         except Exception as exc:
             logger.error("cards (oddspapi): reference data failed: %s", exc)
@@ -570,7 +571,7 @@ class OddsPapiPaddySource:
             "called": counts["fixtures_in_window"],
             "failed": len(errors),
             "errors": errors,
-            "catalogue_corner_card_markets": len(markets),
+            "catalogue_total_markets": len(markets),
             "names_known": len(names),
             "requests_today": self._client.requests_today,
             "request_budget": settings.oddspapi_daily_request_budget,
