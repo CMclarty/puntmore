@@ -25,8 +25,18 @@ const WITHIN_H = [null, 3, 12, 24]        // hours to kick-off; null = any
 
 // One tap sets the lot. EV is the server-side threshold; the rest filter the
 // rows that come back. Touching any filter afterwards makes it "Custom".
+// The "Low odds" preset ranks by a combo score instead of raw value: the
+// Kelly fraction, edge / (odds - 1). It is the share of bankroll the edge
+// justifies, so it rises as the price SHORTENS for the same edge — a 2% edge
+// at 1.25 scores 8%, the same 2% at 3.0 scores 1% — and as the edge grows at
+// the same price. Floored at 1.2: shorter than that is not worth the stake.
+const LOW_ODDS_FLOOR = 1.2
+const comboScore = b => b.value / (b.odds - 1)
+
 const PRESETS = [
   { id: 'all', label: 'All', ev: DEFAULT_EV, markets: MARKETS, maxOdds: null, within: null },
+  { id: 'low', label: 'Low odds', ev: 100.5, markets: MARKETS, maxOdds: null, within: null,
+    minOdds: LOW_ODDS_FLOOR, sort: 'combo' },
   { id: 'best', label: 'Best', ev: 105, markets: MARKETS, maxOdds: 5, within: null },
   { id: 'cc', label: 'Corners & cards', ev: 103, markets: ['corners', 'cards'], maxOdds: null, within: null },
   { id: 'goals', label: 'Goals', ev: 102, markets: ['goals'], maxOdds: null, within: null },
@@ -120,12 +130,19 @@ export default function CardsPage() {
       const ko = new Date(item.commence_time).getTime()
       if (!(ko - now <= filters.within * 3600_000)) return null
     }
+    const combo = filters.sort === 'combo'
     const bets = item.bets.filter(b =>
       (!b.market || filters.markets.includes(b.market)) &&
-      (filters.maxOdds == null || b.odds <= filters.maxOdds))
+      (filters.maxOdds == null || b.odds <= filters.maxOdds) &&
+      (filters.minOdds == null || b.odds >= filters.minOdds))
     if (!bets.length) return null
-    return { ...item, bets, best_value: Math.max(...bets.map(b => b.value)) }
-  }).filter(Boolean).sort((a, b) => b.best_value - a.best_value)
+    if (combo) bets.sort((x, y) => comboScore(y) - comboScore(x))
+    return {
+      ...item, bets,
+      best_value: Math.max(...bets.map(b => b.value)),
+      rank: combo ? Math.max(...bets.map(comboScore)) : Math.max(...bets.map(b => b.value)),
+    }
+  }).filter(Boolean).sort((a, b) => b.rank - a.rank)
 
   function toggleRow(id) {
     setOpenId(prev => prev === id ? null : id)
@@ -134,7 +151,7 @@ export default function CardsPage() {
   return (
     <div className={styles.page}>
       <div className={styles.header}>
-        <span className={styles.title}>Cards &amp; Corners</span>
+        <span className={styles.title}>Paddy</span>
         {/* Remounted per preset so its text box shows the preset's figure. */}
         <ThresholdControl key={filters.preset} value={threshold} onChange={handleThresholdChange} />
       </div>
@@ -167,6 +184,20 @@ export default function CardsPage() {
             {MAX_ODDS.map(o => (
               <button key={o ?? 'any'} type="button" className={`${f.chip} ${filters.maxOdds === o ? f.on : ''}`}
                 aria-pressed={filters.maxOdds === o} onClick={() => edit({ maxOdds: o })}>{o ?? 'any'}</button>
+            ))}
+          </div>
+          <div className={f.row}>
+            <span className={f.label}>Min odds</span>
+            {[null, LOW_ODDS_FLOOR].map(o => (
+              <button key={o ?? 'any'} type="button" className={`${f.chip} ${(filters.minOdds ?? null) === o ? f.on : ''}`}
+                aria-pressed={(filters.minOdds ?? null) === o} onClick={() => edit({ minOdds: o })}>{o ?? 'any'}</button>
+            ))}
+          </div>
+          <div className={f.row}>
+            <span className={f.label}>Sort by</span>
+            {[['value', 'Value'], ['combo', 'Combo score']].map(([k, l]) => (
+              <button key={k} type="button" className={`${f.chip} ${(filters.sort ?? 'value') === k ? f.on : ''}`}
+                aria-pressed={(filters.sort ?? 'value') === k} onClick={() => edit({ sort: k })}>{l}</button>
             ))}
           </div>
           <div className={f.row}>
@@ -225,6 +256,11 @@ export default function CardsPage() {
                   {item.bets.map((bet, i) => (
                     <div key={i} className={styles.betRow}>
                       <span className={styles.pick}>{bet.pick}</span>
+                      {filters.sort === 'combo' && (
+                        <span className={f.score} title="Combo score: edge ÷ (odds − 1)">
+                          {(comboScore(bet) * 100).toFixed(1)}
+                        </span>
+                      )}
                       <span className={`${styles.odds} ${styles.mono}`}>{bet.odds.toFixed(2)}</span>
                       <span className={`${styles.badge} ${styles[valueTier(bet.value)]}`}>
                         {fmt(bet.value)}

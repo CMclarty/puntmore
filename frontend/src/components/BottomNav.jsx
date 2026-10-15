@@ -72,7 +72,7 @@ const TOOLS = [
     ),
   },
   {
-    tool: 'cards', name: 'Cards', to: '/cards', sub: 'Corners', muted: true,
+    tool: 'cards', name: 'Paddy', to: '/cards', sub: 'Props', muted: true,
     matches: (p) => p.startsWith('/cards'),
     icon: (
       <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">

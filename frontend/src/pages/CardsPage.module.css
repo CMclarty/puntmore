@@ -63,3 +63,12 @@
   padding: 5px 8px;
   max-width: 220px;
 }
+
+/* Combo score beside each bet under the Low odds preset. */
+.score {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  margin-right: 8px;
+  font-variant-numeric: tabular-nums;
+}
