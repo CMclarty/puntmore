@@ -25,7 +25,7 @@ function fmt(v) {
 const shortPick = p => p.replace(/^Over /, 'O').replace(/^Under /, 'U')
 
 const MARKETS = ['corners', 'cards', 'goals', 'saves']
-const MAX_ODDS = [null, 2, 3, 5]          // null = any
+const MAX_ODDS = [null, 1.5, 2, 3, 5]          // null = any
 // Kick-off window: within 1h or 3h, the rest of TODAY (local), or LATER than
 // today. null = any.
 const WITHIN = [[null, 'any'], [1, '< 1h'], [3, '< 3h'], ['today', 'Today'], ['later', 'Later']]
@@ -57,7 +57,10 @@ const pct = v => (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1) + '%'
 
 const PRESETS = [
   { id: 'all', label: 'All', ev: DEFAULT_EV, markets: MARKETS, maxOdds: null, within: null },
-  { id: 'low', label: 'Acca Min', ev: 95, markets: MARKETS, maxOdds: null, within: null,
+  // 1.20-1.50 on purpose: not the EV-maximising set (value beats shortness
+  // under the offer's maths), but the one that pays out often — money in the
+  // pocket over theoretical EV (Callum's call, Oct 2026).
+  { id: 'low', label: 'Acca Min', ev: 95, markets: MARKETS, maxOdds: 1.5, within: null,
     minOdds: LOW_ODDS_FLOOR, sort: 'combo' },
   { id: 'best', label: 'Best', ev: 105, markets: MARKETS, maxOdds: 5, within: null },
   { id: 'cc', label: 'Corners & cards', ev: 103, markets: ['corners', 'cards'], maxOdds: null, within: null },

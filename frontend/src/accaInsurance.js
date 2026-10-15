@@ -39,6 +39,8 @@ export const DEFAULTS = {
   // A void leg drops the acca to n − 1 legs. The terms are unconfirmed, so
   // by default it still qualifies; set false to treat it as losing the cover.
   voidQualifies: true,
+  // The neutral partner legs a single leg is scored against (legScore).
+  refOdds: 1.25,
 }
 
 /** p_i from per-leg fair odds. */
@@ -139,10 +141,22 @@ export function grid(cfg = {}) {
 /** A feed bet's true win chance: its edge is offered / fair − 1. */
 export const trueProb = leg => (1 + leg.value) / leg.odds
 
-/** A feed leg's score: EV % of an insured acca of `legs` legs like it. */
+/**
+ * A feed leg's score: EV % of an insured acca of this leg plus `legs − 1`
+ * NEUTRAL legs at `refOdds` (fair, no value) — a realistic qualifying acca.
+ *
+ * Not "an acca of `legs` copies of this leg": that raised the leg's edge to the
+ * fifth power (1.08^5 = 1.47), so a long +8% leg scored as if it were a 79/1
+ * fold and buried every short one. Against neutral partners the edge counts
+ * once, as it does in the acca you actually build.
+ */
 export function legScore(leg, cfg = {}) {
   const c = { ...DEFAULTS, ...cfg }
-  return evaluate({ odds: Array(c.legs).fill(leg.odds), probs: Array(c.legs).fill(trueProb(leg)) }, c).evPct
+  const n = c.legs - 1
+  return evaluate({
+    odds: [leg.odds, ...Array(n).fill(c.refOdds)],
+    probs: [trueProb(leg), ...Array(n).fill(1 / c.refOdds)],
+  }, c).evPct
 }
 
 /**

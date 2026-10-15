@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
-  DEFAULTS, bestAcca, breakevenProb, evaluate, evaluateEqual, grid,
+  DEFAULTS, bestAcca, legScore, breakevenProb, evaluate, evaluateEqual, grid,
   probsFromAccaPct, probsFromFair,
 } from './accaInsurance'
 
@@ -89,6 +89,14 @@ describe('qualification', () => {
     expect(kept.insured).toBe(true)
     const lost = evaluate({ odds, probs, voids }, { voidQualifies: false })
     expect(lost.insured).toBe(false)
+  })
+})
+
+describe('leg scores', () => {
+  test('a leg is scored against neutral partners, so its edge counts once', () => {
+    // Four fair 1.25s alongside: 2.40 +8% vs 1.25 +2% (worked in chat, Oct 2026).
+    expect(pct1(legScore({ odds: 2.4, value: 0.08 }))).toBe(38.7)
+    expect(pct1(legScore({ odds: 1.25, value: 0.02 }))).toBe(32.7)
   })
 })
 
