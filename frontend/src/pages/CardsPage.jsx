@@ -25,17 +25,18 @@ const WITHIN_H = [null, 3, 12, 24]        // hours to kick-off; null = any
 
 // One tap sets the lot. EV is the server-side threshold; the rest filter the
 // rows that come back. Touching any filter afterwards makes it "Custom".
-// The "Low odds" preset ranks by a combo score instead of raw value: the
-// Kelly fraction, edge / (odds - 1). It is the share of bankroll the edge
-// justifies, so it rises as the price SHORTENS for the same edge — a 2% edge
-// at 1.25 scores 8%, the same 2% at 3.0 scores 1% — and as the edge grows at
-// the same price. Floored at 1.2: shorter than that is not worth the stake.
+// The "Acca Min" preset is for an acca offer that only counts legs at 1.2 or
+// longer. It ranks by a combo score instead of raw value: the Kelly fraction,
+// edge / (odds - 1) — the share of bankroll the edge justifies — so it rises
+// as the price SHORTENS for the same edge (a 2% edge at 1.25 scores 8%, the
+// same 2% at 3.0 scores 1%) and as the edge grows at the same price. Floored
+// at 1.2 for the offer only; every other preset shows shorter prices too.
 const LOW_ODDS_FLOOR = 1.2
 const comboScore = b => b.value / (b.odds - 1)
 
 const PRESETS = [
   { id: 'all', label: 'All', ev: DEFAULT_EV, markets: MARKETS, maxOdds: null, within: null },
-  { id: 'low', label: 'Low odds', ev: 100.5, markets: MARKETS, maxOdds: null, within: null,
+  { id: 'low', label: 'Acca Min', ev: 100.5, markets: MARKETS, maxOdds: null, within: null,
     minOdds: LOW_ODDS_FLOOR, sort: 'combo' },
   { id: 'best', label: 'Best', ev: 105, markets: MARKETS, maxOdds: 5, within: null },
   { id: 'cc', label: 'Corners & cards', ev: 103, markets: ['corners', 'cards'], maxOdds: null, within: null },
