@@ -34,8 +34,10 @@ Read that once before trusting a price.
 COST. OddsPapi bills per REQUEST, and one odds-by-tournaments request returns
 every fixture in those tournaments with its full Paddy board — so a sweep is a
 handful of requests however many fixtures are on, not one call per fixture as
-TheOddsApi's per-event billing forced. Cached for `oddspapi_ttl_seconds`, and
-capped per day by `oddspapi_daily_request_budget`.
+TheOddsApi's per-event billing forced. Cached per chunk for a time set by how
+soon its next fixture kicks off (`oddspapi_ttl_tiers`: 2 min near kickoff,
+hourly when nothing is close), and capped per day by
+`oddspapi_daily_request_budget`.
 """
 from datetime import datetime, timedelta, timezone
 import logging
@@ -325,12 +327,42 @@ def to_events(fixtures, markets, names, *, now=None, window_hours=None,
     return events, counts
 
 
+def parse_ttl_tiers(spec: str) -> list[tuple[float, float]]:
+    """"2700:120,inf:3600" -> [(2700, 120), (inf, 3600)], tightest first."""
+    tiers = []
+    for part in (spec or "").split(","):
+        if ":" in part:
+            within, ttl = part.split(":", 1)
+            tiers.append((float(within), float(ttl)))
+    tiers.sort()
+    return tiers or [(float("inf"), 1800.0)]
+
+
+def ttl_for(fixtures, tiers, now=None) -> float:
+    """The ttl for a chunk whose cached response is `fixtures`: the tier of
+    its next fixture still to kick off. Nothing to come -> the loosest."""
+    now = now or datetime.now(timezone.utc)
+    soonest = None
+    for fx in _as_list(fixtures):
+        start = _parse_start(_first(fx, "startTime", "start_time", "commence_time"))
+        if start is not None and start > now:
+            gap = (start - now).total_seconds()
+            soonest = gap if soonest is None else min(soonest, gap)
+    for within, ttl in tiers:
+        if soonest is not None and soonest <= within:
+            return ttl
+    return tiers[-1][1]
+
+
 class OddsPapiClient:
     """HTTP + cache. Every request is counted, because OddsPapi bills per request."""
 
     def __init__(self, api_key: str, *, ttl: float | None = None):
         self._key = api_key
-        self._ttl = ttl if ttl is not None else settings.oddspapi_ttl_seconds
+        # A fixed ttl (tests) or the kickoff-tiered one (live).
+        self._flat_ttl = ttl
+        self._tiers = parse_ttl_tiers(settings.oddspapi_ttl_tiers)
+        self._ttl = ttl if ttl is not None else max(t for _, t in self._tiers)
         # Reference data (catalogue, names) changes rarely; odds per TTL.
         self._ref = TTLCache(ttl=24 * 3600, maxsize=16)
         self._odds = TTLCache(ttl=self._ttl, maxsize=64)
@@ -441,6 +473,13 @@ class OddsPapiClient:
 
     def odds_by_tournaments(self, ids: list[int], bookmaker: str = PADDY_POWER):
         key = ("odds", tuple(ids), bookmaker)
+        if self._flat_ttl is None:
+            # The gear: how soon the cached chunk's next fixture kicks off.
+            cached = self._odds.peek(key)
+            if cached is not MISS:
+                hit = self._odds.get(key, ttl=ttl_for(cached, self._tiers))
+                if hit is not MISS:
+                    return hit
         return self._cached(self._odds, key, "/odds-by-tournaments",
                             tournamentIds=",".join(str(i) for i in ids),
                             bookmaker=bookmaker)

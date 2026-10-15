@@ -50,9 +50,9 @@ class Settings(BaseSettings):
     # odds-by-tournaments request returns every fixture in the tournaments
     # named, so the cost is (sweeps/day x requests/sweep), independent of how
     # many games are on:
-    #   48 sweeps/day (30-min TTL) x 3 requests (13 tournaments, 5 a request)
-    #   x 2 books (Paddy + Pinnacle) = 288/day + ~3 reference = ~8,800/month.
-    # Halving the TTL doubles that; dropping the fair book halves it.
+    #   refreshes x 3 requests (13 tournaments, 5 a request) x 2 books
+    #   (Paddy + Pinnacle). Refreshes follow kickoffs (oddspapi_ttl_tiers):
+    #   ~15k/month at the defaults. Dropping the fair book halves it.
     oddspapi_api_key: str = ""
     # Competitions to sweep: an OddsPapi tournament id, or a competition NAME
     # matched exactly against OddsPapi's own list. Ids confirmed live by
@@ -68,10 +68,19 @@ class Settings(BaseSettings):
         "17,18,24,8,23,35,34,238,7,679,UEFA Nations League,11,27"
     )
     oddspapi_tournaments_per_request: int = 5
-    oddspapi_ttl_seconds: int = 1800
+    oddspapi_ttl_seconds: int = 1800   # superseded by oddspapi_ttl_tiers; unused
+    # How stale a competition chunk's odds may get, by how soon its NEXT
+    # fixture kicks off (read off the cached response itself, so choosing the
+    # gear costs nothing — OddsPapi bills /fixtures too). "seconds:ttl" pairs,
+    # tightest first; the last applies to anything further out. At the
+    # defaults: 2 min inside 45 min, 5 min inside 2h, 15 min inside 6h, then
+    # hourly — ~15k requests/month on the 13 competitions x 2 books.
+    oddspapi_ttl_tiers: str = "2700:120,7200:300,21600:900,inf:3600"
     # A ceiling, not a target: ~146/day is the planned spend, so this only
     # bites on a runaway. Keep it below (monthly plan / 30).
-    oddspapi_daily_request_budget: int = 400
+    # Plan: 100,000/month (Oct 2026) = 3,333/day. The cap sits under that so
+    # one runaway day cannot spend the month.
+    oddspapi_daily_request_budget: int = 3000
     # The FAIR side from the same vendor (Sept 2026). Pinnacle on OddsPapi
     # carries a 5-line corners ladder and a 5-line "Bookings" (card count)
     # ladder — /api/cards/oddspapi-check, Nations League, 28 Sept — and it

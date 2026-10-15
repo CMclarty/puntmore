@@ -374,7 +374,11 @@ def start_scheduler(
         scheduler.add_job(
             sweep_cards,
             trigger="interval",
-            minutes=settings.cards_fast_interval_minutes,
+            # OddsPapi's tightest gear is 2 minutes, so tick that often; its
+            # cache decides what is actually fetched. TheOddsApi's path keeps
+            # its own interval (its tiers are tuned to it).
+            minutes=2 if type(cards_client).__name__ == "OddsPapiPaddySource"
+            else settings.cards_fast_interval_minutes,
             id="cards_sweep",
             replace_existing=True,
             # Skip a tick rather than queue it if a sweep overruns — a backlog

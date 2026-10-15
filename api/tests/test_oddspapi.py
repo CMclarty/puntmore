@@ -410,3 +410,39 @@ def test_the_free_account_endpoint_says_when_the_quota_has_reset(monkeypatch):
     c._exhausted_at -= op.QUOTA_RECHECK_SECONDS         # half an hour later
     assert c.get("/odds-by-tournaments", tournamentIds="7") == [{"ok": 1}]
     assert [u.rsplit("/", 1)[-1] for u in sent] == ["odds-by-tournaments", "account", "odds-by-tournaments"]
+
+
+def test_the_odds_refresh_tightens_as_the_next_kickoff_nears():
+    tiers = op.parse_ttl_tiers("2700:120,7200:300,21600:900,inf:3600")
+    at = lambda hours: [{"startTime": _iso(hours)}, {"startTime": _iso(30)}]
+    assert op.ttl_for(at(0.5), tiers, now=NOW) == 120        # 30 min out
+    assert op.ttl_for(at(1.5), tiers, now=NOW) == 300
+    assert op.ttl_for(at(5), tiers, now=NOW) == 900
+    assert op.ttl_for(at(10), tiers, now=NOW) == 3600
+    # Kicked-off fixtures do not count; nothing to come is the loosest gear.
+    assert op.ttl_for([{"startTime": _iso(-1)}], tiers, now=NOW) == 3600
+
+
+def test_a_chunk_near_kickoff_is_refetched_sooner_than_a_quiet_one(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "oddspapi_ttl_tiers", "2700:120,inf:3600")
+    soon = [{"startTime": (datetime.now(timezone.utc) + timedelta(minutes=20)).isoformat()}]
+    late = [{"startTime": (datetime.now(timezone.utc) + timedelta(hours=20)).isoformat()}]
+    sent = []
+    replies = {"7": soon, "8": late}
+    monkeypatch.setattr(op.time, "sleep", lambda s: None)
+
+    class R:
+        status_code, text = 200, ""
+        def __init__(self, body): self.body = body
+        def json(self): return self.body
+
+    monkeypatch.setattr(op.httpx, "get",
+                        lambda url, params, **k: sent.append(params["tournamentIds"]) or R(replies[params["tournamentIds"]]))
+    c = op.OddsPapiClient("k")
+    c.odds_by_tournaments([7]); c.odds_by_tournaments([8])
+    # Age both entries by 5 minutes: past the 2-minute gear, inside the hourly.
+    for k, (at, v) in list(c._odds._data.items()):
+        c._odds._data[k] = (at - 300, v)
+    c.odds_by_tournaments([7]); c.odds_by_tournaments([8])
+    assert sent == ["7", "8", "7"]

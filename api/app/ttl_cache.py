@@ -79,6 +79,14 @@ class TTLCache:
         while len(self._data) > self._maxsize:
             self._data.popitem(last=False)   # oldest touched
 
+    def peek(self, key):
+        """The value for `key` if not expired by the cache's OWN ttl, without
+        refreshing its position — for deciding which per-read ttl applies."""
+        entry = self._data.get(key)
+        if entry is None or time.monotonic() - entry[0] >= self._ttl:
+            return MISS
+        return entry[1]
+
     def values(self) -> list:
         """Every live value, oldest touched first. Sweeps as it goes, so a
         cache that is only ever read in bulk still sheds its expired entries."""
