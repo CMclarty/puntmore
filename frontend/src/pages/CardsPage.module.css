@@ -50,22 +50,5 @@
 .value { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
 .strong { color: var(--accent); font-weight: 700; }
 
-.best { background: var(--accent-soft); border-bottom: 2px solid var(--accent); }
-.best .row { border-bottom-color: rgba(0, 0, 0, 0.06); }
-.bestHead {
-  display: flex; justify-content: space-between; align-items: baseline;
-  padding: 10px 12px 2px; font-size: 14px; font-weight: 700; color: var(--ink);
-}
-.bestStats {
-  display: flex; gap: 10px; align-items: baseline;
-  padding: 0 12px 8px; font-family: var(--font-mono); font-size: 11px; color: var(--muted);
-}
-.link { margin-left: auto; border: none; background: none; padding: 0; font: inherit; color: var(--accent); }
-.section {
-  padding: 12px 12px 5px;
-  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--faint);
-}
-
 .empty { padding: 24px 12px; font-size: 13px; color: var(--muted); }
 .error { padding: 12px; font-size: 12px; color: var(--red); }

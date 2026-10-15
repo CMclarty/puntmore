@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { getCardsFeed, getCardsDiagnostics } from '../api'
 import f from './CardsPage.module.css'
-import { DEFAULTS as ACCA_DEFAULTS, bestAcca, legScore } from '../accaInsurance'
-import { bestBoostAcca, boostLegScore } from '../accaBoost'
+import { DEFAULTS as ACCA_DEFAULTS, legScore } from '../accaInsurance'
+import { boostLegScore } from '../accaBoost'
 
 /**
  * Paddy — Paddy Power's corners, cards, goals and saves against fair prices.
@@ -12,11 +12,10 @@ import { bestBoostAcca, boostLegScore } from '../accaBoost'
  * keep it clean and informative"):
  *   Value   every bet at or above fair, best value first.
  *   Refund  the acca insurance offer (5-fold, legs 1.20+, stake back as a
- *           bonus if exactly one leg loses): the best acca, then the other
- *           qualifying legs in order of how well they suit it.
- *   Boost   winnings +10/20/30% on a 4/5/6-fold, legs 1.20+: same layout.
- * The acca order is Kelly growth (accaInsurance.js / accaBoost.js); the number
- * itself is not shown — the order is the answer.
+ *           bonus if exactly one leg loses): every qualifying leg, best down.
+ *   Boost   winnings +10/20/30% on a 4/5/6-fold, legs 1.20+: same.
+ * Order is Kelly growth (accaInsurance.js / accaBoost.js). No acca is built or
+ * recommended — the list is the tool, the picking is Callum's.
  */
 
 // One fetch serves all three tabs: 95% of fair, because the acca offers carry
@@ -29,7 +28,6 @@ const TAB_KEY = 'paddy.tab'
 
 const shortPick = p => p.replace(/^Over /, 'O').replace(/^Under /, 'U')
 const evPct = v => `${((1 + v) * 100).toFixed(1)}%`
-const signed = v => (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1) + '%'
 function kickoff(iso) {
   const d = new Date(iso)
   const day = d.toDateString() === new Date().toDateString() ? ''
@@ -54,7 +52,6 @@ function Row({ bet }) {
 }
 
 export default function CardsPage() {
-  const navigate = useNavigate()
   const [tab, setTab] = useState(() => {
     try { return localStorage.getItem(TAB_KEY) || 'value' } catch { return 'value' }
   })
@@ -95,34 +92,13 @@ export default function CardsPage() {
       ? list.map(b => <Row key={b.matchId + b.pick} bet={b} />)
       : <p className={f.empty}>No bets at or above fair right now.</p>
   } else {
-    const legs = bets.filter(b => b.odds >= ACCA_FLOOR)
-    const refund = tab === 'refund'
-    const best = refund ? bestAcca(legs, refundCfg) : bestBoostAcca(legs)
-    const inBest = new Set((best?.picks || []).map(p => p.matchId + p.pick))
-    const score = refund ? b => legScore(b, refundCfg) : b => boostLegScore(b).growth
-    const others = legs.filter(b => !inBest.has(b.matchId + b.pick)).sort((a, b) => score(b) - score(a))
-    const paid = best ? best.pWin + (best.pRefund || 0) : 0
-    body = !best
-      ? <p className={f.empty}>Not enough qualifying legs ({ACCA_FLOOR}+, one per match) for an acca yet.</p>
-      : <>
-          <section className={f.best}>
-            <div className={f.bestHead}>
-              <span>Best {best.picks.length}-fold{best.boost ? ` · +${Math.round(best.boost * 100)}%` : ''}</span>
-              <span className={f.odds}>{best.accaOdds.toFixed(2)}</span>
-            </div>
-            <div className={f.bestStats}>
-              EV {signed(best.evPct)} · {refund ? 'pays back' : 'wins'} {Math.round(paid * 100)}%
-              {refund && (
-                <button type="button" className={f.link} onClick={() => navigate('/paddy/acca', {
-                  state: { legs: best.picks.map(l => ({ odds: l.odds, fair: l.odds / (1 + l.value), name: `${l.match} · ${l.pick}` })) },
-                })}>calculator ›</button>
-              )}
-            </div>
-            {best.picks.map(b => <Row key={b.matchId + b.pick} bet={b} />)}
-          </section>
-          {others.length > 0 && <div className={f.section}>Other legs, best fit first</div>}
-          {others.map(b => <Row key={b.matchId + b.pick} bet={b} />)}
-        </>
+    // Every qualifying leg, best down. No acca is built or recommended.
+    const score = tab === 'refund' ? b => legScore(b, refundCfg) : b => boostLegScore(b).growth
+    const list = bets.filter(b => b.odds >= ACCA_FLOOR)
+      .map(b => ({ b, s: score(b) })).sort((x, y) => y.s - x.s).map(x => x.b)
+    body = list.length
+      ? list.map(b => <Row key={b.matchId + b.pick} bet={b} />)
+      : <p className={f.empty}>No legs at {ACCA_FLOOR}+ right now.</p>
   }
 
   return (
