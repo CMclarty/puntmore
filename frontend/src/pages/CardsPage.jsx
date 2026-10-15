@@ -81,9 +81,12 @@ function kickoff(iso) {
   return day + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function Row({ bet }) {
+// Score: the leg's Kelly growth in the offer, scaled so the best leg on the
+// list is 100. Relative on purpose — the raw figure (a fraction of a percent
+// per bet) means nothing at a glance; "how close to the best" does.
+function Row({ bet, score }) {
   return (
-    <div className={f.row}>
+    <div className={`${f.row} ${score != null ? f.scored : ''}`}>
       <MarketIcon market={bet.market} size={22} />
       <span className={f.what}>
         <span className={f.pick}>{shortPick(bet.pick)}</span>
@@ -91,6 +94,7 @@ function Row({ bet }) {
       </span>
       <span className={f.odds}>{bet.odds.toFixed(2)}</span>
       <span className={`${f.value} ${bet.value >= 0.04 ? f.strong : ''}`}>{evPct(bet.value)}</span>
+      {score != null && <span className={f.score}>{score}</span>}
     </div>
   )
 }
@@ -150,8 +154,11 @@ export default function CardsPage() {
     : (x, y) => y.s - x.s)
 
   const applied = summary(fl, tab)
+  const scored = tab !== 'value'
+  const top = Math.max(0, ...list.map(x => x.s))
   const body = list.length
-    ? list.map(({ b }) => <Row key={b.matchId + b.pick} bet={b} />)
+    ? list.map(({ b, s }) => <Row key={b.matchId + b.pick} bet={b}
+        score={scored ? (top > 0 ? Math.round(100 * s / top) : 0) : null} />)
     : <p className={f.empty}>{applied ? 'Nothing matches these filters.'
       : tab === 'value' ? 'No bets at or above fair right now.' : `No legs at ${ACCA_FLOOR}+ right now.`}</p>
 
@@ -205,7 +212,9 @@ export default function CardsPage() {
       {!error && items && items.length === 0 && <p className={f.empty}>{why ?? 'No prices yet.'}</p>}
       {!error && items && items.length > 0 && (
         <div className={f.list}>
-          <div className={`${f.row} ${f.colHead}`}><span /><span>Bet</span><span>Odds</span><span>Value</span></div>
+          <div className={`${f.row} ${f.colHead} ${scored ? f.scored : ''}`}>
+            <span /><span>Bet</span><span>Odds</span><span>Value</span>{scored && <span>Score</span>}
+          </div>
           {body}
         </div>
       )}

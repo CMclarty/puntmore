@@ -590,7 +590,8 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   "this is a tool — keep it clean"; open, tap one of three, bet in seconds).
   Filters (market, kick-off, max odds, min value, sort) are FOLDED
   under one line naming what is applied — never an always-open panel.
-  Growth numbers are not shown; the order is the ranking.
+  Refund and Boost show a SCORE column: Kelly growth scaled so the best leg
+  on the list is 100 (relative, so it reads at a glance).
   Refund = the insurance offer; **Acca Boost** (`accaBoost.js`) = winnings +10/20/30%
   on 4/5/6 legs, win-or-lose, each leg scored in its best fold. Both are a
   plain list of qualifying legs, best down — NO recommended acca on the page
