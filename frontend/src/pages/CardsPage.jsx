@@ -26,7 +26,17 @@ const shortPick = p => p.replace(/^Over /, 'O').replace(/^Under /, 'U')
 
 const MARKETS = ['corners', 'cards', 'goals', 'saves']
 const MAX_ODDS = [null, 2, 3, 5]          // null = any
-const WITHIN_H = [null, 3, 12, 24]        // hours to kick-off; null = any
+// Kick-off window: within 1h or 3h, the rest of TODAY (local), or LATER than
+// today. null = any.
+const WITHIN = [[null, 'any'], [1, '< 1h'], [3, '< 3h'], ['today', 'Today'], ['later', 'Later']]
+function inWindow(kickoff, within, now) {
+  if (within == null) return true
+  const ko = new Date(kickoff).getTime()
+  const midnight = new Date(now); midnight.setHours(24, 0, 0, 0)
+  if (within === 'today') return ko < midnight.getTime()
+  if (within === 'later') return ko >= midnight.getTime()
+  return ko - now <= within * 3600_000
+}
 
 // One tap sets the lot. EV is the server-side threshold; the rest filter the
 // rows that come back. Touching any filter afterwards makes it "Custom".
@@ -143,10 +153,7 @@ export default function CardsPage() {
   const comps = [...new Set(items.map(i => i.sport_key || ''))].sort()
   const shown = items.map(item => {
     if (filters.comp != null && (item.sport_key || '') !== filters.comp) return null
-    if (filters.within != null) {
-      const ko = new Date(item.commence_time).getTime()
-      if (!(ko - now <= filters.within * 3600_000)) return null
-    }
+    if (!inWindow(item.commence_time, filters.within, now)) return null
     const combo = filters.sort === 'combo'
     const bets = item.bets.filter(b =>
       (!b.market || filters.markets.includes(b.market)) &&
@@ -220,9 +227,9 @@ export default function CardsPage() {
           </div>
           <div className={f.row}>
             <span className={f.label}>Kick-off</span>
-            {WITHIN_H.map(h => (
-              <button key={h ?? 'any'} type="button" className={`${f.chip} ${filters.within === h ? f.on : ''}`}
-                aria-pressed={filters.within === h} onClick={() => edit({ within: h })}>{h == null ? 'any' : `< ${h}h`}</button>
+            {WITHIN.map(([w, label]) => (
+              <button key={label} type="button" className={`${f.chip} ${filters.within === w ? f.on : ''}`}
+                aria-pressed={filters.within === w} onClick={() => edit({ within: w })}>{label}</button>
             ))}
           </div>
           <Link className={f.calcLink} to="/paddy/acca">Acca insurance calculator & settings ›</Link>
