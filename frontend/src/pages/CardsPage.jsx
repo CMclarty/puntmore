@@ -254,6 +254,12 @@ export default function CardsPage() {
       <div className={styles.feed}>
         {/* Acca insurance mode: every option as its own row, best score first
             — the ranking IS the answer, so it is not hidden inside matches. */}
+        {filters.sort === 'combo' && shown.length > 0 && (
+          <div className={`${f.flatRow} ${f.colHead}`}>
+            <span title={`EV of an insured ${acca.legs}-fold of legs like this`}>Score</span>
+            <span>Bet</span><span>Odds</span><span className={f.right}>Value</span>
+          </div>
+        )}
         {filters.sort === 'combo' && shown
           .flatMap(item => item.bets.map(bet => ({ bet, item, score: comboScore(bet) })))
           .sort((x, y) => y.score - x.score)
@@ -270,6 +276,11 @@ export default function CardsPage() {
               <span className={`${styles.badge} ${styles[valueTier(bet.value)]}`}>{fmt(bet.value)}</span>
             </div>
           ))}
+        {filters.sort !== 'combo' && shown.length > 0 && (
+          <div className={f.matchHead}>
+            <span>Match</span><span>Best value</span>
+          </div>
+        )}
         {filters.sort !== 'combo' && shown.map((item) => {
           const isOpen = openId === item.event_id
           return (
