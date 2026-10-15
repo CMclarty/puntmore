@@ -41,6 +41,10 @@ export const DEFAULTS = {
   voidQualifies: true,
   // The neutral partner legs a single leg is scored against (legScore).
   refOdds: 1.25,
+  // How much a sure pound beats a theoretical one (legScore). 0 = pure EV;
+  // 0.25 favours short legs without ignoring value — 1.30 at +4% outranks
+  // both 1.22 at +1% and 2.40 at +8%. See certaintyEquivalent.
+  riskAversion: 0.25,
 }
 
 /** p_i from per-leg fair odds. */
@@ -153,10 +157,33 @@ export const trueProb = leg => (1 + leg.value) / leg.odds
 export function legScore(leg, cfg = {}) {
   const c = { ...DEFAULTS, ...cfg }
   const n = c.legs - 1
-  return evaluate({
+  const r = evaluate({
     odds: [leg.odds, ...Array(n).fill(c.refOdds)],
     probs: [trueProb(leg), ...Array(n).fill(1 / c.refOdds)],
-  }, c).evPct
+  }, c)
+  return certaintyEquivalent(r, c)
+}
+
+/**
+ * What an acca is worth as a SURE return, per £1 staked, to someone who
+ * prefers being paid often: the certainty equivalent under exponential
+ * utility, CE = −ln E[e^(−a·X)] / a, over the three outcomes (all win,
+ * refund, full loss). At a = 0 it is the EV exactly. As `a` grows, an acca
+ * that mostly loses is marked down for it, so long legs fall back unless
+ * their edge pays for the swing — dynamic, where an odds cap is a cliff.
+ */
+export function certaintyEquivalent(r, cfg = {}) {
+  const c = { ...DEFAULTS, ...cfg }
+  const a = c.riskAversion
+  if (!(a > 0)) return r.evPct
+  const insured = r.insured && c.stake > 0 ? Math.min(c.stake, c.refundCap) / c.stake : 0
+  const outcomes = [
+    [r.pWin, r.accaOdds - 1],
+    [r.pRefund, c.refundValue * insured - 1],
+    [r.pLoss, -1],
+  ]
+  const m = outcomes.reduce((s, [p, x]) => s + p * Math.exp(-a * x), 0)
+  return -Math.log(m) / a
 }
 
 /**

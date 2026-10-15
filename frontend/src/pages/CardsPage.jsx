@@ -57,10 +57,11 @@ const pct = v => (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1) + '%'
 
 const PRESETS = [
   { id: 'all', label: 'All', ev: DEFAULT_EV, markets: MARKETS, maxOdds: null, within: null },
-  // 1.20-1.50 on purpose: not the EV-maximising set (value beats shortness
-  // under the offer's maths), but the one that pays out often — money in the
-  // pocket over theoretical EV (Callum's call, Oct 2026).
-  { id: 'low', label: 'Acca Min', ev: 95, markets: MARKETS, maxOdds: 1.5, within: null,
+  // No odds cap: the score itself favours short legs (risk-adjusted —
+  // accaInsurance.js::certaintyEquivalent), so a long leg only ranks if its
+  // edge pays for the swing. Money in the pocket over theoretical EV
+  // (Callum's call, Oct 2026); the dial is "Risk aversion" on /paddy/acca.
+  { id: 'low', label: 'Acca Min', ev: 95, markets: MARKETS, maxOdds: null, within: null,
     minOdds: LOW_ODDS_FLOOR, sort: 'combo' },
   { id: 'best', label: 'Best', ev: 105, markets: MARKETS, maxOdds: 5, within: null },
   { id: 'cc', label: 'Corners & cards', ev: 103, markets: ['corners', 'cards'], maxOdds: null, within: null },
@@ -223,7 +224,7 @@ export default function CardsPage() {
           </div>
           <div className={f.row}>
             <span className={f.label}>Sort by</span>
-            {[['value', 'Value'], ['combo', 'Acca insurance EV']].map(([k, l]) => (
+            {[['value', 'Value'], ['combo', 'Acca insurance score']].map(([k, l]) => (
               <button key={k} type="button" className={`${f.chip} ${(filters.sort ?? 'value') === k ? f.on : ''}`}
                 aria-pressed={(filters.sort ?? 'value') === k} onClick={() => edit({ sort: k })}>{l}</button>
             ))}
@@ -268,7 +269,7 @@ export default function CardsPage() {
             — the ranking IS the answer, so it is not hidden inside matches. */}
         {filters.sort === 'combo' && shown.length > 0 && (
           <div className={`${f.flatRow} ${f.colHead}`}>
-            <span title={`EV of an insured ${acca.legs}-fold of legs like this`}>Score</span>
+            <span title="Risk-adjusted value of an insured acca with this leg (dial: Risk aversion on the calculator)">Score</span>
             <span>Bet</span><span>Odds</span><span className={f.right}>Value</span>
           </div>
         )}
@@ -277,7 +278,7 @@ export default function CardsPage() {
           .sort((x, y) => y.score - x.score)
           .map(({ bet, item, score }) => (
             <div key={item.event_id + bet.pick} className={f.flatRow}>
-              <span className={f.flatScore} title={`EV of an insured ${acca.legs}-fold of legs like this`}>
+              <span className={f.flatScore} title="Risk-adjusted value of an insured acca with this leg (dial: Risk aversion on the calculator)">
                 {pct(score)}
               </span>
               <span className={f.flatWhat}>

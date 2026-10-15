@@ -80,7 +80,7 @@ export default function AccaInsurancePage() {
 
       <section className={a.block}>
         <div className={a.cfg}>
-          {[['legs', 'Legs', 1], ['stake', 'Stake £', 1], ['refundCap', 'Refund cap £', 1], ['refundValue', 'Refund worth', 0.05]].map(([k, l, step]) => (
+          {[['legs', 'Legs', 1], ['stake', 'Stake £', 1], ['refundCap', 'Refund cap £', 1], ['refundValue', 'Refund worth', 0.05], ['riskAversion', 'Risk aversion', 0.05]].map(([k, l, step]) => (
             <label key={k}>{l}
               <input type="number" inputMode="decimal" step={step} defaultValue={cfg[k]}
                 onChange={e => setCfgField(k, e.target.value)} />

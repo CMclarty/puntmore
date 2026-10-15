@@ -95,8 +95,16 @@ describe('qualification', () => {
 describe('leg scores', () => {
   test('a leg is scored against neutral partners, so its edge counts once', () => {
     // Four fair 1.25s alongside: 2.40 +8% vs 1.25 +2% (worked in chat, Oct 2026).
-    expect(pct1(legScore({ odds: 2.4, value: 0.08 }))).toBe(38.7)
-    expect(pct1(legScore({ odds: 1.25, value: 0.02 }))).toBe(32.7)
+    const ev = { riskAversion: 0 }
+    expect(pct1(legScore({ odds: 2.4, value: 0.08 }, ev))).toBe(38.7)
+    expect(pct1(legScore({ odds: 1.25, value: 0.02 }, ev))).toBe(32.7)
+  })
+
+  test('risk aversion favours short legs without ignoring value', () => {
+    const s = (odds, value) => legScore({ odds, value })      // default 0.25
+    expect(s(1.25, 0.02)).toBeGreaterThan(s(2.4, 0.08))      // short beats long
+    expect(s(1.3, 0.04)).toBeGreaterThan(s(1.22, 0.01))      // value still counts
+    expect(s(1.3, 0.04)).toBeGreaterThan(s(1.8, 0.06))
   })
 })
 
