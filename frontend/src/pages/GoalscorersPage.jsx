@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getGoalscorerFeed } from '../api'
+import useAutoRefresh from '../hooks/useAutoRefresh'
 import styles from './FeedPage.module.css'
 
 function valueTier(v) {
@@ -20,8 +21,9 @@ export default function GoalscorersPage() {
   const [error, setError] = useState(null)
   const [fetchedAt, setFetchedAt] = useState(null)
 
-  const fetchFeed = useCallback(async () => {
-    setLoading(true)
+  // `quiet`: an automatic refresh updates in place without the loading state.
+  const fetchFeed = useCallback(async (quiet = false) => {
+    if (quiet !== true) setLoading(true)
     setError(null)
     try {
       const data = await getGoalscorerFeed()
@@ -35,6 +37,7 @@ export default function GoalscorersPage() {
   }, [])
 
   useEffect(() => { fetchFeed() }, [fetchFeed])
+  useAutoRefresh(() => fetchFeed(true))
 
   return (
     <div className={styles.page}>

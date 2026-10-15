@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { getCardsFeed, getCardsDiagnostics } from '../api'
 import f from './CardsPage.module.css'
 import MarketIcon from '../components/MarketIcon'
+import useAutoRefresh from '../hooks/useAutoRefresh'
 import { DEFAULTS as ACCA_DEFAULTS, legScore } from '../accaInsurance'
 import { boostLegScore } from '../accaBoost'
 
@@ -117,19 +118,25 @@ export default function CardsPage() {
   }, [fl])
   const setF = patch => setFl(v => ({ ...v, ...patch }))
 
+  // Load, then refresh in place (useAutoRefresh). A failed refresh hides the
+  // list rather than leave old prices on screen.
+  const live = useRef(true)
+  const load = useCallback(() => getCardsFeed(FETCH_EV - 1)
+    .then(async data => {
+      if (!live.current) return
+      setItems(data)
+      setError(null)
+      if (!data.length) {
+        try { setWhy((await getCardsDiagnostics()).verdict) } catch { /* plain empty state */ }
+      }
+    })
+    .catch(err => live.current && setError(err.message)), [])
   useEffect(() => {
-    let live = true
-    getCardsFeed(FETCH_EV - 1)
-      .then(async data => {
-        if (!live) return
-        setItems(data)
-        if (!data.length) {
-          try { setWhy((await getCardsDiagnostics()).verdict) } catch { /* plain empty state */ }
-        }
-      })
-      .catch(err => live && setError(err.message))
-    return () => { live = false }
-  }, [])
+    live.current = true
+    load()
+    return () => { live.current = false }
+  }, [load])
+  useAutoRefresh(load)
 
   // Every bet, flat, carrying its match and kick-off, through the filters.
   const now = Date.now()

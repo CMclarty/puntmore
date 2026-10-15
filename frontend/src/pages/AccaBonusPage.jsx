@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getAccaBonusFeed } from '../api'
+import useAutoRefresh from '../hooks/useAutoRefresh'
 import ThresholdControl from '../components/ThresholdControl'
 import styles from './FeedPage.module.css'
 
@@ -26,8 +27,9 @@ export default function AccaBonusPage() {
   const [fetchedAt, setFetchedAt] = useState(null)
   const debounceRef = useRef(null)
 
-  const fetchFeed = useCallback(async (ev) => {
-    setLoading(true)
+  // `quiet`: an automatic refresh updates in place without the loading state.
+  const fetchFeed = useCallback(async (ev, quiet = false) => {
+    if (!quiet) setLoading(true)
     setError(null)
     try {
       const data = await getAccaBonusFeed(ev / 100 - 1)
@@ -41,6 +43,7 @@ export default function AccaBonusPage() {
   }, [])
 
   useEffect(() => { fetchFeed(threshold) }, []) // eslint-disable-line
+  useAutoRefresh(() => fetchFeed(threshold, true))
 
   function handleThresholdChange(val) {
     setThreshold(val)

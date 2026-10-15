@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, memo, Fragment } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getCouponTypes, getTypeSelections, getTypeBundles, editLeg } from '../api'
+import useAutoRefresh from '../hooks/useAutoRefresh'
 import { FRACTIONAL_LADDER, fractionToDecimal, nearestFraction } from '../odds'
 import styles from './TrackerPage.module.css'
 
@@ -588,6 +589,14 @@ export default function TrackerPage() {
     setPickerOpen(false)
     navigate(`/t/${code}/${couponId}`)
   }
+
+  // Reload the coupon list and the rows on screen in place — never while a
+  // row is being edited or saved, which a reload would overwrite.
+  useAutoRefresh(() => {
+    if (editingId != null || savingId != null) return
+    loadTypes()
+    if (activeCode) loadSelections(activeCode, activeIssueId, isBundleType).catch(() => {})
+  })
 
   async function handleRefresh() {
     if (!activeCode || refreshing) return
