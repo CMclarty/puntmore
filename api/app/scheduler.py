@@ -167,6 +167,8 @@ def refresh_all_live_coupons(odds_provider, notifier=None, db=None) -> int:
 # once, which is the honest trade for not adding a table whose rows would all be
 # stale within four hours.
 _cards_notified: dict[tuple, str] = {}
+# The last cards sweep's failure, if the latest one failed (for diagnostics).
+LAST_CARDS_ERROR: dict = {}
 
 
 def _cards_key(row) -> tuple:
@@ -192,11 +194,14 @@ def sweep_cards(cards_client, pinnacle=None, notifier=None) -> int:
         from .routers.cards import price_events      # one pricing entry point
         events = merge_pinnacle(cards_client.get_events(), pinnacle)
         rows = price_events(events, settings.cards_min_edge)
-    except Exception:
+    except Exception as exc:
         # Logged with the cause: a silent failure here is what made the old
-        # cards client look like a market with no value in it.
+        # cards client look like a market with no value in it. Kept for
+        # /paddy/diagnostics too, which otherwise shows only an empty pricing.
         logger.exception("Cards sweep failed")
+        LAST_CARDS_ERROR.update(at=utcnow().isoformat(), error=repr(exc)[:500])
         return 0
+    LAST_CARDS_ERROR.clear()
 
     fresh = []
     seen = set()

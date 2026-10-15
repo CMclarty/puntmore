@@ -498,3 +498,40 @@ def test_the_empty_screen_names_a_pinnacle_failure_on_the_oddspapi_path():
     client.last_sweep.update(carried_pinnacle_prices=40, errors=[])
     # Fair side fine: it must NOT fall back to the old bettingiscool verdicts.
     assert "bettingiscool" not in diagnose(client, None)["verdict"]
+
+
+def test_requests_from_two_threads_never_overlap(monkeypatch):
+    # Live, 15 Oct: the sweep and a page load fetched together and OddsPapi
+    # answered 429 RATE_LIMITED, costing a chunk.
+    import threading
+    active, overlap = [0], []
+
+    def fake_get(url, **k):
+        active[0] += 1
+        if active[0] > 1:
+            overlap.append(url)
+        real_sleep(0.01)
+        active[0] -= 1
+        return _R(200, body=[])
+
+    real_sleep = op.time.sleep
+    monkeypatch.setattr(op, "MIN_REQUEST_GAP", 0)
+    monkeypatch.setattr(op.httpx, "get", fake_get)
+    c = op.OddsPapiClient("k", ttl=0)
+    threads = [threading.Thread(target=c.get, args=("/odds-by-tournaments",), kwargs={"tournamentIds": str(i)})
+               for i in range(6)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert overlap == []
+
+
+def test_diagnostics_names_a_sweep_that_failed_before_pricing():
+    from types import SimpleNamespace
+    from app import scheduler
+    from app.routers.cards import diagnose
+    scheduler.LAST_CARDS_ERROR.update(at="now", error="KeyError('point')")
+    try:
+        d = diagnose(SimpleNamespace(last_sweep={"fixtures_in_window": 3, "carried_paddy_prices": 3}), None)
+        assert "FAILED before pricing" in d["verdict"] and "KeyError" in d["verdict"]
+    finally:
+        scheduler.LAST_CARDS_ERROR.clear()

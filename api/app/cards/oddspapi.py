@@ -42,6 +42,7 @@ hourly when nothing is close), and capped per day by
 from datetime import datetime, timedelta, timezone
 import logging
 import re
+import threading
 import time
 
 import httpx
@@ -383,6 +384,12 @@ class OddsPapiClient:
         # Failed odds requests, held so the 2-minute sweep does not re-send
         # them: OddsPapi bills 4xx/5xx like a success. {key: (error, hold_s)}.
         self._failed = TTLCache(ttl=FAILED_HOLD_MAX, maxsize=64)
+        # ONE request in flight at a time. The 2-minute sweep (scheduler
+        # thread) and a page load (request thread) can fetch at the same
+        # moment, and OddsPapi answers the second 429 RATE_LIMITED — seen live
+        # on 15 Oct, costing a whole chunk. Reentrant: get() and the retry
+        # inside it both hold it.
+        self._lock = threading.RLock()
 
     def _roll_day(self):
         today = datetime.now(timezone.utc).date()
@@ -398,7 +405,12 @@ class OddsPapiClient:
         (OddsPapi docs, "Understanding API Requests & Quota"): never counted,
         never blocked even with the quota spent — so it is how an exhausted
         client finds out the period has reset, at no cost."""
-        resp = self._send("/account", {})
+        with self._lock:
+            resp = self._send("/account", {})
+            if resp.status_code == 429:
+                m = _WAIT_RE.search(resp.text or "")
+                time.sleep(min(5.0, float(m.group(1)) + 0.2 if m else MIN_REQUEST_GAP))
+                resp = self._send("/account", {})
         if resp.status_code != 200:
             raise RuntimeError(f"OddsPapi /account: HTTP {resp.status_code}: {resp.text[:200]}")
         return resp.json()
@@ -426,6 +438,10 @@ class OddsPapiClient:
         return True
 
     def get(self, path: str, **params):
+        with self._lock:
+            return self._get(path, **params)
+
+    def _get(self, path: str, **params):
         self._roll_day()
         if self._quota_spent():
             raise RuntimeError("OddsPapi monthly request quota exhausted (REQUEST_LIMIT_EXCEEDED)")
@@ -514,7 +530,11 @@ class OddsPapiClient:
         try:
             return self._odds_by_tournaments(key, ids, bookmaker)
         except Exception as exc:
-            hold = FAILED_HOLD_MAX if _RESTRICTED_RE.search(str(exc)) else FAILED_HOLD
+            msg = str(exc)
+            # A plan refusal holds for hours; a rate limit only for a minute
+            # (it is about spacing, not the request); anything else 10 min.
+            hold = (FAILED_HOLD_MAX if _RESTRICTED_RE.search(msg)
+                    else 60 if "RATE_LIMITED" in msg else FAILED_HOLD)
             self._failed.set(key, (str(exc), hold))
             raise
 
@@ -644,10 +664,17 @@ class OddsPapiPaddySource:
     `CardsApiClient`: `get_events()` and `last_sweep`."""
 
     def __init__(self, client: OddsPapiClient):
+        self._sweep_lock = threading.Lock()
         self._client = client
         self.last_sweep: dict = {}
 
     def get_events(self) -> list[dict]:
+        # One sweep at a time: a page load arriving mid-sweep waits and then
+        # reads the cache the sweep just filled, instead of fetching beside it.
+        with self._sweep_lock:
+            return self._get_events()
+
+    def _get_events(self) -> list[dict]:
         entries = _tournament_entries()
         unresolved: list[str] = []
         if all(e.isdigit() for e in entries):

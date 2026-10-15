@@ -204,8 +204,12 @@ def diagnose(client, pinnacle) -> dict:
     elif verdict is None:
         verdict = f"{priced.get('rows')} value row(s) found."
 
+    from ..scheduler import LAST_CARDS_ERROR
+    if LAST_CARDS_ERROR:
+        verdict = f"The last sweep FAILED before pricing: {LAST_CARDS_ERROR['error']}"
     return {
         "verdict": verdict,
+        "sweep_error": dict(LAST_CARDS_ERROR) or None,
         "sweep": sweep,
         "fair_side": fair,
         "pricing": priced,
