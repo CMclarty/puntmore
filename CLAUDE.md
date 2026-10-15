@@ -586,9 +586,11 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   optimal stake (`accaInsurance.js::growthOf`) — bankroll-free, no risk dial;
   short legs that keep an acca paying back rise without an odds cap. The
   page is THREE TABS — Value (singles at fair or better), Refund (the
-  insurance offer), Boost — each ONE list with no filters, sorts or
-  thresholds (Callum, Oct 2026: "this is a tool — keep it clean"). The order
-  is the ranking; growth numbers are not shown. Don't re-add controls.
+  insurance offer), Boost — each ONE list, best down (Callum, Oct 2026:
+  "this is a tool — keep it clean"; open, tap one of three, bet in seconds).
+  Filters (market, kick-off, max odds, min value, sort, league) are FOLDED
+  under one line naming what is applied — never an always-open panel.
+  Growth numbers are not shown; the order is the ranking.
   Refund = the insurance offer; **Acca Boost** (`accaBoost.js`) = winnings +10/20/30%
   on 4/5/6 legs, win-or-lose, each leg scored in its best fold. Both are a
   plain list of qualifying legs, best down — NO recommended acca on the page

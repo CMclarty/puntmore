@@ -1,4 +1,4 @@
-/* Paddy: tabs, then one list. Nothing else. */
+/* Paddy: tabs, a folded filter line, then one list. */
 .page { display: flex; flex-direction: column; flex: 1; }
 
 .header {
@@ -27,6 +27,28 @@
   font-family: var(--font-mono); font-size: 11px; color: var(--faint);
 }
 .gear { font-size: 16px; color: var(--muted); text-decoration: none; }
+
+.filterBar {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  width: 100%; padding: 7px 12px; border: none; border-bottom: 1px solid var(--line);
+  background: none; text-align: left; font-size: 12px; color: var(--faint);
+}
+.filterBar > :first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filtered { color: var(--accent); font-weight: 600; background: var(--accent-soft); }
+.filterToggle { flex-shrink: 0; color: var(--muted); font-weight: 600; }
+.panel {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px; border-bottom: 1px solid var(--line);
+}
+.group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.label { width: 70px; font-size: 11px; color: var(--muted); }
+.chip {
+  padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px;
+  background: none; font-size: 12px; color: var(--muted); text-transform: capitalize;
+}
+.chipOn { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+.select { font-size: 12px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: none; color: var(--ink); }
+.reset { margin-left: auto; border: none; background: none; font-size: 12px; color: var(--accent); }
 
 .list { display: flex; flex-direction: column; }
 .row {
