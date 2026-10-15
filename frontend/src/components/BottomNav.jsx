@@ -54,6 +54,15 @@ const TOOLS = [
     ),
   },
   {
+    tool: 'accabonus', name: '365', to: '/accabonus', sub: 'Acca boost', muted: true,
+    matches: (p) => p.startsWith('/accabonus') || p.startsWith('/tennis'),
+    icon: (
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="4,17 11,12 18,17"/><polyline points="4,12 11,7 18,12"/>
+      </svg>
+    ),
+  },
+  {
     tool: 'cards', name: 'Paddy', to: '/paddy', sub: 'Props', muted: true,
     matches: (p) => p.startsWith('/paddy') || p.startsWith('/cards'),
     icon: (
