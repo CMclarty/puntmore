@@ -526,6 +526,15 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   ("wait 0.80 seconds"), which on 28 Sept cost a whole chunk of five
   competitions. `OddsPapiClient` spaces requests by `MIN_REQUEST_GAP` and
   retries a 429 ONCE after the wait it names. Don't parallelise the sweep.
+- **Goalkeeper SAVES are priced off Bookie Bashing, not Pinnacle**
+  (`cards/saves.py`, Oct 2026). Pinnacle posts no saves ladder; Bookie Bashing
+  publishes fair saves prices behind Callum's login, so they are read by
+  `local/bookiebashing_saves.py` ON HIS PC and POSTed to
+  `/api/cards/saves-fair` (`SAVES_INGEST_KEY`, key-guarded like `/state`).
+  The login never reaches the server. Fair prices sit in a bounded TTLCache
+  and are joined to Paddy's OddsPapi saves line by team similarity and day.
+  MATCH totals only; the page reader (`parse_page`) is unwritten until a
+  `dump` of the real page has been read — do not guess its layout.
 - `cards/pinnacle.py` returns **RAW** prices. De-vigging lives in
   `cards/value.py`; handing it fair prices would de-vig them twice.
 - `merge_pinnacle` joins the two vendors into one event so `value.py` stays

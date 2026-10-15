@@ -5,6 +5,7 @@ from ..schemas import CardValueOut, CardFeedItem, CardFeedBet
 from ..cards.value import compute_value_bets
 from ..cards.laddered import compute_laddered_value
 from ..cards.client import merge_pinnacle
+from ..cards.saves import saves_value
 
 
 def price_events(events, min_edge):
@@ -16,8 +17,14 @@ def price_events(events, min_edge):
     which is in use.
     """
     if settings.cards_use_ladder_model:
-        return compute_laddered_value(events, min_edge)
-    return compute_value_bets(events, min_edge)
+        rows = compute_laddered_value(events, min_edge)
+    else:
+        rows = compute_value_bets(events, min_edge)
+    # Saves are priced off Bookie Bashing's fair figure, not Pinnacle — a
+    # separate path, joined here so every consumer sees them.
+    rows += saves_value(events, min_edge)
+    rows.sort(key=lambda r: r.edge, reverse=True)
+    return rows
 
 router = APIRouter()
 

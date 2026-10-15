@@ -79,5 +79,11 @@ class TTLCache:
         while len(self._data) > self._maxsize:
             self._data.popitem(last=False)   # oldest touched
 
+    def values(self) -> list:
+        """Every live value, oldest touched first. Sweeps as it goes, so a
+        cache that is only ever read in bulk still sheds its expired entries."""
+        self._sweep()
+        return [v for _, v in self._data.values()]
+
     def clear(self) -> None:
         self._data.clear()

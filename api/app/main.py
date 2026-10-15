@@ -36,6 +36,7 @@ from .routers import coupons
 from .routers.upload import router as upload_router
 from .routers import accabonus
 from .routers import cards as cards_router
+from .routers import saves_ingest as saves_ingest_router
 from .routers import goalscorers as goalscorers_router
 from .routers import pnl as pnl_router
 from .routers import shop as shop_router
@@ -292,6 +293,8 @@ if settings.enable_accabonus:
     app.include_router(accabonus.router, dependencies=[Depends(require_tool("accabonus"))])
 if settings.enable_cards:
     app.include_router(cards_router.router, dependencies=[Depends(require_tool("cards"))])
+    # The local Bookie Bashing script's way in: key-guarded, not session-guarded.
+    app.include_router(saves_ingest_router.router)
 if settings.enable_goalscorers:
     app.include_router(
         goalscorers_router.router,
