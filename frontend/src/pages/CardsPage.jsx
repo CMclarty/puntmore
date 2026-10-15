@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
 import { getCardsFeed, getCardsDiagnostics } from '../api'
 import f from './CardsPage.module.css'
 import MarketIcon from '../components/MarketIcon'
@@ -81,9 +80,6 @@ function kickoff(iso) {
     : d.toLocaleDateString([], { weekday: 'short' }) + ' '
   return day + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
-function loadRefundSettings() {
-  try { return { ...ACCA_DEFAULTS, ...JSON.parse(localStorage.getItem('paddy.acca')) } } catch { return ACCA_DEFAULTS }
-}
 
 function Row({ bet }) {
   return (
@@ -103,7 +99,6 @@ export default function CardsPage() {
   const [tab, setTab] = useState(() => {
     try { return localStorage.getItem(TAB_KEY) || 'value' } catch { return 'value' }
   })
-  const [refundCfg] = useState(loadRefundSettings)
   const [fl, setFl] = useState(loadFilters)
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState(null)
@@ -149,7 +144,7 @@ export default function CardsPage() {
   const list = tab === 'value'
     ? bets.filter(b => b.value >= fl.minValue).map(b => ({ b, s: b.value }))
     : bets.filter(b => b.odds >= ACCA_FLOOR)
-      .map(b => ({ b, s: refund ? legScore(b, refundCfg) : boostLegScore(b).growth }))
+      .map(b => ({ b, s: refund ? legScore(b, ACCA_DEFAULTS) : boostLegScore(b).growth }))
   list.sort(fl.sort === 'shortest'
     ? (x, y) => x.b.odds - y.b.odds || y.s - x.s
     : (x, y) => y.s - x.s)
@@ -171,7 +166,6 @@ export default function CardsPage() {
         </nav>
         <span className={f.updated}>
           {updated ? updated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-          {tab === 'refund' && <Link className={f.gear} to="/paddy/acca" aria-label="Refund settings">⚙</Link>}
         </span>
       </header>
 

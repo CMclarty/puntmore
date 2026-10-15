@@ -576,7 +576,7 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   MATCH totals only; the page reader (`parse_page`) is unwritten until a
   `dump` of the real page has been read — do not guess its layout.
 - **Acca insurance** (`frontend/src/accaInsurance.js`, Oct 2026): the Acca Min
-  preset and `/paddy/acca` value a 5-fold (every leg 1.20+) with the stake
+  tab value a 5-fold (every leg 1.20+) with the stake
   refunded as a bonus (`refund_value` 0.75, `refund_cap`) if exactly one leg
   loses. Client-side maths, pinned by `accaInsurance.test.js` to the offer's
   own worked cases — keep them passing. The builder takes ONE leg per match:
@@ -594,8 +594,9 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   Refund = the insurance offer; **Acca Boost** (`accaBoost.js`) = winnings +10/20/30%
   on 4/5/6 legs, win-or-lose, each leg scored in its best fold. Both are a
   plain list of qualifying legs, best down — NO recommended acca on the page
-  (Callum: "this is a tool"); `bestAcca`/`bestBoostAcca` stay for tests and
-  the calculator. Tested by vitest.
+  (Callum: "this is a tool"); `bestAcca`/`bestBoostAcca` stay, tested. There is
+  NO calculator page (removed Oct 2026, never asked for); the offer's terms
+  are `DEFAULTS` in code. Tested by vitest.
 - `cards/pinnacle.py` returns **RAW** prices. De-vigging lives in
   `cards/value.py`; handing it fair prices would de-vig them twice.
 - `merge_pinnacle` joins the two vendors into one event so `value.py` stays

@@ -21,7 +21,6 @@ const ShopPage = lazy(() => import('./pages/ShopPage'))
 const AccaBonusPage = lazy(() => import('./pages/AccaBonusPage'))
 const Three65Page = lazy(() => import('./pages/Three65Page'))
 const CardsPage = lazy(() => import('./pages/CardsPage'))
-const AccaInsurancePage = lazy(() => import('./pages/AccaInsurancePage'))
 
 // The path the app was FIRST loaded at, captured once before the router starts
 // navigating. A direct (hard) load of a focused route — e.g. saving /pnl to the
@@ -111,7 +110,7 @@ export default function App() {
           <Route path="/accabonus" element={<Navigate to="/365/acca" replace />} />
           <Route path="/tennis" element={<Navigate to="/365/acca" replace />} />
           <Route path="/paddy" element={protectTool(<CardsPage />, 'cards')} />
-          <Route path="/paddy/acca" element={protectTool(<AccaInsurancePage />, 'cards')} />
+          <Route path="/paddy/acca" element={<Navigate to="/paddy" replace />} />
           {/* Renamed from Cards (Oct 2026): installed shells and bookmarks
               still open /cards. */}
           <Route path="/cards" element={<Navigate to="/paddy" replace />} />

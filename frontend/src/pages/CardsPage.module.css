@@ -26,7 +26,6 @@
   padding-bottom: 9px;
   font-family: var(--font-mono); font-size: 11px; color: var(--faint);
 }
-.gear { font-size: 16px; color: var(--muted); text-decoration: none; }
 
 .filterBar {
   display: flex; justify-content: space-between; align-items: center; gap: 10px;
