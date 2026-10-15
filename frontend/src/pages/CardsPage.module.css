@@ -1,112 +1,71 @@
-/* Paddy: three tabs (Value / Acca Refund / Acca Boost), one shared chip row
-   of filters under them, and a sort bar inside the Value tab. */
-.tabs {
+/* Paddy: tabs, then one list. Nothing else. */
+.page { display: flex; flex-direction: column; flex: 1; }
+
+.header {
   display: flex;
-  gap: 4px;
+  align-items: flex-end;
+  justify-content: space-between;
   padding: 6px 12px 0;
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
+.tabs { display: flex; gap: 2px; }
 .tab {
   border: none;
   background: none;
-  padding: 7px 10px 9px;
-  font-size: 13px;
+  padding: 8px 10px 9px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--muted);
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  white-space: nowrap;
 }
-.tabOn { color: var(--ink); border-bottom-color: var(--accent); }
-
-.chips, .subbar {
-  display: flex;
-  gap: 6px;
-  padding: 8px 12px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
-  align-items: center;
+.on { color: var(--ink); border-bottom-color: var(--accent); }
+.updated {
+  display: flex; align-items: center; gap: 10px;
+  padding-bottom: 9px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--faint);
 }
-.chips::-webkit-scrollbar, .subbar::-webkit-scrollbar { display: none; }
-.subbar { padding-top: 6px; padding-bottom: 6px; }
-.sep { flex: 0 0 1px; align-self: stretch; background: var(--line-strong); margin: 2px 2px; }
+.gear { font-size: 16px; color: var(--muted); text-decoration: none; }
 
-.gear { font-size: 18px; color: var(--muted); text-decoration: none; padding: 0 4px; }
-
-.chip {
-  flex: 0 0 auto;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  background: var(--paper);
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 5px 11px;
-  white-space: nowrap;
-  text-transform: capitalize;
-}
-.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
-
-.more {
-  flex: 0 0 auto;
-  margin-left: auto;
-  border: none;
-  background: none;
-  color: var(--muted);
-  font-size: 12px;
-  padding: 5px 2px;
-  white-space: nowrap;
-}
-
-.label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--faint);
-}
-.select {
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  background: var(--paper);
-  color: var(--ink);
-  font-size: 13px;
-  padding: 5px 8px;
-  max-width: 220px;
-}
-
-
-/* Acca insurance mode: one row per option, ranked by score. */
-.flatRow {
+.list { display: flex; flex-direction: column; }
+.row {
   display: grid;
-  /* Fixed odds/value widths so the column titles sit over their figures. */
-  grid-template-columns: 54px 1fr 48px 64px;
-  gap: 8px;
+  grid-template-columns: 1fr 52px 62px;
+  gap: 10px;
   align-items: center;
-  padding: 7px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--line);
 }
-.flatScore { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--accent); }
-.flatWhat { display: flex; flex-direction: column; min-width: 0; }
-.flatPick { font-size: 13px; color: var(--ink); }
-.flatMatch { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* Column titles over the lists. */
-.colHead, .matchHead {
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--faint);
+.row > :nth-child(2), .row > :nth-child(3) { text-align: right; }
+.colHead {
+  padding-top: 8px; padding-bottom: 5px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--faint);
 }
-.colHead { padding-top: 6px; padding-bottom: 4px; }
-.right { text-align: right; }
-.flatRow > :nth-child(3), .flatRow > :nth-child(4) { text-align: right; justify-self: end; }
-.matchHead { display: flex; justify-content: space-between; padding: 6px 30px 4px 12px; border-bottom: 1px solid var(--line); }
-.bestRow { width: 100%; border: none; border-bottom: 1px solid var(--line); background: var(--accent-soft); text-align: left; font: inherit; cursor: pointer; }
-.oddsCell { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25; }
-.paid { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
-.bestRow:disabled { cursor: default; color: inherit; opacity: 1; }
+.what { display: flex; flex-direction: column; min-width: 0; }
+.pick { font-size: 14px; color: var(--ink); }
+.match { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.odds { font-family: var(--font-mono); font-size: 14px; color: var(--ink); }
+.value { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.strong { color: var(--accent); font-weight: 700; }
+
+.best { background: var(--accent-soft); border-bottom: 2px solid var(--accent); }
+.best .row { border-bottom-color: rgba(0, 0, 0, 0.06); }
+.bestHead {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 10px 12px 2px; font-size: 14px; font-weight: 700; color: var(--ink);
+}
+.bestStats {
+  display: flex; gap: 10px; align-items: baseline;
+  padding: 0 12px 8px; font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+}
+.link { margin-left: auto; border: none; background: none; padding: 0; font: inherit; color: var(--accent); }
+.section {
+  padding: 12px 12px 5px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--faint);
+}
+
+.empty { padding: 24px 12px; font-size: 13px; color: var(--muted); }
+.error { padding: 12px; font-size: 12px; color: var(--red); }
