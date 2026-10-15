@@ -581,6 +581,13 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   loses. Client-side maths, pinned by `accaInsurance.test.js` to the offer's
   own worked cases — keep them passing. The builder takes ONE leg per match:
   the product rule assumes independent legs.
+- **Acca views rank by Kelly growth** (Oct 2026): every offer's view scores a
+  leg by the expected log-growth of an acca with it at that acca's OWN
+  optimal stake (`accaInsurance.js::growthOf`) — bankroll-free, no risk dial;
+  short legs that keep an acca paying back rise without an odds cap. Acca Min
+  = the insurance offer; **Acca Boost** (`accaBoost.js`) = winnings +10/20/30%
+  on 4/5/6 legs, win-or-lose, each leg scored in its best fold. Both head the
+  list with the best qualifying acca (one leg per match). Tested by vitest.
 - `cards/pinnacle.py` returns **RAW** prices. De-vigging lives in
   `cards/value.py`; handing it fair prices would de-vig them twice.
 - `merge_pinnacle` joins the two vendors into one event so `value.py` stays

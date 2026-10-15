@@ -96,3 +96,4 @@
 .bestRow { width: 100%; border: none; border-bottom: 1px solid var(--line); background: var(--accent-soft); text-align: left; font: inherit; cursor: pointer; }
 .oddsCell { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25; }
 .paid { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+.bestRow:disabled { cursor: default; color: inherit; opacity: 1; }

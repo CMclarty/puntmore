@@ -5,6 +5,7 @@ import ThresholdControl from '../components/ThresholdControl'
 import styles from './FeedPage.module.css'
 import f from './CardsPage.module.css'
 import { DEFAULTS as ACCA_DEFAULTS, bestAcca, legAcca, legScore } from '../accaInsurance'
+import { bestBoostAcca, boostLegScore } from '../accaBoost'
 
 const DEBOUNCE_MS = 400
 const DEFAULT_EV = 98  // preset: show everything at or above 98% EV
@@ -63,6 +64,11 @@ const GROWTH_TIP = 'Growth per bet of an insured acca with this leg, at its opti
 
 const PRESETS = [
   { id: 'all', label: 'All', ev: DEFAULT_EV, markets: MARKETS, maxOdds: null, within: null },
+  // The acca BOOST offer: winnings +10% on a 4-fold, +20% on 5, +30% on 6.
+  // Same growth maths (accaBoost.js), win-or-lose with no refund; each leg is
+  // scored in whichever boosted fold grows fastest.
+  { id: 'boost', label: 'Acca Boost', ev: 95, markets: MARKETS, maxOdds: null, within: null,
+    minOdds: LOW_ODDS_FLOOR, sort: 'boost' },
   { id: 'low', label: 'Acca Min', ev: 95, markets: MARKETS, maxOdds: null, within: null,
     minOdds: LOW_ODDS_FLOOR, sort: 'combo' },
   { id: 'best', label: 'Best', ev: 105, markets: MARKETS, maxOdds: 5, within: null },
@@ -159,7 +165,8 @@ export default function CardsPage() {
   const now = Date.now()
   const comps = [...new Set(items.map(i => i.sport_key || ''))].sort()
   // Both acca views list every option on its own row rather than by match.
-  const flat = filters.sort === 'combo' || filters.sort === 'shortest'
+  const boostMode = filters.sort === 'boost'
+  const flat = filters.sort === 'combo' || filters.sort === 'shortest' || boostMode
   const shown = items.map(item => {
     if (filters.comp != null && (item.sport_key || '') !== filters.comp) return null
     if (!inWindow(item.commence_time, filters.within, now)) return null
@@ -180,14 +187,20 @@ export default function CardsPage() {
   // Acca view: every option as a row, and the best qualifying acca from them.
   const flatRows = flat ? shown
     .flatMap(item => item.bets.map(bet => {
+      if (boostMode) {
+        // Paid = the acca winning: the boost has no refund.
+        const r = boostLegScore(bet)
+        return { bet, item, score: r.growth, paid: r.pWin }
+      }
       const r = legAcca(bet, acca)
       return { bet, item, score: comboScore(bet), paid: r.pWin + r.pRefund }
     }))
     .sort(filters.sort === 'shortest'
       ? (x, y) => x.bet.odds - y.bet.odds || y.bet.value - x.bet.value
       : (x, y) => y.score - x.score) : []
-  const best = flat && filters.sort === 'combo'
-    ? bestAcca(flatRows.map(({ bet, item }) => ({ ...bet, matchId: item.event_id, match: item.match })), acca)
+  const candidates = flatRows.map(({ bet, item }) => ({ ...bet, matchId: item.event_id, match: item.match }))
+  const best = filters.sort === 'combo' ? bestAcca(candidates, acca)
+    : boostMode ? bestBoostAcca(candidates)
     : null
   const bestKeys = new Set((best?.picks || []).map(p => p.matchId + p.pick))
 
@@ -243,7 +256,7 @@ export default function CardsPage() {
           </div>
           <div className={f.row}>
             <span className={f.label}>Sort by</span>
-            {[['value', 'Value'], ['combo', 'Acca growth'], ['shortest', 'Shortest odds']].map(([k, l]) => (
+            {[['value', 'Value'], ['combo', 'Acca growth'], ['boost', 'Boost growth'], ['shortest', 'Shortest odds']].map(([k, l]) => (
               <button key={k} type="button" className={`${f.chip} ${(filters.sort ?? 'value') === k ? f.on : ''}`}
                 aria-pressed={(filters.sort ?? 'value') === k} onClick={() => edit({ sort: k })}>{l}</button>
             ))}
@@ -289,19 +302,19 @@ export default function CardsPage() {
         {/* Acca view: the best qualifying acca first, as one row (tap: open
             it in the calculator), then every option ranked by growth. */}
         {flat && best && (
-          <button type="button" className={`${f.flatRow} ${f.bestRow}`} onClick={() => navigate('/paddy/acca', {
+          <button type="button" className={`${f.flatRow} ${f.bestRow}`} disabled={boostMode} onClick={() => navigate('/paddy/acca', {
             state: { legs: best.picks.map(l => ({ odds: l.odds, fair: l.odds / (1 + l.value), name: `${l.match} · ${l.pick}` })) },
           })}>
             <span className={f.flatScore}>{growthPct(best.growth)}</span>
             <span className={f.flatWhat}>
-              <span className={f.flatPick}>★ Best {best.picks.length}-fold</span>
+              <span className={f.flatPick}>★ Best {best.picks.length}-fold{best.boost ? ` · +${Math.round(best.boost * 100)}% boost` : ''}</span>
               <span className={f.flatMatch}>EV {pct(best.evPct)} · Kelly {Math.round(best.kelly * 100)}%</span>
             </span>
             <span className={f.oddsCell}>
               <span className={`${styles.odds} ${styles.mono}`}>{best.accaOdds.toFixed(2)}</span>
-              <span className={f.paid} title="Paid back (win or refund)">{Math.round((best.pWin + best.pRefund) * 100)}%</span>
+              <span className={f.paid} title={boostMode ? 'Chance the acca wins' : 'Paid back (win or refund)'}>{Math.round((best.pWin + (best.pRefund || 0)) * 100)}%</span>
             </span>
-            <span className={f.right}>›</span>
+            <span className={f.right}>{boostMode ? '' : '›'}</span>
           </button>
         )}
         {flat && shown.length > 0 && (
@@ -321,7 +334,7 @@ export default function CardsPage() {
                   something back (a win or the refund). */}
               <span className={f.oddsCell}>
                 <span className={`${styles.odds} ${styles.mono}`}>{bet.odds.toFixed(2)}</span>
-                <span className={f.paid} title="Paid back (win or refund)">{Math.round(paid * 100)}%</span>
+                <span className={f.paid} title={boostMode ? 'Chance the acca wins' : 'Paid back (win or refund)'}>{Math.round(paid * 100)}%</span>
               </span>
               <span className={`${styles.badge} ${styles[valueTier(bet.value)]}`}>{fmt(bet.value)}</span>
             </div>

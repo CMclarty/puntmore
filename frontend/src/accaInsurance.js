@@ -184,8 +184,16 @@ export function legAcca(leg, cfg = {}) {
 export function kellyGrowth(r, cfg = {}) {
   const c = { ...DEFAULTS, ...cfg }
   const rv = r.insured ? c.refundValue : 0
-  const G = f => r.pWin * Math.log(1 + f * (r.accaOdds - 1))
-    + r.pRefund * Math.log(1 - f * (1 - rv)) + r.pLoss * Math.log(1 - f)
+  return growthOf([[r.pWin, r.accaOdds - 1], [r.pRefund, rv - 1], [r.pLoss, -1]])
+}
+
+/**
+ * Kelly growth for any bet given as [probability, net return per £1] pairs:
+ * {growth: max_f Σ p·ln(1 + f·x), kelly: that f}. Shared by every offer's
+ * view (acca insurance here, acca boost in accaBoost.js).
+ */
+export function growthOf(outcomes) {
+  const G = f => outcomes.reduce((s, [p, x]) => s + (p > 0 ? p * Math.log(1 + f * x) : 0), 0)
   // G is concave in f on [0, 1): ternary search for its maximum.
   let lo = 0, hi = 0.999
   for (let i = 0; i < 100; i++) {
