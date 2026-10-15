@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { getCardsFeed, getCardsDiagnostics } from '../api'
 import f from './CardsPage.module.css'
+import MarketIcon from '../components/MarketIcon'
 import { DEFAULTS as ACCA_DEFAULTS, legScore } from '../accaInsurance'
 import { boostLegScore } from '../accaBoost'
 
@@ -65,10 +66,12 @@ function summary(fl, tab) {
   return bits.join(' · ')
 }
 
-function Chips({ options, isOn, onPick }) {
+function Chips({ options, isOn, onPick, icons = false }) {
   return options.map(([k, label]) => (
     <button key={label} type="button" className={`${f.chip} ${isOn(k) ? f.chipOn : ''}`}
-      aria-pressed={isOn(k)} onClick={() => onPick(k)}>{label}</button>
+      aria-pressed={isOn(k)} onClick={() => onPick(k)}>
+      {icons && <MarketIcon market={k} size={14} />}{label}
+    </button>
   ))
 }
 
@@ -87,6 +90,7 @@ function loadRefundSettings() {
 function Row({ bet }) {
   return (
     <div className={f.row}>
+      <MarketIcon market={bet.market} />
       <span className={f.what}>
         <span className={f.pick}>{shortPick(bet.pick)}</span>
         <span className={f.match}>{bet.match} · {kickoff(bet.commence_time)}</span>
@@ -182,8 +186,8 @@ export default function CardsPage() {
       </button>
       {open && (
         <div className={f.panel}>
-          <div className={f.group}><span className={f.label}>Market</span>
-            <Chips options={MARKETS.map(m => [m, m])} isOn={m => fl.markets.includes(m)}
+          <div className={f.group} role="group" aria-label="Market">
+            <Chips icons options={MARKETS.map(m => [m, m])} isOn={m => fl.markets.includes(m)}
               onPick={m => setF({ markets: fl.markets.includes(m) ? fl.markets.filter(x => x !== m) : [...fl.markets, m] })} />
           </div>
           <div className={f.group}><span className={f.label}>Kick-off</span>
@@ -218,7 +222,7 @@ export default function CardsPage() {
       {!error && items && items.length === 0 && <p className={f.empty}>{why ?? 'No prices yet.'}</p>}
       {!error && items && items.length > 0 && (
         <div className={f.list}>
-          <div className={`${f.row} ${f.colHead}`}><span>Bet</span><span>Odds</span><span>Value</span></div>
+          <div className={`${f.row} ${f.colHead}`}><span /><span>Bet</span><span>Odds</span><span>Value</span></div>
           {body}
         </div>
       )}
