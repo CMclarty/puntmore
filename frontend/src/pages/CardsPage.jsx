@@ -21,6 +21,9 @@ function fmt(v) {
   return `${((1 + v) * 100).toFixed(1)}%`
 }
 
+// "Over 2.5 goals" → "O2.5 goals": the board's own shorthand, and narrower.
+const shortPick = p => p.replace(/^Over /, 'O').replace(/^Under /, 'U')
+
 const MARKETS = ['corners', 'cards', 'goals', 'saves']
 const MAX_ODDS = [null, 2, 3, 5]          // null = any
 const WITHIN_H = [null, 3, 12, 24]        // hours to kick-off; null = any
@@ -260,7 +263,7 @@ export default function CardsPage() {
                 {pct(score)}
               </span>
               <span className={f.flatWhat}>
-                <span className={f.flatPick}>{bet.pick}</span>
+                <span className={f.flatPick}>{shortPick(bet.pick)}</span>
                 <span className={f.flatMatch}>{item.match}</span>
               </span>
               <span className={`${styles.odds} ${styles.mono}`}>{bet.odds.toFixed(2)}</span>
@@ -286,7 +289,7 @@ export default function CardsPage() {
                 <div className={styles.bets}>
                   {item.bets.map((bet, i) => (
                     <div key={i} className={styles.betRow}>
-                      <span className={styles.pick}>{bet.pick}</span>
+                      <span className={styles.pick}>{shortPick(bet.pick)}</span>
                       <span className={`${styles.odds} ${styles.mono}`}>{bet.odds.toFixed(2)}</span>
                       <span className={`${styles.badge} ${styles[valueTier(bet.value)]}`}>
                         {fmt(bet.value)}
