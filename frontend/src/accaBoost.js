@@ -1,7 +1,9 @@
 /**
  * Acca boost — the stake's WINNINGS are boosted by a percentage that depends
  * on the number of legs: +10% for a 4-fold, +20% for a 5-fold, +30% for a
- * 6-fold (`tiers`). No refund: the acca wins or it does not.
+ * 6-fold (`tiers`). No refund: the acca wins or it does not. Terms confirmed
+ * (Oct 2026): winnings boost, every leg 1.20+, and it ENDS at 6 folds — a
+ * 7-fold or longer is not offered here, so the builder never builds one.
  *
  * Same maths as acca insurance (accaInsurance.js), with two outcomes:
  *
@@ -19,7 +21,7 @@ import { growthOf, trueProb } from './accaInsurance'
 
 export const BOOST_DEFAULTS = {
   tiers: { 4: 0.10, 5: 0.20, 6: 0.30 },
-  minOdds: 1.2,      // per leg — ASSUMED, as the insurance offer; check the terms
+  minOdds: 1.2,      // per leg (confirmed by Callum, Oct 2026)
   refOdds: 1.25,     // neutral partners a single leg is scored against
 }
 
