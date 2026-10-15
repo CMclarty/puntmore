@@ -16,15 +16,6 @@ const TOOLS = [
     ),
   },
   {
-    tool: 'goalscorers', name: 'Scorers', to: '/goalscorers', sub: 'Value',
-    matches: (p) => p.startsWith('/goalscorers'),
-    icon: (
-      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="11" cy="11" r="7.5"/><polygon points="11,7 13.6,9 12.6,12.2 9.4,12.2 8.4,9"/>
-      </svg>
-    ),
-  },
-  {
     tool: 'pnl', name: 'P&L', to: '/pnl/dogs', sub: 'Ledger', priv: true,
     matches: (p) => p.startsWith('/pnl'),
     icon: (
@@ -54,8 +45,9 @@ const TOOLS = [
     ),
   },
   {
-    tool: 'accabonus', name: '365', to: '/accabonus', sub: 'Acca boost', muted: true,
-    matches: (p) => p.startsWith('/accabonus') || p.startsWith('/tennis'),
+    // One entry for every bet365 offer; shown to a grant for any of them.
+    tool: 'accabonus', anyOf: ['accabonus', 'goalscorers'], name: '365', to: '/365', sub: 'Offers',
+    matches: (p) => p.startsWith('/365') || p.startsWith('/accabonus') || p.startsWith('/tennis') || p.startsWith('/goalscorers'),
     icon: (
       <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
         <polyline points="4,17 11,12 18,17"/><polyline points="4,12 11,7 18,12"/>
@@ -79,8 +71,10 @@ const TOOLS = [
  * so an account without that grant must NOT be sent there: it would meet the
  * no-access notice on login and read as a permissions failure.
  */
+const granted_ = (t, tools) => (t.anyOf || [t.tool]).some(x => tools.includes(x))
+
 export function landingFor(tools = []) {
-  return (TOOLS.find(t => tools.includes(t.tool)) || TOOLS[0]).to
+  return (TOOLS.find(t => granted_(t, tools)) || TOOLS[0]).to
 }
 
 export default function BottomNav({ tools = [] }) {
@@ -96,7 +90,7 @@ export default function BottomNav({ tools = [] }) {
     return () => document.removeEventListener('keydown', onKey)
   }, [open])
 
-  const granted = TOOLS.filter(t => tools.includes(t.tool))
+  const granted = TOOLS.filter(t => granted_(t, tools))
   // One tool (or none) needs no switcher — you're already on it; direct URL works.
   if (granted.length < 2) return null
 

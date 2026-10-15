@@ -51,7 +51,7 @@ export default function AccaBonusPage() {
   return (
     <div className={styles.page}>
       <div className={styles.header}>
-        <span className={styles.title}>365</span>
+        <span className={styles.title}>Acca boost</span>
         <ThresholdControl value={threshold} onChange={handleThresholdChange} />
       </div>
 

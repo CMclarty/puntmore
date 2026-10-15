@@ -4,7 +4,7 @@
   "description": "Betting tools — coupons, tennis arbs, cards & corners",
   "display": "standalone",
   "orientation": "portrait",
-  "start_url": "/accabonus",
+  "start_url": "/365",
   "scope": "/",
   "theme_color": "#1A1A18",
   "background_color": "#FCFBF8",

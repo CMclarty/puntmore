@@ -19,6 +19,7 @@ const KellyPage = lazy(() => import('./pages/KellyPage'))
 const BoostPage = lazy(() => import('./pages/BoostPage'))
 const ShopPage = lazy(() => import('./pages/ShopPage'))
 const AccaBonusPage = lazy(() => import('./pages/AccaBonusPage'))
+const Three65Page = lazy(() => import('./pages/Three65Page'))
 const CardsPage = lazy(() => import('./pages/CardsPage'))
 const AccaInsurancePage = lazy(() => import('./pages/AccaInsurancePage'))
 
@@ -83,7 +84,8 @@ export default function App() {
               and one combination, so only the newest was readable. */}
           <Route path="/t/:code/:couponId" element={protectTool(<TrackerPage />, 'coupons')} />
           <Route path="/upload" element={protectTool(<UploadPage user={user} />, 'coupons')} />
-          <Route path="/goalscorers" element={protectTool(<GoalscorersPage />, 'goalscorers')} />
+          {/* Goalscorers lives under 365 now (Oct 2026); old links land there. */}
+          <Route path="/goalscorers" element={<Navigate to="/365/scorers" replace />} />
           {/* Two independent ledgers, one per racing category. Bare /pnl lands
               on dogs, the ledger that existed before the split. */}
           <Route path="/pnl" element={<Navigate to="/pnl/dogs" replace />} />
@@ -100,8 +102,14 @@ export default function App() {
           <Route path="/kelly" element={protectTool(<KellyPage />, 'kelly')} />
           <Route path="/boost" element={protectTool(<BoostPage />, 'boost')} />
           <Route path="/shop" element={protectTool(<ShopPage />, 'shop')} />
-          <Route path="/accabonus" element={protectTool(<AccaBonusPage />, 'accabonus')} />
-          <Route path="/tennis" element={<Navigate to="/accabonus" replace />} />
+          {/* 365: the bet365 offers, a tab each. /accabonus and /tennis are
+              the acca boost's old addresses. */}
+          <Route path="/365" element={<Three65Page tools={user?.tools} />}>
+            <Route path="acca" element={protectTool(<AccaBonusPage />, 'accabonus')} />
+            <Route path="scorers" element={protectTool(<GoalscorersPage />, 'goalscorers')} />
+          </Route>
+          <Route path="/accabonus" element={<Navigate to="/365/acca" replace />} />
+          <Route path="/tennis" element={<Navigate to="/365/acca" replace />} />
           <Route path="/paddy" element={protectTool(<CardsPage />, 'cards')} />
           <Route path="/paddy/acca" element={protectTool(<AccaInsurancePage />, 'cards')} />
           {/* Renamed from Cards (Oct 2026): installed shells and bookmarks
