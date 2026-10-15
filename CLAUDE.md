@@ -652,6 +652,26 @@ key = 503/disabled). It reads through the odds cache, so polling it never
 increases API call frequency. Keep it read-only — never add mutating
 operations behind the API key.
 
+## UI rules — these are TOOLS, build only what is asked
+Callum has had to strip unrequested additions out repeatedly (Oct 2026). A
+screen is for finding a bet and placing it in seconds.
+- **Add NOTHING to a page that was not asked for.** No clocks or "updated at"
+  times, no page titles or subtitles, no explanatory notes or captions, no
+  section headings ("Other legs, best fit first"), no helper text, tooltips,
+  badges, legends, summary stats or extra colours. If you think one would
+  help, ASK — never ship it and mention it afterwards.
+- **No new pages, panels or calculators unless asked.** A pasted spec or
+  worked example is the maths to implement, not a request for a page that
+  shows it (the acca calculator was built that way and removed).
+- **Labels only where a control or column would be unreadable without one**
+  — a column header, a button's own text. Never a sentence describing what
+  the screen does.
+- **Monochrome by default.** Colour only for meaning that was asked for.
+- **Don't recommend; list.** Rank the options and let the user pick — no
+  "best acca", "suggested" or "pick of the day" blocks unless asked.
+- When asked to change one thing, change that thing. Don't tidy, restyle or
+  "improve" the rest of the page alongside it.
+
 ## Workflow
 - Work the numbered items in `PLAN.md` → **Open work**, in order. Complete and
   verify one before starting the next.
