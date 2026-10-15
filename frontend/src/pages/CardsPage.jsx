@@ -27,6 +27,9 @@ const FETCH_EV = 0.95
 const ACCA_FLOOR = ACCA_DEFAULTS.minOdds
 const TABS = [['value', 'Value'], ['refund', 'Refund'], ['boost', 'Boost']]
 const TAB_KEY = 'paddy.tab'
+// Boost's suggested stake: a tenth of full Kelly on a £50k bankroll (Callum).
+const BOOST_BANKROLL = 50_000
+const BOOST_KELLY = 0.10
 
 // Filters: folded away under one line that says what is applied, so the usual
 // visit is open → tap a tab → bet. Shared by all three tabs, remembered.
@@ -181,7 +184,8 @@ export default function CardsPage() {
     if (picks.length === 5) {
       const odds = picks.map(b => b.odds), probs = picks.map(trueProb)
       const r = refund ? evaluate({ odds, probs }, ACCA_DEFAULTS) : boostEval(odds, probs)
-      top5 = { odds: r.accaOdds, ev: r.evPct }
+      top5 = { odds: r.accaOdds, ev: r.evPct,
+        stake: refund ? null : Math.round(BOOST_KELLY * r.kelly * BOOST_BANKROLL) }
     }
   }
   const scored = tab !== 'value'
@@ -254,6 +258,7 @@ export default function CardsPage() {
               <span>Top 5</span>
               <span className={f.top5Odds}>{top5.odds.toFixed(2)}</span>
               <span className={f.top5Ev}>EV {top5.ev >= 0 ? '+' : '−'}{Math.abs(top5.ev * 100).toFixed(1)}%</span>
+              {top5.stake != null && <span className={f.top5Stake}>£{top5.stake.toLocaleString('en-GB')}</span>}
             </div>
           )}
           <div className={`${f.row} ${f.colHead} ${scored ? f.scored : ''}`}>
