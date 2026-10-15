@@ -544,6 +544,12 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   and are joined to Paddy's OddsPapi saves line by team similarity and day.
   MATCH totals only; the page reader (`parse_page`) is unwritten until a
   `dump` of the real page has been read — do not guess its layout.
+- **Acca insurance** (`frontend/src/accaInsurance.js`, Oct 2026): the Acca Min
+  preset and `/paddy/acca` value a 5-fold (every leg 1.20+) with the stake
+  refunded as a bonus (`refund_value` 0.75, `refund_cap`) if exactly one leg
+  loses. Client-side maths, pinned by `accaInsurance.test.js` to the offer's
+  own worked cases — keep them passing. The builder takes ONE leg per match:
+  the product rule assumes independent legs.
 - `cards/pinnacle.py` returns **RAW** prices. De-vigging lives in
   `cards/value.py`; handing it fair prices would de-vig them twice.
 - `merge_pinnacle` joins the two vendors into one event so `value.py` stays
@@ -660,6 +666,9 @@ git push origin HEAD:main
 
 # Re-run the derived-market calibration backtest (from api/):
 .venv/bin/python tools/backtest_calibration.py
+
+# Frontend unit tests (from frontend/) — vitest, currently the acca-insurance maths:
+npm test
 
 # Install a new Python package into the venv (no pip in venv — use uv):
 uv pip install <package> --python api/.venv/bin/python3

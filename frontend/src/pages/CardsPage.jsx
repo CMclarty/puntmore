@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { getCardsFeed, getCardsDiagnostics } from '../api'
 import ThresholdControl from '../components/ThresholdControl'
 import styles from './FeedPage.module.css'
 import f from './CardsPage.module.css'
-import { DEFAULTS as ACCA_DEFAULTS, accaEv, bestAcca, legScore } from '../accaInsurance'
+import { DEFAULTS as ACCA_DEFAULTS, bestAcca, legScore } from '../accaInsurance'
 
 const DEBOUNCE_MS = 400
 const DEFAULT_EV = 98  // preset: show everything at or above 98% EV
@@ -257,11 +258,11 @@ export default function CardsPage() {
         <div className={f.acca}>
           <div className={f.accaHead}>
             <span>Insured {acca.legs}-fold</span>
-            {insured && <b className={insured.ev >= 0 ? f.pos : f.neg}>{pct(insured.ev)} EV</b>}
+            {insured && <b className={insured.evPct >= 0 ? f.pos : f.neg}>{pct(insured.evPct)} EV</b>}
           </div>
           {insured ? (
             <>
-              {insured.legs.map(l => (
+              {insured.picks.map(l => (
                 <div key={l.matchId + l.pick} className={f.accaLeg}>
                   <span className={f.accaMatch}>{l.match}</span>
                   <span>{l.pick}</span>
@@ -269,14 +270,20 @@ export default function CardsPage() {
                 </div>
               ))}
               <div className={f.accaSum}>
-                odds <b>{insured.odds.toFixed(2)}</b> · all win <b>{(insured.pWin * 100).toFixed(1)}%</b>
-                {' '}· one loses <b>{(insured.pOne * 100).toFixed(1)}%</b> · £{acca.stake} returns{' '}
-                <b>{pct(insured.ev)}</b> = <b>£{(insured.ev * acca.stake).toFixed(2)}</b>
+                odds <b>{insured.accaOdds.toFixed(2)}</b> · acca <b>{(insured.rawAccaPct * 100).toFixed(1)}%</b>
+                {' '}· all win <b>{(insured.pWin * 100).toFixed(1)}%</b>
+                {' '}· refund <b>{(insured.pRefund * 100).toFixed(1)}%</b>
+                {' '}· full loss <b>{(insured.pLoss * 100).toFixed(1)}%</b>
+                <br />£{acca.stake} stake: EV <b>{pct(insured.evPct)}</b> = <b>£{insured.evGbp.toFixed(2)}</b>
+                {acca.stake > acca.refundCap && <> · stake over the £{acca.refundCap} cap is uninsured</>}
               </div>
             </>
           ) : (
             <p className={f.accaNone}>Needs {acca.legs} legs at {LOW_ODDS_FLOOR}+ from different matches.</p>
           )}
+          <Link className={f.accaCalc} to="/paddy/acca"
+            state={insured ? { legs: insured.picks.map(l => ({ odds: l.odds, fair: l.odds / (1 + l.value), name: `${l.match} · ${l.pick}` })) } : undefined}
+          >Open in calculator ›</Link>
           <div className={f.accaCfg}>
             {[['stake', 'Stake £'], ['refundCap', 'Refund cap £'], ['refundValue', 'Refund worth'], ['legs', 'Legs']].map(([k, l]) => (
               <label key={k}>{l}
