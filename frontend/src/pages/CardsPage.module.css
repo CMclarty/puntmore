@@ -93,3 +93,4 @@
 .right { text-align: right; }
 .flatRow > :nth-child(3), .flatRow > :nth-child(4) { text-align: right; justify-self: end; }
 .matchHead { display: flex; justify-content: space-between; padding: 6px 30px 4px 12px; border-bottom: 1px solid var(--line); }
+.flatScore.scoreNeg { color: var(--red); }

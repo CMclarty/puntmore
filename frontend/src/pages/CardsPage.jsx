@@ -61,6 +61,10 @@ const PRESETS = [
   // accaInsurance.js::certaintyEquivalent), so a long leg only ranks if its
   // edge pays for the swing. Money in the pocket over theoretical EV
   // (Callum's call, Oct 2026); the dial is "Risk aversion" on /paddy/acca.
+  // The minimum-odds legs that still hold value: 1.20+, at or above fair,
+  // SHORTEST first — the acca's safest qualifying legs that are not -EV.
+  { id: 'short', label: 'Shortest value', ev: 100, markets: MARKETS, maxOdds: null, within: null,
+    minOdds: LOW_ODDS_FLOOR, sort: 'shortest' },
   { id: 'low', label: 'Acca Min', ev: 95, markets: MARKETS, maxOdds: null, within: null,
     minOdds: LOW_ODDS_FLOOR, sort: 'combo' },
   { id: 'best', label: 'Best', ev: 105, markets: MARKETS, maxOdds: 5, within: null },
@@ -155,6 +159,8 @@ export default function CardsPage() {
   // stays only if one of its bets survives, and its badge is the best of those.
   const now = Date.now()
   const comps = [...new Set(items.map(i => i.sport_key || ''))].sort()
+  // Both acca views list every option on its own row rather than by match.
+  const flat = filters.sort === 'combo' || filters.sort === 'shortest'
   const shown = items.map(item => {
     if (filters.comp != null && (item.sport_key || '') !== filters.comp) return null
     if (!inWindow(item.commence_time, filters.within, now)) return null
@@ -224,7 +230,7 @@ export default function CardsPage() {
           </div>
           <div className={f.row}>
             <span className={f.label}>Sort by</span>
-            {[['value', 'Value'], ['combo', 'Acca insurance score']].map(([k, l]) => (
+            {[['value', 'Value'], ['combo', 'Acca insurance score'], ['shortest', 'Shortest odds']].map(([k, l]) => (
               <button key={k} type="button" className={`${f.chip} ${(filters.sort ?? 'value') === k ? f.on : ''}`}
                 aria-pressed={(filters.sort ?? 'value') === k} onClick={() => edit({ sort: k })}>{l}</button>
             ))}
@@ -250,7 +256,7 @@ export default function CardsPage() {
 
       {fetchedAt && (
         <p className={styles.meta}>
-          {loading ? 'Refreshing…' : filters.sort === 'combo'
+          {loading ? 'Refreshing…' : flat
             ? (n => `${n} option${n !== 1 ? 's' : ''} · `)(shown.reduce((k, i) => k + i.bets.length, 0))
             : ''}
           {!loading && `${shown.length} match${shown.length !== 1 ? 'es' : ''}`}
@@ -267,18 +273,20 @@ export default function CardsPage() {
       <div className={styles.feed}>
         {/* Acca insurance mode: every option as its own row, best score first
             — the ranking IS the answer, so it is not hidden inside matches. */}
-        {filters.sort === 'combo' && shown.length > 0 && (
+        {flat && shown.length > 0 && (
           <div className={`${f.flatRow} ${f.colHead}`}>
             <span title="Risk-adjusted value of an insured acca with this leg (dial: Risk aversion on the calculator)">Score</span>
             <span>Bet</span><span>Odds</span><span className={f.right}>Value</span>
           </div>
         )}
-        {filters.sort === 'combo' && shown
+        {flat && shown
           .flatMap(item => item.bets.map(bet => ({ bet, item, score: comboScore(bet) })))
-          .sort((x, y) => y.score - x.score)
+          .sort(filters.sort === 'shortest'
+            ? (x, y) => x.bet.odds - y.bet.odds || y.bet.value - x.bet.value
+            : (x, y) => y.score - x.score)
           .map(({ bet, item, score }) => (
             <div key={item.event_id + bet.pick} className={f.flatRow}>
-              <span className={f.flatScore} title="Risk-adjusted value of an insured acca with this leg (dial: Risk aversion on the calculator)">
+              <span className={`${f.flatScore} ${score < 0 ? f.scoreNeg : ''}`} title="Risk-adjusted value of an insured acca with this leg (dial: Risk aversion on the calculator)">
                 {pct(score)}
               </span>
               <span className={f.flatWhat}>
@@ -289,12 +297,12 @@ export default function CardsPage() {
               <span className={`${styles.badge} ${styles[valueTier(bet.value)]}`}>{fmt(bet.value)}</span>
             </div>
           ))}
-        {filters.sort !== 'combo' && shown.length > 0 && (
+        {!flat && shown.length > 0 && (
           <div className={f.matchHead}>
             <span>Match</span><span>Best value</span>
           </div>
         )}
-        {filters.sort !== 'combo' && shown.map((item) => {
+        {!flat && shown.map((item) => {
           const isOpen = openId === item.event_id
           return (
             <div key={item.event_id} className={styles.matchBlock}>
