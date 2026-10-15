@@ -7,6 +7,8 @@ these tests pin the TOLERANCE as much as any one spelling.
 """
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app.cards import oddspapi as op
 
 NOW = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
@@ -365,3 +367,46 @@ def test_booking_points_are_not_a_card_count():
     # ladder, so pricing one off the other would be wildly wrong.
     found = op.corner_card_markets([_two_way(50001, "Total Booking Points", 40.5)])
     assert found == {}
+
+
+class _R:
+    def __init__(self, code, text="", body=None):
+        self.status_code, self.text, self._body = code, text, body
+
+    def json(self):
+        return self._body
+
+
+_SPENT = _R(429, '{"message":"Request limit exceeded","details":"You have exceeded your '
+                 'request limit of 200000 requests.","code":"REQUEST_LIMIT_EXCEEDED"}')
+
+
+def test_an_exhausted_quota_is_not_retried_and_stops_billable_calls(monkeypatch):
+    # OddsPapi docs: a spent quota answers 429 REQUEST_LIMIT_EXCEEDED. Unlike
+    # the rate limit, waiting a second cannot fix it.
+    sent = []
+    monkeypatch.setattr(op.time, "sleep", lambda s: None)
+    monkeypatch.setattr(op.httpx, "get", lambda url, **k: sent.append(url) or _SPENT)
+    c = op.OddsPapiClient("k")
+    with pytest.raises(RuntimeError, match="quota exhausted"):
+        c.get("/odds-by-tournaments", tournamentIds="7")
+    assert len(sent) == 1                       # no retry
+    assert c.requests_today == 0                # rejected calls are not billed
+    with pytest.raises(RuntimeError, match="quota exhausted"):
+        c.get("/odds-by-tournaments", tournamentIds="8")
+    assert len(sent) == 1                       # nothing more sent
+
+
+def test_the_free_account_endpoint_says_when_the_quota_has_reset(monkeypatch):
+    replies = [_SPENT,
+               _R(200, body={"request_limit": 200000, "request_count": 12}),   # /account
+               _R(200, body=[{"ok": 1}])]
+    sent = []
+    monkeypatch.setattr(op.time, "sleep", lambda s: None)
+    monkeypatch.setattr(op.httpx, "get", lambda url, **k: sent.append(url) or replies.pop(0))
+    c = op.OddsPapiClient("k")
+    with pytest.raises(RuntimeError):
+        c.get("/odds-by-tournaments", tournamentIds="7")
+    c._exhausted_at -= op.QUOTA_RECHECK_SECONDS         # half an hour later
+    assert c.get("/odds-by-tournaments", tournamentIds="7") == [{"ok": 1}]
+    assert [u.rsplit("/", 1)[-1] for u in sent] == ["odds-by-tournaments", "account", "odds-by-tournaments"]

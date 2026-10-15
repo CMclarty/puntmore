@@ -75,6 +75,10 @@ TOURNAMENT_SPORT_KEYS = {
 # by this much, and a 429 is retried ONCE after the wait it names.
 MIN_REQUEST_GAP = 1.1
 _WAIT_RE = re.compile(r"wait\s+(\d+(?:\.\d+)?)\s*s", re.I)
+# A 429 is ALSO what an exhausted monthly quota returns (docs: code
+# REQUEST_LIMIT_EXCEEDED). That one must never be retried.
+_QUOTA_RE = re.compile(r"REQUEST_LIMIT_EXCEEDED|request limit exceeded", re.I)
+QUOTA_RECHECK_SECONDS = 1800
 
 _CORNER_RE = re.compile(r"\bcorners?\b", re.I)
 _CARD_RE = re.compile(r"\b(?:cards?|bookings?)\b", re.I)
@@ -333,6 +337,8 @@ class OddsPapiClient:
         self.requests_today = 0
         self._day = None
         self._last_request = 0.0
+        # Set when a call came back REQUEST_LIMIT_EXCEEDED; see _quota_spent.
+        self._exhausted_at: float | None = None
 
     def _roll_day(self):
         today = datetime.now(timezone.utc).date()
@@ -343,8 +349,42 @@ class OddsPapiClient:
         self._roll_day()
         return max(0, settings.oddspapi_daily_request_budget - self.requests_today)
 
+    def account(self) -> dict:
+        """GET /account: the plan's request_limit and request_count. UNMETERED
+        (OddsPapi docs, "Understanding API Requests & Quota"): never counted,
+        never blocked even with the quota spent — so it is how an exhausted
+        client finds out the period has reset, at no cost."""
+        resp = self._send("/account", {})
+        if resp.status_code != 200:
+            raise RuntimeError(f"OddsPapi /account: HTTP {resp.status_code}: {resp.text[:200]}")
+        return resp.json()
+
+    def _quota_spent(self) -> bool:
+        """True while the plan's monthly quota is known to be used up.
+
+        Once a call has come back REQUEST_LIMIT_EXCEEDED, nothing billable is
+        sent; every QUOTA_RECHECK_SECONDS the free /account is asked whether
+        the period has reset."""
+        if self._exhausted_at is None:
+            return False
+        if time.monotonic() - self._exhausted_at < QUOTA_RECHECK_SECONDS:
+            return True
+        try:
+            acct = self.account()
+            limit = _first(acct, "request_limit", "requestLimit")
+            count = _first(acct, "request_count", "requestCount")
+            if limit is not None and count is not None and float(count) < float(limit):
+                self._exhausted_at = None
+                return False
+        except Exception as exc:
+            logger.warning("cards (oddspapi): /account check failed: %s", exc)
+        self._exhausted_at = time.monotonic()
+        return True
+
     def get(self, path: str, **params):
         self._roll_day()
+        if self._quota_spent():
+            raise RuntimeError("OddsPapi monthly request quota exhausted (REQUEST_LIMIT_EXCEEDED)")
         if self.requests_today >= settings.oddspapi_daily_request_budget:
             raise RuntimeError(
                 f"OddsPapi daily request budget of "
@@ -352,6 +392,16 @@ class OddsPapiClient:
             )
         self.requests_today += 1
         resp = self._send(path, params)
+        if resp.status_code == 429 and _QUOTA_RE.search(resp.text or ""):
+            # The MONTH's quota, not the rate limit: retrying cannot help.
+            # Rejected calls are not counted (docs), but there is no point
+            # sending any until /account says the period has reset.
+            self._exhausted_at = time.monotonic()
+            self.requests_today -= 1          # rejected before the endpoint: not billed
+            logger.error("cards (oddspapi): monthly request quota exhausted — "
+                         "pausing billable calls, rechecking /account every %d min",
+                         QUOTA_RECHECK_SECONDS // 60)
+            raise RuntimeError("OddsPapi monthly request quota exhausted (REQUEST_LIMIT_EXCEEDED)")
         if resp.status_code == 429:
             # Once, after the wait it names (capped): a rate limit is the API
             # asking for spacing, not refusing the request.

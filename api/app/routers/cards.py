@@ -349,6 +349,11 @@ def oddspapi_check(request: Request, book: str | None = None, tournament: int = 
             out["coverage"]["tournament"] = tournament
         except Exception as exc:
             out["coverage_error"] = str(exc)
+    try:
+        # Unmetered: the plan's allowance and what this period has used.
+        out["account"] = client.account()
+    except Exception as exc:
+        out["account_error"] = str(exc)
     out["requests_today"] = client.requests_today
     out["last_sweep"] = cards.last_sweep
     return out

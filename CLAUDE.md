@@ -527,6 +527,18 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   FIXTURE ID (`merge_books`) — exact, where bettingiscool needed a team-name
   match. `merge_pinnacle` only goes to bettingiscool for events that arrive
   without a Pinnacle book; blank the setting to use bettingiscool for all.
+- **OddsPapi billing, per its docs ("Understanding API Requests & Quota",
+  read Oct 2026):** 1 request per call to a billable endpoint whatever the
+  response — size, item count and status (4xx/5xx included) make no
+  difference. Billable: odds-by-tournaments, odds, fixtures, fixture,
+  markets, tournaments, participants, players, scores, settlements, sports,
+  bookmakers, languages — so the FIXTURE LIST IS NOT FREE here (unlike
+  TheOddsApi). Free: `/historical-odds`. Unmetered and never blocked:
+  `/account` (`request_limit`, `request_count`). A spent quota answers 429
+  `REQUEST_LIMIT_EXCEEDED`; calls rejected before the endpoint are not
+  counted. `OddsPapiClient` never retries that 429 (unlike the rate-limit
+  one) and sends nothing billable until the free `/account` shows the period
+  has reset, checked every 30 min.
 - **OddsPapi rate-limits per endpoint** — back-to-back requests get a 429
   ("wait 0.80 seconds"), which on 28 Sept cost a whole chunk of five
   competitions. `OddsPapiClient` spaces requests by `MIN_REQUEST_GAP` and
