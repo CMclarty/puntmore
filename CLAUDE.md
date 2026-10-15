@@ -547,6 +547,17 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   counted. `OddsPapiClient` never retries that 429 (unlike the rate-limit
   one) and sends nothing billable until the free `/account` shows the period
   has reset, checked every 30 min.
+- **Live check, 15 Oct 2026 (dev plan, 100k/month):** the catalogue names
+  corners "Corners - Over Under Full Time" (`totals-corners`, lines
+  0.5-19.5), cards "Bookings - Over Under Full Time" (`totals-bookings`) and
+  goals "Over Under Full Time" (quarter lines included); all 13 tournament
+  ids resolve to the intended competitions; team names resolve. The plan
+  grants Pinnacle as **`pinnacle+30`** (delayed) — plain `pinnacle` is a
+  403 RESTRICTED_ACCESS, so `resolve_book` maps the configured book to the
+  slug the plan grants (free `/account`). **There is NO saves market in the
+  catalogue at all** — Paddy's saves cannot come from OddsPapi. Failed odds
+  requests are held (10 min; 6 h for a plan refusal) so the 2-minute sweep
+  does not re-send billed failures.
 - **OddsPapi rate-limits per endpoint** — back-to-back requests get a 429
   ("wait 0.80 seconds"), which on 28 Sept cost a whole chunk of five
   competitions. `OddsPapiClient` spaces requests by `MIN_REQUEST_GAP` and

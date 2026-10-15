@@ -343,7 +343,7 @@ def oddspapi_check(request: Request, book: str | None = None, tournament: int = 
         # as two-sided lines per fixture by market type.
         try:
             out["coverage"] = coverage(
-                client.odds_by_tournaments([tournament], bookmaker=book),
+                client.odds_by_tournaments([tournament], bookmaker=client.resolve_book(book)),
                 catalogue_index(client.catalogue()), book,
             )
             out["coverage"]["tournament"] = tournament
@@ -351,7 +351,13 @@ def oddspapi_check(request: Request, book: str | None = None, tournament: int = 
             out["coverage_error"] = str(exc)
     try:
         # Unmetered: the plan's allowance and what this period has used.
-        out["account"] = client.account()
+        acct = client.account()
+        # The plan, not the whole record: it carries the API key and email.
+        out["account"] = [
+            {k: s.get(k) for k in ("plan", "request_limit", "request_count", "valid_until")}
+            | {"bookmakers": sorted((s.get("bookmakers") or {}).keys())}
+            for s in acct.get("subscriptions") or [] if s.get("is_active")
+        ]
     except Exception as exc:
         out["account_error"] = str(exc)
     out["requests_today"] = client.requests_today

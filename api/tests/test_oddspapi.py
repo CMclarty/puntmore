@@ -446,3 +446,40 @@ def test_a_chunk_near_kickoff_is_refetched_sooner_than_a_quiet_one(monkeypatch):
         c._odds._data[k] = (at - 300, v)
     c.odds_by_tournaments([7]); c.odds_by_tournaments([8])
     assert sent == ["7", "8", "7"]
+
+
+_ACCOUNT = {"subscriptions": [
+    {"is_active": True, "plan": "dev", "bookmakers": {"pinnacle+30": {}, "paddypower": {}}},
+    {"is_active": False, "plan": "free", "bookmakers": {"pinnacle": {}, "bet365": {}}},
+]}
+
+
+def test_the_fair_book_resolves_to_the_slug_the_plan_grants(monkeypatch):
+    # Live, Oct 2026: the dev plan grants "pinnacle+30"; asking for plain
+    # "pinnacle" came back 403 RESTRICTED_ACCESS on every chunk — billed.
+    c = op.OddsPapiClient("k")
+    monkeypatch.setattr(c, "account", lambda: _ACCOUNT)
+    assert c.resolve_book("pinnacle") == "pinnacle+30"
+    assert c.resolve_book("paddypower") == "paddypower"
+    assert c.resolve_book("bet365") == "bet365"          # not granted: unchanged
+
+
+def test_a_book_keyed_by_its_base_slug_is_still_read():
+    fx = {"bookmakerOdds": {"pinnacle": {"markets": {"10803": {"outcomes": {
+        "10803": _p(1.9), "10804": _p(1.95)}}}}}}
+    got = op._book_markets(fx, "pinnacle+30", op.corner_card_markets(CATALOGUE))
+    assert {o["name"] for o in got["alternate_totals_corners"]} == {"Over", "Under"}
+
+
+def test_a_failed_odds_request_is_held_not_resent_every_sweep(monkeypatch):
+    sent = []
+    restricted = _R(403, '{"error":{"code":"RESTRICTED_ACCESS","details":"Restricted bookmakers: pinnacle."}}')
+    monkeypatch.setattr(op.time, "sleep", lambda s: None)
+    monkeypatch.setattr(op.httpx, "get", lambda url, **k: sent.append(url) or restricted)
+    c = op.OddsPapiClient("k")
+    for _ in range(5):
+        with pytest.raises(RuntimeError):
+            c.odds_by_tournaments([17], bookmaker="pinnacle")
+    assert len(sent) == 1                                   # billed once, not five times
+    held = c._failed.peek(("odds", (17,), "pinnacle"))
+    assert held[1] == op.FAILED_HOLD_MAX                    # a plan refusal is held for hours

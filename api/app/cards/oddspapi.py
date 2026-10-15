@@ -81,6 +81,12 @@ _WAIT_RE = re.compile(r"wait\s+(\d+(?:\.\d+)?)\s*s", re.I)
 # REQUEST_LIMIT_EXCEEDED). That one must never be retried.
 _QUOTA_RE = re.compile(r"REQUEST_LIMIT_EXCEEDED|request limit exceeded", re.I)
 QUOTA_RECHECK_SECONDS = 1800
+# A failed odds request is not re-sent for FAILED_HOLD (10 min), or for
+# FAILED_HOLD_MAX (6 h) when the plan does not cover the book at all —
+# re-asking cannot change that, and every attempt is billed.
+FAILED_HOLD = 600
+FAILED_HOLD_MAX = 6 * 3600
+_RESTRICTED_RE = re.compile(r"RESTRICTED_ACCESS|Restricted bookmaker", re.I)
 
 _CORNER_RE = re.compile(r"\bcorners?\b", re.I)
 _CARD_RE = re.compile(r"\b(?:cards?|bookings?)\b", re.I)
@@ -234,7 +240,10 @@ def _parse_start(raw) -> datetime | None:
 
 def _book_markets(fx: dict, bookmaker: str, markets) -> dict[str, list[dict]]:
     """{market_key: outcomes} for one book's corners/cards lines on a fixture."""
-    book = ((fx.get("bookmakerOdds") or {}).get(bookmaker)) or {}
+    odds = fx.get("bookmakerOdds") or {}
+    # A plan can grant a book under a variant slug ("pinnacle+30", the
+    # delayed feed); the response may key it either way.
+    book = odds.get(bookmaker) or odds.get(bookmaker.split("+")[0]) or {}
     by_key: dict[str, list[dict]] = {}
     for mid, market in (book.get("markets") or {}).items():
         known = markets.get(str(mid))
@@ -371,6 +380,9 @@ class OddsPapiClient:
         self._last_request = 0.0
         # Set when a call came back REQUEST_LIMIT_EXCEEDED; see _quota_spent.
         self._exhausted_at: float | None = None
+        # Failed odds requests, held so the 2-minute sweep does not re-send
+        # them: OddsPapi bills 4xx/5xx like a success. {key: (error, hold_s)}.
+        self._failed = TTLCache(ttl=FAILED_HOLD_MAX, maxsize=64)
 
     def _roll_day(self):
         today = datetime.now(timezone.utc).date()
@@ -471,8 +483,42 @@ class OddsPapiClient:
     def tournaments(self):
         return self._cached(self._ref, "tournaments", "/tournaments", sportId=SOCCER)
 
+    def resolve_book(self, wanted: str) -> str:
+        """The slug this plan actually grants for `wanted`. A plan lists
+        e.g. "pinnacle+30" (Pinnacle on a delay), and asking for plain
+        "pinnacle" is refused 403 RESTRICTED_ACCESS — billed. Read off the
+        free /account, cached a day; falls back to `wanted`."""
+        try:
+            hit = self._ref.get("account")
+            acct = self.account() if hit is MISS else hit
+            if hit is MISS:
+                self._ref.set("account", acct)
+        except Exception:
+            return wanted
+        granted: set[str] = set()
+        for sub in acct.get("subscriptions") or []:
+            if sub.get("is_active"):
+                granted.update((sub.get("bookmakers") or {}).keys())
+        if not granted or wanted in granted:
+            return wanted
+        for slug in sorted(granted):
+            if slug.split("+")[0] == wanted:
+                return slug
+        return wanted
+
     def odds_by_tournaments(self, ids: list[int], bookmaker: str = PADDY_POWER):
         key = ("odds", tuple(ids), bookmaker)
+        held = self._failed.peek(key)
+        if held is not MISS and self._failed.get(key, ttl=held[1]) is not MISS:
+            raise RuntimeError(f"{held[0]} (held {int(held[1] // 60)} min, not re-sent)")
+        try:
+            return self._odds_by_tournaments(key, ids, bookmaker)
+        except Exception as exc:
+            hold = FAILED_HOLD_MAX if _RESTRICTED_RE.search(str(exc)) else FAILED_HOLD
+            self._failed.set(key, (str(exc), hold))
+            raise
+
+    def _odds_by_tournaments(self, key, ids, bookmaker):
         if self._flat_ttl is None:
             # The gear: how soon the cached chunk's next fixture kicks off.
             cached = self._odds.peek(key)
@@ -638,6 +684,8 @@ class OddsPapiPaddySource:
                 "totals — see /api/paddy/oddspapi-check before trusting this feed"
             )
         fair_book = (settings.oddspapi_fair_book or "").strip() or None
+        if fair_book:
+            fair_book = self._client.resolve_book(fair_book)
         per_book: dict[str, list] = {}
         for book in [PADDY_POWER] + ([fair_book] if fair_book else []):
             got = per_book.setdefault(book, [])
