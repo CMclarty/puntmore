@@ -2,7 +2,7 @@
 
 Runs on YOUR PC, not the server: Bookie Bashing is behind your login, and the
 login stays in a browser profile on this machine. The script only sends the
-fair prices it reads to POST /api/cards/saves-fair, where they are matched to
+fair prices it reads to POST /api/paddy/saves-fair, where they are matched to
 Paddy Power's saves lines (from OddsPapi) and valued like corners and cards.
 
 SETUP (once)
@@ -91,7 +91,7 @@ def parse_page(page) -> list[dict]:
 def run(url, server, key, every_minutes):
     import httpx
     from playwright.sync_api import sync_playwright
-    endpoint = server.rstrip("/") + "/api/cards/saves-fair"
+    endpoint = server.rstrip("/") + "/api/paddy/saves-fair"
     with sync_playwright() as p:
         ctx = _browser(p, headless=True)
         page = ctx.new_page()

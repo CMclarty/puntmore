@@ -29,6 +29,11 @@ The three tools are routes in one React app (`/`, `/accabonus`, `/cards`), not
 separate builds. The backend serves them all under namespaced routers.
 (`/tennis` is the AccaBonus tool's legacy prefix — kept as redirect/API aliases
 for stale PWA clients; don't add new code under it.)
+The cards & corners tool is now **Paddy** (Oct 2026: corners, cards, goals and
+saves, all against Paddy Power): page `/paddy`, API `/api/paddy/*`. `/cards`
+is its legacy alias in the same way — page redirect, API mounted twice. The
+permission, `ENABLE_CARDS` and the `app/cards/` package keep the old name on
+purpose: renaming the permission revokes existing accounts' access.
 
 ## Odds sources
 - **Coupon tracker** → `BettingIsCoolProvider` (`providers/bettingiscool.py`).
@@ -534,7 +539,7 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   (`cards/saves.py`, Oct 2026). Pinnacle posts no saves ladder; Bookie Bashing
   publishes fair saves prices behind Callum's login, so they are read by
   `local/bookiebashing_saves.py` ON HIS PC and POSTed to
-  `/api/cards/saves-fair` (`SAVES_INGEST_KEY`, key-guarded like `/state`).
+  `/api/paddy/saves-fair` (`SAVES_INGEST_KEY`, key-guarded like `/state`).
   The login never reaches the server. Fair prices sit in a bounded TTLCache
   and are joined to Paddy's OddsPapi saves line by team similarity and day.
   MATCH totals only; the page reader (`parse_page`) is unwritten until a

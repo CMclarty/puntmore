@@ -546,7 +546,7 @@ class OddsPapiPaddySource:
         if not markets:
             logger.error(
                 "cards (oddspapi): the market catalogue matched NO corners/cards "
-                "totals — see /api/cards/oddspapi-check before trusting this feed"
+                "totals — see /api/paddy/oddspapi-check before trusting this feed"
             )
         fair_book = (settings.oddspapi_fair_book or "").strip() or None
         per_book: dict[str, list] = {}

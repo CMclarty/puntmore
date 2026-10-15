@@ -260,7 +260,7 @@ class Settings(BaseSettings):
     # Sent as the X-API-Key header. Blank = endpoint disabled (503).
     state_api_key: str = ""
     # Key the local Bookie Bashing script sends (X-API-Key) with fair saves
-    # prices to POST /api/cards/saves-fair. Blank = endpoint disabled (503).
+    # prices to POST /api/paddy/saves-fair. Blank = endpoint disabled (503).
     saves_ingest_key: str = ""
     # Session cookie signing key. If blank, a random key is generated at startup
     # (sessions reset on restart — fine for dev; set a fixed value in prod).

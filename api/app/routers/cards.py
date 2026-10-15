@@ -36,7 +36,7 @@ def market_name(market_key: str) -> str:
 router = APIRouter()
 
 
-@router.get("/cards/value-bets", response_model=list[CardValueOut])
+@router.get("/value-bets", response_model=list[CardValueOut])
 def get_card_value_bets(
     request: Request,
     min_edge: float = Query(default=None, ge=-0.50, le=0.50),
@@ -95,7 +95,7 @@ def build_feed(client, min_edge: float, pinnacle=None) -> list[CardFeedItem]:
     return result
 
 
-@router.get("/cards/feed", response_model=list[CardFeedItem])
+@router.get("/feed", response_model=list[CardFeedItem])
 def get_cards_feed(
     request: Request,
     min_edge: float = Query(default=None, ge=-0.50, le=0.50),
@@ -198,7 +198,7 @@ def diagnose(client, pinnacle) -> dict:
     }
 
 
-@router.get("/cards/probe-books")
+@router.get("/probe-books")
 def probe_books(
     request: Request,
     region: str = "uk",
@@ -224,7 +224,7 @@ def probe_books(
         return {"error": "ODDS_API_KEY is not set"}
     if not hasattr(cards, "_due_fixtures"):
         return {"error": "Paddy Power's side is OddsPapi now — this probe is "
-                         "TheOddsApi's. Use /api/cards/oddspapi-check."}
+                         "TheOddsApi's. Use /api/paddy/oddspapi-check."}
 
     if event_id is None or sport is None:
         due = cards._due_fixtures()          # FREE: the fixture lists only
@@ -270,7 +270,7 @@ def probe_books(
     }
 
 
-@router.get("/cards/oddspapi-check")
+@router.get("/oddspapi-check")
 def oddspapi_check(request: Request, book: str | None = None, tournament: int = 17,
                    find: str = "nations,qualif,world cup,euro"):
     """What OddsPapi's live catalogue and lists actually say — read ONCE after
@@ -354,7 +354,7 @@ def oddspapi_check(request: Request, book: str | None = None, tournament: int = 
     return out
 
 
-@router.get("/cards/diagnostics")
+@router.get("/diagnostics")
 def get_cards_diagnostics(request: Request):
     """One request that says why the screen looks the way it does."""
     return diagnose(

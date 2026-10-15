@@ -72,20 +72,20 @@ def test_saves_rows_reach_every_consumer_through_price_events():
 def client(monkeypatch):
     monkeypatch.setattr(settings, "saves_ingest_key", "k-123")
     app = FastAPI()
-    app.include_router(saves_ingest.router)
+    app.include_router(saves_ingest.router, prefix="/paddy")
     return TestClient(app)
 
 
 def test_the_ingest_endpoint_needs_its_key(client, monkeypatch):
     body = {"prices": []}
-    assert client.post("/cards/saves-fair", json=body).status_code == 401
-    assert client.post("/cards/saves-fair", json=body, headers={"X-API-Key": "nope"}).status_code == 401
+    assert client.post("/paddy/saves-fair", json=body).status_code == 401
+    assert client.post("/paddy/saves-fair", json=body, headers={"X-API-Key": "nope"}).status_code == 401
     monkeypatch.setattr(settings, "saves_ingest_key", "")
-    assert client.post("/cards/saves-fair", json=body, headers={"X-API-Key": "k-123"}).status_code == 503
+    assert client.post("/paddy/saves-fair", json=body, headers={"X-API-Key": "k-123"}).status_code == 503
 
 
 def test_the_ingest_endpoint_stores_good_rows_and_says_why_others_were_refused(client):
-    r = client.post("/cards/saves-fair", headers={"X-API-Key": "k-123"}, json={"prices": [
+    r = client.post("/paddy/saves-fair", headers={"X-API-Key": "k-123"}, json={"prices": [
         {"home": "Arsenal", "away": "Chelsea", "kickoff": "2026-10-18T15:00:00Z", "line": 7.5, "over": 1.9},
         {"home": "Leeds", "away": "Fulham", "kickoff": "not a time", "line": 6.5, "over": 1.9},
         {"home": "Spurs", "away": "Villa", "kickoff": "2026-10-18T15:00:00", "line": 6.5,

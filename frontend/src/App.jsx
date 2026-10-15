@@ -101,7 +101,10 @@ export default function App() {
           <Route path="/shop" element={protectTool(<ShopPage />, 'shop')} />
           <Route path="/accabonus" element={protectTool(<AccaBonusPage />, 'accabonus')} />
           <Route path="/tennis" element={<Navigate to="/accabonus" replace />} />
-          <Route path="/cards" element={protectTool(<CardsPage />, 'cards')} />
+          <Route path="/paddy" element={protectTool(<CardsPage />, 'cards')} />
+          {/* Renamed from Cards (Oct 2026): installed shells and bookmarks
+              still open /cards. */}
+          <Route path="/cards" element={<Navigate to="/paddy" replace />} />
         </Routes>
         </Suspense>
       </main>

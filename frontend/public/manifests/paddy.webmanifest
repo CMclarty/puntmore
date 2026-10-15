@@ -4,13 +4,13 @@
   "description": "Betting tools — coupons, tennis arbs, cards & corners",
   "display": "standalone",
   "orientation": "portrait",
-  "start_url": "/cards",
+  "start_url": "/paddy",
   "scope": "/",
   "theme_color": "#1A1A18",
   "background_color": "#FCFBF8",
   "icons": [
     {
-      "src": "/icons/cards.svg",
+      "src": "/icons/paddy.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"

@@ -1,4 +1,4 @@
-"""POST /api/cards/saves-fair — fair goalkeeper-saves prices from the local
+"""POST /api/paddy/saves-fair — fair goalkeeper-saves prices from the local
 Bookie Bashing script (local/bookiebashing_saves.py).
 
 Key-guarded rather than session-guarded, like /state: the caller is a script
@@ -36,7 +36,7 @@ class SavesBatchIn(BaseModel):
     prices: list[FairSavesIn] = Field(max_length=2000)
 
 
-@router.post("/cards/saves-fair", dependencies=[Depends(require_ingest_key)])
+@router.post("/saves-fair", dependencies=[Depends(require_ingest_key)])
 def post_saves_fair(batch: SavesBatchIn):
     """Store a batch; report what was kept and why anything was not."""
     kept, rejected = [], []

@@ -72,8 +72,8 @@ const TOOLS = [
     ),
   },
   {
-    tool: 'cards', name: 'Paddy', to: '/cards', sub: 'Props', muted: true,
-    matches: (p) => p.startsWith('/cards'),
+    tool: 'cards', name: 'Paddy', to: '/paddy', sub: 'Props', muted: true,
+    matches: (p) => p.startsWith('/paddy') || p.startsWith('/cards'),
     icon: (
       <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
         <polyline points="4,4 4,18 18,18"/><polyline points="4,4 10,4 10,10 16,10 16,18"/>

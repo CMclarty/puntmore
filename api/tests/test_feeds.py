@@ -125,18 +125,18 @@ def test_accabonus_feed_carries_no_arb_flag():
     assert "is_arb" not in rows[0]
 
 
-# --- /cards/feed ---
+# --- /paddy/feed (was /cards/feed, still an alias) ---
 
 def test_cards_feed_empty_without_client():
     app.state.cards_client = None
-    assert client.get("/cards/feed").json() == []
+    assert client.get("/paddy/feed").json() == []
 
 
 def test_cards_feed_groups_by_match():
     app.state.cards_client = StubCardsClient([
         _totals_event("e1", "Arsenal", "Chelsea", 1.90, 1.90, 2.10, 1.70),
     ])
-    rows = client.get("/cards/feed?min_edge=-0.5").json()
+    rows = client.get("/paddy/feed?min_edge=-0.5").json()
     assert len(rows) == 1
     g = rows[0]
     assert g["match"] == "Arsenal vs Chelsea"
@@ -156,7 +156,7 @@ def test_cards_feed_sorted_by_best_value():
         _totals_event("e1", "A", "B", 1.90, 1.90, 1.95, 1.85),   # small edge
         _totals_event("e2", "C", "D", 1.90, 1.90, 2.20, 1.60),   # big edge
     ])
-    rows = client.get("/cards/feed?min_edge=-0.5").json()
+    rows = client.get("/paddy/feed?min_edge=-0.5").json()
     assert [r["event_id"] for r in rows] == ["e2", "e1"]
 
 
@@ -167,7 +167,15 @@ def test_feeds_require_auth():
     try:
         assert client.get("/accabonus/feed").status_code == 401
         assert client.get("/tennis/feed").status_code == 401  # legacy alias guarded too
-        assert client.get("/cards/feed").status_code == 401
+        assert client.get("/paddy/feed").status_code == 401
     finally:
         app.dependency_overrides[require_user] = lambda: "testuser"
         app.dependency_overrides[user_permissions] = lambda: "*"
+
+
+def test_the_old_cards_paths_still_answer():
+    # Renamed to /paddy in Oct 2026; installed shells and the local saves
+    # script may still call /cards.
+    app.state.cards_client = None
+    assert client.get("/cards/feed").json() == []
+    assert client.get("/paddy/feed").json() == []

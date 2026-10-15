@@ -236,9 +236,9 @@ export const getAccaBonusFeed = (minEdge = -0.02) =>
 // Why the cards screen looks the way it does. An empty feed has several
 // distinct causes that are identical from the outside, and one of them
 // ("nothing cleared the guards") is a SUCCESS.
-export const getCardsDiagnostics = () => get('/cards/diagnostics')
+export const getCardsDiagnostics = () => get('/paddy/diagnostics')
 export const getCardsFeed = (minEdge = -0.02) =>
-  get(`/cards/feed?min_edge=${minEdge}`)
+  get(`/paddy/feed?min_edge=${minEdge}`)
 
 // First-goalscorer value (bet365 vs de-vigged Pinnacle). Rows are produced by
 // the scheduler near kickoff and stored, so this just reads the current set.

@@ -292,9 +292,16 @@ app.include_router(upload_router, dependencies=[Depends(require_tool("coupons"))
 if settings.enable_accabonus:
     app.include_router(accabonus.router, dependencies=[Depends(require_tool("accabonus"))])
 if settings.enable_cards:
-    app.include_router(cards_router.router, dependencies=[Depends(require_tool("cards"))])
-    # The local Bookie Bashing script's way in: key-guarded, not session-guarded.
-    app.include_router(saves_ingest_router.router)
+    # The tool is "Paddy" now — corners, cards, goals and saves — so it lives
+    # under /paddy. /cards stays as an alias for installed app shells and
+    # scripts still pointing there, the same arrangement as /tennis.
+    # (The permission and the flag keep the name "cards": renaming them would
+    # revoke access for existing accounts and break the Render config.)
+    for prefix, listed in (("/paddy", True), ("/cards", False)):
+        app.include_router(cards_router.router, prefix=prefix, include_in_schema=listed,
+                           dependencies=[Depends(require_tool("cards"))])
+        # The local Bookie Bashing script's way in: key-guarded, not session-guarded.
+        app.include_router(saves_ingest_router.router, prefix=prefix, include_in_schema=listed)
 if settings.enable_goalscorers:
     app.include_router(
         goalscorers_router.router,
