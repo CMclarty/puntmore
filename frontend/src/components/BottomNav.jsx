@@ -54,15 +54,6 @@ const TOOLS = [
     ),
   },
   {
-    tool: 'shop', name: 'Shop', to: '/shop', sub: 'Visits', priv: true,
-    matches: (p) => p.startsWith('/shop'),
-    icon: (
-      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M4 8h14l-1 11H5z"/><path d="M8 8V5.5a3 3 0 0 1 6 0V8"/>
-      </svg>
-    ),
-  },
-  {
     tool: 'cards', name: 'Paddy', to: '/paddy', sub: 'Props', muted: true,
     matches: (p) => p.startsWith('/paddy') || p.startsWith('/cards'),
     icon: (
