@@ -41,10 +41,6 @@ export const DEFAULTS = {
   voidQualifies: true,
   // The neutral partner legs a single leg is scored against (legScore).
   refOdds: 1.25,
-  // How much a sure pound beats a theoretical one (legScore). 0 = pure EV;
-  // 0.25 favours short legs without ignoring value — 1.30 at +4% outranks
-  // both 1.22 at +1% and 2.40 at +8%. See certaintyEquivalent.
-  riskAversion: 0.25,
 }
 
 /** p_i from per-leg fair odds. */
@@ -146,8 +142,9 @@ export function grid(cfg = {}) {
 export const trueProb = leg => (1 + leg.value) / leg.odds
 
 /**
- * A feed leg's score: EV % of an insured acca of this leg plus `legs − 1`
- * NEUTRAL legs at `refOdds` (fair, no value) — a realistic qualifying acca.
+ * A feed leg's score: the growth score (kellyGrowth) of an insured acca of
+ * this leg plus `legs − 1` NEUTRAL legs at `refOdds` (fair, no value) — a
+ * realistic qualifying acca.
  *
  * Not "an acca of `legs` copies of this leg": that raised the leg's edge to the
  * fifth power (1.08^5 = 1.47), so a long +8% leg scored as if it were a 79/1
@@ -155,35 +152,49 @@ export const trueProb = leg => (1 + leg.value) / leg.odds
  * once, as it does in the acca you actually build.
  */
 export function legScore(leg, cfg = {}) {
+  return kellyGrowth(legAcca(leg, cfg), cfg).growth
+}
+
+/** The evaluated acca a single leg is scored in (legScore). */
+export function legAcca(leg, cfg = {}) {
   const c = { ...DEFAULTS, ...cfg }
   const n = c.legs - 1
-  const r = evaluate({
+  return evaluate({
     odds: [leg.odds, ...Array(n).fill(c.refOdds)],
     probs: [trueProb(leg), ...Array(n).fill(1 / c.refOdds)],
   }, c)
-  return certaintyEquivalent(r, c)
 }
 
 /**
- * What an acca is worth as a SURE return, per £1 staked, to someone who
- * prefers being paid often: the certainty equivalent under exponential
- * utility, CE = −ln E[e^(−a·X)] / a, over the three outcomes (all win,
- * refund, full loss). At a = 0 it is the EV exactly. As `a` grows, an acca
- * that mostly loses is marked down for it, so long legs fall back unless
- * their edge pays for the swing — dynamic, where an odds cap is a cliff.
+ * The acca's growth score: the expected log-growth of a bankroll staked at
+ * the acca's OWN optimal (Kelly) fraction f*, over the three outcomes —
+ *
+ *   G(f) = P_win·ln(1 + f(A − 1)) + P_refund·ln(1 − f(1 − rv)) + P_loss·ln(1 − f)
+ *
+ * and the score is max_f G(f). It needs no bankroll and no risk dial: an acca
+ * that mostly loses cannot be staked heavily however large its EV, so its best
+ * growth is low, while a short acca that pays back (win or refund) three
+ * times in four supports a large stake and grows faster. "£20 in the pocket
+ * beats £22 of theoretical EV" is what log utility means.
+ *
+ * Returns {growth, kelly}: growth per bet at f*, and f* itself (the share of
+ * a bankroll full Kelly would stake). The refund is assumed to cover the
+ * stake (stake within the cap). Zero when the acca has no edge at all.
  */
-export function certaintyEquivalent(r, cfg = {}) {
+export function kellyGrowth(r, cfg = {}) {
   const c = { ...DEFAULTS, ...cfg }
-  const a = c.riskAversion
-  if (!(a > 0)) return r.evPct
-  const insured = r.insured && c.stake > 0 ? Math.min(c.stake, c.refundCap) / c.stake : 0
-  const outcomes = [
-    [r.pWin, r.accaOdds - 1],
-    [r.pRefund, c.refundValue * insured - 1],
-    [r.pLoss, -1],
-  ]
-  const m = outcomes.reduce((s, [p, x]) => s + p * Math.exp(-a * x), 0)
-  return -Math.log(m) / a
+  const rv = r.insured ? c.refundValue : 0
+  const G = f => r.pWin * Math.log(1 + f * (r.accaOdds - 1))
+    + r.pRefund * Math.log(1 - f * (1 - rv)) + r.pLoss * Math.log(1 - f)
+  // G is concave in f on [0, 1): ternary search for its maximum.
+  let lo = 0, hi = 0.999
+  for (let i = 0; i < 100; i++) {
+    const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3
+    if (G(m1) < G(m2)) lo = m1; else hi = m2
+  }
+  const f = (lo + hi) / 2
+  const g = G(f)
+  return g > 0 ? { growth: g, kelly: f } : { growth: 0, kelly: 0 }
 }
 
 /**
@@ -208,7 +219,8 @@ export function bestAcca(candidates, cfg = {}, pool = 15) {
   const walk = start => {
     if (pick.length === c.legs) {
       const r = evaluate({ odds: pick.map(l => l.odds), probs: pick.map(trueProb) }, c)
-      if (!best || r.evGbp > best.evGbp) best = { ...r, picks: [...pick] }
+      const k = kellyGrowth(r, c)
+      if (!best || k.growth > best.growth) best = { ...r, ...k, picks: [...pick] }
       return
     }
     for (let i = start; i < legs.length; i++) {

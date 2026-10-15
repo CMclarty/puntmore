@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { getCardsFeed, getCardsDiagnostics } from '../api'
 import ThresholdControl from '../components/ThresholdControl'
 import styles from './FeedPage.module.css'
 import f from './CardsPage.module.css'
-import { DEFAULTS as ACCA_DEFAULTS, legScore } from '../accaInsurance'
+import { DEFAULTS as ACCA_DEFAULTS, bestAcca, legAcca, legScore } from '../accaInsurance'
 
 const DEBOUNCE_MS = 400
 const DEFAULT_EV = 98  // preset: show everything at or above 98% EV
@@ -42,29 +42,27 @@ function inWindow(kickoff, within, now) {
 // rows that come back. Touching any filter afterwards makes it "Custom".
 // The "Acca Min" preset is for the acca insurance offer: a 5-fold, every leg
 // 1.2 or longer, stake back (as a bonus) if exactly one leg loses. It ranks
-// legs by the offer's own EV (accaInsurance.js::legScore) — value AND hit
-// rate, because a short winner keeps the acca inside the one-loser refund —
-// and lists every option by it, best first. The 1.2 floor
-// is this preset's alone; every other preset shows shorter prices too.
-// Its EV floor is LOW (95) on purpose: the refund carries value of its own,
-// so a leg a little under fair can still make a positive insured acca.
+// every option by GROWTH (accaInsurance.js::kellyGrowth): the expected
+// log-growth of an insured acca with that leg, at the acca's own optimal
+// stake. No bankroll, no dial — an acca that mostly loses cannot be staked
+// heavily, so short legs that keep it paying back (win or refund) rise, and a
+// long leg only ranks if its edge pays for the swing. Money in the pocket
+// over theoretical EV (Callum's call, Oct 2026). The best qualifying acca
+// heads the list. The 1.2 floor is this preset's alone; its EV floor is low
+// (95) because the refund carries value of its own.
 const LOW_ODDS_FLOOR = ACCA_DEFAULTS.minOdds
 const ACCA_KEY = 'paddy.acca'
 function loadAcca() {
   try { return { ...ACCA_DEFAULTS, ...JSON.parse(localStorage.getItem(ACCA_KEY)) } } catch { return ACCA_DEFAULTS }
 }
 const pct = v => (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1) + '%'
+// Growth per bet is small (a few %): two decimals.
+const growthPct = v => (v * 100).toFixed(2) + '%'
+
+const GROWTH_TIP = 'Growth per bet of an insured acca with this leg, at its optimal stake — higher is better'
 
 const PRESETS = [
   { id: 'all', label: 'All', ev: DEFAULT_EV, markets: MARKETS, maxOdds: null, within: null },
-  // No odds cap: the score itself favours short legs (risk-adjusted —
-  // accaInsurance.js::certaintyEquivalent), so a long leg only ranks if its
-  // edge pays for the swing. Money in the pocket over theoretical EV
-  // (Callum's call, Oct 2026); the dial is "Risk aversion" on /paddy/acca.
-  // The minimum-odds legs that still hold value: 1.20+, at or above fair,
-  // SHORTEST first — the acca's safest qualifying legs that are not -EV.
-  { id: 'short', label: 'Shortest value', ev: 100, markets: MARKETS, maxOdds: null, within: null,
-    minOdds: LOW_ODDS_FLOOR, sort: 'shortest' },
   { id: 'low', label: 'Acca Min', ev: 95, markets: MARKETS, maxOdds: null, within: null,
     minOdds: LOW_ODDS_FLOOR, sort: 'combo' },
   { id: 'best', label: 'Best', ev: 105, markets: MARKETS, maxOdds: 5, within: null },
@@ -94,6 +92,7 @@ export default function CardsPage() {
   // The offer's settings (legs, refund worth, cap) come from the calculator
   // page at /paddy/acca, which owns editing them.
   const [acca] = useState(loadAcca)
+  const navigate = useNavigate()
   const comboScore = b => legScore(b, acca)
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
@@ -178,6 +177,20 @@ export default function CardsPage() {
     }
   }).filter(Boolean).sort((a, b) => b.rank - a.rank)
 
+  // Acca view: every option as a row, and the best qualifying acca from them.
+  const flatRows = flat ? shown
+    .flatMap(item => item.bets.map(bet => {
+      const r = legAcca(bet, acca)
+      return { bet, item, score: comboScore(bet), paid: r.pWin + r.pRefund }
+    }))
+    .sort(filters.sort === 'shortest'
+      ? (x, y) => x.bet.odds - y.bet.odds || y.bet.value - x.bet.value
+      : (x, y) => y.score - x.score) : []
+  const best = flat && filters.sort === 'combo'
+    ? bestAcca(flatRows.map(({ bet, item }) => ({ ...bet, matchId: item.event_id, match: item.match })), acca)
+    : null
+  const bestKeys = new Set((best?.picks || []).map(p => p.matchId + p.pick))
+
 
   function toggleRow(id) {
     setOpenId(prev => prev === id ? null : id)
@@ -230,7 +243,7 @@ export default function CardsPage() {
           </div>
           <div className={f.row}>
             <span className={f.label}>Sort by</span>
-            {[['value', 'Value'], ['combo', 'Acca insurance score'], ['shortest', 'Shortest odds']].map(([k, l]) => (
+            {[['value', 'Value'], ['combo', 'Acca growth'], ['shortest', 'Shortest odds']].map(([k, l]) => (
               <button key={k} type="button" className={`${f.chip} ${(filters.sort ?? 'value') === k ? f.on : ''}`}
                 aria-pressed={(filters.sort ?? 'value') === k} onClick={() => edit({ sort: k })}>{l}</button>
             ))}
@@ -273,27 +286,43 @@ export default function CardsPage() {
       <div className={styles.feed}>
         {/* Acca insurance mode: every option as its own row, best score first
             — the ranking IS the answer, so it is not hidden inside matches. */}
+        {/* Acca view: the best qualifying acca first, as one row (tap: open
+            it in the calculator), then every option ranked by growth. */}
+        {flat && best && (
+          <button type="button" className={`${f.flatRow} ${f.bestRow}`} onClick={() => navigate('/paddy/acca', {
+            state: { legs: best.picks.map(l => ({ odds: l.odds, fair: l.odds / (1 + l.value), name: `${l.match} · ${l.pick}` })) },
+          })}>
+            <span className={f.flatScore}>{growthPct(best.growth)}</span>
+            <span className={f.flatWhat}>
+              <span className={f.flatPick}>★ Best {best.picks.length}-fold</span>
+              <span className={f.flatMatch}>EV {pct(best.evPct)} · Kelly {Math.round(best.kelly * 100)}%</span>
+            </span>
+            <span className={f.oddsCell}>
+              <span className={`${styles.odds} ${styles.mono}`}>{best.accaOdds.toFixed(2)}</span>
+              <span className={f.paid} title="Paid back (win or refund)">{Math.round((best.pWin + best.pRefund) * 100)}%</span>
+            </span>
+            <span className={f.right}>›</span>
+          </button>
+        )}
         {flat && shown.length > 0 && (
           <div className={`${f.flatRow} ${f.colHead}`}>
-            <span title="Risk-adjusted value of an insured acca with this leg (dial: Risk aversion on the calculator)">Score</span>
-            <span>Bet</span><span>Odds</span><span className={f.right}>Value</span>
+            <span title={GROWTH_TIP}>Growth</span>
+            <span>Bet</span><span title="Odds, and under them how often the acca pays back (win or refund)">Odds</span><span className={f.right}>Value</span>
           </div>
         )}
-        {flat && shown
-          .flatMap(item => item.bets.map(bet => ({ bet, item, score: comboScore(bet) })))
-          .sort(filters.sort === 'shortest'
-            ? (x, y) => x.bet.odds - y.bet.odds || y.bet.value - x.bet.value
-            : (x, y) => y.score - x.score)
-          .map(({ bet, item, score }) => (
+        {flat && flatRows.map(({ bet, item, score, paid }) => (
             <div key={item.event_id + bet.pick} className={f.flatRow}>
-              <span className={`${f.flatScore} ${score < 0 ? f.scoreNeg : ''}`} title="Risk-adjusted value of an insured acca with this leg (dial: Risk aversion on the calculator)">
-                {pct(score)}
-              </span>
+              <span className={f.flatScore} title={GROWTH_TIP}>{growthPct(score)}</span>
               <span className={f.flatWhat}>
-                <span className={f.flatPick}>{shortPick(bet.pick)}</span>
+                <span className={f.flatPick}>{bestKeys.has(item.event_id + bet.pick) ? '★ ' : ''}{shortPick(bet.pick)}</span>
                 <span className={f.flatMatch}>{item.match}</span>
               </span>
-              <span className={`${styles.odds} ${styles.mono}`}>{bet.odds.toFixed(2)}</span>
+              {/* Odds, and under them how often an acca with this leg pays
+                  something back (a win or the refund). */}
+              <span className={f.oddsCell}>
+                <span className={`${styles.odds} ${styles.mono}`}>{bet.odds.toFixed(2)}</span>
+                <span className={f.paid} title="Paid back (win or refund)">{Math.round(paid * 100)}%</span>
+              </span>
               <span className={`${styles.badge} ${styles[valueTier(bet.value)]}`}>{fmt(bet.value)}</span>
             </div>
           ))}

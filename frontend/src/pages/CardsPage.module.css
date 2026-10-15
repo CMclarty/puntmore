@@ -69,7 +69,7 @@
 .flatRow {
   display: grid;
   /* Fixed odds/value widths so the column titles sit over their figures. */
-  grid-template-columns: 58px 1fr 44px 64px;
+  grid-template-columns: 54px 1fr 48px 64px;
   gap: 8px;
   align-items: center;
   padding: 7px 12px;
@@ -93,4 +93,6 @@
 .right { text-align: right; }
 .flatRow > :nth-child(3), .flatRow > :nth-child(4) { text-align: right; justify-self: end; }
 .matchHead { display: flex; justify-content: space-between; padding: 6px 30px 4px 12px; border-bottom: 1px solid var(--line); }
-.flatScore.scoreNeg { color: var(--red); }
+.bestRow { width: 100%; border: none; border-bottom: 1px solid var(--line); background: var(--accent-soft); text-align: left; font: inherit; cursor: pointer; }
+.oddsCell { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25; }
+.paid { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }

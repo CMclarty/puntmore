@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
-  DEFAULTS, bestAcca, legScore, breakevenProb, evaluate, evaluateEqual, grid,
+  DEFAULTS, bestAcca, kellyGrowth, legScore, breakevenProb, evaluate, evaluateEqual, grid,
   probsFromAccaPct, probsFromFair,
 } from './accaInsurance'
 
@@ -93,18 +93,29 @@ describe('qualification', () => {
 })
 
 describe('leg scores', () => {
-  test('a leg is scored against neutral partners, so its edge counts once', () => {
+  test('a leg is scored against neutral partners: its EV counts the edge once', () => {
     // Four fair 1.25s alongside: 2.40 +8% vs 1.25 +2% (worked in chat, Oct 2026).
-    const ev = { riskAversion: 0 }
-    expect(pct1(legScore({ odds: 2.4, value: 0.08 }, ev))).toBe(38.7)
-    expect(pct1(legScore({ odds: 1.25, value: 0.02 }, ev))).toBe(32.7)
+    const ev = leg => evaluate({ odds: [leg.odds, 1.25, 1.25, 1.25, 1.25],
+      probs: [(1 + leg.value) / leg.odds, 0.8, 0.8, 0.8, 0.8] }).evPct
+    expect(pct1(ev({ odds: 2.4, value: 0.08 }))).toBe(38.7)
+    expect(pct1(ev({ odds: 1.25, value: 0.02 }))).toBe(32.7)
   })
 
-  test('risk aversion favours short legs without ignoring value', () => {
-    const s = (odds, value) => legScore({ odds, value })      // default 0.25
-    expect(s(1.25, 0.02)).toBeGreaterThan(s(2.4, 0.08))      // short beats long
+  test('growth at the optimal stake favours short legs without ignoring value', () => {
+    const s = (odds, value) => legScore({ odds, value })
     expect(s(1.3, 0.04)).toBeGreaterThan(s(1.22, 0.01))      // value still counts
-    expect(s(1.3, 0.04)).toBeGreaterThan(s(1.8, 0.06))
+    expect(s(1.3, 0.04)).toBeGreaterThan(s(2.4, 0.08))       // short beats long
+    expect(s(1.25, 0.02)).toBeGreaterThan(s(3.0, 0.10))
+    expect(s(1.3, 0.04)).toBeCloseTo(0.0402, 3)              // 4.02% a bet (chat)
+  })
+
+  test('the optimal stake is where growth peaks', () => {
+    const r = evaluateEqual(1.3, 1.0)
+    const { growth, kelly } = kellyGrowth(r)
+    const G = f => r.pWin * Math.log(1 + f * (r.accaOdds - 1)) + r.pRefund * Math.log(1 - f * 0.25) + r.pLoss * Math.log(1 - f)
+    expect(G(kelly)).toBeCloseTo(growth, 10)
+    expect(G(kelly + 0.02)).toBeLessThan(growth)
+    expect(G(kelly - 0.02)).toBeLessThan(growth)
   })
 })
 

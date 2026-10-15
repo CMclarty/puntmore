@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
-  DEFAULTS, GRID_PCTS, breakevenProb, evaluate, grid, probsFromAccaPct, probsFromFair,
+  DEFAULTS, GRID_PCTS, kellyGrowth, breakevenProb, evaluate, grid, probsFromAccaPct, probsFromFair,
 } from '../accaInsurance'
 import styles from './FeedPage.module.css'
 import a from './AccaInsurancePage.module.css'
@@ -80,7 +80,7 @@ export default function AccaInsurancePage() {
 
       <section className={a.block}>
         <div className={a.cfg}>
-          {[['legs', 'Legs', 1], ['stake', 'Stake £', 1], ['refundCap', 'Refund cap £', 1], ['refundValue', 'Refund worth', 0.05], ['riskAversion', 'Risk aversion', 0.05]].map(([k, l, step]) => (
+          {[['legs', 'Legs', 1], ['stake', 'Stake £', 1], ['refundCap', 'Refund cap £', 1], ['refundValue', 'Refund worth', 0.05]].map(([k, l, step]) => (
             <label key={k}>{l}
               <input type="number" inputMode="decimal" step={step} defaultValue={cfg[k]}
                 onChange={e => setCfgField(k, e.target.value)} />
@@ -139,6 +139,11 @@ export default function AccaInsurancePage() {
               <div><span>P(all win)</span><b>{pct(result.pWin)}</b></div>
               <div><span>P(refund)</span><b>{pct(result.pRefund)}</b></div>
               <div><span>P(full loss)</span><b>{pct(result.pLoss)}</b></div>
+              {(k => (
+                <div title="Growth per bet at the acca's optimal (Kelly) stake — the Paddy list ranks by this">
+                  <span>Growth · Kelly</span><b>{pct(k.growth, 2)} · {pct(k.kelly, 0)}</b>
+                </div>
+              ))(kellyGrowth(result, cfg))}
               <div className={a.ev}><span>EV</span>
                 <b className={result.evGbp >= 0 ? a.pos : a.neg}>{signedPct(result.evPct)} · {gbp(result.evGbp)}</b>
               </div>
