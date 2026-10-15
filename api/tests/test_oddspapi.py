@@ -332,3 +332,36 @@ def test_the_default_sweep_takes_the_uefa_qualifiers_and_pinnacle():
     assert "11" in entries and "27" in entries
     assert settings.oddspapi_fair_book == "pinnacle"
     assert op.TOURNAMENT_SPORT_KEYS[23755] == "soccer_uefa_nations_league"
+
+
+def _two_way(mid, name, line):
+    return {"marketId": mid, "marketName": name, "handicap": line, "sportId": 10,
+            "outcomes": [{"outcomeId": mid * 10, "outcomeName": "Over"},
+                         {"outcomeId": mid * 10 + 1, "outcomeName": "Under"}]}
+
+
+def test_the_check_classifies_saves_and_match_goals_totals():
+    cat = CATALOGUE + [
+        _two_way(40001, "Total Goalkeeper Saves", 6.5),
+        _two_way(40002, "Total Goals", 3.5),
+        # Look-alikes that are NOT match goals or saves.
+        _two_way(40003, "Total Goal Kicks", 15.5),
+        _two_way(40004, "Total Shots on Target", 8.5),
+        _two_way(40005, "Home Team Saves", 3.5),
+        _two_way(40006, "1st Half Goals", 1.5),
+    ]
+    found = op.match_total_markets(cat, kinds=(op.SAVES, op.GOALS))
+    assert {mid: (k, line) for mid, (k, line, _) in found.items()} == {
+        "40001": (op.SAVES, 6.5),
+        "40002": (op.GOALS, 3.5),
+        "1010": (op.GOALS, 2.5),     # the bare "Over Under" is the goals line
+    }
+    # The pricing path is unchanged: corners and cards only.
+    assert {k for k, _, _ in op.corner_card_markets(cat).values()} == {op.CORNERS, op.CARDS}
+
+
+def test_booking_points_are_not_a_card_count():
+    # 10 a yellow, 25 a red: a different scale from Pinnacle's card-count
+    # ladder, so pricing one off the other would be wildly wrong.
+    found = op.corner_card_markets([_two_way(50001, "Total Booking Points", 40.5)])
+    assert found == {}

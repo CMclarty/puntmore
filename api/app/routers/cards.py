@@ -266,7 +266,8 @@ def oddspapi_check(request: Request, book: str | None = None, tournament: int = 
     """
     from ..cards.oddspapi import (
         OddsPapiPaddySource, _as_list, _first, _tournament_entries,
-        catalogue_index, corner_card_markets, coverage, participant_names,
+        GOALS, SAVES, catalogue_index, corner_card_markets, coverage,
+        match_total_markets, participant_names,
         resolve_tournaments, tournament_names,
     )
     cards = request.app.state.cards_client
@@ -281,6 +282,19 @@ def oddspapi_check(request: Request, book: str | None = None, tournament: int = 
         out["corner_card_markets"] = {
             mid: {"market": k, "line": line, "outcomes": sides}
             for mid, (k, line, sides) in sorted(found.items(), key=lambda x: (x[1][0], x[1][1]))
+        }
+        # Saves and match goals: reported, not priced yet. Lines per kind, and
+        # the raw catalogue names behind them so a mis-classification shows.
+        extra = match_total_markets(cat, kinds=(SAVES, GOALS))
+        names = {str(_first(m, "marketId", "id", "_id")): _first(m, "marketName", "name")
+                 for m in _as_list(cat)}
+        out["other_total_markets"] = {
+            kind: {
+                "markets": sum(1 for k, _, _ in extra.values() if k == kind),
+                "lines": sorted({line for k, line, _ in extra.values() if k == kind}),
+                "names": sorted({str(names.get(mid)) for mid, (k, _, _) in extra.items() if k == kind})[:20],
+            }
+            for kind in (SAVES, GOALS)
         }
         # The raw entries behind any three ids, so the field names can be read.
         out["sample_raw_entries"] = [

@@ -86,6 +86,36 @@ _NOT_MATCH_TOTAL_RE = re.compile(
     r"even|player|minute|interval|exact|range|winner|most|last|next)\b", re.I,
 )
 _LINE_IN_NAME_RE = re.compile(r"(\d+(?:\.\d+)?)")
+
+# The other match-total markets the check reports on (not priced yet):
+# goalkeeper SAVES and match GOALS. Any other counted stat is excluded first,
+# so "Goal Kicks" can never pass as goals or "Shots on Target" as anything.
+SAVES = "totals_saves"
+GOALS = "totals_goals"
+_SAVES_RE = re.compile(r"\bsaves?\b", re.I)
+_GOALS_RE = re.compile(r"\bgoals?\b", re.I)
+_OTHER_STAT_RE = re.compile(
+    r"\b(?:shots?|fouls?|offsides?|throw[- ]?ins?|tackles?|passes|crosses|"
+    r"free[- ]?kicks?|goal[- ]?kicks?|penalt\w*|points?|sets?|games?)\b", re.I,
+)
+# A bare "Over/Under", "Total" or "Totals" market with no stat named is the
+# match goals line — the trial catalogue's "Over Under" at 2.5 is one.
+_BARE_TOTAL_RE = re.compile(r"^\s*(?:totals?|over\s*/?\s*under|o/u)\b", re.I)
+
+
+def _stat_of(name: str) -> str | None:
+    """Which counted stat a market name totals, or None for anything else."""
+    if _OTHER_STAT_RE.search(name):
+        return None
+    if _SAVES_RE.search(name):
+        return SAVES
+    if _CORNER_RE.search(name):
+        return CORNERS
+    if _CARD_RE.search(name):
+        return CARDS
+    if _GOALS_RE.search(name) or _BARE_TOTAL_RE.search(name):
+        return GOALS
+    return None
 _FULL_TIME = {"", "0", "ft", "fulltime", "full time", "full-time", "match", "regular"}
 
 
@@ -115,14 +145,18 @@ def _as_list(data) -> list:
 def corner_card_markets(catalogue) -> dict[str, tuple[str, float, dict[str, str]]]:
     """{marketId: (market_key, line, {outcomeId: "Over"|"Under"})} for every
     full-match corners or cards over/under market in the catalogue."""
+    return match_total_markets(catalogue, kinds=(CORNERS, CARDS))
+
+
+def match_total_markets(catalogue, kinds=(CORNERS, CARDS, SAVES, GOALS)
+                        ) -> dict[str, tuple[str, float, dict[str, str]]]:
+    """As corner_card_markets, for any of `kinds`. Pricing takes corners and
+    cards only; the check reports saves and goals as well."""
     out = {}
     for m in _as_list(catalogue):
         name = str(_first(m, "marketName", "name", "marketType", "type") or "")
-        if _CORNER_RE.search(name):
-            key = CORNERS
-        elif _CARD_RE.search(name):
-            key = CARDS
-        else:
+        key = _stat_of(name)
+        if key not in kinds:
             continue
         if _NOT_MATCH_TOTAL_RE.search(name):
             continue
