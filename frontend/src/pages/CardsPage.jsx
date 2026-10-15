@@ -3,8 +3,8 @@ import { getCardsFeed, getCardsDiagnostics } from '../api'
 import f from './CardsPage.module.css'
 import MarketIcon from '../components/MarketIcon'
 import useAutoRefresh from '../hooks/useAutoRefresh'
-import { DEFAULTS as ACCA_DEFAULTS, legScore } from '../accaInsurance'
-import { boostLegScore } from '../accaBoost'
+import { DEFAULTS as ACCA_DEFAULTS, evaluate, legScore, trueProb } from '../accaInsurance'
+import { boostEval, boostLegScore } from '../accaBoost'
 
 /**
  * Paddy — Paddy Power's corners, cards, goals and saves against fair prices.
@@ -166,6 +166,24 @@ export default function CardsPage() {
     : (x, y) => y.s - x.s)
 
   const applied = summary(fl, tab)
+
+  // Refund / Boost: the acca of the top 5 by score, one per match (asked for:
+  // "a number to see at a glance if it's worth betting"). Its EV is absolute,
+  // unlike the relative Score column.
+  let top5 = null
+  if (tab !== 'value') {
+    const seen = new Set(), picks = []
+    for (const x of [...list].sort((a, b) => b.s - a.s)) {
+      if (seen.has(x.b.matchId)) continue
+      seen.add(x.b.matchId); picks.push(x.b)
+      if (picks.length === 5) break
+    }
+    if (picks.length === 5) {
+      const odds = picks.map(b => b.odds), probs = picks.map(trueProb)
+      const r = refund ? evaluate({ odds, probs }, ACCA_DEFAULTS) : boostEval(odds, probs)
+      top5 = { odds: r.accaOdds, ev: r.evPct }
+    }
+  }
   const scored = tab !== 'value'
   const top = Math.max(0, ...list.map(x => x.s))
   const body = list.length
@@ -231,6 +249,13 @@ export default function CardsPage() {
       {!error && items && items.length === 0 && <p className={f.empty}>{why ?? 'No prices yet.'}</p>}
       {!error && items && items.length > 0 && (
         <div className={f.list}>
+          {top5 && (
+            <div className={f.top5}>
+              <span>Top 5</span>
+              <span className={f.top5Odds}>{top5.odds.toFixed(2)}</span>
+              <span className={f.top5Ev}>EV {top5.ev >= 0 ? '+' : '−'}{Math.abs(top5.ev * 100).toFixed(1)}%</span>
+            </div>
+          )}
           <div className={`${f.row} ${f.colHead} ${scored ? f.scored : ''}`}>
             <span /><span>Bet</span><span>Odds</span><span>Value</span>{scored && <span>Score</span>}
           </div>

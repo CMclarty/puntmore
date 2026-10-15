@@ -58,6 +58,13 @@
 .row > :nth-child(n+3) { text-align: right; }
 .scored { grid-template-columns: 22px 1fr 38px 54px 42px; gap: 8px; }
 .score { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--ink); }
+.top5 {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 10px 12px; border-bottom: 1px solid var(--line);
+  font-size: 14px; font-weight: 700; color: var(--ink);
+}
+.top5Odds { margin-left: auto; font-family: var(--font-mono); }
+.top5Ev { font-family: var(--font-mono); min-width: 96px; text-align: right; }
 .colHead {
   padding-top: 8px; padding-bottom: 5px;
   font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
