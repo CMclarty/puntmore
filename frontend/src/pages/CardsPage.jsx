@@ -63,7 +63,7 @@ const PRESETS = [
   { id: 'cc', label: 'Corners & cards', ev: 103, markets: ['corners', 'cards'], maxOdds: null, within: null },
   { id: 'goals', label: 'Goals', ev: 102, markets: ['goals'], maxOdds: null, within: null },
   { id: 'saves', label: 'Saves', ev: 103, markets: ['saves'], maxOdds: null, within: null },
-  { id: 'soon', label: 'Starting soon', ev: 102, markets: MARKETS, maxOdds: null, within: 3 },
+  { id: 'soon', label: 'Starts in 3h', ev: 102, markets: MARKETS, maxOdds: null, within: 3 },
 ]
 const STORE_KEY = 'cards.filters'
 
