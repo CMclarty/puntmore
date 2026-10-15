@@ -123,6 +123,8 @@ def diagnose(client, pinnacle) -> dict:
     from ..cards import laddered, pinnacle as pinnacle_src
 
     sweep = dict(getattr(client, "last_sweep", {}) or {})
+    # Pinnacle from OddsPapi (same fixture ids) rather than bettingiscool.
+    oddspapi_fair = str(sweep.get("fair_source", "")).startswith("oddspapi")
     fair = dict(getattr(pinnacle_src, "LAST_RUN", {}) or {})
     priced = dict(getattr(laddered, "LAST_RUN", {}) or {})
 
@@ -153,6 +155,16 @@ def diagnose(client, pinnacle) -> dict:
             f"corners/cards prices. Paddy Power is not posting these markets on "
             f"these fixtures yet."
         )
+    elif oddspapi_fair and sweep.get("carried_pinnacle_prices", 0) == 0:
+        errs = [e for e in sweep.get("errors") or [] if not e.startswith("paddypower")]
+        verdict = (
+            f"Paddy Power priced {sweep.get('carried_paddy_prices')} fixture(s), but "
+            f"Pinnacle ({sweep.get('fair_source', '').split(':', 1)[-1]}) came back "
+            + (f"with an error: {errs[0][:240]}" if errs else
+               "with no corners/cards/goals lines on any of them — nothing to price against.")
+        )
+    elif oddspapi_fair:
+        verdict = None          # fair side fine — fall through to the pricing checks
     elif not pinnacle or not (hasattr(pinnacle, "board") and hasattr(pinnacle, "odds_for")):
         verdict = (
             "The coupon odds provider is not bettingiscool, so there is no "
@@ -174,19 +186,22 @@ def diagnose(client, pinnacle) -> dict:
             f"{fair.get('no_totals')} matched fixture(s) carry no totals, so no "
             f"ladder could be built."
         )
-    elif priced.get("ladders_fitted", 0) == 0:
+    else:
+        verdict = None
+    # Both books in hand: what the pricing made of them.
+    if verdict is None and priced.get("ladders_fitted", 0) == 0:
         verdict = (
             f"No ladder was fittable — {priced.get('ladders_refused', 0)} refused. "
             f"A fixture needs at least 2 two-sided Pinnacle rungs."
         )
-    elif priced.get("rows", 0) == 0:
+    elif verdict is None and priced.get("rows", 0) == 0:
         verdict = (
             f"WORKING: {priced.get('ladders_fitted')} ladder(s) fitted and "
             f"{priced.get('priceable_paddy_lines', 0)} Paddy Power line(s) priced, "
             f"but none cleared the value guards. That is the tool doing its job — "
             f"most lines hold no edge."
         )
-    else:
+    elif verdict is None:
         verdict = f"{priced.get('rows')} value row(s) found."
 
     return {

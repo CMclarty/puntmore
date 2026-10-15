@@ -483,3 +483,18 @@ def test_a_failed_odds_request_is_held_not_resent_every_sweep(monkeypatch):
     assert len(sent) == 1                                   # billed once, not five times
     held = c._failed.peek(("odds", (17,), "pinnacle"))
     assert held[1] == op.FAILED_HOLD_MAX                    # a plan refusal is held for hours
+
+
+def test_the_empty_screen_names_a_pinnacle_failure_on_the_oddspapi_path():
+    from types import SimpleNamespace
+    from app.routers.cards import diagnose
+    client = SimpleNamespace(last_sweep={
+        "source": "oddspapi", "fair_source": "oddspapi:pinnacle+30",
+        "fixtures_in_window": 55, "carried_paddy_prices": 55, "carried_pinnacle_prices": 0,
+        "errors": ["pinnacle+30 [17]: OddsPapi /odds-by-tournaments: HTTP 403: RESTRICTED_ACCESS"],
+    })
+    v = diagnose(client, None)["verdict"]
+    assert "Pinnacle (pinnacle+30)" in v and "403" in v
+    client.last_sweep.update(carried_pinnacle_prices=40, errors=[])
+    # Fair side fine: it must NOT fall back to the old bettingiscool verdicts.
+    assert "bettingiscool" not in diagnose(client, None)["verdict"]
