@@ -70,7 +70,7 @@ function Chips({ options, isOn, onPick, icons = false }) {
   return options.map(([k, label]) => (
     <button key={label} type="button" className={`${f.chip} ${isOn(k) ? f.chipOn : ''}`}
       aria-pressed={isOn(k)} onClick={() => onPick(k)}>
-      {icons && <MarketIcon market={k} size={14} />}{label}
+      {icons && <MarketIcon market={k} size={15} />}{label}
     </button>
   ))
 }
@@ -90,7 +90,7 @@ function loadRefundSettings() {
 function Row({ bet }) {
   return (
     <div className={f.row}>
-      <MarketIcon market={bet.market} />
+      <MarketIcon market={bet.market} size={22} />
       <span className={f.what}>
         <span className={f.pick}>{shortPick(bet.pick)}</span>
         <span className={f.match}>{bet.match} · {kickoff(bet.commence_time)}</span>
