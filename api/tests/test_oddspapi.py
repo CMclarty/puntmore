@@ -535,3 +535,19 @@ def test_diagnostics_names_a_sweep_that_failed_before_pricing():
         assert "FAILED before pricing" in d["verdict"] and "KeyError" in d["verdict"]
     finally:
         scheduler.LAST_CARDS_ERROR.clear()
+
+
+def test_no_fixtures_in_a_competition_is_an_empty_answer_cached_hourly(monkeypatch):
+    # Live, 15 Oct: the internationals chunk outside a window answers 404
+    # FIXTURE_NOT_FOUND. Treated as an error it was re-sent every 10 min.
+    sent = []
+    nf = _R(404, '{"error":{"message":"No fixtures found for the specified tournament IDs and '
+                 'bookmaker.","code":"FIXTURE_NOT_FOUND"}}')
+    monkeypatch.setattr(op.time, "sleep", lambda s: None)
+    monkeypatch.setattr(op.httpx, "get", lambda url, **k: sent.append(url) or nf)
+    c = op.OddsPapiClient("k")
+    assert c.odds_by_tournaments([23755]) == []
+    for k, (at, v) in list(c._odds._data.items()):
+        c._odds._data[k] = (at - 1800, v)          # half an hour later
+    assert c.odds_by_tournaments([23755]) == []
+    assert len(sent) == 1                          # still cached: hourly gear

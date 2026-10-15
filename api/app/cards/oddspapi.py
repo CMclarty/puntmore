@@ -468,6 +468,12 @@ class OddsPapiClient:
             m = _WAIT_RE.search(resp.text or "")
             time.sleep(min(5.0, float(m.group(1)) + 0.2 if m else MIN_REQUEST_GAP))
             resp = self._send(path, params)
+        if resp.status_code == 404 and "FIXTURE_NOT_FOUND" in (resp.text or ""):
+            # Nothing scheduled in these competitions (e.g. the internationals
+            # outside a window) — an EMPTY answer, not a failure. Returned as
+            # such so it is cached at the loosest gear (hourly) rather than
+            # retried as an error every 10 minutes; each retry is billed.
+            return []
         if resp.status_code != 200:
             raise RuntimeError(f"OddsPapi {path}: HTTP {resp.status_code}: {resp.text[:200]}")
         return resp.json()
