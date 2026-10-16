@@ -85,9 +85,14 @@ function kickoff(iso) {
   return day + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-// Score: the leg's Kelly growth in the offer, scaled so the best leg on the
-// list is 100. Relative on purpose — the raw figure (a fraction of a percent
-// per bet) means nothing at a glance; "how close to the best" does.
+// Score: the leg's Kelly growth in the offer against a FIXED yardstick — 100
+// is a fair 1.25 leg (the neutral partner every leg is already scored beside).
+// Absolute, so a number means the same thing every day (Callum, Oct 2026: a
+// relative "best = 100" said nothing about whether a leg was any good).
+// Tiers: 100+ better than a fair short leg, 80-99 decent filler, 60-79 weak,
+// below 60 poor — each in its own muted colour.
+const scoreTier = s => (s >= 100 ? f.s100 : s >= 80 ? f.s80 : s >= 60 ? f.s60 : f.sLow)
+
 function Row({ bet, score }) {
   return (
     <div className={`${f.row} ${score != null ? f.scored : ''}`}>
@@ -98,7 +103,7 @@ function Row({ bet, score }) {
       </span>
       <span className={f.odds}>{bet.odds.toFixed(2)}</span>
       <span className={`${f.value} ${bet.value >= 0.04 ? f.strong : ''}`}>{evPct(bet.value)}</span>
-      {score != null && <span className={f.score}>{score}</span>}
+      {score != null && <span className={`${f.score} ${scoreTier(score)}`}>{score}</span>}
     </div>
   )
 }
@@ -189,10 +194,11 @@ export default function CardsPage() {
     }
   }
   const scored = tab !== 'value'
-  const top = Math.max(0, ...list.map(x => x.s))
+  const neutral = { odds: ACCA_DEFAULTS.refOdds, value: 0 }
+  const yardstick = refund ? legScore(neutral, ACCA_DEFAULTS) : boostLegScore(neutral).growth
   const body = list.length
     ? list.map(({ b, s }) => <Row key={b.matchId + b.pick} bet={b}
-        score={scored ? (top > 0 ? Math.round(100 * s / top) : 0) : null} />)
+        score={scored ? (yardstick > 0 ? Math.round(100 * s / yardstick) : 0) : null} />)
     : <p className={f.empty}>{applied ? 'Nothing matches these filters.'
       : tab === 'value' ? 'No bets at or above fair right now.' : `No legs at ${ACCA_FLOOR}+ right now.`}</p>
 

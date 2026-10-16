@@ -640,8 +640,12 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   "this is a tool — keep it clean"; open, tap one of three, bet in seconds).
   Filters (market, kick-off, max odds, min value, sort) are FOLDED
   under one line naming what is applied — never an always-open panel.
-  Refund and Boost show a SCORE column: Kelly growth scaled so the best leg
-  on the list is 100 (relative, so it reads at a glance).
+  Refund and Boost show a SCORE column: the leg's Kelly growth against a
+  FIXED yardstick — 100 = a fair 1.25 leg (`refOdds`, the neutral partner it
+  is scored beside), so a number means the same thing every day. Muted tiers:
+  100+ green (better than a fair short leg), 80-99 ink, 60-79 amber, <60
+  grey. It was relative (best on the list = 100) until Oct 2026, which said
+  nothing about whether a leg was any good.
   Above the list, ONE line: the acca of the top 5 by score (one per match)
   — its odds and absolute EV, so "is it worth betting" reads at a glance.
   Boost adds a stake: 0.10 Kelly on a £50k bankroll (`BOOST_KELLY`,
