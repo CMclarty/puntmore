@@ -192,8 +192,11 @@ def _compute_laddered_value(
                     quote = sides.get(side)
                     if quote is None:
                         continue
+                    # min_edge is the floor, not edge_vs: the acca tabs ask for
+                    # legs a little under fair (see edge_vs.allow_negative).
                     edge = priced.edge_vs(
-                        quote, side.lower(), require_band=True, config=config
+                        quote, side.lower(), require_band=True, config=config,
+                        allow_negative=True,
                     )
                     if edge is None or edge < min_edge:
                         continue

@@ -71,6 +71,7 @@ class FairPrice:
         side: str = "over",
         require_band: bool = True,
         config: ModelConfig | None = None,
+        allow_negative: bool = False,
     ) -> float | None:
         """Edge against a book's quote, or None if it does not clear the bar.
 
@@ -83,6 +84,12 @@ class FairPrice:
         Beyond the quoted range the bar rises further, by
         `extrapolation_edge_penalty` per count of distance — the tails are both
         where the model is weakest and where the largest apparent edges appear.
+
+        `allow_negative` returns a below-fair edge instead of None, for callers
+        that apply their own floor. The acca offers need it: a 1.30 leg at ~94%
+        of fair still belongs in a +EV insured 5-fold, and a hard floor at fair
+        here silently overruled the min_edge the Paddy page asked for (Oct 2026).
+        The band and the extrapolation penalty apply exactly as before.
         """
         if quote_odds is None or quote_odds <= 1.0:
             return None
@@ -98,7 +105,7 @@ class FairPrice:
 
         if config is not None and self.beyond_ladder > 0:
             edge -= config.extrapolation_edge_penalty * self.beyond_ladder
-        return edge if edge > 0 else None
+        return edge if (edge > 0 or allow_negative) else None
 
 
 def _price_from(dist: CountDist, line: float) -> tuple[float, float, float]:

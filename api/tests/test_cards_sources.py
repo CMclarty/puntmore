@@ -486,10 +486,17 @@ def test_a_quote_that_only_beats_the_midpoint_is_rejected():
         "alternate_totals_corners", "soccer_epl",
     )
     fair = price_line(fit_ladder(ladder, CORNERS), 10.5, ladder)
-    # A quote a hair above fair but inside the band must not produce a row.
+    # A quote a hair above fair but inside the band is NOT value: no row at a
+    # fair-or-better floor, and below it (the acca tabs ask for legs under
+    # fair) its edge is still measured against the band's far end, so it can
+    # never read as positive.
     marginal = fair.fair_over + 0.005
-    rows = compute_laddered_value(_joined(PIN, {10.5: (marginal, 1.68)}), -0.5)
-    assert not any(r.side == "Over" and r.line == 10.5 for r in rows)
+    events = _joined(PIN, {10.5: (marginal, 1.68)})
+    assert not any(r.side == "Over" and r.line == 10.5
+                   for r in compute_laddered_value(events, 0.0))
+    below = [r for r in compute_laddered_value(events, -0.5)
+             if r.side == "Over" and r.line == 10.5]
+    assert below and all(r.edge <= 0 for r in below)
 
 
 def test_an_unfittable_ladder_is_skipped_not_crashed():

@@ -419,3 +419,19 @@ def test_the_bounds_limit_pricing_not_fitting():
     # ...but the out-of-range line still cannot be priced.
     with pytest.raises(LadderError, match="priceable range"):
         price_line(fit, 14.5, ladder)
+
+
+def test_allow_negative_returns_the_below_fair_edge_with_the_same_guards():
+    """The acca tabs floor at min_edge themselves; edge_vs must not floor at fair.
+
+    Same band and extrapolation penalty — only the cut-off at zero is lifted.
+    """
+    ladder = _ladder([7.5, 8.5, 9.5, 10.5])
+    fit = fit_ladder(ladder)
+    priced = price_line(fit, 13.5, ladder)
+    modest = priced.fair_over * 1.02
+    assert priced.edge_vs(modest, "over", True, CORNERS) is None
+    edge = priced.edge_vs(modest, "over", True, CORNERS, allow_negative=True)
+    expected = modest / priced.band_over[1] - 1 - CORNERS.extrapolation_edge_penalty * priced.beyond_ladder
+    assert edge == pytest.approx(expected)
+    assert edge < 0

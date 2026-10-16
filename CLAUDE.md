@@ -500,6 +500,12 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   every edge, and a per-count penalty beyond Pinnacle's quoted range. Fewer than
   2 two-sided Pinnacle rungs and the fixture is skipped — one rung pins nothing
   and the shape would come entirely from a stale league prior.
+  The FLOOR is `min_edge`, not the model: `edge_vs(allow_negative=True)`
+  returns below-fair edges (still measured against the band's far end, still
+  penalised beyond the ladder) so the Refund/Boost tabs get legs down to 95%
+  of fair — a 1.30 leg at ~94% still belongs in a +EV insured 5-fold. Until
+  Oct 2026 edge_vs floored at fair and silently overruled the page's request.
+  The Value tab and Discord alerts (`value_tier`) still need edge > 0.
 - **The sweep covers INTERNATIONALS too** (`cards_sport_keys`, Sept 2026):
   Nations League, Euro and European World Cup qualifiers. Without them an
   international window read as "no fixture within 48h". Club football mostly
