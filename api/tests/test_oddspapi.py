@@ -109,6 +109,14 @@ def test_suspended_prices_and_out_of_window_fixtures_are_dropped():
     assert counts["fixtures_in_window"] == 0 and counts["fixtures_listed"] == 2
 
 
+def test_the_default_window_keeps_the_weekend_a_friday_sweep_already_paid_for():
+    # odds-by-tournaments bills per request, not per fixture: a 48h cut only
+    # discarded Sunday's games from a Friday-morning response.
+    _, counts = op.to_events([_fixture(hours=60), _fixture(hours=100)],
+                             op.corner_card_markets(CATALOGUE), NAMES, now=NOW)
+    assert counts["fixtures_in_window"] == 2
+
+
 def test_a_fixture_whose_teams_cannot_be_named_is_counted_not_guessed():
     events, counts = op.to_events([_fixture()], op.corner_card_markets(CATALOGUE), {},
                                   now=NOW, window_hours=48)

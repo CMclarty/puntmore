@@ -568,7 +568,10 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   ladder is several ids and the line comes from the `/markets` CATALOGUE;
   fixtures carry participant ids, named via `/participants`; it bills per
   REQUEST and `odds-by-tournaments` returns every fixture in the tournaments
-  named, so cost is refreshes x requests, not per fixture. Refreshes follow
+  named, so cost is refreshes x requests, not per fixture. Its window is
+  therefore its own (`oddspapi_window_hours`, 7 days) — `cards_window_hours`
+  (48h) is a TheOddsApi cost dial and cut a Friday sweep's Sunday games for
+  nothing. Refreshes follow
   kickoffs (`oddspapi_ttl_tiers`, read off the cached response so choosing
   costs nothing): 2 min inside 45 min, 5 inside 2h, 15 inside 6h, else
   hourly — ~15k/month on 13 competitions x 2 books, against a 100k plan

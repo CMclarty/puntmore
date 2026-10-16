@@ -68,6 +68,13 @@ class Settings(BaseSettings):
         "17,18,24,8,23,35,34,238,7,679,UEFA Nations League,11,27"
     )
     oddspapi_tournaments_per_request: int = 5
+    # How far ahead OddsPapi fixtures are priced. NOT a cost dial, unlike
+    # cards_window_hours: odds-by-tournaments returns every fixture in the
+    # competitions named whatever the window, so trimming it to 48h only threw
+    # away games already paid for (Oct 2026: 57 of 185 listed kept, so a
+    # Friday-morning sweep missed Sunday). A week covers a midweek round and
+    # the weekend after it.
+    oddspapi_window_hours: float = 168.0
     oddspapi_ttl_seconds: int = 1800   # superseded by oddspapi_ttl_tiers; unused
     # How stale a competition chunk's odds may get, by how soon its NEXT
     # fixture kicks off (read off the cached response itself, so choosing the

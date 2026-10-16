@@ -291,7 +291,7 @@ def to_events(fixtures, markets, names, *, now=None, window_hours=None,
     """
     now = now or datetime.now(timezone.utc)
     window = timedelta(hours=window_hours if window_hours is not None
-                       else settings.cards_window_hours)
+                       else settings.oddspapi_window_hours)
     counts = {"fixtures_listed": 0, "fixtures_in_window": 0,
               "carried_paddy_prices": 0, "carried_pinnacle_prices": 0, "unnamed": 0}
     events = []
@@ -734,7 +734,7 @@ class OddsPapiPaddySource:
         self.last_sweep = {
             "source": "oddspapi",
             "fair_source": f"oddspapi:{fair_book}" if fair_book else "bettingiscool",
-            "window_hours": settings.cards_window_hours,
+            "window_hours": settings.oddspapi_window_hours,
             "tournaments": len(ids),
             "unresolved_tournaments": unresolved,
             **counts,
