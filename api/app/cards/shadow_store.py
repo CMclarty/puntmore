@@ -1,6 +1,6 @@
 """Collect and summarise the counts model's measured errors (pricing/counts/shadow.py).
 
-The beyond-ladder penalty (`extrapolation_edge_penalty`, 2% per count) was a
+The beyond-ladder penalty (`extrapolation_prob_penalty`; a flat 2% per count until Oct 2026) was a
 judgement, never measured. This measures it: each Pinnacle ladder the Paddy
 sweep fits is queued ONCE per fixture and market per `REMEASURE_S`, the sweep
 works the queue a few ladders per tick (outside the request path), and every

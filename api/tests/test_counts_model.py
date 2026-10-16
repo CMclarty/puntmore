@@ -34,19 +34,41 @@ def _truth() -> CountDist:
     return CountDist(TRUE_LAM, TRUE_D, CORNERS.grid_max)
 
 
+def _vig(p: float, margin: float) -> tuple[float, float]:
+    """Over/under prices a book loading `margin` power-style would print.
+
+    Power-style — margin weighted onto the longer price — is how books were
+    measured to load it (devig.py), and it is what the power devig inverts.
+    """
+    lo, hi = 0.3, 1.0
+    for _ in range(100):
+        k = (lo + hi) / 2
+        if p ** k + (1 - p) ** k > margin:
+            lo = k
+        else:
+            hi = k
+    k = (lo + hi) / 2
+    return 1.0 / p ** k, 1.0 / (1 - p) ** k
+
+
 def _ladder(lines, margin=1.07, league="soccer_epl", fixture="f1") -> Ladder:
     """A ladder a book with `margin` overround would print for the true dist."""
     truth = _truth()
     rungs = []
     for line in lines:
         p = model_probability(truth, line, over=True)
-        rungs.append(Rung(
-            line, over=1.0 / (p * margin), under=1.0 / ((1 - p) * margin)
-        ))
+        over, under = _vig(p, margin)
+        rungs.append(Rung(line, over=over, under=under))
     return Ladder(fixture, "corners_ft", rungs, league=league)
 
 
 FULL_LINES = [5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5]
+
+# Goals config without the 0-0 shift, so a ladder generated from a plain
+# distribution round-trips exactly.
+from dataclasses import replace as _replace
+from app.pricing.counts.config import GOALS as _GOALS
+GOALS_NO_ZERO = _replace(_GOALS, zero_excess=0.0)
 
 
 # --- 1. Round trip on a full ladder ----------------------------------------
@@ -98,7 +120,7 @@ def test_sparse_ladder_holds_dispersion_near_the_prior():
 
 def test_the_dispersion_penalty_weight_still_meets_its_criterion():
     """The constant is calibrated, not chosen — re-derive it if the fit changes."""
-    required = calibrate_dispersion_weight(CORNERS, prior=1.19, tolerance=0.05)
+    required = calibrate_dispersion_weight(CORNERS, tolerance=0.05)
     assert DISPERSION_PENALTY_WEIGHT >= required
 
 
@@ -154,11 +176,10 @@ def test_integer_line_constraint_round_trips():
     """
     truth = _truth()
     target = model_probability(truth, 10.0, over=True)
-    rungs = [Rung(10.0, over=1.0 / (target * 1.05),
-                  under=1.0 / ((1 - target) * 1.05))]
+    rungs = [Rung(10.0, *_vig(target, 1.05))]
     for line in (8.5, 12.5):
         p = model_probability(truth, line, over=True)
-        rungs.append(Rung(line, over=1.0 / (p * 1.05), under=1.0 / ((1 - p) * 1.05)))
+        rungs.append(Rung(line, *_vig(p, 1.05)))
 
     fit = fit_ladder(Ladder("int", "corners_ft", rungs, league="soccer_epl"))
     assert model_probability(fit.dist, 10.0, over=True) == pytest.approx(target, abs=1e-3)
@@ -258,9 +279,10 @@ def test_an_exactly_identified_fit_is_flagged():
     # different things: the ladder cannot check the fit, AND part of the answer
     # is a stale league average. Residuals are near zero but not exactly so —
     # the prior penalty pulls the fit fractionally off the exact solution,
-    # which is the penalty doing its job.
+    # which is the penalty doing its job (a little more since Oct 2026: the
+    # measured EPL prior 1.11 sits further from this test's true 1.15).
     assert fit.dispersion_from_prior
-    assert max(abs(r) for r in fit.residuals) < 1e-3
+    assert max(abs(r) for r in fit.residuals) < 2e-3
 
 
 def test_a_non_monotone_ladder_is_priced_but_flagged():
@@ -432,7 +454,8 @@ def test_allow_negative_returns_the_below_fair_edge_with_the_same_guards():
     modest = priced.fair_over * 1.02
     assert priced.edge_vs(modest, "over", True, CORNERS) is None
     edge = priced.edge_vs(modest, "over", True, CORNERS, allow_negative=True)
-    expected = modest / priced.band_over[1] - 1 - CORNERS.extrapolation_edge_penalty * priced.beyond_ladder
+    expected = (modest / priced.band_over[1] - 1
+                - CORNERS.extrapolation_prob_penalty * priced.beyond_ladder / priced.p_over)
     assert edge == pytest.approx(expected)
     assert edge < 0
 
@@ -471,3 +494,57 @@ def test_shadow_store_queues_once_flushes_and_summarises_by_side():
     assert set(rows) == {"inside", "1 out", "2 out"}
     assert all(r["market"] == "corners" for r in rows.values())
     assert all(r["fav_err_median"] < 0.05 for r in rows.values())
+
+
+# --- Oct 2026: measured changes (CLAUDE.md "counts model, measured") --------
+
+def test_under_dispersion_is_representable_and_continuous_at_poisson():
+    """D < 1 is the COM side; both families meet at Poisson with no jump."""
+    narrow = CountDist(4.4, 0.9, 40)
+    mean = sum(k * p for k, p in enumerate(narrow._pmf))
+    var = sum(k * k * p for k, p in enumerate(narrow._pmf)) - mean ** 2
+    assert mean == pytest.approx(4.4, abs=1e-6)
+    assert var / mean == pytest.approx(0.9, abs=0.02)
+    below, above = CountDist(4.4, 1.0 - 1e-5, 40), CountDist(4.4, 1.0 + 1e-5, 40)
+    assert max(abs(a - b) for a, b in zip(below._pmf, above._pmf)) < 1e-4
+    with pytest.raises(LadderError):
+        CountDist(4.4, 0.5, 40)
+
+
+def test_an_under_dispersed_ladder_is_fitted_below_one():
+    """The old 1 + exp(x) parameterisation could not leave D >= 1 at all."""
+    truth = CountDist(2.7, 0.95, 20)
+    rungs = [Rung(line, *_vig(model_probability(truth, line, over=True), 1.04))
+             for line in (0.5, 1.5, 2.5, 3.5, 4.5)]
+    fit = fit_ladder(Ladder("goals", "goals_ft", rungs), GOALS_NO_ZERO)
+    assert fit.dispersion == pytest.approx(0.95, abs=0.02)
+    assert fit.lam == pytest.approx(2.7, abs=0.05)
+
+
+def test_power_is_the_default_devig_and_multiplicative_is_out_of_the_band():
+    from app.pricing.counts.devig import BAND_METHODS
+    assert CORNERS.default_devig == "power"
+    assert "multiplicative" not in BAND_METHODS
+
+
+def test_the_beyond_ladder_penalty_is_charged_by_probability_not_flat():
+    """Same distance beyond the ladder: the short side pays far less."""
+    ladder = _ladder([8.5, 9.5, 10.5, 11.5, 12.5])
+    fit = fit_ladder(ladder)
+    priced = price_line(fit, 5.5, ladder)          # 2 beyond the grace
+    assert priced.beyond_ladder == pytest.approx(2.0)
+    fav = priced.edge_vs(priced.band_over[1], "over", True, CORNERS, allow_negative=True)
+    long_ = priced.edge_vs(priced.band_under[1], "under", True, CORNERS, allow_negative=True)
+    # at the band's own price the raw edge is 0, so these ARE the penalties
+    assert -fav == pytest.approx(CORNERS.extrapolation_prob_penalty * 2 / priced.p_over, rel=1e-6)
+    assert -long_ > 5 * -fav
+
+
+def test_goals_carry_the_measured_zero_excess():
+    from app.pricing.counts.config import GOALS
+    base = CountDist(2.7, 0.97, 20)
+    shifted = CountDist(2.7, 0.97, 20, GOALS.zero_excess)
+    assert GOALS.zero_excess == pytest.approx(0.09)
+    assert shifted.pmf(0) == pytest.approx(base.pmf(0) * 1.09)
+    assert shifted.pmf(0) + shifted.pmf(1) == pytest.approx(base.pmf(0) + base.pmf(1))
+    assert shifted.sf(2) == pytest.approx(base.sf(2))

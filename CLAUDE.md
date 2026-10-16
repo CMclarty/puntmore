@@ -506,16 +506,47 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   of fair — a 1.30 leg at ~94% still belongs in a +EV insured 5-fold. Until
   Oct 2026 edge_vs floored at fair and silently overruled the page's request.
   The Value tab and Discord alerts (`value_tier`) still need edge > 0.
-- **The beyond-ladder penalty is being MEASURED** (`cards/shadow_store.py`,
-  Oct 2026). The 2%-per-count `extrapolation_edge_penalty` was a judgement,
-  and it is flat across sides although a probability error moves a 1.20
-  price far less than its 6.0 opposite. The sweep queues each fitted
-  Pinnacle ladder once per fixture+market per 6 h; `extrapolation_errors`
-  hides interior rungs and the outer 1-2 at each end, predicts them from
-  the rest, and stores the error (`ladder_shadow`, 30 days). Read it at
-  `/api/paddy/shadow`: odds error by market, distance beyond the ladder and
-  FAVOURITE vs LONG side. Replace the flat penalty from those numbers once
-  there are enough of them — not before. No vendor cost.
+- **THE COUNTS MODEL IS MEASURED, NOT ASSUMED** (`pricing/counts`, Oct 2026).
+  Tested against real outcomes — football-data.co.uk matches via the public
+  `xgabora/club-football-match-data-2000-2025` dataset (git clone, no API
+  cost): ~107k matches with corners and cards, ~157k with Bet365 and
+  best-of-17 over/under 2.5 prices. Do not quietly undo any of these:
+  - **Devig = POWER** (`config.default_devig`). Calibration slope of each
+    method on 156,667 two-way totals (1.00 = calibrated): multiplicative 1.109,
+    Shin 1.035, odds-ratio 1.030, **power 0.998** — same order in every margin
+    band and on ~2% best prices. Multiplicative overstates every long side; it
+    is out of the band too (`devig.BAND_METHODS` = power, shin, odds_ratio).
+    Read with multiplicative, a 7%-margin power-vigged ladder fitted D 1.15
+    as 0.83 — the devig moves the shape that much.
+  - **Shape: NB for D >= 1, Conway-Maxwell-Poisson for D < 1**, meeting at
+    Poisson (`dist.py`). NB matched corners' tails 2-5 from the mean to ~1% on
+    53k held-out matches, as well as the clustered-corners (geometric-Poisson,
+    Yip et al. JORS 2024) and Poisson-lognormal alternatives. Total goals are
+    UNDER-dispersed given the market (COM nu ~1.03) and NB could not go below
+    Poisson — the fit used `1 + exp(x)` — so an under-dispersed ladder was
+    forced to D = 1 with tails too fat. Never restore the D >= 1 floor.
+  - **Goals carry a 0-0 excess** (`GOALS.zero_excess` 0.09: 9% of P(0) moved
+    from exactly one goal). With D prior 0.97 (was a 1.05 placeholder, which
+    put O5.5 ~17% too likely) every total 0-6 lands within 0.5pp.
+  - **Dispersion priors are per league and measured** (`config.py`, with
+    provenance): corners default 1.14 (HKJC's 1.19 ran high), cards 1.10
+    overall but 1.04-1.32 by league. Upper bounds — the data's mean is
+    noisier than Pinnacle's.
+  - **The beyond-ladder penalty is a PROBABILITY per count**, charged on the
+    side bet: `edge -= extrapolation_prob_penalty * beyond / p(side)`. A tail
+    error is a probability error, so it costs a 6.0 long shot ~6x what it
+    costs the 1.20 opposite. The flat 2% of edge per count it replaced was
+    never measured and charged favourites ~2.9% for ~0.3% of real risk.
+    `0.002` is derived by `api/tools/extrapolation_sim.py` (production fit,
+    simulated Pinnacle ladders): it covers the true price on 91% of
+    extrapolated favourites and all long shots. Callum accepts a small risk
+    on short legs; do not go back to a flat rate.
+  - **Shadow mode keeps measuring** (`cards/shadow_store.py`): each fitted
+    Pinnacle ladder, once per fixture+market per 6 h, has rungs hidden and
+    predicted (`extrapolation_errors`), stored 30 days in `ladder_shadow`,
+    reported at `/api/paddy/shadow` by market, distance and favourite vs
+    long side. Re-derive the penalty from LIVE ladders once there are
+    enough; no vendor cost.
 - **The sweep covers INTERNATIONALS too** (`cards_sport_keys`, Sept 2026):
   Nations League, Euro and European World Cup qualifiers. Without them an
   international window read as "no fixture within 48h". Club football mostly
@@ -581,7 +612,7 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
 - **Match GOALS totals run through the same ladder model** (Oct 2026):
   Paddy's goals lines and Pinnacle's goals ladder both from OddsPapi
   (`totals_goals`), fitted by `pricing/counts` under `GOALS` (bounds 0.5-5.5,
-  D prior 1.05 — a placeholder, like the cards one). Same three guards.
+  D prior 0.97 and a 0-0 excess, both measured — see above). Same three guards.
 - **Goalkeeper SAVES are priced off Bookie Bashing, not Pinnacle**
   (`cards/saves.py`, Oct 2026). Pinnacle posts no saves ladder; Bookie Bashing
   publishes fair saves prices behind Callum's login, so they are read by

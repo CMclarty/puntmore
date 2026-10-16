@@ -26,7 +26,7 @@ from statistics import median
 from ..grid import _nelder_mead          # same pure-Python optimiser as SPEC 8
 from . import devig as devig_mod
 from .config import ModelConfig, CORNERS
-from .dist import CountDist
+from .dist import CountDist, MAX_DISPERSION, MIN_DISPERSION
 from .errors import LadderError
 from .ladder import Ladder
 from .lines import Constraint, line_kind, model_probability, QUARTER
@@ -56,7 +56,8 @@ class FitResult:
 
     @property
     def dist(self) -> CountDist:
-        return CountDist(self.lam, self.dispersion, self.config.grid_max)
+        return CountDist(self.lam, self.dispersion, self.config.grid_max,
+                         self.config.zero_excess)
 
     @property
     def exactly_identified(self) -> bool:
@@ -156,7 +157,7 @@ def _residual_vector(
     lam: float, d: float, constraints: list[Constraint], weights: list[float],
     config: ModelConfig, d_prior: float | None,
 ) -> list[float]:
-    dist = CountDist(lam, d, config.grid_max)
+    dist = CountDist(lam, d, config.grid_max, config.zero_excess)
     out = [
         w * (model_probability(dist, c.line, over=True) - c.target)
         for c, w in zip(constraints, weights)
@@ -190,10 +191,16 @@ def fit_ladder(
     centre = sum(c.threshold for c in constraints) / len(constraints)
     start_d = d_override if d_override is not None else (d_prior or 1.15)
 
+    # D is searched on a log scale across both families (dist.py): below 1 is
+    # the under-dispersed COM side, above it the negative binomial. It used to
+    # be 1 + exp(x), which made "narrower than Poisson" unreachable — an
+    # under-dispersed ladder was forced to D = 1 and fitted with tails too fat.
     def objective(x: list[float]) -> float:
         lam = exp(x[0])
-        d = d_override if d_override is not None else 1.0 + exp(x[1])
+        d = d_override if d_override is not None else exp(x[1])
         if lam <= 0 or lam > config.grid_max:
+            return 1e9
+        if not MIN_DISPERSION <= d <= MAX_DISPERSION:
             return 1e9
         try:
             res = _residual_vector(lam, d, constraints, weights, config, d_prior)
@@ -205,13 +212,13 @@ def fit_ladder(
     # Multi-start: Nelder-Mead is local, and a ladder centred far from the
     # truth can otherwise settle in a poor basin.
     for lam0 in (centre, centre * 0.75, centre * 1.25):
-        x0 = [log(max(lam0, 0.5)), log(max(start_d - 1.0, 1e-3))]
+        x0 = [log(max(lam0, 0.5)), log(start_d)]
         params, score = _nelder_mead(objective, x0)
         if best_score is None or score < best_score:
             best, best_score = params, score
 
     lam = exp(best[0])
-    d = d_override if d_override is not None else 1.0 + exp(best[1])
+    d = d_override if d_override is not None else exp(best[1])
 
     residuals = _residual_vector(lam, d, constraints, weights, config, d_prior)
     rung_residuals = residuals[: len(constraints)]
@@ -291,8 +298,22 @@ def _condition_number(lam, d, constraints, weights, config, d_prior) -> float:
     return sqrt(hi / lo)
 
 
+def _power_vig(p: float, booksum: float) -> tuple[float, float]:
+    """Prices with margin loaded power-style — how books load it, and what the
+    default devig inverts — so the calibration ladder carries no devig bias."""
+    lo, hi = 0.3, 1.0
+    for _ in range(100):
+        k = (lo + hi) / 2
+        if p ** k + (1 - p) ** k > booksum:
+            lo = k
+        else:
+            hi = k
+    k = (lo + hi) / 2
+    return 1.0 / p ** k, 1.0 / (1 - p) ** k
+
+
 def calibrate_dispersion_weight(
-    config: ModelConfig = CORNERS, prior: float = 1.19, tolerance: float = 0.05
+    config: ModelConfig = CORNERS, prior: float | None = None, tolerance: float = 0.05
 ) -> float:
     """Smallest penalty weight meeting the sparse-ladder stability criterion.
 
@@ -300,7 +321,13 @@ def calibrate_dispersion_weight(
     absolute probability antisymmetrically must not move fitted D more than
     `tolerance` from the prior. Written as a function rather than a magic
     number so it can be re-derived whenever the fit or the weighting changes.
+
+    `prior` defaults to the config's own league-less prior — the one the fit
+    below actually pulls toward. It was a hard-coded 1.19, which silently
+    became wrong when the measured default (1.14) replaced the old one.
     """
+    if prior is None:
+        prior = config.d_prior(None)
     from .ladder import Ladder as _L, Rung as _R
 
     def fitted_d(weight: float, bump: float) -> float:
@@ -313,7 +340,7 @@ def calibrate_dispersion_weight(
             for line, sign in ((8.5, 1.0), (9.5, -1.0)):
                 p = model_probability(dist, line, over=True) + sign * bump
                 p = min(max(p, 0.01), 0.99)
-                rungs.append(_R(line, over=1.0 / (p * 1.02), under=1.0 / ((1 - p) * 1.02)))
+                rungs.append(_R(line, *_power_vig(p, 1.02)))
             result = fit_ladder(_L("calib", "corners_ft", rungs, league=None), config)
             return result.dispersion
         finally:

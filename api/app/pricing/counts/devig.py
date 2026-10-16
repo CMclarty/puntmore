@@ -1,10 +1,22 @@
 """Removing a bookmaker's margin from a two-way market.
 
-Four methods, and the reason for four is NOT that one gets chosen. Multiplicative
-is the point estimate; the other three are refitted under in price.py to produce
-the uncertainty band. Devig choice is a genuine unknown — different methods
-disagree by more than the edges being hunted — so the disagreement is measured
-rather than assumed away.
+POWER IS THE POINT ESTIMATE (Oct 2026, measured). Tested on 156,667 Bet365
+over/under 2.5 goals markets against their results, the logistic calibration
+slope of each method's probabilities (1.00 = perfectly calibrated) was:
+
+    multiplicative 1.109    shin 1.035    odds_ratio 1.030    power 0.998
+
+and the ordering held in every margin band from 3% to 20%, and on the best
+price across ~17 books (median margin 2%, Pinnacle-like): 1.059 / 1.032 /
+1.031 / 1.019. Multiplicative removal spreads the margin evenly, but books load
+it onto the longer price (the favourite-longshot pattern), so it overstates the
+long side and understates the favourite — worst on exactly the lopsided end
+rungs of a ladder, which set the tails. It was the default until Oct 2026 on
+the strength of one small corner-market study.
+
+THE BAND keeps the three margin-aware methods (`BAND_METHODS`), so devig
+disagreement still widens the uncertainty band; multiplicative is out of the
+band too, because it is demonstrably biased rather than plausibly right.
 
 Each takes (over_odds, under_odds) as decimal prices and returns probabilities
 summing to exactly 1.
@@ -61,8 +73,8 @@ def _bisect(f, lo: float, hi: float) -> float:
 def multiplicative(over_odds: float, under_odds: float) -> tuple[float, float]:
     """Scale both implied probabilities by the same factor: p_i = q_i / sum(q).
 
-    The DEFAULT for two-way totals. It removes margin proportionally, which
-    assumes the book loads its margin evenly across the two sides.
+    NOT the default (see the module docstring): it assumes the book loads its
+    margin evenly across the two sides, which the outcome data contradicts.
     """
     q_over, q_under = _implied(over_odds, under_odds)
     total = q_over + q_under
@@ -73,9 +85,8 @@ def power(over_odds: float, under_odds: float) -> tuple[float, float]:
     """Solve for k where q_over^k + q_under^k = 1; p_i = q_i^k.
 
     Loads more margin onto the longer price, matching the favourite-longshot
-    bias. This is the method the rest of Puntmore uses for 1X2 (odds/utils.py);
-    it is here as a band member rather than the default because the published
-    corner-market evidence favours multiplicative for two-way totals.
+    bias. THE DEFAULT, and the method the rest of Puntmore uses for 1X2
+    (odds/utils.py): the best-calibrated of the four on two-way totals.
     """
     q_over, q_under = _implied(over_odds, under_odds)
 
@@ -140,7 +151,12 @@ METHODS = {
 }
 
 
-def devig(over_odds: float, under_odds: float, method: str = "multiplicative"):
+# Refitted under in price.py to widen the band. Multiplicative is excluded on
+# the evidence above; it stays in METHODS for comparison and tests.
+BAND_METHODS = ("power", "shin", "odds_ratio")
+
+
+def devig(over_odds: float, under_odds: float, method: str = "power"):
     try:
         fn = METHODS[method]
     except KeyError:

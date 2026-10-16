@@ -23,7 +23,8 @@ from dataclasses import dataclass, field
 
 from .config import ModelConfig
 from .errors import LadderError
-from .dist import CountDist
+from .devig import BAND_METHODS
+from .dist import CountDist, MIN_DISPERSION
 from .fit import FitResult, fit_ladder
 from .ladder import Ladder
 from .lines import HALF, INTEGER, QUARTER, line_kind, model_probability
@@ -31,6 +32,10 @@ from .lines import HALF, INTEGER, QUARTER, line_kind, model_probability
 # Odds are quoted to two decimal places, so that is what is returned. The fit
 # runs at full float64 precision; only the presented price is rounded.
 _DP = 2
+
+# Floor on the side probability the extrapolation penalty divides by, so a
+# near-impossible side cannot produce an unbounded penalty.
+_MIN_SIDE_P = 0.02
 
 
 def _round(value: float) -> float:
@@ -81,9 +86,11 @@ class FairPrice:
         a number; against the band's far edge it is at least a claim the model
         can support.
 
-        Beyond the quoted range the bar rises further, by
-        `extrapolation_edge_penalty` per count of distance — the tails are both
-        where the model is weakest and where the largest apparent edges appear.
+        Beyond the quoted range the bar rises further: a probability error of
+        `extrapolation_prob_penalty` per count of distance, converted to edge on
+        THIS side (divided by its win probability). Tail-shape error is a
+        probability error, so it costs a long shot far more than the short
+        favourite opposite it — one flat percentage charged both alike.
 
         `allow_negative` returns a below-fair edge instead of None, for callers
         that apply their own floor. The acca offers need it: a 1.30 leg at ~94%
@@ -104,7 +111,9 @@ class FairPrice:
         edge = quote_odds / reference - 1.0
 
         if config is not None and self.beyond_ladder > 0:
-            edge -= config.extrapolation_edge_penalty * self.beyond_ladder
+            p_side = self.p_over if side == "over" else self.p_under
+            edge -= (config.extrapolation_prob_penalty * self.beyond_ladder
+                     / max(p_side, _MIN_SIDE_P))
         return edge if (edge > 0 or allow_negative) else None
 
 
@@ -157,7 +166,7 @@ def _band_dispersions(fit: FitResult) -> list[float]:
     else:
         spread = 0.03
         base = fit.dispersion
-    return [max(base + delta, 1.0) for delta in (0.0, spread, -spread)]
+    return [max(base + delta, MIN_DISPERSION) for delta in (0.0, spread, -spread)]
 
 
 def is_priceable(line: float, config: ModelConfig) -> bool:
@@ -202,13 +211,12 @@ def price_line(fit: FitResult, line: float, ladder: Ladder | None = None) -> Fai
     overs, unders = [over], [under]
 
     for d in _band_dispersions(fit):
-        methods = ["multiplicative"] if ladder is None else list(
-            ["multiplicative", "power", "shin", "odds_ratio"]
-        )
+        methods = [fit.config.default_devig] if ladder is None else list(BAND_METHODS)
         for method in methods:
             try:
                 if ladder is None:
-                    candidate = CountDist(fit.lam, d, fit.config.grid_max)
+                    candidate = CountDist(fit.lam, d, fit.config.grid_max,
+                                          fit.config.zero_excess)
                 else:
                     refit = fit_ladder(ladder, fit.config, method=method, d_override=d)
                     candidate = refit.dist

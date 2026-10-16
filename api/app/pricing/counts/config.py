@@ -1,9 +1,11 @@
 """Every empirically sourced constant, with its provenance and staleness.
 
-All of these are placeholders meant to be replaced by Puntmore's own estimates
-once settlements accumulate. They are gathered here rather than scattered
-through the model so that replacing them is one edit and so that nobody has to
-guess which numbers are measured and which are inherited.
+Since Oct 2026 most of these are MEASURED against outcome data or derived by
+simulation through this model (each says which, and how). They are gathered
+here rather than scattered through the model so that replacing one is one edit
+and so that nobody has to guess which numbers are measured and which are
+inherited. Pinnacle-ladder measurements from the live shadow mode
+(cards/shadow_store.py) should replace them as they accumulate.
 """
 from dataclasses import dataclass, field
 
@@ -13,32 +15,62 @@ from dataclasses import dataclass, field
 CORNERS_MAX = 80
 CARDS_MAX = 40
 
-# Dispersion (D = variance/mean) priors for corners, per league.
+# Dispersion (D = variance/mean) priors, per league. They matter ONLY on a
+# sparse ladder — with four or more rungs spanning three or more counts the
+# ladder identifies D on its own and the prior is dropped entirely (see fit.py).
+# On a two-rung ladder a league average is doing real work in the price, which
+# is why `FitResult.flags` reports it rather than letting it pass silently.
 #
-# PROVENANCE: HKJC 2016-21 sample, quoted in the build spec. STALE, and not
-# re-derived here. They matter ONLY on a sparse ladder — with four or more rungs
-# spanning three or more counts the ladder identifies D on its own and the prior
-# is dropped entirely (see fit.py). On a two-rung ladder a five-year-old league
-# average is doing real work in the price, which is why `FitResult.flags`
-# reports it rather than letting it pass silently.
+# PROVENANCE (Oct 2026, measured): D of the outcome around a sharp pre-match
+# expectation (league-season level, rolling team ratings, the 1X2 and
+# over/under 2.5 prices), football-data.co.uk matches 2016/17 onwards via the
+# public xgabora/club-football-match-data dataset — 64,582 matches for corners,
+# 69,325 for cards. Analysis scripts are not in the repo; the method and the
+# numbers are in CLAUDE.md. Because a bookmaker's expectation is sharper than
+# that model's, these are UPPER bounds on what a Pinnacle ladder should imply
+# — slightly wide, which is the safe side for a prior.
+#
+# Corners replace the HKJC 2016-21 sample (EPL 1.14, La Liga 1.10, Serie A 1.25,
+# default 1.19), which ran high everywhere it could be checked.
 CORNERS_D_PRIORS: dict[str, float] = {
-    "soccer_epl": 1.14,
+    "soccer_epl": 1.11,
+    "soccer_efl_champ": 1.12,
+    "soccer_england_league1": 1.17,
     "soccer_spain_la_liga": 1.10,
-    "soccer_italy_serie_a": 1.25,
+    "soccer_italy_serie_a": 1.19,
+    "soccer_germany_bundesliga": 1.12,
+    "soccer_france_ligue_one": 1.13,
+    "soccer_portugal_primeira_liga": 1.17,
+    # No outcome data for European competition here; HKJC's figure kept.
     "soccer_uefa_champs_league": 1.30,
 }
-CORNERS_D_PRIOR_DEFAULT = 1.19
+CORNERS_D_PRIOR_DEFAULT = 1.14
 
-# Cards: NO published priors exist. 1.10 is a placeholder, not a measurement.
-# The lookup is injectable so a caller can supply the median D fitted from full
-# ladders in the same league once enough have been seen.
+# Cards, counted yellows + reds (a red as one card). Measured as above: 1.10
+# across all leagues — the old placeholder happened to be right on average —
+# but leagues differ far more than for corners, so per-league values matter.
+CARDS_D_PRIORS: dict[str, float] = {
+    "soccer_epl": 1.09,
+    "soccer_efl_champ": 1.05,
+    "soccer_england_league1": 1.04,
+    "soccer_spain_la_liga": 1.22,
+    "soccer_italy_serie_a": 1.04,
+    "soccer_germany_bundesliga": 1.18,
+    "soccer_france_ligue_one": 1.06,
+    "soccer_portugal_primeira_liga": 1.32,
+}
 CARDS_D_PRIOR_DEFAULT = 1.10
 
-# Match goals: close to Poisson (D = 1). 1.05 is a placeholder like the cards
-# one, not a measurement. Pinnacle's goals ladder is usually deep enough
-# (4+ rungs over 3+ counts) that the fit identifies D itself and drops it.
+# Match goals: slightly UNDER-dispersed given the market (COM nu ~ 1.03, i.e.
+# D ~ 0.97, fitted to 156,532 Bet365 over/under 2.5 markets 2005-2026, chosen
+# on 2005-15 and confirmed on 2016+), with 9% of P(0) moved from exactly one
+# goal to 0-0 (GOALS_ZERO_EXCESS). Together they reproduce every total from 0
+# to 6 goals to within half a percentage point; the old NB at D = 1.05 put
+# O5.5 ~17% too likely. Pinnacle's goals ladder is usually deep enough to
+# identify D itself, so the prior is the fallback and the shape is what counts.
 GOALS_MAX = 20
-GOALS_D_PRIOR_DEFAULT = 1.05
+GOALS_D_PRIOR_DEFAULT = 0.97
+GOALS_ZERO_EXCESS = 0.09
 
 
 @dataclass(frozen=True)
@@ -54,10 +86,15 @@ class ModelConfig:
     min_rungs_for_dispersion: int = 4
     min_span_for_dispersion: float = 3.0
 
-    # Devig method used for the point estimate. Multiplicative is the default
-    # for two-way totals on the one published corner-market study; the other
-    # three exist to widen the uncertainty band, not to be chosen between.
-    default_devig: str = "multiplicative"
+    # Devig method used for the point estimate. POWER, measured (devig.py):
+    # the best-calibrated on 156,667 two-way totals markets and on Pinnacle-
+    # like 2% margins; multiplicative overstated every long side. The band
+    # still sweeps devig.BAND_METHODS.
+    default_devig: str = "power"
+
+    # Fraction of P(0) moved from 1 to 0 after the shape is built (dist.py).
+    # Only total goals need it (GOALS below).
+    zero_excess: float = 0.0
 
     # Overround outside this range is flagged — not rejected. A book quoting a
     # 0.2% margin or a 20% one is telling you something about that rung.
@@ -93,10 +130,20 @@ class ModelConfig:
     # same thing on a sparse ladder as on a dense one.
     extrapolation_grace: float = 1.0
 
-    # Extra edge demanded per count beyond the quoted range. The tails are where
-    # the model is weakest AND where the biggest apparent edges appear, so the
-    # bar rises with distance rather than staying flat.
-    extrapolation_edge_penalty: float = 0.02
+    # The extra bar for a line beyond the quoted range, in PROBABILITY per
+    # count beyond the grace, converted to edge on the side being bet:
+    #
+    #     edge -= extrapolation_prob_penalty * beyond / p(side wins)
+    #
+    # A probability error of e moves a price by about e/p relatively, so the
+    # same tail-shape error is ~1% on a 1.20 favourite and ~6% on its 6.0
+    # opposite. The flat 2%-of-edge per count it replaced (Aug 2026, never
+    # measured) charged both sides alike: too much on short favourites, too
+    # little on long shots. 0.002 is MEASURED by simulation through this fit
+    # (api/tools/extrapolation_sim.py, Oct 2026): it covers the true price on
+    # 91% of extrapolated favourites and all long shots, where the flat rule
+    # charged favourites ~2.9% of edge for ~0.3% of need.
+    extrapolation_prob_penalty: float = 0.002
 
     def d_prior(self, league: str | None) -> float:
         return self.d_priors.get(league or "", self.d_prior_default)
@@ -105,7 +152,7 @@ class ModelConfig:
 CORNERS = ModelConfig()
 CARDS = ModelConfig(
     grid_max=CARDS_MAX,
-    d_priors={},
+    d_priors=dict(CARDS_D_PRIORS),
     d_prior_default=CARDS_D_PRIOR_DEFAULT,
     # A 0-5 card match with headroom. Anything above 6.5 is a red-card tail the
     # ladder cannot speak to.
@@ -116,6 +163,7 @@ GOALS = ModelConfig(
     grid_max=GOALS_MAX,
     d_priors={},
     d_prior_default=GOALS_D_PRIOR_DEFAULT,
+    zero_excess=GOALS_ZERO_EXCESS,
     # 0.5-5.5 is the range books post a match-goals ladder over; past six
     # goals is a tail no ladder speaks to.
     min_priceable_line=0.5,
