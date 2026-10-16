@@ -62,6 +62,13 @@ _REFUSED = object()
 _PRICING_LOCK = threading.Lock()
 
 
+def _market_name(market_key: str) -> str:
+    for word in ("corners", "cards", "goals"):
+        if word in market_key:
+            return word
+    return market_key
+
+
 def _signature(event: dict, market_key: str, sport_key: str, outcomes: list[dict]) -> tuple:
     return (event.get("id"), market_key, sport_key,
             tuple(sorted((o.get("name"), o.get("point"), o.get("price")) for o in outcomes)))
@@ -129,6 +136,13 @@ def _compute_laddered_value(
     rows: list[CardValueRow] = []
     fitted = refused = 0
     both_books = priceable_lines = 0
+    # Per market, so "no cards rows" says WHICH step lost them: Paddy not
+    # pricing it, Pinnacle not posting it, a ladder too thin, or no value.
+    by_market = {
+        _market_name(mk): dict(paddy_only=0, pinnacle_only=0, both=0, thin=0, unfittable=0,
+                               fitted=0, paddy_lines=0, out_of_bounds=0, rows=0, best_edge=None)
+        for mk in _CONFIGS
+    }
 
     for event in events:
         pin = _get_bookmaker(event, "pinnacle")
@@ -141,8 +155,14 @@ def _compute_laddered_value(
         for market_key, config in _CONFIGS.items():
             pin_outcomes = _get_market(pin, market_key)
             paddy_outcomes = _get_market(paddy, market_key)
+            tally = by_market[_market_name(market_key)]
             if not pin_outcomes or not paddy_outcomes:
+                if paddy_outcomes:
+                    tally["paddy_only"] += 1
+                elif pin_outcomes:
+                    tally["pinnacle_only"] += 1
                 continue
+            tally["both"] += 1
 
             ladder = ladder_from(pin_outcomes, event["id"], market_key, sport_key)
 
@@ -155,6 +175,7 @@ def _compute_laddered_value(
             two_sided = [r for r in ladder.rungs if r.over and r.under]
             if len(two_sided) < MIN_RUNGS_TO_PRICE:
                 refused += 1
+                tally["thin"] += 1
                 continue
 
             sig = _signature(event, market_key, sport_key, pin_outcomes)
@@ -174,13 +195,17 @@ def _compute_laddered_value(
                     shadow_store.queue(ladder, market_key, config)
             if fit is _REFUSED:
                 refused += 1
+                tally["unfittable"] += 1
                 continue
             fitted += 1
+            tally["fitted"] += 1
 
             for line, sides in sorted(_lines(paddy_outcomes).items()):
                 # Only lines Paddy actually offers, and only inside the range
                 # the model is allowed to quote.
+                tally["paddy_lines"] += 1
                 if not is_priceable(line, config):
+                    tally["out_of_bounds"] += 1
                     continue
                 priceable_lines += 1
                 priced = _PRICES.get((sig, line))
@@ -203,8 +228,11 @@ def _compute_laddered_value(
                         quote, side.lower(), require_band=True, config=config,
                         allow_negative=True,
                     )
+                    if edge is not None and (tally["best_edge"] is None or edge > tally["best_edge"]):
+                        tally["best_edge"] = round(edge, 4)
                     if edge is None or edge < min_edge:
                         continue
+                    tally["rows"] += 1
 
                     fair = priced.fair_over if side == "Over" else priced.fair_under
                     label = _market_label(market_key, side, line)
@@ -238,6 +266,7 @@ def _compute_laddered_value(
         "events": len(events), "with_both_books": both_books,
         "ladders_fitted": fitted, "ladders_refused": refused,
         "priceable_paddy_lines": priceable_lines, "rows": len(rows),
+        "by_market": by_market,
     })
     if fitted or refused:
         logger.info(
