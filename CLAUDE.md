@@ -506,6 +506,9 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   of fair — a 1.30 leg at ~94% still belongs in a +EV insured 5-fold. Until
   Oct 2026 edge_vs floored at fair and silently overruled the page's request.
   The Value tab and Discord alerts (`value_tier`) still need edge > 0.
+  **Lines Paddy SHOPS don't carry are never listed** (`paddy_excluded_lines`,
+  default `corners:11.5`, Callum Oct 2026 — the team bets in shops). Only
+  Paddy's price is dropped; Pinnacle's rung at that line still feeds the fit.
 - **THE COUNTS MODEL IS MEASURED, NOT ASSUMED** (`pricing/counts`, Oct 2026).
   Tested against real outcomes — football-data.co.uk matches via the public
   `xgabora/club-football-match-data-2000-2025` dataset (git clone, no API

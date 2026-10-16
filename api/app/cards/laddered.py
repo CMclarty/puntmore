@@ -62,6 +62,19 @@ _REFUSED = object()
 _PRICING_LOCK = threading.Lock()
 
 
+def _excluded_lines() -> dict[str, set[float]]:
+    """settings.paddy_excluded_lines ("corners:11.5,cards:6.5") as {market: {line}}."""
+    from ..config import settings
+    out: dict[str, set[float]] = {}
+    for item in (settings.paddy_excluded_lines or "").split(","):
+        market, _, line = item.strip().partition(":")
+        try:
+            out.setdefault(market.strip(), set()).add(float(line))
+        except ValueError:
+            continue
+    return out
+
+
 def _market_name(market_key: str) -> str:
     for word in ("corners", "cards", "goals"):
         if word in market_key:
@@ -200,9 +213,12 @@ def _compute_laddered_value(
             fitted += 1
             tally["fitted"] += 1
 
+            excluded = _excluded_lines().get(_market_name(market_key), set())
             for line, sides in sorted(_lines(paddy_outcomes).items()):
-                # Only lines Paddy actually offers, and only inside the range
-                # the model is allowed to quote.
+                # Only lines Paddy actually offers (and its shops carry), and
+                # only inside the range the model is allowed to quote.
+                if line in excluded:
+                    continue
                 tally["paddy_lines"] += 1
                 if not is_priceable(line, config):
                     tally["out_of_bounds"] += 1

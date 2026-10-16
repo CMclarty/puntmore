@@ -822,3 +822,14 @@ def test_the_feed_says_which_market_and_competition_each_bet_is():
     assert feed[0].sport_key == "soccer_epl"
     bet = next(b for b in feed[0].bets if b.pick.startswith("Over"))
     assert (bet.market, bet.pick) == ("goals", "Over 2.5 goals")
+
+
+def test_a_line_paddy_shops_do_not_carry_is_never_listed(monkeypatch):
+    """corners:11.5 is excluded by default; Pinnacle's 11.5 rung still fits."""
+    from app.cards.laddered import compute_laddered_value
+    from app.config import settings
+    events = _joined(PIN, {11.5: (9.0, 9.0), 9.5: (9.0, 9.0)})
+    lines = {r.line for r in compute_laddered_value(events, -0.5)}
+    assert 11.5 not in lines and 9.5 in lines
+    monkeypatch.setattr(settings, "paddy_excluded_lines", "")
+    assert 11.5 in {r.line for r in compute_laddered_value(events, -0.5)}

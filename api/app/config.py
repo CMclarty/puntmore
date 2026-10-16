@@ -178,6 +178,11 @@ class Settings(BaseSettings):
     # (pricing/counts) are what keep that honest; turn this off rather than
     # relaxing any of them.
     cards_use_ladder_model: bool = True
+    # Paddy lines never shown, as "market:line" pairs. Paddy SHOPS don't carry
+    # every line its website does, and the team bets in shops (Callum, Oct
+    # 2026: no 11.5 corners). Pinnacle's rung at the same line still feeds the
+    # fit — only Paddy's price is dropped.
+    paddy_excluded_lines: str = "corners:11.5"
 
     # Discord alerts for the cards sweep. OFF while the feed is being proven —
     # a value tool that alerts before anyone has checked its prices trains you
