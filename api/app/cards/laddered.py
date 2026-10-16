@@ -34,6 +34,7 @@ import logging
 import threading
 
 from ..ttl_cache import MISS, TTLCache
+from . import shadow_store
 
 from ..pricing.counts.config import CARDS, CORNERS, GOALS, ModelConfig
 from ..pricing.counts.errors import LadderError
@@ -167,6 +168,10 @@ def _compute_laddered_value(
                         "cards: %s %s not fittable — %s", event.get("id"), market_key, exc
                     )
                 _FITS.set(sig, fit)
+                if fit is not _REFUSED:
+                    # Measure the model against this ladder later, off the
+                    # request path (cards/shadow_store.py). No vendor cost.
+                    shadow_store.queue(ladder, market_key, config)
             if fit is _REFUSED:
                 refused += 1
                 continue

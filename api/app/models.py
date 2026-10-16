@@ -258,3 +258,23 @@ class User(Base):
     # created without an explicit grant keeps the pre-split behaviour.
     permissions = Column(String, nullable=False, default="*")
     created_at = Column(DateTime, default=utcnow)
+
+
+class LadderShadow(Base):
+    """One measured prediction error of the counts model (pricing/counts/shadow.py).
+
+    A Pinnacle rung hidden from the fit and predicted from the rest — inside
+    the ladder or from beyond its end — against Pinnacle's own de-vigged price.
+    Collected by the Paddy sweep to MEASURE the beyond-ladder penalty instead
+    of assuming it. Pruned to the last 30 days (cards/shadow_store.py).
+    """
+    __tablename__ = "ladder_shadow"
+
+    id = Column(Integer, primary_key=True)
+    at = Column(DateTime, default=utcnow, index=True)
+    market = Column(String, nullable=False)          # corners | cards | goals
+    fixture_id = Column(String, nullable=False)
+    line = Column(Float, nullable=False)
+    beyond = Column(Float, nullable=False)           # counts outside the fit's rungs
+    p_pred = Column(Float, nullable=False)           # model p(over), rung hidden
+    p_actual = Column(Float, nullable=False)         # Pinnacle's de-vigged p(over)

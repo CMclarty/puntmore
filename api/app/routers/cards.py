@@ -289,6 +289,22 @@ def probe_books(
     }
 
 
+@router.get("/shadow")
+def shadow_report(days: int = Query(default=14, ge=1, le=30)):
+    """How wrong the counts model is, MEASURED, by distance beyond Pinnacle's ladder.
+
+    Hidden Pinnacle rungs predicted from the rest (cards/shadow_store.py). The
+    numbers to set the beyond-ladder penalty from. Free: no vendor calls.
+    """
+    from ..database import SessionLocal
+    from ..cards import shadow_store
+    db = SessionLocal()
+    try:
+        return shadow_store.summary(db, days)
+    finally:
+        db.close()
+
+
 @router.get("/oddspapi-check")
 def oddspapi_check(request: Request, book: str | None = None, tournament: int = 17,
                    find: str = "nations,qualif,world cup,euro"):

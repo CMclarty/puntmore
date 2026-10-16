@@ -33,6 +33,7 @@ class RungError:
     predicted: float        # model's devigged p_over with this rung hidden
     actual: float           # the book's own devigged p_over
     distance: float         # counts from the remaining ladder's centre
+    beyond: float = 0.0     # counts OUTSIDE the remaining ladder (0 = inside)
 
     @property
     def error(self) -> float:
@@ -99,6 +100,58 @@ def leave_one_out(
             distance=abs(hidden.line - centre),
         ))
     return report
+
+
+def _predict(rest: list[Rung], hidden: list[Rung], ladder: Ladder,
+             config: ModelConfig) -> list[RungError]:
+    """Fit on `rest`, predict each hidden rung against the book's own price."""
+    from .devig import devig
+    try:
+        fit = fit_ladder(
+            Ladder(ladder.fixture_id, ladder.market, rest, ladder.league), config,
+        )
+    except LadderError:
+        return []
+    lo, hi = rest[0].line, rest[-1].line
+    centre = sum(r.line for r in rest) / len(rest)
+    out = []
+    for h in hidden:
+        actual, _ = devig(h.over, h.under, config.default_devig)
+        out.append(RungError(
+            line=h.line,
+            predicted=model_probability(fit.dist, h.line, over=True),
+            actual=actual,
+            distance=abs(h.line - centre),
+            beyond=max(0.0, lo - h.line, h.line - hi),
+        ))
+    return out
+
+
+def extrapolation_errors(
+    ladder: Ladder, config: ModelConfig = CORNERS, max_out: int = 2,
+) -> list[RungError]:
+    """The error the beyond-ladder penalty is meant to cover, MEASURED.
+
+    Interior rungs are hidden one at a time (beyond = 0, the baseline). Then
+    the outermost 1..max_out rungs at each END are hidden together, the rest
+    refitted, and the hidden ones predicted from OUTSIDE the remaining ladder —
+    exactly the position a Paddy line beyond Pinnacle's range is priced from.
+    At least three rungs are always left to fit on. Pinnacle's own de-vigged
+    price is the truth; nothing here needs a settled result.
+    """
+    usable = sorted((r for r in ladder.rungs if r.over and r.under),
+                    key=lambda r: r.line)
+    if len(usable) < 4:
+        return []
+    errors: list[RungError] = []
+    for i in range(1, len(usable) - 1):
+        errors += _predict(usable[:i] + usable[i + 1:], [usable[i]], ladder, config)
+    for k in range(1, max_out + 1):
+        if len(usable) - k < 3:
+            break
+        errors += _predict(usable[k:], usable[:k], ladder, config)
+        errors += _predict(usable[:-k], usable[-k:], ladder, config)
+    return errors
 
 
 def calibration_table(pairs: list[tuple]) -> dict:

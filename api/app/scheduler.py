@@ -203,6 +203,18 @@ def sweep_cards(cards_client, pinnacle=None, notifier=None) -> int:
         return 0
     LAST_CARDS_ERROR.clear()
 
+    # Measure the counts model against the ladders just fitted (a few per
+    # tick). Never allowed to break the sweep.
+    try:
+        from .cards import shadow_store
+        db = SessionLocal()
+        try:
+            shadow_store.flush(db)
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("Ladder shadow measurement failed")
+
     fresh = []
     seen = set()
     for row in rows:

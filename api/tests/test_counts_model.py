@@ -435,3 +435,39 @@ def test_allow_negative_returns_the_below_fair_edge_with_the_same_guards():
     expected = modest / priced.band_over[1] - 1 - CORNERS.extrapolation_edge_penalty * priced.beyond_ladder
     assert edge == pytest.approx(expected)
     assert edge < 0
+
+
+def test_extrapolation_errors_measure_from_outside_the_remaining_ladder():
+    """Ends hidden 1 and 2 at a time are predicted from BEYOND the rest."""
+    from app.pricing.counts.shadow import extrapolation_errors
+    errs = extrapolation_errors(_ladder([7.5, 8.5, 9.5, 10.5, 11.5, 12.5]))
+    beyonds = sorted({e.beyond for e in errs})
+    assert beyonds == [0.0, 1.0, 2.0]
+    # The ladder is generated from the model's own family, so every error is
+    # small — this pins the plumbing, not football.
+    assert all(abs(e.error) < 0.03 for e in errs)
+    assert extrapolation_errors(_ladder([8.5, 9.5, 10.5])) == []
+
+
+def test_shadow_store_queues_once_flushes_and_summarises_by_side():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.database import Base
+    from app.cards import shadow_store
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(bind=engine)
+    db = sessionmaker(bind=engine)()
+    shadow_store._PENDING.clear()
+    shadow_store._QUEUED = type(shadow_store._QUEUED)(ttl=3600, maxsize=100)
+
+    ladder = _ladder([7.5, 8.5, 9.5, 10.5, 11.5, 12.5], fixture="fx")
+    shadow_store.queue(ladder, "alternate_totals_corners", CORNERS)
+    shadow_store.queue(ladder, "alternate_totals_corners", CORNERS)   # deduped
+    assert len(shadow_store._PENDING) == 1
+    assert shadow_store.flush(db) > 0
+    report = shadow_store.summary(db)
+    assert report["fixtures"] == 1
+    rows = {r["distance"]: r for r in report["by_distance"]}
+    assert set(rows) == {"inside", "1 out", "2 out"}
+    assert all(r["market"] == "corners" for r in rows.values())
+    assert all(r["fav_err_median"] < 0.05 for r in rows.values())

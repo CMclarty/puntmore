@@ -506,6 +506,16 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   of fair — a 1.30 leg at ~94% still belongs in a +EV insured 5-fold. Until
   Oct 2026 edge_vs floored at fair and silently overruled the page's request.
   The Value tab and Discord alerts (`value_tier`) still need edge > 0.
+- **The beyond-ladder penalty is being MEASURED** (`cards/shadow_store.py`,
+  Oct 2026). The 2%-per-count `extrapolation_edge_penalty` was a judgement,
+  and it is flat across sides although a probability error moves a 1.20
+  price far less than its 6.0 opposite. The sweep queues each fitted
+  Pinnacle ladder once per fixture+market per 6 h; `extrapolation_errors`
+  hides interior rungs and the outer 1-2 at each end, predicts them from
+  the rest, and stores the error (`ladder_shadow`, 30 days). Read it at
+  `/api/paddy/shadow`: odds error by market, distance beyond the ladder and
+  FAVOURITE vs LONG side. Replace the flat penalty from those numbers once
+  there are enough of them — not before. No vendor cost.
 - **The sweep covers INTERNATIONALS too** (`cards_sport_keys`, Sept 2026):
   Nations League, Euro and European World Cup qualifiers. Without them an
   international window read as "no fixture within 48h". Club football mostly
