@@ -58,10 +58,9 @@
 .row > :nth-child(n+3) { text-align: right; }
 .scored { grid-template-columns: 22px 1fr 38px 54px 42px; gap: 8px; }
 .score { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--ink); }
-/* Score tiers: muted, but each distinct at a glance. */
+/* Score tiers: green = smash, orange = filler, grey = leave it. */
 .s100 { color: #2F7D55; }
-.s80 { color: var(--ink); }
-.s60 { color: #A8742C; }
+.s80 { color: #C2611F; }
 .sLow { color: var(--faint); font-weight: 500; }
 .top5 {
   display: flex; align-items: baseline; gap: 14px;

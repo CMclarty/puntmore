@@ -89,9 +89,9 @@ function kickoff(iso) {
 // is a fair 1.25 leg (the neutral partner every leg is already scored beside).
 // Absolute, so a number means the same thing every day (Callum, Oct 2026: a
 // relative "best = 100" said nothing about whether a leg was any good).
-// Tiers: 100+ better than a fair short leg, 80-99 decent filler, 60-79 weak,
-// below 60 poor — each in its own muted colour.
-const scoreTier = s => (s >= 100 ? f.s100 : s >= 80 ? f.s80 : s >= 60 ? f.s60 : f.sLow)
+// Tiers (Callum): GREEN 100+ = smash it (better than a fair short leg),
+// ORANGE 80-99 = filler when an acca needs a leg, GREY below = leave it.
+const scoreTier = s => (s >= 100 ? f.s100 : s >= 80 ? f.s80 : f.sLow)
 
 function Row({ bet, score }) {
   return (

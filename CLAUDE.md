@@ -642,9 +642,8 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   under one line naming what is applied — never an always-open panel.
   Refund and Boost show a SCORE column: the leg's Kelly growth against a
   FIXED yardstick — 100 = a fair 1.25 leg (`refOdds`, the neutral partner it
-  is scored beside), so a number means the same thing every day. Muted tiers:
-  100+ green (better than a fair short leg), 80-99 ink, 60-79 amber, <60
-  grey. It was relative (best on the list = 100) until Oct 2026, which said
+  is scored beside), so a number means the same thing every day. Tiers (Callum):
+  100+ GREEN = smash it, 80-99 ORANGE = filler, below 80 GREY = leave it. It was relative (best on the list = 100) until Oct 2026, which said
   nothing about whether a leg was any good.
   Above the list, ONE line: the acca of the top 5 by score (one per match)
   — its odds and absolute EV, so "is it worth betting" reads at a glance.
