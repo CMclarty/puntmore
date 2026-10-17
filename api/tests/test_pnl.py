@@ -268,7 +268,7 @@ def test_csv_export_contains_the_full_history():
     assert rows[0] == [
         "id", "created_at", "amount", "stake", "returned",
         "price_taken", "bfsp", "vs_sp_pct", "each_way", "place_fraction",
-        "is_tip",
+        "is_tip", "ev",
     ]
     assert len(rows) == 3   # header + 2 bets, oldest first
     assert rows[1][2] == "45.00"
@@ -284,7 +284,7 @@ def test_csv_leaves_unrecorded_fields_empty_not_zero():
     # stake, returned, price_taken, bfsp, vs_sp_pct all blank; each_way is a
     # real "0" (the bet WAS win-only) and its terms are correctly absent, as is
     # the (non-tip) is_tip flag.
-    assert rows[1][3:] == ["", "", "", "", "", "0", "", "0"]
+    assert rows[1][3:] == ["", "", "", "", "", "0", "", "0", ""]
 
 
 def test_csv_export_is_scoped_to_its_owner():
@@ -343,3 +343,25 @@ def test_tip_amount_must_be_a_loss():
         "/pnl/virtuals/bets",
         json={"amount": -10, "is_tip": True, "stake": 10, "returned": 0},
     ).status_code == 422
+
+
+# --- Boost EV (virtuals) ---
+
+def test_a_boosted_bet_stores_its_ev_and_exports_it():
+    client = TestClient(app)
+    r = client.post("/pnl/virtuals/bets", json={
+        "stake": 160, "returned": 0, "price_taken": 5.0, "each_way": True,
+        "place_fraction": 0.25, "ev": 9.474,
+    })
+    assert r.status_code == 200 and r.json()["ev"] == 9.47
+    rows = list(csv.reader(io.StringIO(client.get("/pnl/virtuals/bets.csv").text)))
+    assert rows[1][-1] == "9.47"
+
+
+def test_an_ev_needs_a_stake_and_cannot_exceed_losing_it():
+    client = TestClient(app)
+    assert client.post("/pnl/virtuals/bets", json={"amount": -90, "ev": -3}).status_code == 422
+    assert client.post("/pnl/virtuals/bets",
+                       json={"stake": 90, "returned": 0, "ev": -91}).status_code == 422
+    assert client.post("/pnl/virtuals/bets",
+                       json={"amount": -10, "is_tip": True, "ev": -1}).status_code == 422

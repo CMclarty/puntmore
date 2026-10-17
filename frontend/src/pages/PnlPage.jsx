@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { getBets, addBet, deleteBet } from '../api'
-import OddsWheel, { DEFAULT_PRICE } from '../components/OddsWheel'
-import { FIELDS, RUNNER_COUNTS } from '../boost'
+import OddsWheel, { DEFAULT_PRICE, LADDER } from '../components/OddsWheel'
+import { FIELDS, RUNNER_COUNTS, priceBoost, verdictFor } from '../boost'
 import { simulate, winHalfResult } from '../pnlVariance'
 import styles from './PnlPage.module.css'
 
@@ -70,8 +70,10 @@ const vsSp = (price, sp) => pctSigned(vsSpPct(price, sp))
  *
  * Needs the stake, so flat entries (amount only) can't contribute.
  */
-const evOf = b => b.stake * (b.price_taken / b.bfsp - 1)
-const hasEv = b => b.price_taken != null && b.bfsp != null && b.stake != null
+// Virtuals have no SP: their EV is the boost model's, stored on the bet when it
+// was struck (`ev`, pounds). A bet carrying one is measured by it.
+const evOf = b => (b.ev != null ? b.ev : b.stake * (b.price_taken / b.bfsp - 1))
+const hasEv = b => b.ev != null || (b.price_taken != null && b.bfsp != null && b.stake != null)
 
 /**
  * Accumulated EV, anchored to the bet it was earned ON.
@@ -503,7 +505,8 @@ export default function PnlPage({ category = 'dogs' }) {
 
   // Which of the two ledgers this instance is, and the other one to hop to.
   const label = category === 'virtuals' ? 'Virtuals' : 'Dogs'
-  const other = category === 'virtuals' ? 'dogs' : 'virtuals'
+  // Virtuals moved to its own address (/virtuals, Oct 2026); dogs kept /pnl.
+  const otherTo = category === 'virtuals' ? '/pnl/dogs' : '/virtuals'
   const otherLabel = category === 'virtuals' ? 'Dogs' : 'Virtuals'
 
   // Re-fetch when the ledger changes. Each route mounts a fresh page with a
@@ -626,17 +629,13 @@ export default function PnlPage({ category = 'dogs' }) {
         <div className={styles.eyebrow}>
           <span>{label} · {wagers.length} bet{wagers.length === 1 ? '' : 's'}</span>
           <div className={styles.actions}>
-            {/* Virtuals boosts are priced on /boost — one tap there and back. */}
-            {category === 'virtuals' && (
-              <Link className={styles.boostHop} to="/boost">Boost</Link>
-            )}
             {category === 'virtuals' && (
               <button className={styles.undo} onClick={() => setTipOpen(o => !o)} aria-expanded={tipOpen}>
                 {tipOpen ? 'close tip' : 'tip'}
               </button>
             )}
             {/* Hop to the other ledger. */}
-            <Link className={styles.hop} to={`/pnl/${other}`}>{otherLabel}</Link>
+            <Link className={styles.hop} to={otherTo}>{otherLabel}</Link>
             {bets.length > 0 && (
               <button className={styles.undo} onClick={undoLast} disabled={busy}>undo</button>
             )}
@@ -684,7 +683,7 @@ export default function PnlPage({ category = 'dogs' }) {
                 {' '}place <b className={ewPlace < 0 ? styles.pctLow : styles.pctHigh}>{signed(ewPlace)}</b> ({ewRoi(ewPlace)})
               </span>
             )}
-            {evTotal !== null && <span>beat SP <b>{spBeat}/{measured.length}</b></span>}
+            {evTotal !== null && category === 'dogs' && <span>beat SP <b>{spBeat}/{measured.length}</b></span>}
             {allSim && <span>simmed <b>{allSim.simmed}/{allSim.total}</b></span>}
             <span>last <b>{wagers.length ? signed(wagers[wagers.length - 1].amount) : '—'}</b></span>
             {/* Export lives here, folded away: it is used rarely, and on the
@@ -829,9 +828,20 @@ function readRunners() {
 function saveRunners(n) {
   try { localStorage.setItem(RUNNERS_KEY, String(n)) } catch { /* private mode */ }
 }
-// Place terms as the fraction of the odds (0.2 = 1/5), and how to say them.
-const termsFor = n => 1 / FIELDS[n].terms
-const termsLabel = n => `1/${FIELDS[n].terms} · ${FIELDS[n].places} places`
+/**
+ * Place terms: the field's usual ones first, then every other set a card has
+ * been seen to run, for the odd race that doesn't pay the usual. Tapping the
+ * terms under the runners wheel steps through them; filing a bet, or changing
+ * the field, goes back to the usual. {places, terms}: terms is 1/terms odds.
+ */
+const TERM_SETS = [3, 4, 2].flatMap(places => [5, 4].map(terms => ({ places, terms })))
+function termsChoices(n) {
+  const usual = { places: FIELDS[n].places, terms: FIELDS[n].terms }
+  return [usual, ...TERM_SETS.filter(t => t.places !== usual.places || t.terms !== usual.terms)]
+}
+const termsLabel = t => `1/${t.terms} · ${t.places} places`
+const ladderAt = d => LADDER.findIndex(t => t.dec === d)
+const pctEv = v => pctSigned(v * 100)
 
 function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
   // The two ledgers track different things about a bet. Dogs measures the price
@@ -864,7 +874,16 @@ function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
   // Virtuals only: each-way and the place terms it pays at.
   const [ew, setEw] = useState(false)
   const [runners, setRunners] = useState(readRunners)
-  const terms = termsFor(runners)
+  const [termsIdx, setTermsIdx] = useState(0)
+  const placeTerms = termsChoices(runners)[termsIdx] ?? termsChoices(runners)[0]
+  const terms = 1 / placeTerms.terms
+  // Virtuals only: the card's price BEFORE the boost. `odds` stays the price
+  // TAKEN — the boosted one, which is what settles the bet — and follows this
+  // wheel. Untouched, it is a resting seat like the odds wheel's, so nothing
+  // is priced against it: a boost is only called, and its EV only filed, once
+  // the price has actually been set.
+  const [base, setBase] = useState(DEFAULT_PRICE)
+  const [baseTouched, setBaseTouched] = useState(false)
   // THE RESULT BUTTON IS THE COMMIT. There is no Enter: a bet is stake (already
   // pre-filled) plus one tap on the outcome, which is the whole entry. Nothing
   // is "selected" here, so there is no result state to hold — the tapped result
@@ -892,6 +911,12 @@ function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
   const onStakeChange = e => {
     setPending(null); setStakeEdited(true); setStake(sanitizeAmount(e.target.value))
   }
+  // Win-only or each-way, carrying the pre-filled unit with it while the stake
+  // is still the default.
+  function chooseEw(on) {
+    setPending(null); setEw(on)
+    if (!stakeEdited) setStake(on ? DEFAULT_STAKE_EW : DEFAULT_STAKE)
+  }
 
   // The wheels are memoised, so their onChange must keep a stable identity —
   // an inline `edit(setOdds)` is a new function every render and would re-render
@@ -902,7 +927,34 @@ function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
   // activates on its own rather than needing the tap first.
   const onBspChange = useCallback(v => { setPending(null); setBsp(v); setSpOn(true) }, [])
   const onBspActivate = useCallback(() => { setPending(null); setSpOn(true) }, [])
-  const onRunnersChange = useCallback(v => { setPending(null); setRunners(v); saveRunners(v) }, [])
+  const onRunnersChange = useCallback(v => {
+    setPending(null); setRunners(v); setTermsIdx(0); saveRunners(v)
+  }, [])
+  // The boosted wheel follows the price wheel, keeping however many rungs above
+  // it the boost was set, so a spin of the price carries a set boost with it.
+  // Before the price is first set there is no boost to keep: a boosted price
+  // already spun stays put unless the price passes it, and an untouched one
+  // simply lands on the price. Read through a ref so the handler stays stable
+  // (OddsWheel is memoised on it).
+  const cur = useRef(null)
+  cur.current = { base, odds, baseTouched, oddsTouched }
+  const onBaseChange = useCallback(next => {
+    const { base: prev, odds: b, baseTouched: set, oddsTouched: spun } = cur.current
+    let boosted = next
+    if (set) {
+      const gap = Math.max(0, ladderAt(b) - ladderAt(prev))
+      boosted = LADDER[Math.min(LADDER.length - 1, ladderAt(next) + gap)].dec
+    } else if (spun) {
+      boosted = Math.max(b, next)
+    }
+    setPending(null); setBase(next); setOdds(boosted)
+  }, [])
+  // Setting the price sets the price taken too — it is one of the two.
+  const onBaseTouch = useCallback(() => { setBaseTouched(true); setOddsTouched(true) }, [])
+  function cycleTerms() {
+    setPending(null)
+    setTermsIdx(i => (i + 1) % termsChoices(runners).length)
+  }
 
   // What the BFSP wheel shows — the odds taken until spun — is the same whether
   // it is tracking or recording. Only `spOn` decides whether it is FILED, and
@@ -929,6 +981,21 @@ function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
   // What actually leaves the till — the each-way line shows it, since a doubled
   // outlay is the easiest figure on this page to get wrong.
   const outlay = hasStake ? (isVirtuals && ew ? stakeV * 2 : stakeV) : null
+
+  // The boost, priced off the card (boost.js) once a price is set below the
+  // price taken. The verdict picks the mode — each way or win only — and the
+  // switch follows it; a tap on the switch overrides it until the call changes.
+  const boost = useMemo(() => (
+    isVirtuals && baseTouched && odds > base
+      ? priceBoost({ runners, price: base, boosted: odds, places: placeTerms.places, terms: placeTerms.terms })
+      : null
+  ), [isVirtuals, baseTouched, odds, base, runners, placeTerms.places, placeTerms.terms])
+  const verdict = verdictFor(boost)
+  const pick = verdict?.ew ?? null
+  useEffect(() => {
+    if (pick != null) chooseEw(pick)
+    // Only a CHANGE of call moves the switch, so a manual override sticks.
+  }, [pick])
 
   /**
    * What tapping `r` would file. Derived from stake, odds and the result — no
@@ -967,15 +1034,20 @@ function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
     const price = oddsTouched ? odds : null
     const sp = isVirtuals || !spOn ? null : (bsp != null ? bsp : price)
     const isEw = isVirtuals && ew
+    // The boost's EV in pounds, in the mode actually backed — the verdict's
+    // or an override of it — on the outlay actually staked.
+    const ev = boost ? Math.round(outlay * (isEw ? boost.evEw : boost.evWin) * 100) / 100 : null
     onAdd({
       stake: Math.round(outlay * 100) / 100,
       returned: Math.round(returned * 100) / 100,
       ...(price != null ? { price_taken: price } : {}),
       ...(sp != null ? { bfsp: sp } : {}),
       ...(isEw ? { each_way: true, place_fraction: terms } : {}),
+      ...(ev != null ? { ev } : {}),
     })
     setStake(stakeDefault); setStakeEdited(false)
     setOdds(DEFAULT_PRICE); setOddsTouched(false)
+    setBase(DEFAULT_PRICE); setBaseTouched(false); setTermsIdx(0)
     setBsp(null); setSpOn(false); setPending(null)
     // Each-way and its terms persist across entries — a session of virtuals is
     // usually all EW or all not, so re-toggling per bet would be pure friction.
@@ -1033,13 +1105,13 @@ function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
               type="button"
               className={`${styles.res} ${!ew ? styles.on : ''}`}
               aria-pressed={!ew}
-              onClick={() => { setPending(null); setEw(false); if (!stakeEdited) setStake(DEFAULT_STAKE) }}
+              onClick={() => chooseEw(false)}
             >Win</button>
             <button
               type="button"
               className={`${styles.res} ${ew ? styles.on : ''}`}
               aria-pressed={ew}
-              onClick={() => { setPending(null); setEw(true); if (!stakeEdited) setStake(DEFAULT_STAKE_EW) }}
+              onClick={() => chooseEw(true)}
             >E/W</button>
           </div>
         )}
@@ -1053,6 +1125,21 @@ function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
           inch of the screen — where a phone's browser toolbar is, so reaching
           for Win hit the toolbar instead. Stake and result are also the only
           two controls every entry touches; the wheels are often left alone. */}
+      {/* The boost's call, above the keys that file it: the mode to back it
+          in and its EV per £1 staked, then the other mode's — or, on a skip,
+          the boosted prices it would need. */}
+      {verdict && (
+        <div className={`${styles.verdict} ${styles[verdict.tone]}`}>
+          <span className={styles.verdictWord}>{verdict.word}</span>
+          <b className={styles.verdictEv}>{pctEv(verdict.ev)}</b>
+          <span className={styles.verdictAlt}>
+            {verdict.ew == null
+              ? `needs ${boost.breakEvenEw.toFixed(2)} e/w · ${boost.fairWin.toFixed(2)} win`
+              : verdict.ew ? `win only ${pctEv(boost.evWin)}` : `each way ${pctEv(boost.evEw)}`}
+          </span>
+        </div>
+      )}
+
       <div className={styles.results} role="group" aria-label="Record result">
         <ResultKey
           kind="resLose" label="Lose" net={netFor('lose')}
@@ -1077,23 +1164,33 @@ function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
         />
       </div>
 
-      <div className={isVirtuals && !ew ? styles.wheelsOne : styles.wheels}>
+      <div className={isVirtuals ? styles.wheelsThree : styles.wheels}>
+        {/* Virtuals: the card's price, then the boosted price taken. */}
+        {isVirtuals && (
+          <div className={styles.wheelCol}>
+            <OddsWheel
+              id="pnlPrice" label="Price" value={base}
+              onChange={onBaseChange} onTouch={onBaseTouch}
+            />
+          </div>
+        )}
         <div className={styles.wheelCol}>
           <OddsWheel
-            id="pnlOdds" label="Odds" value={odds}
+            id="pnlOdds" label={isVirtuals ? 'Boosted' : 'Odds'} value={odds}
             onChange={onOddsChange} onTouch={onOddsTouch}
           />
         </div>
-        {isVirtuals ? (ew && (
+        {isVirtuals ? (
           <div className={styles.wheelCol}>
-            {/* Field size; the place terms follow from it (see FIELDS). */}
+            {/* Field size: the boost is priced off it, and the place terms
+                follow from it (see FIELDS) — tap them for an odd race's. */}
             <OddsWheel
               id="pnlRunners" label="Runners" value={runners} seat={runners}
               onChange={onRunnersChange} ladder={RUNNERS_LADDER} decimalOnly
             />
-            <div className={styles.wNoteStatic}>{termsLabel(runners)}</div>
+            <button type="button" className={styles.wNote} onClick={cycleTerms}>{termsLabel(placeTerms)}</button>
           </div>
-        )) : (
+        ) : (
         <div className={styles.wheelCol}>
           {/* Tracks the odds taken from the start so the price is always in
               place; one tap on the wheel records it, which covers the common
@@ -1125,7 +1222,7 @@ function PnlEntry({ onAdd, busy, category, tipOpen, onTipDone }) {
             Record <b className={pendingNet > 0 ? styles.pos : styles.neg}>{signedExact(pendingNet)}</b>?
             <span className={styles.confirmSub}>
               {exact(outlay)} at {odds.toFixed(2)} · {pending}
-              {isVirtuals && ew ? ` · e/w ${runners} ran, ${termsLabel(runners)}` : ''}
+              {isVirtuals && ew ? ` · e/w ${runners} ran, ${termsLabel(placeTerms)}` : ''}
             </span>
           </p>
           <div className={styles.confirmBtns}>

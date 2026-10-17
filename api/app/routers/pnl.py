@@ -64,6 +64,11 @@ class BetIn(BaseModel):
     # carries none of the bet detail — the flag is what keeps it out of the
     # win rate and turnover.
     is_tip: bool = False
+    # Virtuals: the boost model's expected profit in pounds on this outlay
+    # (see the model). Needs a stake — an EV with nothing at risk is a number
+    # about nothing — and is bounded by it: no bet expects to lose more than
+    # its outlay.
+    ev: float | None = Field(default=None, gt=-LIMIT, lt=LIMIT)
 
     @model_validator(mode="after")
     def _one_mode(self):
@@ -76,7 +81,7 @@ class BetIn(BaseModel):
             if round(self.amount, 2) >= 0:
                 raise ValueError("A tip is a cash loss, so its amount must be negative")
             if any(v is not None for v in (self.stake, self.returned,
-                                           self.price_taken, self.bfsp)):
+                                           self.price_taken, self.bfsp, self.ev)):
                 raise ValueError("A tip carries no stake or price")
             if self.each_way or self.place_fraction is not None:
                 raise ValueError("A tip is not each-way")
@@ -98,6 +103,11 @@ class BetIn(BaseModel):
             raise ValueError("An each-way bet needs place_fraction")
         if self.place_fraction is not None and not self.each_way:
             raise ValueError("place_fraction only applies to an each-way bet")
+        if self.ev is not None:
+            if self.stake is None:
+                raise ValueError("An EV needs the stake it was measured on")
+            if self.ev < -self.stake:
+                raise ValueError("An EV cannot lose more than the stake")
         return self
 
     def net(self) -> float:
@@ -145,6 +155,7 @@ def add_bet(
         each_way=body.each_way,
         place_fraction=body.place_fraction,
         is_tip=body.is_tip,
+        ev=None if body.ev is None else round(body.ev, 2),
     )
     db.add(bet)
     db.commit()
@@ -155,7 +166,7 @@ def add_bet(
 CSV_COLUMNS = [
     "id", "created_at", "amount", "stake", "returned",
     "price_taken", "bfsp", "vs_sp_pct", "each_way", "place_fraction",
-    "is_tip",
+    "is_tip", "ev",
 ]
 
 
@@ -201,6 +212,7 @@ def export_bets_csv(
             "1" if b.each_way else "0",
             "" if b.place_fraction is None else f"{b.place_fraction:.4f}",
             "1" if b.is_tip else "0",
+            "" if b.ev is None else f"{b.ev:.2f}",
         ])
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")

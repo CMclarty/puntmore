@@ -93,3 +93,19 @@ export function priceBoost({ runners, price, boosted, places, terms }) {
     breakEvenEw: (2 - pPlace + pPlace / t) / (pWin + pPlace / t),
   }
 }
+
+// EV below this is inside the model's ±1% noise — called, but marked thin.
+export const THIN = 0.02
+
+/**
+ * The call on a priced boost (a priceBoost result): back it each way, win
+ * only, or skip it. `ew` is the mode to back it in, null on a skip; `ev` the
+ * better of the two per £1 of outlay; `tone` 'pos' | 'thin' | 'neg'.
+ */
+export function verdictFor(r) {
+  if (!r) return null
+  const ev = Math.max(r.evEw, r.evWin)
+  if (ev <= 0) return { word: 'Skip', ew: null, ev, tone: 'neg' }
+  const ew = r.evEw >= r.evWin
+  return { word: ew ? 'Each way' : 'Win only', ew, ev, tone: ev < THIN ? 'thin' : 'pos' }
+}

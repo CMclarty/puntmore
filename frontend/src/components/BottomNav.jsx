@@ -16,8 +16,8 @@ const TOOLS = [
     ),
   },
   {
-    tool: 'pnl', name: 'P&L', to: '/pnl/dogs', sub: 'Ledger', priv: true,
-    matches: (p) => p.startsWith('/pnl'),
+    tool: 'pnl', name: 'Dogs', to: '/pnl/dogs', sub: 'Ledger', priv: true,
+    matches: (p) => p.startsWith('/pnl') && !p.startsWith('/pnl/virtuals'),
     icon: (
       <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
         <polyline points="3,15 8,10 12,13 19,4"/><polyline points="14,4 19,4 19,9"/>
@@ -36,8 +36,9 @@ const TOOLS = [
     ),
   },
   {
-    tool: 'boost', name: 'Boost', to: '/boost', sub: 'Virtuals',
-    matches: (p) => p.startsWith('/boost'),
+    // The boost and the virtuals ledger, one page; shown to either grant.
+    tool: 'boost', anyOf: ['pnl', 'boost'], name: 'Virtuals', to: '/virtuals', sub: 'Boost',
+    matches: (p) => p.startsWith('/virtuals') || p.startsWith('/boost') || p.startsWith('/pnl/virtuals'),
     icon: (
       <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
         <polyline points="5,12 11,6 17,12"/><polyline points="5,17 11,11 17,17"/>

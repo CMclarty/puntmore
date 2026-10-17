@@ -1,0 +1,19 @@
+{
+  "name": "Puntmore — Virtuals",
+  "short_name": "Virtuals",
+  "description": "Betting tools — coupons, tennis arbs, cards & corners",
+  "display": "standalone",
+  "orientation": "portrait",
+  "start_url": "/virtuals",
+  "scope": "/",
+  "theme_color": "#1A1A18",
+  "background_color": "#FCFBF8",
+  "icons": [
+    {
+      "src": "/icons/boost.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

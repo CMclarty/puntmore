@@ -28,7 +28,7 @@ const CardsPage = lazy(() => import('./pages/CardsPage'))
 // fan. Opening the app normally at / keeps the fan; reaching P&L via the fan is
 // not a direct load, so this module-level capture stays on the entry URL.
 const ENTRY_PATH = window.location.pathname
-const FOCUSED_ROOTS = ['/pnl']
+const FOCUSED_ROOTS = ['/pnl', '/virtuals']
 const IS_FOCUSED = FOCUSED_ROOTS.some(r => ENTRY_PATH === r || ENTRY_PATH.startsWith(r + '/'))
 
 // AccaBonusPage and CardsPage are surfaced only to a grant that includes them
@@ -89,7 +89,14 @@ export default function App() {
               on dogs, the ledger that existed before the split. */}
           <Route path="/pnl" element={<Navigate to="/pnl/dogs" replace />} />
           <Route path="/pnl/dogs" element={protectTool(<PnlPage category="dogs" />, 'pnl')} />
-          <Route path="/pnl/virtuals" element={protectTool(<PnlPage category="virtuals" />, 'pnl')} />
+          {/* Virtuals (Oct 2026): the boost priced inside its ledger, one page.
+              An account with the boost but no ledger gets the calculator
+              alone. The old addresses of both halves land here. */}
+          <Route path="/virtuals" element={protectTool(
+            user?.tools?.includes('pnl') ? <PnlPage category="virtuals" /> : <BoostPage />,
+            ['pnl', 'boost'],
+          )} />
+          <Route path="/pnl/virtuals" element={<Navigate to="/virtuals" replace />} />
           {/* The Game Boy battle skin is GONE (Aug 2026) — see PLAN.md, it comes
               back once the tracker itself is finished. Its paths stay as
               redirects, not 404s: the skin was installable to a phone's home
@@ -97,9 +104,9 @@ export default function App() {
               was a skin OF rather than a dead page. */}
           <Route path="/pnl/battle" element={<Navigate to="/pnl/dogs" replace />} />
           <Route path="/pnl/dogs/battle" element={<Navigate to="/pnl/dogs" replace />} />
-          <Route path="/pnl/virtuals/battle" element={<Navigate to="/pnl/virtuals" replace />} />
+          <Route path="/pnl/virtuals/battle" element={<Navigate to="/virtuals" replace />} />
           <Route path="/kelly" element={protectTool(<KellyPage />, 'kelly')} />
-          <Route path="/boost" element={protectTool(<BoostPage />, 'boost')} />
+          <Route path="/boost" element={<Navigate to="/virtuals" replace />} />
           <Route path="/shop" element={protectTool(<ShopPage />, 'shop')} />
           {/* 365: the bet365 offers, a tab each. /accabonus and /tennis are
               the acca boost's old addresses. */}
@@ -142,7 +149,8 @@ function Protected({ user, tool, onLogout, children }) {
     const next = encodeURIComponent(location.pathname + location.search)
     return <Navigate to={`/login?next=${next}`} replace />
   }
-  if (!user.tools?.includes(tool)) return <NoAccess onLogout={onLogout} />
+  // One tool, or any of several (a page two grants can reach).
+  if (![].concat(tool).some(t => user.tools?.includes(t))) return <NoAccess onLogout={onLogout} />
   return children
 }
 

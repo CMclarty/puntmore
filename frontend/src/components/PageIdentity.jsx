@@ -10,8 +10,7 @@ import { useLocation } from 'react-router-dom'
 const IDENTITIES = [
   { match: (p) => p === '/upload', title: 'Puntmore — Upload', icon: '/icons/upload.svg', manifest: '/manifests/upload.webmanifest' },
   { match: (p) => p === '/pnl/dogs', title: 'P&L — Dogs', icon: '/icons/pnl-dogs.svg', manifest: '/manifests/pnl-dogs.webmanifest' },
-  { match: (p) => p === '/pnl/virtuals', title: 'P&L — Virtuals', icon: '/icons/pnl-virtuals.svg', manifest: '/manifests/pnl-virtuals.webmanifest' },
-  { match: (p) => p === '/boost', title: 'Puntmore — Boost', icon: '/icons/boost.svg', manifest: '/manifests/boost.webmanifest' },
+  { match: (p) => p === '/virtuals', title: 'Puntmore — Virtuals', icon: '/icons/boost.svg', manifest: '/manifests/virtuals.webmanifest' },
   { match: (p) => p === '/kelly', title: 'Puntmore — Kelly', icon: '/icons/kelly.svg', manifest: '/manifests/kelly.webmanifest' },
   { match: (p) => p === '/shop', title: 'Puntmore — Shop Visits', icon: '/icons/shop.svg', manifest: '/manifests/shop.webmanifest' },
   { match: (p) => p.startsWith('/365'), title: 'Puntmore — 365', icon: '/icons/accabonus.svg', manifest: '/manifests/accabonus.webmanifest' },

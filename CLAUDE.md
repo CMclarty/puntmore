@@ -39,6 +39,14 @@ saves, all against Paddy Power): page `/paddy`, API `/api/paddy/*`. `/cards`
 is its legacy alias in the same way — page redirect, API mounted twice. The
 permission, `ENABLE_CARDS` and the `app/cards/` package keep the old name on
 purpose: renaming the permission revokes existing accounts' access.
+**Virtuals** (Oct 2026) is the virtual-racing boost priced INSIDE the virtuals
+P&L ledger, one page at `/virtuals`: Price → Boosted → Runners wheels, the
+boost's call (each way / win only / skip, `boost.js::verdictFor`) above the
+result keys that file the bet, and the switch follows the call until tapped.
+A boosted bet stores the model's EV in pounds (`bets.ev`), which is virtuals'
+EV line — it has no Betfair SP. `/boost` and `/pnl/virtuals` redirect there;
+an account granted `boost` without `pnl` gets the old calculator
+(`BoostPage`) at the same address. The nav calls the dogs ledger "Dogs".
 
 ## Odds sources
 - **Coupon tracker** → `BettingIsCoolProvider` (`providers/bettingiscool.py`).

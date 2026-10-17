@@ -177,19 +177,6 @@
   padding: 2px 7px;
 }
 
-.boostHop {
-  border: 1px solid var(--accent);
-  border-radius: 5px;
-  background: var(--accent-soft);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--accent);
-  text-decoration: none;
-  padding: 2px 7px;
-}
-
 .undo {
   border: 1px solid var(--line);
   border-radius: 5px;
@@ -384,8 +371,6 @@
 .ewToggle { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .stakeRow .ewToggle { flex: 0 0 auto; width: 128px; }
 .stakeRow .ewToggle .res { min-height: 42px; padding: 0; }
-/* The runners wheel's derived terms: a statement, not a control. */
-.wNoteStatic { font-size: 9.5px; letter-spacing: 0.04em; color: var(--muted); text-align: center; }
 /* Reuses .res for its shape, but this IS a two-way selection rather than an
    action — so it keeps the single-line, uncoloured-until-chosen look the result
    keys gave up when they became the entry itself. */
@@ -403,7 +388,35 @@
 
 /* Win-only has no terms to pick, so the odds wheel takes the full width
    instead of leaving a hole where the second wheel would be. */
-.wheelsOne { display: grid; grid-template-columns: 1fr; gap: 8px; align-items: start; }
+.wheelsThree { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; align-items: start; }
+
+/* The boost's call (virtuals) — the Boost page's tones: green to back, amber
+   inside the model's noise, muted to skip. */
+.verdict {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  white-space: nowrap;
+}
+.verdict.pos { border-color: var(--accent); background: var(--accent-soft); }
+.verdict.thin { border-color: var(--amber); background: var(--amber-dim); }
+.verdictWord { font-size: 14px; font-weight: 700; }
+.verdictEv { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 600; }
+.verdict.pos .verdictWord, .verdict.pos .verdictEv { color: var(--accent); }
+.verdict.thin .verdictWord, .verdict.thin .verdictEv { color: var(--amber); }
+.verdict.neg .verdictWord, .verdict.neg .verdictEv { color: var(--muted); }
+.verdictAlt {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Staff tip — its own amount field + button, divided off from the bet entry so
    it never reads as part of a wager. */

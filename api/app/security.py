@@ -446,6 +446,10 @@ def ensure_schema() -> None:
                     "ALTER TABLE bets ADD COLUMN is_tip BOOLEAN "
                     "NOT NULL DEFAULT 0"
                 ))
+            # Boost EV (virtuals): NULL on every earlier bet, none of which
+            # recorded the pre-boost price it would be measured from.
+            if "ev" not in bcols:
+                conn.execute(text("ALTER TABLE bets ADD COLUMN ev FLOAT"))
 
     # V5 status remap: pending|live -> processing|confirmed. Existing coupons
     # were all past the old review gate, so 'pending' rows are stale uploads

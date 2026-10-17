@@ -1,13 +1,16 @@
 import { useState, useMemo, useCallback, useRef } from 'react'
-import { Link } from 'react-router-dom'
 import OddsWheel from '../components/OddsWheel'
-import { FIELDS, RUNNER_COUNTS, priceBoost } from '../boost'
+import { FIELDS, RUNNER_COUNTS, priceBoost, verdictFor } from '../boost'
 import styles from './BoostPage.module.css'
 
 /**
  * Virtual racing boost calculator — should this boosted price be backed, and
  * each-way or win only? Pure client-side maths (see boost.js), built to be
  * answered in a few taps: runners, then a common boost or the two prices.
+ *
+ * Since Oct 2026 the boost is priced inside the virtuals ledger (/virtuals,
+ * PnlPage), where the bet is filed in the same tap. This page is what /virtuals
+ * shows an account granted `boost` without `pnl` — the calculator alone.
  */
 
 // The prices virtual cards actually show, in decimal, from evens up. A boost
@@ -18,9 +21,6 @@ const DECIMALS = [
 ]
 const LADDER = DECIMALS.map(d => ({ label: d.toFixed(2), dec: d }))
 const DEFAULT = 4
-
-// EV below this is inside the model's ±1% noise — say so rather than call it.
-const THIN = 0.02
 
 const pct = (v, dp = 0) => (v * 100).toFixed(dp) + '%'
 const signed = v => (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1) + '%'
@@ -77,22 +77,13 @@ export default function BoostPage() {
   const t = terms ?? field?.terms
   const customTerms = places != null || terms != null
 
-  let verdict = null
-  if (r) {
-    const ew = r.evEw >= r.evWin
-    const best = Math.max(r.evEw, r.evWin)
-    verdict = best <= 0
-      ? { word: 'Skip', tone: 'neg', ev: best }
-      : { word: ew ? 'Each way' : 'Win only', tone: best < THIN ? 'thin' : 'pos', ev: best, thin: best < THIN }
-  }
+  const verdict = verdictFor(r)
   const noBoost = runners && !(boosted > price)
 
   return (
     <div className={styles.page}>
       <div className={styles.head}>
         <span>Virtual boost</span>
-        {/* Straight back to the virtuals ledger to log the bet. */}
-        <Link className={styles.back} to="/pnl/virtuals">Virtuals P&amp;L</Link>
       </div>
 
       <section className={styles.block}>
@@ -134,7 +125,7 @@ export default function BoostPage() {
               <span className={styles.verdictEv}>{signed(verdict.ev)}</span>
             </div>
             <div className={styles.sub}>
-              {verdict.thin
+              {verdict.tone === 'thin'
                 ? 'Within the model’s ±1% — marginal.'
                 : verdict.word === 'Skip'
                   ? `Needs ${dec(r.breakEvenEw)} each way, ${dec(r.fairWin)} win only.`

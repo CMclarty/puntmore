@@ -227,6 +227,13 @@ class Bet(Base):
     # stake/price columns stay NULL. server_default backfills existing rows as
     # ordinary bets (0), which is what every row before this column was.
     is_tip = Column(Boolean, nullable=False, default=False, server_default="0")
+    # Expected profit in POUNDS at the moment the bet was struck, from the
+    # virtuals boost model (frontend boost.js: the card's own price, overround
+    # stripped, places by Harville) on the outlay actually staked. Virtuals has
+    # no Betfair SP to measure against, so this is its only EV. NULL on every
+    # bet without a boost entered — an unboosted bet is not measured, the same
+    # way a dogs bet with no BFSP is not.
+    ev = Column(Float)
     created_at = Column(DateTime, default=utcnow, index=True)
 
 

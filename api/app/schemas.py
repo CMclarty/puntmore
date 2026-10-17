@@ -203,6 +203,7 @@ class BetOut(BaseModel):
     each_way: bool = False
     place_fraction: float | None = None
     is_tip: bool = False
+    ev: float | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
