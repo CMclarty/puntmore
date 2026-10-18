@@ -7,6 +7,9 @@ so the parser can be written from real payloads.
 
 `last_activity` is what decides whether a tab has gone stale: a kept-open
 page that has stopped receiving anything is reloaded — once, and only then.
+
+`refusals` records every 403/429 the page's OWN requests get. A kept-open page
+makes no page loads, so a block shows up here first, not as a load failing.
 """
 import collections
 import itertools
@@ -38,6 +41,7 @@ class Capture:
         self.recent = collections.deque(maxlen=ring)    # (ts, kind, url, text)
         self.last_activity = time.time()
         self.status = None                              # last main-document status
+        self.refusals = collections.deque(maxlen=50)    # (ts, status, url)
         self._n = itertools.count()
         outdir.mkdir(parents=True, exist_ok=True)
         page.on("response", self._on_response)
@@ -56,6 +60,8 @@ class Capture:
 
     def _on_response(self, resp):
         try:
+            if resp.status in (403, 429):
+                self.refusals.append((time.time(), resp.status, resp.url))
             if resp.request.resource_type == "document" and resp.frame == resp.frame.page.main_frame:
                 self.status = resp.status
             if resp.request.resource_type not in ("xhr", "fetch", "document"):
@@ -75,6 +81,10 @@ class Capture:
             if len(payload) >= _MIN_BYTES:
                 self._keep("ws", ws.url, payload)
         ws.on("framereceived", frame)
+
+    def refused_within(self, seconds: float) -> int:
+        cutoff = time.time() - seconds
+        return sum(1 for ts, _, _ in self.refusals if ts >= cutoff)
 
     def quiet_for(self, now=None) -> float:
         return (now or time.time()) - self.last_activity
