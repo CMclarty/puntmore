@@ -621,6 +621,32 @@ def catalogue_index(catalogue) -> dict[str, dict]:
     return out
 
 
+def fixture_lines(fixtures, index: dict[str, dict], bookmaker: str, names: dict[str, str],
+                  types=("totals-corners", "totals-bookings")) -> list[dict]:
+    """Per fixture: its OddsPapi id, teams, kick-off and the full-match lines
+    this bookmaker prices (two-sided) for each of `types`. For naming the exact
+    fixture a feed is missing a market on — `coverage` only gives totals."""
+    out = []
+    for fx in _as_list(fixtures):
+        book = ((fx.get("bookmakerOdds") or {}).get(bookmaker)) or {}
+        lines: dict[str, list] = {t: [] for t in types}
+        for mid, market in (book.get("markets") or {}).items():
+            info = index.get(str(mid))
+            if (info is None or info["type"] not in lines
+                    or info["period"].lower() not in _FULL_TIME or info["line"] is None):
+                continue
+            if sum(1 for o in (market.get("outcomes") or {}).values() if _price(o)) >= 2:
+                lines[info["type"]].append(float(info["line"]))
+        out.append({
+            "fixtureId": _first(fx, "fixtureId", "id"),
+            "start": _first(fx, "startTime", "start_time"),
+            "home": _first(fx, "participant1Name") or names.get(str(fx.get("participant1Id"))),
+            "away": _first(fx, "participant2Name") or names.get(str(fx.get("participant2Id"))),
+            **{t: sorted(v) for t, v in lines.items()},
+        })
+    return sorted(out, key=lambda r: str(r["start"] or ""))
+
+
 def coverage(fixtures, index: dict[str, dict], bookmaker: str) -> dict:
     """How many LINES a bookmaker quotes per fixture, by market type.
 

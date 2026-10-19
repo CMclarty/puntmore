@@ -320,7 +320,7 @@ def oddspapi_check(request: Request, book: str | None = None, tournament: int = 
     from ..cards.oddspapi import (
         OddsPapiPaddySource, _as_list, _first, _tournament_entries,
         GOALS, SAVES, catalogue_index, corner_card_markets, coverage,
-        match_total_markets, participant_names,
+        fixture_lines, match_total_markets, participant_names,
         resolve_tournaments, tournament_names,
     )
     cards = request.app.state.cards_client
@@ -377,11 +377,14 @@ def oddspapi_check(request: Request, book: str | None = None, tournament: int = 
         # ONE request: this book's whole board for one competition, summarised
         # as two-sided lines per fixture by market type.
         try:
-            out["coverage"] = coverage(
-                client.odds_by_tournaments([tournament], bookmaker=client.resolve_book(book)),
-                catalogue_index(client.catalogue()), book,
-            )
+            board = client.odds_by_tournaments([tournament], bookmaker=client.resolve_book(book))
+            index = catalogue_index(client.catalogue())
+            out["coverage"] = coverage(board, index, book)
             out["coverage"]["tournament"] = tournament
+            # The same board per fixture (no extra request): ids to quote to
+            # the vendor when a match is missing a market the site shows.
+            out["fixtures"] = fixture_lines(board, index, book,
+                                            participant_names(client.participants()))
         except Exception as exc:
             out["coverage_error"] = str(exc)
     try:

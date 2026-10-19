@@ -241,6 +241,29 @@ def test_coverage_counts_two_sided_lines_per_fixture_by_market_type():
     assert "team-totals [fulltime]" not in rep["market_types"]
 
 
+def test_fixture_lines_names_each_fixture_and_its_card_and_corner_lines():
+    index = op.catalogue_index([
+        {"marketId": 1, "marketType": "totals-corners", "handicap": 9.5, "period": "fulltime"},
+        {"marketId": 2, "marketType": "totals-bookings", "handicap": 4.5, "period": "fulltime"},
+        {"marketId": 3, "marketType": "totals-bookings", "handicap": 1.5, "period": "p1"},
+    ])
+    full = {"fixtureId": "idA", "startTime": _iso(30), "participant1Id": 17,
+            "participant2Id": 38, "bookmakerOdds": {"paddypower": {"markets": {
+                "1": {"outcomes": {"a": _p(1.9), "b": _p(1.9)}},
+                "2": {"outcomes": {"a": _p(1.8), "b": _p(2.0)}},
+                "3": {"outcomes": {"a": _p(1.8), "b": _p(2.0)}},   # first half: not a match line
+            }}}}
+    bare = {"fixtureId": "idB", "startTime": _iso(20), "participant1Name": "Lyon",
+            "participant2Name": "Lens", "bookmakerOdds": {"paddypower": {"markets": {
+                "1": {"outcomes": {"a": _p(1.9), "b": _p(1.9)}},
+            }}}}
+    rows = op.fixture_lines([full, bare], index, "paddypower", {"17": "Arsenal", "38": "Chelsea"})
+    assert [r["fixtureId"] for r in rows] == ["idB", "idA"]           # by kick-off
+    assert rows[0] == {"fixtureId": "idB", "start": _iso(20), "home": "Lyon", "away": "Lens",
+                       "totals-corners": [9.5], "totals-bookings": []}
+    assert rows[1]["home"] == "Arsenal" and rows[1]["totals-bookings"] == [4.5]
+
+
 # --- Pinnacle's fair side from the same vendor --------------------------------------
 
 PIN_MARKETS = {
