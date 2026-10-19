@@ -154,7 +154,7 @@ def test_a_sweep_costs_a_few_requests_however_many_games_and_caches(monkeypatch)
     monkeypatch.setattr(settings, "oddspapi_fair_book", "pinnacle")
     odds_calls = [c for c in fake.calls if c[0] == "/odds-by-tournaments"]
     # 11 tournaments, 5 a request, once per book
-    assert [c[1]["bookmaker"] for c in odds_calls] == ["paddypower"] * 3 + ["pinnacle"] * 3
+    assert [c[1]["bookmakers"] for c in odds_calls] == ["paddypower"] * 3 + ["pinnacle"] * 3
     first = len(fake.calls)
     src.get_events()                                  # within the TTL: all cached
     assert len(fake.calls) == first

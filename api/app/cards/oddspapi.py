@@ -554,7 +554,7 @@ class OddsPapiClient:
                     return hit
         return self._cached(self._odds, key, "/odds-by-tournaments",
                             tournamentIds=",".join(str(i) for i in ids),
-                            bookmaker=bookmaker)
+                            bookmakers=bookmaker)
 
 
 def tournament_names(data) -> dict[int, str]:
