@@ -168,3 +168,8 @@ class OCRProvider(ABC):
         self, image_bytes: bytes, media_type: str, hint: OcrHint | None = None
     ) -> ExtractedCoupon:
         ...
+
+    def read_slip(self, image_bytes: bytes, media_type: str):
+        """One bet off a photo of the Paddy terminal (AW 26) -> ExtractedSlip
+        (providers/slip_ocr.py). Not every provider reads slips."""
+        raise NotImplementedError(f"{type(self).__name__} does not read slips")

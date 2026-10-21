@@ -285,3 +285,92 @@ class LadderShadow(Base):
     beyond = Column(Float, nullable=False)           # counts outside the fit's rungs
     p_pred = Column(Float, nullable=False)           # model p(over), rung hidden
     p_actual = Column(Float, nullable=False)         # Pinnacle's de-vigged p(over)
+
+
+class AwSlip(Base):
+    """One bet the AW 26 acca project placed at the Paddy terminal (aw26/).
+
+    Read from a photo of the terminal and saved straight away, like a coupon —
+    every field editable afterwards. The team is ONE pot: `user` records who
+    uploaded it, nothing is split by it.
+
+    EV is fixed from the day's fair prices (Bookie Bashing's Group Tracker,
+    posted by the local script) once EVERY leg has one, and never recomputed
+    after — it is what the bet was worth when it was struck. Until then it is
+    NULL and `ev_note` says why.
+    """
+    __tablename__ = "aw_slips"
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
+    # When the bet was struck: the terminal's own time if the photo shows one,
+    # else the upload. The EV-per-day target counts slips by this.
+    placed_at = Column(DateTime, nullable=False, index=True)
+    user = Column(String, nullable=False)
+    image_path = Column(String, nullable=True)
+    # The terminal's bet reference, as printed. Unique where present, so the
+    # same slip photographed twice is refused rather than counted twice.
+    receipt = Column(String, nullable=True, unique=True)
+    offer = Column(String, nullable=False, default="refund")   # refund | boost | other
+    stake = Column(Float, nullable=True)            # NULL if the read missed it — fill in
+    # Printed potential returns, kept for reference against our settlement.
+    potential_returns = Column(Float, nullable=True)
+    status = Column(String, nullable=False, default="open")    # open | won | lost | refunded | void
+    returns = Column(Float, nullable=True)                     # NULL while open
+    settled_at = Column(DateTime, nullable=True)
+    ev = Column(Float, nullable=True)                          # pounds
+    ev_note = Column(String, nullable=True)                    # why EV is NULL / off-terms
+    # Set once a person changes a field: a re-scan never overwrites a correction.
+    edited = Column(Boolean, nullable=False, default=False)
+
+    legs = relationship("AwLeg", back_populates="slip", cascade="all, delete-orphan",
+                        order_by="AwLeg.position")
+
+    @property
+    def has_image(self) -> bool:
+        return bool(self.image_path)
+
+
+class AwLeg(Base):
+    """One selection on an AW 26 slip, as printed, plus what it was worth."""
+    __tablename__ = "aw_legs"
+
+    id = Column(Integer, primary_key=True)
+    slip_id = Column(Integer, ForeignKey("aw_slips.id", ondelete="CASCADE"), nullable=False, index=True)
+    position = Column(Integer, nullable=False, default=0)
+    event = Column(String, nullable=False)          # "Arsenal v Chelsea", as printed
+    market = Column(String, nullable=True)          # "Total Match Corners", as printed
+    selection = Column(String, nullable=True)       # "Over 9.5", as printed
+    odds = Column(Float, nullable=True)             # decimal, the price taken; NULL = unread
+    kickoff = Column(DateTime, nullable=True)
+    # Read off the printed market/selection (aw26/legs.py::classify), so the
+    # leg can be matched to a fair price and settled: corners | cards | goals |
+    # saves | other, the line, and over | under (None outside totals).
+    kind = Column(String, nullable=True)
+    line = Column(Float, nullable=True)
+    side = Column(String, nullable=True)
+    fair_odds = Column(Float, nullable=True)
+    # OddsPapi's fixture id, from the Paddy sweep's events, for settling.
+    fixture_id = Column(String, nullable=True)
+    result = Column(String, nullable=False, default="pending")  # pending | won | lost | void
+
+    slip = relationship("AwSlip", back_populates="legs")
+
+
+class AwFair(Base):
+    """A fair price from Bookie Bashing's Group Tracker, posted daily by the
+    local script (local/bookiebashing_tracker.py). Kept 14 days: a slip
+    uploaded after the day's scrape still finds its fairs."""
+    __tablename__ = "aw_fairs"
+
+    id = Column(Integer, primary_key=True)
+    received_at = Column(DateTime, default=utcnow, index=True)
+    home = Column(String, nullable=False)
+    away = Column(String, nullable=False)
+    kickoff = Column(DateTime, nullable=True)
+    market = Column(String, nullable=True)
+    selection = Column(String, nullable=True)
+    kind = Column(String, nullable=True)
+    line = Column(Float, nullable=True)
+    side = Column(String, nullable=True)
+    fair_odds = Column(Float, nullable=False)

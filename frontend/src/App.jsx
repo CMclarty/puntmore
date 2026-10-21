@@ -18,6 +18,7 @@ const PnlPage = lazy(() => import('./pages/PnlPage'))
 const KellyPage = lazy(() => import('./pages/KellyPage'))
 const BoostPage = lazy(() => import('./pages/BoostPage'))
 const ShopPage = lazy(() => import('./pages/ShopPage'))
+const Aw26Page = lazy(() => import('./pages/Aw26Page'))
 const AccaBonusPage = lazy(() => import('./pages/AccaBonusPage'))
 const Three65Page = lazy(() => import('./pages/Three65Page'))
 const CardsPage = lazy(() => import('./pages/CardsPage'))
@@ -108,6 +109,7 @@ export default function App() {
           <Route path="/kelly" element={protectTool(<KellyPage />, 'kelly')} />
           <Route path="/boost" element={<Navigate to="/virtuals" replace />} />
           <Route path="/shop" element={protectTool(<ShopPage />, 'shop')} />
+          <Route path="/aw26" element={protectTool(<Aw26Page />, 'aw26')} />
           {/* 365: the bet365 offers, a tab each. /accabonus and /tennis are
               the acca boost's old addresses. */}
           <Route path="/365" element={<Three65Page tools={user?.tools} />}>

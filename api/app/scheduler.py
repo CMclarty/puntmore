@@ -348,6 +348,16 @@ def sweep_accabonus(arbs_client, notifier=None) -> int:
     return len(rows)
 
 
+def aw26_daily(notifier=None):
+    from .aw26.service import run_daily
+    db = SessionLocal()
+    try:
+        message = run_daily(db, notifier)
+        logger.info("aw26 daily: %s", message.replace("\n", " | "))
+    finally:
+        db.close()
+
+
 def start_scheduler(
     odds_provider, notifier=None, odds_client=None, cards_client=None, arbs_client=None,
 ) -> BackgroundScheduler:
@@ -434,6 +444,21 @@ def start_scheduler(
             next_run_time=utcnow(),
             kwargs={"scheduler": scheduler, "client": odds_client, "notifier": notifier},
         )
+
+    # AW 26: settle and post the day just gone, each morning (London). 08:47
+    # rather than on the hour — scheduled work bunches at :00.
+    scheduler.add_job(
+        aw26_daily,
+        trigger="cron",
+        hour=8,
+        minute=47,
+        timezone="Europe/London",
+        id="aw26_daily",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        kwargs={"notifier": notifier},
+    )
 
     if notifier:
         def _on_job_error(event):

@@ -308,3 +308,42 @@ class CardValueOut(BaseModel):
     fair_odds: float
     pinnacle_margin: float
     edge: float
+
+
+# AW 26 — the acca project's slips
+class AwLegOut(BaseModel):
+    id: int
+    position: int
+    event: str
+    market: str | None = None
+    selection: str | None = None
+    odds: float | None = None
+    kickoff: datetime | None = None
+    kind: str | None = None
+    line: float | None = None
+    side: str | None = None
+    fair_odds: float | None = None
+    fixture_id: str | None = None
+    result: str
+
+    model_config = {"from_attributes": True}
+
+
+class AwSlipOut(BaseModel):
+    id: int
+    placed_at: datetime
+    user: str
+    receipt: str | None = None
+    offer: str
+    stake: float | None = None
+    potential_returns: float | None = None
+    status: str
+    returns: float | None = None
+    settled_at: datetime | None = None
+    ev: float | None = None
+    ev_note: str | None = None
+    edited: bool = False
+    has_image: bool = False
+    legs: list[AwLegOut] = []
+
+    model_config = {"from_attributes": True}

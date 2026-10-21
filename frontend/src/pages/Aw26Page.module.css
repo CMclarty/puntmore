@@ -1,0 +1,70 @@
+/* AW 26: the headline, the add row, then the slips. */
+.page { display: flex; flex-direction: column; flex: 1; padding-bottom: 72px; }
+
+.head { padding: 12px 14px 8px; border-bottom: 1px solid var(--line); }
+.figures { display: flex; gap: 22px; align-items: flex-end; }
+.stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.label {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint);
+}
+.big { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 600; line-height: 1; white-space: nowrap; }
+.of { font-size: 13px; font-weight: 500; color: var(--muted); }
+.line { margin-top: 7px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--muted); }
+.line b { color: var(--ink); font-weight: 600; }
+.pos { color: var(--accent); }
+.neg { color: var(--red); }
+.muted { color: var(--faint); }
+
+.add { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.chips { display: flex; gap: 5px; flex-wrap: wrap; }
+.chip {
+  min-height: 34px; padding: 0 11px; border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--paper); font: inherit; font-size: 12px; font-weight: 700; color: var(--muted);
+}
+.chip.on { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.addBtn {
+  margin-left: auto; min-height: 40px; padding: 0 18px; border: none; border-radius: 9px;
+  background: var(--ink); color: var(--paper); font: inherit; font-size: 14px; font-weight: 700;
+}
+.addBtn:disabled { opacity: 0.6; }
+.error { margin: 8px 14px 0; color: var(--red); font-size: 12px; }
+
+.list { list-style: none; }
+.slip { border-bottom: 1px solid var(--line); }
+.slipBtn {
+  display: block; width: 100%; padding: 9px 14px; border: none; background: none; text-align: left;
+  font: inherit; color: inherit;
+}
+.slipTop { display: flex; gap: 10px; align-items: baseline; font-size: 12px; white-space: nowrap; }
+.when { color: var(--muted); }
+.offer { text-transform: uppercase; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: var(--muted); }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.slipTop .num:nth-of-type(3) { margin-left: auto; }
+.leg {
+  display: grid; grid-template-columns: 14px minmax(0, 1fr) minmax(0, 88px) 36px 66px;
+  gap: 6px; align-items: baseline; margin-top: 4px; font-size: 12px;
+}
+.res { font-family: var(--font-mono); font-weight: 700; color: var(--muted); }
+.ev, .mk { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk { color: var(--muted); }
+.leg .num { text-align: right; }
+.note { margin-top: 5px; font-size: 11px; color: var(--faint); }
+
+.editing { padding: 10px 14px; background: var(--zebra); }
+.editTop { display: flex; gap: 10px; align-items: flex-end; justify-content: space-between; }
+.field { display: flex; flex-direction: column; gap: 3px; }
+.field input, .wide {
+  min-height: 36px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 7px;
+  background: var(--paper); font: inherit; font-size: 13px; color: var(--ink); width: 100%;
+}
+.field input { width: 76px; font-family: var(--font-mono); }
+.editLeg { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.legNums { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.link { color: var(--muted); font-size: 13px; }
+.danger, .ghost, .save {
+  min-height: 40px; padding: 0 14px; border-radius: 8px; font: inherit; font-size: 13px; font-weight: 700;
+}
+.danger { border: 1px solid var(--red); background: none; color: var(--red); }
+.ghost { margin-left: auto; border: 1px solid var(--line-strong); background: none; color: var(--muted); }
+.save { border: none; background: var(--ink); color: var(--paper); }

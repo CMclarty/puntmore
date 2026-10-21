@@ -28,6 +28,8 @@ MODEL = "claude-sonnet-5"
 # the SDK times out a non-streaming request long before a response this size
 # finishes.
 MAX_TOKENS = 64000
+# A terminal slip is a few selections: a few hundred tokens of JSON.
+SLIP_MAX_TOKENS = 4000
 
 
 class OCRTruncated(ValueError):
@@ -558,3 +560,26 @@ class ClaudeOCRProvider(OCRProvider):
             payout_ladder=_parse_ladder(data.get("payout_ladder")),
             malformed_pairs=malformed,
         )
+
+    def read_slip(self, image_bytes: bytes, media_type: str):
+        """One terminal bet (AW 26). A screen of a handful of lines, so a small
+        budget, unstreamed; thinking off for the same reason as `extract`."""
+        from .slip_ocr import SLIP_PROMPT, SLIP_SYSTEM, parse_slip
+        encoded = base64.standard_b64encode(image_bytes).decode("utf-8")
+        message = self._client.messages.create(
+            model=MODEL,
+            max_tokens=SLIP_MAX_TOKENS,
+            thinking={"type": "disabled"},
+            system=SLIP_SYSTEM,
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": media_type,
+                                             "data": encoded}},
+                {"type": "text", "text": SLIP_PROMPT},
+            ]}],
+        )
+        if message.stop_reason == "max_tokens":
+            raise OCRTruncated(f"slip read truncated at max_tokens ({SLIP_MAX_TOKENS})")
+        raw = next((b.text for b in message.content if getattr(b, "type", None) == "text"), None)
+        if raw is None:
+            raise ValueError("OCR response contained no text block")
+        return parse_slip(json.loads(_strip_code_fence(raw.strip())))

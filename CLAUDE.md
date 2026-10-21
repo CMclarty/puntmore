@@ -47,6 +47,23 @@ A boosted bet stores the model's EV in pounds (`bets.ev`), which is virtuals'
 EV line — it has no Betfair SP. `/boost` and `/pnl/virtuals` redirect there;
 an account granted `boost` without `pnl` gets the old calculator
 (`BoostPage`) at the same address. The nav calls the dogs ledger "Dogs".
+**AW 26** (Oct 2026) is the acca project's slip ledger, `/aw26` (`aw26`
+grant; `*` includes it): photos of the Paddy terminal, one per bet, read by
+the OCR seam (`read_slip`, `providers/slip_ocr.py` — transcribe only) and
+saved at once with inline edit. ONE pot for the team. Offers: Paddy refund
+(5-fold, 1.20+ legs, refund worth 0.75 of stake, NO cap — Callum), acca boost
+(`BOOST_TIERS`, the Paddy page's terms) and "other". The offer maths is
+`aw26/offers.py`, pinned to the same worked cases as `accaInsurance.js` /
+`accaBoost.js` — change both or neither. Fairs come from Bookie Bashing's
+Group Tracker via `local/bookiebashing_tracker.py` → key-guarded
+`POST /api/aw26/fairs` (the saves key). A slip's EV is fixed once EVERY leg
+has a fair, never from the legs that did, and a later scrape never moves it;
+an edit re-prices (it is a correction). Targets: £1,000 EV/day, £100,000
+profit. 08:47 London: settle open slips from their legs' results and post to
+the `aw26` Discord route. Results are recorded on the page until OddsPapi's
+results endpoints are read (`/api/aw26/results-check?fixture=`) — the
+settlement reader is written from that output, not guessed, and the Group
+Tracker reader (`parse_page`) waits on a `dump` the same way.
 
 ## Odds sources
 - **Coupon tracker** → `BettingIsCoolProvider` (`providers/bettingiscool.py`).

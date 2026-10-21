@@ -363,7 +363,7 @@ bet on either skin produces an identical payload (same test, run twice with
 different wrappers); and there is exactly one implementation of the entry pad
 in the tree.
 
-### 9. AW 26 — the acca project dashboard  — PLANNED, awaiting answers (Oct 2026)
+### 9. AW 26 — the acca project dashboard  — BUILT, two readers waiting on real pages (Oct 2026)
 Callum's brief: a new tool, **AW 26**, tracking every slip the acca project
 places — selections, stake, EV and volume — against two running targets,
 **£1,000 EV a day** and **£100,000 total profit**, with results checked daily
@@ -414,7 +414,20 @@ settled profit, the running totals and the pace each target now needs.
 with its EV; a finished slip settles itself overnight; the daily post arrives;
 the headline figures reconcile with the list to the penny (test).
 
-**Open questions (Callum)** — see the session of 21 Oct 2026.
+**Answers (Callum, 21 Oct 2026):** no end date — "AW 26" is just the
+project's name. Photos of the Paddy terminal, one per bet. One pot for the
+team. Offers: Paddy refund, acca boost, the occasional other bet. Fairs by
+scraping Bookie Bashing's Group Tracker daily. Results from OddsPapi if it
+covers them, else the web. A refund is worth 0.75 of the stake. Daily update
+to Discord, just Callum for now.
+
+**Built:** everything above, plus `local/bookiebashing_tracker.py`.
+**Waiting on real pages, deliberately not guessed:**
+- [ ] `parse_page` in the tracker script — needs `dump` of the Group Tracker.
+- [ ] Automatic results — needs `/api/aw26/results-check?fixture=<id>` on a
+      finished match to see whether OddsPapi's /scores or /settlements carry
+      corners and cards. Until then results are set on the page.
+- [ ] A real terminal photo through `read_slip`, to check the read.
 
 ---
 

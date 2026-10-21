@@ -17,7 +17,7 @@ from .models import User
 # Every tool the suite knows about. "*" in a permission string means all of
 # these plus any added later (so an admin never needs their entry edited when a
 # tool ships). Keep in sync with the routers mounted in main.py.
-ALL_TOOLS = ("coupons", "accabonus", "cards", "goalscorers", "pnl", "kelly", "boost", "shop")
+ALL_TOOLS = ("coupons", "accabonus", "cards", "goalscorers", "pnl", "kelly", "boost", "shop", "aw26")
 
 
 def hash_password(plain: str) -> str:
@@ -158,6 +158,9 @@ def enabled_tools() -> list[str]:
     # and no vendor API — there is no quota or feed to switch off, so it is
     # always surfaced and gated by the per-user grant alone.
     tools.append("shop")
+    # AW 26: its own rows and a key-guarded ingest, no vendor quota — always
+    # surfaced, grant-gated like the shop tracker.
+    tools.append("aw26")
     return tools
 
 

@@ -7,12 +7,15 @@ import google.genai.types as gtypes
 from .base import OCRProvider, ExtractedCoupon, OcrHint
 from .claude_ocr import (
     MAX_TOKENS,
+    SLIP_MAX_TOKENS,
     SYSTEM_PROMPT,
     OCRTruncated,
     build_user_prompt,
     _parse_ladder,
+    _strip_code_fence,
     read_rows,
 )
+from .slip_ocr import SLIP_PROMPT, SLIP_SYSTEM, parse_slip
 
 MODEL = "gemini-2.0-flash"
 
@@ -82,3 +85,15 @@ class GeminiOCRProvider(OCRProvider):
             payout_ladder=_parse_ladder(data.get("payout_ladder")),
             malformed_pairs=malformed,
         )
+
+    def read_slip(self, image_bytes: bytes, media_type: str):
+        """One terminal bet (AW 26) — the shared slip prompt (slip_ocr.py)."""
+        part = gtypes.Part.from_bytes(data=image_bytes, mime_type=media_type)
+        response = self._client.models.generate_content(
+            model=MODEL,
+            contents=[part, SLIP_SYSTEM + "\n\n" + SLIP_PROMPT],
+            config=gtypes.GenerateContentConfig(max_output_tokens=SLIP_MAX_TOKENS),
+        )
+        if _hit_token_cap(response):
+            raise OCRTruncated(f"slip read truncated at max_output_tokens ({SLIP_MAX_TOKENS})")
+        return parse_slip(json.loads(_strip_code_fence(response.text.strip())))
