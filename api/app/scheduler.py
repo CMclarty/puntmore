@@ -348,11 +348,11 @@ def sweep_accabonus(arbs_client, notifier=None) -> int:
     return len(rows)
 
 
-def aw26_daily(notifier=None):
+def aw26_daily(notifier=None, results_client=None):
     from .aw26.service import run_daily
     db = SessionLocal()
     try:
-        message = run_daily(db, notifier)
+        message = run_daily(db, notifier, results_client=results_client)
         logger.info("aw26 daily: %s", message.replace("\n", " | "))
     finally:
         db.close()
@@ -457,7 +457,9 @@ def start_scheduler(
         replace_existing=True,
         coalesce=True,
         max_instances=1,
-        kwargs={"notifier": notifier},
+        # The OddsPapi client (cards_client._client) is how auto-results reads
+        # /scores + /settlements; dormant until its reader is written.
+        kwargs={"notifier": notifier, "results_client": cards_client},
     )
 
     if notifier:

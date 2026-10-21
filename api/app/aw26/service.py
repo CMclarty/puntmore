@@ -188,15 +188,18 @@ def daily_message(slips, day: date) -> str:
     return "\n".join(lines)
 
 
-def run_daily(db, notifier, day: date | None = None) -> str:
-    """The morning job: settle every open slip from its legs' results, then
-    post the day just gone. Returns the message (posted when a notifier is set).
+def run_daily(db, notifier, day: date | None = None, results_client=None) -> str:
+    """The morning job: set what leg results it can from OddsPapi, settle every
+    open slip from its legs' results, then post the day just gone. Returns the
+    message (posted when a notifier is set).
 
-    Legs are settled from results recorded on them (on the page, or by a
-    results source once one is wired — see /api/aw26/results-check); a leg with
-    no result stays pending and its slip stays open, never assumed."""
+    Auto-results runs first (aw26/results.py), dormant until its reader is
+    written from real /scores + /settlements output. A leg with no result —
+    auto or by hand — stays pending and its slip stays open, never assumed."""
     from ..notifications.routes import notify_rows
+    from .results import apply_results
     now = utcnow()
+    apply_results(db, results_client, now=now)
     slips = db.query(AwSlip).all()
     for slip in slips:
         if slip.status == "open":

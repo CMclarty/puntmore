@@ -115,6 +115,109 @@ def test_fairs_need_the_key():
     assert _post_fairs(client, key="wrong").status_code == 401
 
 
+# --- slip ingest (a bet read off-server, e.g. by the desktop session) --------
+
+INGEST_LEGS = [  # same fixtures as MOCK_FAIRS, so the fairs table also matches
+    ("Arsenal v Chelsea", "Total Match Corners", "Over 8.5", 1.30, 1.28),
+    ("Man City v Liverpool", "Total Match Corners", "Over 9.5", 1.36, 1.36),
+    ("Everton v Leeds", "Total Match Cards", "Over 3.5", 1.33, 1.33),
+    ("Brighton v Fulham", "Total Match Corners", "Under 11.5", 1.25, 1.25),
+    ("Wolves v Burnley", "Total Goals", "Over 1.5", 1.30, 1.30),
+]
+
+
+def _ingest(client, *, offer="refund", stake=50, receipt="REF-1",
+            with_fairs=True, key=KEY):
+    legs = []
+    for ev, m, s, odds, fair in INGEST_LEGS:
+        leg = {"event": ev, "market": m, "selection": s, "odds": odds}
+        if with_fairs:
+            leg["fair_odds"] = fair
+        legs.append(leg)
+    return client.post("/aw26/slips/ingest", headers={"X-API-Key": key},
+                       json={"receipt": receipt, "offer": offer, "stake": stake,
+                             "legs": legs})
+
+
+def test_ingested_slip_with_per_leg_fairs_is_priced_on_arrival():
+    client = TestClient(app)
+    r = _ingest(client)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["legs"] == 5 and body["unpriced_legs"] == 0
+    want = expected_value("refund", 50, [1.30, 1.36, 1.33, 1.25, 1.30],
+                          [1.28, 1.36, 1.33, 1.25, 1.30])
+    assert body["ev"] == round(want, 2)
+    slips = client.get("/aw26/slips").json()["slips"]
+    assert len(slips) == 1 and slips[0]["ev"] == round(want, 2)
+    assert slips[0]["stake"] == 50 and not slips[0]["has_image"]
+
+
+def test_ingested_slip_without_fairs_prices_from_the_fairs_table():
+    client = TestClient(app)
+    _post_fairs(client)
+    r = _ingest(client, with_fairs=False)
+    assert r.status_code == 200, r.text
+    assert r.json()["ev"] is not None and r.json()["unpriced_legs"] == 0
+
+
+def test_ingested_slip_with_no_fairs_anywhere_waits_unpriced():
+    client = TestClient(app)
+    r = _ingest(client, with_fairs=False)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ev"] is None and body["unpriced_legs"] == 5
+
+
+def test_slip_ingest_needs_the_key():
+    client = TestClient(app)
+    assert _ingest(client, key="wrong").status_code == 401
+
+
+def test_ingesting_the_same_receipt_twice_is_refused():
+    client = TestClient(app)
+    assert _ingest(client, receipt="DUP").status_code == 200
+    assert _ingest(client, receipt="DUP").status_code == 409
+
+
+def test_slip_ingest_rejects_an_unknown_offer():
+    client = TestClient(app)
+    assert _ingest(client, offer="bogus").status_code == 400
+
+
+# --- auto-results seam (wired into the daily job, dormant until written) -----
+
+def test_daily_auto_results_is_dormant_and_bills_nothing():
+    from app.aw26.service import run_daily
+    from app.models import AwLeg
+
+    calls = []
+
+    class FakeOddsPapi:
+        def get(self, path, **params):
+            calls.append((path, params))         # a billable call, if it happens
+            return {}
+
+    class FakeCards:
+        _client = FakeOddsPapi()
+
+    db = Session()
+    try:
+        slip = AwSlip(placed_at=datetime(2026, 10, 17, 12, 0), user="t",
+                      offer="refund", stake=50, status="open")
+        slip.legs.append(AwLeg(position=0, event="Arsenal v Chelsea", odds=1.30,
+                               result="pending", fixture_id="FX1"))
+        db.add(slip)
+        db.commit()
+        run_daily(db, None, results_client=FakeCards())
+        # Dormant: no OddsPapi requests, and the leg is NEVER assumed a result.
+        assert calls == []
+        db.refresh(slip)
+        assert slip.legs[0].result == "pending" and slip.status == "open"
+    finally:
+        db.close()
+
+
 def test_leg_results_settle_the_slip_and_the_summary_reconciles():
     client = TestClient(app)
     _post_fairs(client)
