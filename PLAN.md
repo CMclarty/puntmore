@@ -363,6 +363,59 @@ bet on either skin produces an identical payload (same test, run twice with
 different wrappers); and there is exactly one implementation of the entry pad
 in the tree.
 
+### 9. AW 26 — the acca project dashboard  — PLANNED, awaiting answers (Oct 2026)
+Callum's brief: a new tool, **AW 26**, tracking every slip the acca project
+places — selections, stake, EV and volume — against two running targets,
+**£1,000 EV a day** and **£100,000 total profit**, with results checked daily
+and a running update.
+
+**Shape (one page, `/aw26`, own grant `aw26`)** — built to the UI rules: no
+decoration, list don't recommend.
+- Two headline lines: EV today / £1,000 (and the running EV pace: total EV
+  against days elapsed × £1,000), and profit to date / £100,000.
+- Volume: slips, legs and turnover — today and to date.
+- The slip list, newest first: placed time, the selections (match · market ·
+  line · odds), stake, EV, result. Tap a slip for its photo.
+
+**Data** — two tables, the slip and its legs; nothing derived is stored except
+what was true AT BET TIME.
+- `aw_slips`: placed_at, user, photo, offer (refund insurance / acca boost /
+  single), stake, odds, status (open · won · lost · refunded · void), returns,
+  ev, ev_basis (what priced it), settled_at.
+- `aw_legs`: fixture, kickoff, market, line, side, odds taken, fair odds at
+  bet time, result (pending · won · lost · void).
+
+**Intake — slip photos.** Read by the existing OCR seam (`OCRProvider`, a new
+slip prompt; one slip per photo, legs transcribed, never inferred), saved
+straight away with inline edit — the coupon tracker's auto-confirm rule, not a
+review queue. The photo is stored under `/data/uploads` and deleted with its
+row (the cleanup rule).
+
+**EV — at bet time, never back-filled.** Each leg is matched to the Paddy
+sweep's fair price (Pinnacle ladder via `pricing/counts`) for that fixture,
+market and line at the moment of upload, and the slip valued by the offer it
+was struck under: insurance via `accaInsurance.js`'s maths (ported to the
+server, one implementation), boost via `accaBoost.js`'s, a single as
+stake × (odds / fair − 1). A leg with no fair price leaves the slip's EV
+UNPRICED and counted, never computed off the legs that did price (the Fred
+Bundles rule).
+
+**Results — daily.** A scheduler job settles open legs after their matches
+finish, from a results source (open question 6), then settles the slip:
+all won → won; one lost under insurance → refunded at the offer's value;
+otherwise lost. A leg it cannot settle stays pending and is listed, never
+assumed.
+
+**Running update.** Once a day the same job posts ONE Discord line per
+target to an `aw26` route (`notify_rows`): yesterday's EV and volume,
+settled profit, the running totals and the pace each target now needs.
+
+**Definition of done:** a real slip photo uploads, reads, prices and lists
+with its EV; a finished slip settles itself overnight; the daily post arrives;
+the headline figures reconcile with the list to the penny (test).
+
+**Open questions (Callum)** — see the session of 21 Oct 2026.
+
 ---
 
 ## History
