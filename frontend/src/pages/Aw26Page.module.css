@@ -11,6 +11,7 @@
 .of { font-size: 13px; font-weight: 500; color: var(--muted); }
 .line { margin-top: 7px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--muted); }
 .line b { color: var(--ink); font-weight: 600; }
+.sval { font-weight: 600; }
 .pos { color: var(--accent); }
 .neg { color: var(--red); }
 .muted { color: var(--faint); }
@@ -45,6 +46,8 @@
   gap: 6px; align-items: baseline; margin-top: 4px; font-size: 12px;
 }
 .res { font-family: var(--font-mono); font-weight: 700; color: var(--muted); }
+.resWon { color: var(--accent); }
+.resLost { color: var(--red); }
 .ev, .mk { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mk { color: var(--muted); }
 .leg .num { text-align: right; }

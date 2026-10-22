@@ -185,6 +185,18 @@ def test_slip_ingest_rejects_an_unknown_offer():
     assert _ingest(client, offer="bogus").status_code == 400
 
 
+def test_acca_slip_defaults_stake_to_50_when_none_read():
+    client = TestClient(app)
+    legs = [{"event": "A v B", "market": "Total Corners", "selection": "Over 8.5", "odds": 1.5}]
+    # refund/boost with no stake → £50; 'other' stays None.
+    refund = client.post("/aw26/slips/ingest", headers={"X-API-Key": KEY},
+                         json={"receipt": "S50", "offer": "refund", "legs": legs})
+    assert refund.json()["stake"] == 50
+    other = client.post("/aw26/slips/ingest", headers={"X-API-Key": KEY},
+                        json={"receipt": "SOTH", "offer": "other", "legs": legs})
+    assert other.json()["stake"] is None
+
+
 # --- auto-results seam (wired into the daily job, dormant until written) -----
 
 # --- FlashScore results: settlement from match stats --------------------------

@@ -21,6 +21,11 @@ FAIRS_KEEP_DAYS = 14
 EV_PER_DAY_TARGET = 1000.0
 PROFIT_TARGET = 100_000.0
 
+# Refund/boost accas always stake £50 (Callum); the terminal slip doesn't print
+# the stake, so this fills it when the read found none. Other bets vary.
+ACCA_STAKE = 50.0
+ACCA_OFFERS = ("refund", "boost")
+
 _WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 _FORMATS = (
     "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%y %H:%M", "%d-%m-%Y %H:%M",
@@ -84,8 +89,11 @@ def build_slip(read, *, offer: str, user: str, image_path: str | None,
     """A new AwSlip (not yet added to a session) from an ExtractedSlip."""
     now = now or utcnow()
     placed = parse_when(read.placed_at_text, now) or now
+    stake = read.stake
+    if stake is None and offer in ACCA_OFFERS:
+        stake = ACCA_STAKE
     slip = AwSlip(placed_at=placed, user=user, image_path=image_path, receipt=read.receipt,
-                  offer=offer, stake=read.stake, potential_returns=read.potential_returns,
+                  offer=offer, stake=stake, potential_returns=read.potential_returns,
                   status="open")
     for i, r in enumerate(read.legs):
         kind, line, side = classify(r.market, r.selection)
@@ -159,8 +167,15 @@ def summary(slips, today: date | None = None) -> dict:
     first = min((london_day(s.placed_at) for s in slips), default=today)
     days = (today - first).days + 1
     total = _totals(slips)
+    # Settled TODAY (by settlement date, not placed date) — the day's realised
+    # movement, which is what the auto-results produce.
+    settled_today = [s for s in slips if s.settled_at and london_day(s.settled_at) == today]
     return {
-        "today": {"date": today.isoformat(), **_totals(by_day)},
+        "today": {
+            "date": today.isoformat(), **_totals(by_day),
+            "settled": round(sum(profit(s) for s in settled_today), 2),
+            "settled_slips": len(settled_today),
+        },
         "total": {**total, "days": days, "ev_target": round(days * EV_PER_DAY_TARGET, 2)},
         "targets": {"ev_per_day": EV_PER_DAY_TARGET, "profit": PROFIT_TARGET},
     }

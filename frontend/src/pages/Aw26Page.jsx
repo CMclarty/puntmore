@@ -96,6 +96,12 @@ export default function Aw26Page() {
             {s.total.open > 0 && <> · <b>{s.total.open}</b> open</>}
             {s.total.unpriced > 0 && <> · <b>{s.total.unpriced}</b> unpriced</>}
           </div>
+          {s.today.settled_slips > 0 && (
+            <div className={styles.line}>
+              Settled today <span className={`${styles.sval} ${tone(s.today.settled)}`}>{gbp2(s.today.settled)}</span>
+              <span className={styles.muted}> · {s.today.settled_slips} slip{s.today.settled_slips === 1 ? '' : 's'}</span>
+            </div>
+          )}
         </section>
       )}
 
@@ -151,7 +157,9 @@ function SlipRow({ slip, onOpen }) {
         </div>
         {slip.legs.map(l => (
           <div key={l.id} className={styles.leg}>
-            <span className={styles.res}>{RESULTS.find(([k]) => k === l.result)?.[1]}</span>
+            <span className={`${styles.res} ${l.result === 'won' ? styles.resWon : l.result === 'lost' ? styles.resLost : ''}`}>
+              {RESULTS.find(([k]) => k === l.result)?.[1]}
+            </span>
             <span className={styles.ev}>{l.event}</span>
             <span className={styles.mk}>{legText(l)}</span>
             <span className={styles.num}>{l.odds != null ? l.odds.toFixed(2) : '—'}</span>
