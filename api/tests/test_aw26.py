@@ -187,35 +187,92 @@ def test_slip_ingest_rejects_an_unknown_offer():
 
 # --- auto-results seam (wired into the daily job, dormant until written) -----
 
-def test_daily_auto_results_is_dormant_and_bills_nothing():
-    from app.aw26.service import run_daily
-    from app.models import AwLeg
+# --- FlashScore results: settlement from match stats --------------------------
 
-    calls = []
+def _leg(event, market, selection):
+    from types import SimpleNamespace
+    kind, line, side = classify(market, selection)
+    return SimpleNamespace(event=event, market=market, selection=selection,
+                           kind=kind, line=line, side=side)
 
-    class FakeOddsPapi:
-        def get(self, path, **params):
-            calls.append((path, params))         # a billable call, if it happens
-            return {}
 
-    class FakeCards:
-        _client = FakeOddsPapi()
+def test_result_for_leg_settles_each_market_from_stats():
+    from app.aw26.results import MatchStats, result_for_leg
+    st = MatchStats("Everton", "Chelsea", goals_home=2, goals_away=1,
+                    corners_home=6, corners_away=5, cards_home=2, cards_away=3,
+                    saves_home=4, saves_away=1)
+    R = lambda m, s: result_for_leg(_leg("Everton v Chelsea", m, s), st)
+    assert R("Total Corners", "Over 8.5") == "won"      # total 11
+    assert R("Total Corners", "Under 12.5") == "won"
+    assert R("Total Corners", "Over 11.5") == "lost"
+    assert R("Total Goals", "Over 2.5") == "won"         # total 3
+    assert R("Total Match Cards", "Under 4.5") == "lost"  # total 5
+    assert R("Goalkeeper To Make 2 Or More Saves", "Chelsea Goalkeeper") == "lost"  # away=1
+    assert R("Goalkeeper To Make 2 Or More Saves", "Everton Goalkeeper") == "won"   # home=4
+    assert R("First Goalscorer", "Smith") is None        # unreadable → pending
 
-    db = Session()
-    try:
-        slip = AwSlip(placed_at=datetime(2026, 10, 17, 12, 0), user="t",
-                      offer="refund", stake=50, status="open")
-        slip.legs.append(AwLeg(position=0, event="Arsenal v Chelsea", odds=1.30,
-                               result="pending", fixture_id="FX1"))
-        db.add(slip)
-        db.commit()
-        run_daily(db, None, results_client=FakeCards())
-        # Dormant: no OddsPapi requests, and the leg is NEVER assumed a result.
-        assert calls == []
-        db.refresh(slip)
-        assert slip.legs[0].result == "pending" and slip.status == "open"
-    finally:
-        db.close()
+
+def test_integer_total_on_the_line_is_a_push():
+    from app.aw26.results import MatchStats, result_for_leg
+    st = MatchStats("A", "B", corners_home=5, corners_away=5)   # total 10
+    assert result_for_leg(_leg("A v B", "Total Corners", "Over 10"), st) == "void"
+
+
+def _results_legs():  # a 5-leg slip whose fixtures we have stats for
+    return [
+        {"event": "Everton v Chelsea", "market": "Goalkeeper To Make 2 Or More Saves",
+         "selection": "Chelsea Goalkeeper", "odds": 1.22, "fair_odds": 1.20},
+        {"event": "Wrexham v Preston", "market": "Total Corners", "selection": "Over 8.5",
+         "odds": 1.45, "fair_odds": 1.40},
+        {"event": "Man City v Ipswich", "market": "Total Corners", "selection": "Under 12.5",
+         "odds": 1.25, "fair_odds": 1.22},
+        {"event": "Millwall v Lincoln", "market": "Total Corners", "selection": "Under 12.5",
+         "odds": 1.28, "fair_odds": 1.25},
+        {"event": "Venezia v Napoli", "market": "Goalkeeper To Make 2 Or More Saves",
+         "selection": "Napoli Goalkeeper", "odds": 1.30, "fair_odds": 1.28},
+    ]
+
+
+def _post_results(client, matches, key=KEY):
+    return client.post("/aw26/results", headers={"X-API-Key": key}, json={"matches": matches})
+
+
+def test_results_endpoint_settles_a_slip_on_arrival():
+    client = TestClient(app)
+    r = client.post("/aw26/slips/ingest", headers={"X-API-Key": KEY},
+                    json={"receipt": "R1", "offer": "refund", "stake": 50,
+                          "legs": _results_legs()})
+    assert r.status_code == 200, r.text
+    # All five legs win on these stats.
+    matches = [
+        {"home": "Everton", "away": "Chelsea", "saves_home": 4, "saves_away": 3},
+        {"home": "Wrexham", "away": "Preston", "corners_home": 6, "corners_away": 5},
+        {"home": "Man City", "away": "Ipswich", "corners_home": 4, "corners_away": 4},
+        {"home": "Millwall", "away": "Lincoln", "corners_home": 5, "corners_away": 3},
+        {"home": "Venezia", "away": "Napoli", "saves_home": 1, "saves_away": 2},
+    ]
+    out = _post_results(client, matches).json()
+    assert out == {"matches": 5, "resolved": 5, "settled": 1}
+    slip = client.get("/aw26/slips").json()["slips"][0]
+    assert slip["status"] == "won"
+    assert all(leg["result"] == "won" for leg in slip["legs"])
+
+
+def test_results_endpoint_needs_the_key():
+    client = TestClient(app)
+    assert _post_results(client, [{"home": "A", "away": "B"}], key="wrong").status_code == 401
+
+
+def test_results_leave_unknown_legs_pending():
+    client = TestClient(app)
+    client.post("/aw26/slips/ingest", headers={"X-API-Key": KEY},
+                json={"receipt": "R2", "offer": "other", "stake": 10,
+                      "legs": [{"event": "A v B", "market": "First Goalscorer",
+                                "selection": "Smith", "odds": 5.0, "fair_odds": 4.5}]})
+    out = _post_results(client, [{"home": "A", "away": "B", "goals_home": 1, "goals_away": 0}]).json()
+    assert out["resolved"] == 0
+    slip = client.get("/aw26/slips").json()["slips"][0]
+    assert slip["status"] == "open" and slip["legs"][0]["result"] == "pending"
 
 
 def test_leg_results_settle_the_slip_and_the_summary_reconciles():

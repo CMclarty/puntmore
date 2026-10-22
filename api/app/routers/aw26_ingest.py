@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..aw26.legs import classify
 from ..aw26.offers import OFFERS
+from ..aw26.results import MatchStats, apply_match_stats
 from ..aw26.service import (
     FAIRS_KEEP_DAYS, build_slip, parse_when, price_slip, recent_fairs, settle_slip,
 )
@@ -133,3 +134,35 @@ def ingest_slip(body: SlipIn, request: Request, db: Session = Depends(get_db)):
             "stake": slip.stake, "ev": slip.ev, "ev_note": slip.ev_note,
             "status": slip.status, "legs": len(slip.legs),
             "unpriced_legs": sum(1 for lg in slip.legs if lg.fair_odds is None)}
+
+
+# --- finished-match results, scraped off FlashScore on the desktop -----------
+#
+# The FlashScore scraper (local/flashscore_results.py) reads each finished
+# match's stats and POSTs them here. Leg results are set DETERMINISTICALLY from
+# the stats (aw26/results.py) and the slip settles on arrival — single source,
+# applied directly, no second-source double-check (Callum, 22 Oct 2026). Same
+# key as the fairs/slips ingest. home/away must be in the match's printed order.
+
+
+class MatchStatsIn(BaseModel):
+    home: str = Field(min_length=1, max_length=80)
+    away: str = Field(min_length=1, max_length=80)
+    goals_home: int | None = Field(default=None, ge=0, le=100)
+    goals_away: int | None = Field(default=None, ge=0, le=100)
+    corners_home: int | None = Field(default=None, ge=0, le=100)
+    corners_away: int | None = Field(default=None, ge=0, le=100)
+    cards_home: int | None = Field(default=None, ge=0, le=100)   # yellow + red count
+    cards_away: int | None = Field(default=None, ge=0, le=100)
+    saves_home: int | None = Field(default=None, ge=0, le=100)
+    saves_away: int | None = Field(default=None, ge=0, le=100)
+
+
+class ResultsIn(BaseModel):
+    matches: list[MatchStatsIn] = Field(min_length=1, max_length=200)
+
+
+@router.post("/results", dependencies=[Depends(require_ingest_key)])
+def post_results(batch: ResultsIn, db: Session = Depends(get_db)):
+    stats = [MatchStats(**m.model_dump()) for m in batch.matches]
+    return apply_match_stats(db, stats)
