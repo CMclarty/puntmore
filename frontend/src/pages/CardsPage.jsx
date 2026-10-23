@@ -40,6 +40,9 @@ const WITHIN = [[null, 'Any'], [1, '< 1h'], [3, '< 3h'], ['today', 'Today'], [24
 const MAX_ODDS = [null, 1.5, 2, 3, 5]
 const MIN_VALUE = [0, 0.02, 0.04, 0.06]               // Value tab only
 const SORTS = [['best', 'Best'], ['shortest', 'Shortest']]
+// Free-bet EV rate: a free bet's stake isn't returned, so you keep (odds-1)/odds
+// of a win — higher odds retain more. Scaled by the value edge. Value tab only.
+const freeBetScore = b => (1 + b.value) * (b.odds - 1) / b.odds
 const FILTER_KEY = 'paddy.filters'
 const NO_FILTERS = { markets: MARKETS, within: null, maxOdds: null, minValue: 0, sort: 'best', onePerMatch: false }
 function loadFilters() {
@@ -65,6 +68,7 @@ function summary(fl, tab) {
   if (fl.maxOdds != null) bits.push(`≤ ${fl.maxOdds.toFixed(2)}`)
   if (tab === 'value' && fl.minValue > 0) bits.push(`${(100 + fl.minValue * 100).toFixed(0)}%+`)
   if (fl.sort === 'shortest') bits.push('shortest first')
+  if (fl.sort === 'freebet' && tab === 'value') bits.push('free bet')
   return bits.join(' · ')
 }
 
@@ -170,8 +174,9 @@ export default function CardsPage() {
     for (const x of list) if (!top.has(x.b.matchId) || x.s > top.get(x.b.matchId).s) top.set(x.b.matchId, x)
     list.splice(0, list.length, ...top.values())
   }
-  list.sort(fl.sort === 'shortest'
-    ? (x, y) => x.b.odds - y.b.odds || y.s - x.s
+  list.sort(
+    fl.sort === 'shortest' ? (x, y) => x.b.odds - y.b.odds || y.s - x.s
+    : fl.sort === 'freebet' && tab === 'value' ? (x, y) => freeBetScore(y.b) - freeBetScore(x.b)
     : (x, y) => y.s - x.s)
 
   const applied = summary(fl, tab)
@@ -242,7 +247,8 @@ export default function CardsPage() {
             </div>
           )}
           <div className={f.group}><span className={f.label}>Sort</span>
-            <Chips options={SORTS} isOn={k => fl.sort === k} onPick={k => setF({ sort: k })} />
+            <Chips options={tab === 'value' ? [...SORTS, ['freebet', 'Free bet']] : SORTS}
+              isOn={k => fl.sort === k} onPick={k => setF({ sort: k })} />
             {applied && <button type="button" className={f.reset} onClick={() => setF(NO_FILTERS)}>Reset</button>}
           </div>
         </div>
