@@ -24,7 +24,8 @@ const PATHS = {
 }
 
 export default function MarketIcon({ market, size = 20 }) {
-  const path = PATHS[market]
+  // Team markets (team_corners / team_cards) reuse the base corner/card glyph.
+  const path = PATHS[market] ?? PATHS[market?.replace(/^team_/, '')]
   if (!path) return <span style={{ width: size, display: 'inline-block' }} />
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"

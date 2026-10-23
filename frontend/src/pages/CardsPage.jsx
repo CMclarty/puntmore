@@ -33,8 +33,10 @@ const BOOST_KELLY = 0.10
 
 // Filters: folded away under one line that says what is applied, so the usual
 // visit is open → tap a tab → bet. Shared by all three tabs, remembered.
-const MARKETS = ['corners', 'cards', 'goals', 'saves']
-const WITHIN = [[null, 'Any'], [1, '< 1h'], [3, '< 3h'], ['today', 'Today'], ['later', 'Later']]
+const MARKETS = ['corners', 'cards', 'goals', 'saves', 'team_corners', 'team_cards']
+const MARKET_LABELS = { team_corners: 'Team corners', team_cards: 'Team cards' }
+const marketLabel = m => MARKET_LABELS[m] || m[0].toUpperCase() + m.slice(1)
+const WITHIN = [[null, 'Any'], [1, '< 1h'], [3, '< 3h'], ['today', 'Today'], [24, '24h'], [48, '48h'], [72, '72h']]
 const MAX_ODDS = [null, 1.5, 2, 3, 5]
 const MIN_VALUE = [0, 0.02, 0.04, 0.06]               // Value tab only
 const SORTS = [['best', 'Best'], ['shortest', 'Shortest']]
@@ -53,13 +55,12 @@ function inWindow(iso, within, now) {
   const ko = new Date(iso).getTime()
   const midnight = new Date(now); midnight.setHours(24, 0, 0, 0)
   if (within === 'today') return ko < midnight.getTime()
-  if (within === 'later') return ko >= midnight.getTime()
   return ko - now <= within * 3600_000
 }
 // What is applied, in a few words; empty when nothing is.
 function summary(fl, tab) {
   const bits = []
-  if (fl.markets.length < MARKETS.length) bits.push(fl.markets.length ? fl.markets.join(', ') : 'no markets')
+  if (fl.markets.length < MARKETS.length) bits.push(fl.markets.length ? fl.markets.map(marketLabel).join(', ') : 'no markets')
   if (fl.within != null) bits.push(WITHIN.find(([w]) => w === fl.within)[1])
   if (fl.maxOdds != null) bits.push(`≤ ${fl.maxOdds.toFixed(2)}`)
   if (tab === 'value' && fl.minValue > 0) bits.push(`${(100 + fl.minValue * 100).toFixed(0)}%+`)
@@ -224,7 +225,7 @@ export default function CardsPage() {
       {open && (
         <div className={f.panel}>
           <div className={f.group} role="group" aria-label="Market">
-            <Chips icons options={MARKETS.map(m => [m, m[0].toUpperCase() + m.slice(1)])} isOn={m => fl.markets.includes(m)}
+            <Chips icons options={MARKETS.map(m => [m, marketLabel(m)])} isOn={m => fl.markets.includes(m)}
               onPick={m => setF({ markets: fl.markets.includes(m) ? fl.markets.filter(x => x !== m) : [...fl.markets, m] })} />
           </div>
           <div className={f.group}><span className={f.label}>Kick-off</span>

@@ -58,6 +58,20 @@ PADDY_POWER = "paddypower"
 PINNACLE = "pinnacle"
 CORNERS = "alternate_totals_corners"
 CARDS = "alternate_totals_cards"
+# A SINGLE team's corners/cards — OddsPapi "Team 1/2" (full time). Team 1 is the
+# home side (participant1), Team 2 the away. Kept apart from the match totals so
+# each is priced against its own Pinnacle side and labelled with the team.
+TEAM_CORNERS_HOME = "team_corners_home"
+TEAM_CORNERS_AWAY = "team_corners_away"
+TEAM_CARDS_HOME = "team_cards_home"
+TEAM_CARDS_AWAY = "team_cards_away"
+# marketName -> key, for the full-time team markets (the only ones priced).
+_TEAM_MARKET_KEYS = {
+    "Corners - Over Under Team 1": TEAM_CORNERS_HOME,
+    "Corners - Over Under Team 2": TEAM_CORNERS_AWAY,
+    "Bookings - Over Under Team 1": TEAM_CARDS_HOME,
+    "Bookings - Over Under Team 2": TEAM_CARDS_AWAY,
+}
 
 # Sofascore tournament id -> the TheOddsApi-style key the counts model keys its
 # per-league dispersion priors by. A tournament missing here still prices; it
@@ -191,6 +205,44 @@ def match_total_markets(catalogue, kinds=(CORNERS, CARDS, SAVES, GOALS)
         if line is None:
             continue
         sides: dict[str, str] = {}
+        for o in _as_list(_first(m, "outcomes") or []):
+            oid = _first(o, "outcomeId", "id", "_id")
+            oname = str(_first(o, "outcomeName", "name") or "").lower()
+            if oid is None:
+                continue
+            if "over" in oname:
+                sides[str(oid)] = "Over"
+            elif "under" in oname:
+                sides[str(oid)] = "Under"
+        mid = _first(m, "marketId", "id", "_id")
+        if mid is not None and len(sides) == 2:
+            out[str(mid)] = (key, line, sides)
+    return out
+
+
+def team_markets(catalogue) -> dict[str, tuple[str, float, dict[str, str]]]:
+    """A single team's corners/cards (OddsPapi "Team 1/2", full time), keyed like
+    match_total_markets so _book_markets/to_events carry them the same way — but
+    under their own team key, so each prices against the team's Pinnacle side and
+    labels with the team. Team 1 = home (participant1), Team 2 = away."""
+    out = {}
+    for m in _as_list(catalogue):
+        key = _TEAM_MARKET_KEYS.get(str(_first(m, "marketName", "name") or "").strip())
+        if key is None:
+            continue
+        sport = _first(m, "sportId", "sport_id")
+        if sport is not None and str(sport) != str(SOCCER):
+            continue
+        if str(_first(m, "period", "periodName") or "").strip().lower() not in _FULL_TIME:
+            continue
+        line = _first(m, "handicap", "line", "value", "points", "total")
+        try:
+            line = float(line) if line is not None else None
+        except (TypeError, ValueError):
+            line = None
+        if line is None:
+            continue
+        sides = {}
         for o in _as_list(_first(m, "outcomes") or []):
             oid = _first(o, "outcomeId", "id", "_id")
             oname = str(_first(o, "outcomeName", "name") or "").lower()
@@ -730,6 +782,7 @@ class OddsPapiPaddySource:
             # are priced off Pinnacle's goals ladder like corners and cards.
             markets = match_total_markets(self._client.catalogue(),
                                           kinds=(CORNERS, CARDS, SAVES, GOALS))
+            markets.update(team_markets(self._client.catalogue()))  # one team's corners/cards
             names = participant_names(self._client.participants())
         except Exception as exc:
             logger.error("cards (oddspapi): reference data failed: %s", exc)

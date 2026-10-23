@@ -169,3 +169,25 @@ GOALS = ModelConfig(
     min_priceable_line=0.5,
     max_priceable_line=5.5,
 )
+
+# A SINGLE team's corners / cards (OddsPapi "Team 1/2" markets, Oct 2026).
+# Same model, team-scaled pricing bounds, and a PROVISIONAL dispersion prior:
+# there is no measured team-level D yet (the priors above are match totals), so
+# these seed from the match defaults. The fit identifies D itself once Pinnacle
+# quotes 4+ team rungs; on a thinner team ladder the price leans on this prior
+# and the model FLAGS it (FitResult.flags), the same as any prior-led price.
+# Bounds are team-scaled (Callum, Oct 2026): a team posts far lower lines than
+# the match total, so the match bounds would refuse every real team line.
+TEAM_CORNERS = ModelConfig(
+    d_priors=dict(CORNERS_D_PRIORS),
+    d_prior_default=CORNERS_D_PRIOR_DEFAULT,
+    min_priceable_line=1.5,
+    max_priceable_line=9.5,
+)
+TEAM_CARDS = ModelConfig(
+    grid_max=CARDS_MAX,
+    d_priors=dict(CARDS_D_PRIORS),
+    d_prior_default=CARDS_D_PRIOR_DEFAULT,
+    min_priceable_line=0.5,
+    max_priceable_line=4.5,
+)

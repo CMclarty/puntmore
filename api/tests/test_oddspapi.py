@@ -74,6 +74,26 @@ def test_the_catalogue_is_read_whatever_it_is_wrapped_in():
     assert set(op.corner_card_markets(by_id)) == {"10803", "10807", "20001"}
 
 
+def test_team_markets_classifies_each_team_and_excludes_halves():
+    def mk(mid, name, line, period="fulltime"):
+        return {"marketId": mid, "marketName": name, "sportId": 10, "period": period,
+                "handicap": line, "outcomes": [{"outcomeId": "a", "outcomeName": "Over"},
+                                                {"outcomeId": "b", "outcomeName": "Under"}]}
+    cat = [
+        mk("c1", "Corners - Over Under Team 1", 5.5),
+        mk("c2", "Corners - Over Under Team 2", 4.5),
+        mk("k1", "Bookings - Over Under Team 1", 2.5),
+        mk("k2", "Bookings - Over Under Team 2", 1.5),
+        mk("h1", "Corners - Over Under Team 1 First Half", 2.5, period="firsthalf"),
+    ]
+    m = op.team_markets(cat)
+    assert m["c1"] == (op.TEAM_CORNERS_HOME, 5.5, {"a": "Over", "b": "Under"})
+    assert m["c2"][0] == op.TEAM_CORNERS_AWAY and m["c2"][1] == 4.5
+    assert m["k1"][0] == op.TEAM_CARDS_HOME
+    assert m["k2"][0] == op.TEAM_CARDS_AWAY
+    assert "h1" not in m   # half markets are not a full-match team total
+
+
 def test_fixtures_become_theoddsapi_shaped_events_with_paddys_lines():
     events, counts = op.to_events([_fixture()], op.corner_card_markets(CATALOGUE), NAMES,
                                   now=NOW, window_hours=48)

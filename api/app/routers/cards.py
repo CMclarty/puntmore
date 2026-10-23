@@ -27,7 +27,10 @@ def price_events(events, min_edge):
     return rows
 
 def market_name(market_key: str) -> str:
-    """corners | cards | goals | saves, from whichever key a vendor used."""
+    """corners | cards | goals | saves | team_corners | team_cards, from
+    whichever key a vendor used."""
+    if market_key.startswith("team_"):
+        return "team_corners" if "corners" in market_key else "team_cards"
     for word in ("corners", "cards", "goals", "saves"):
         if word in market_key:
             return word
@@ -72,8 +75,17 @@ def build_feed(client, min_edge: float, pinnacle=None) -> list[CardFeedItem]:
                 "bets": [],
             }
         market = market_name(bet.market_key)
+        # One decimal always: a whole line can PUSH (exactly N), so "O7.0" must
+        # not read like a truncated "O7.5" — the x.5 lines never push.
+        if bet.market_key.startswith("team_"):
+            # One team's line — name the team, since the match isn't the subject.
+            team = bet.home_team if bet.market_key.endswith("_home") else bet.away_team
+            kind = "corners" if "corners" in bet.market_key else "cards"
+            pick = f"{team} {bet.side} {bet.line:.1f} {kind}"
+        else:
+            pick = f"{bet.side} {bet.line:.1f} {market}"
         groups[bet.event_id]["bets"].append(CardFeedBet(
-            pick=f"{bet.side} {bet.line:g} {market}",
+            pick=pick,
             odds=bet.paddy_odds,
             value=bet.edge,
             market=market,

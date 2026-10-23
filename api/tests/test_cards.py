@@ -101,6 +101,42 @@ def test_compute_value_bets_returns_value_rows():
     assert any(r.side == "Over" and r.edge > 0 for r in rows)
 
 
+def _team_event(market_key, pin_over, pin_under, paddy_over, paddy_under, line=5.5):
+    def outcomes(o, u):
+        return [{"name": "Over", "point": line, "price": o},
+                {"name": "Under", "point": line, "price": u}]
+    return {
+        "id": "evtT", "home_team": "Arsenal", "away_team": "Chelsea",
+        "commence_time": "2026-06-10T15:00:00Z", "sport_key": "soccer_epl",
+        "bookmakers": [
+            {"key": "pinnacle", "markets": [{"key": market_key, "outcomes": outcomes(pin_over, pin_under)}]},
+            {"key": "paddypower", "markets": [{"key": market_key, "outcomes": outcomes(paddy_over, paddy_under)}]},
+        ],
+    }
+
+
+def test_compute_value_bets_prices_team_corners():
+    rows = compute_value_bets([_team_event("team_corners_home", 1.90, 1.90, 2.10, 1.80)], min_edge=-0.10)
+    assert any(r.market_key == "team_corners_home" and r.side == "Over" and r.edge > 0 for r in rows)
+
+
+def test_feed_labels_a_team_market_with_the_team_name(monkeypatch):
+    from app.config import settings
+    from app.routers.cards import build_feed
+    monkeypatch.setattr(settings, "cards_use_ladder_model", False)  # matched path, no ladder fit needed
+
+    class _Client:
+        def get_events(self):
+            return [_team_event("team_corners_home", 1.90, 1.90, 2.10, 1.80),
+                    _team_event("team_cards_away", 1.90, 1.90, 2.10, 1.80, line=2.5)]
+
+    bets = [b for item in build_feed(_Client(), min_edge=-0.10) for b in item.bets]
+    corners = next(b for b in bets if b.market == "team_corners")
+    assert corners.pick == "Arsenal Over 5.5 corners"
+    cards = next(b for b in bets if b.market == "team_cards")
+    assert cards.pick == "Chelsea Over 2.5 cards"  # away side → away team
+
+
 def test_compute_value_bets_filters_by_min_edge():
     """Rows below min_edge are excluded."""
     events = [_make_event(1.90, 1.90, 1.85, 1.85)]  # Paddy below fair

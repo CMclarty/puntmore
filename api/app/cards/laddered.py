@@ -36,7 +36,9 @@ import threading
 from ..ttl_cache import MISS, TTLCache
 from . import shadow_store
 
-from ..pricing.counts.config import CARDS, CORNERS, GOALS, ModelConfig
+from ..pricing.counts.config import CARDS, CORNERS, GOALS, TEAM_CARDS, TEAM_CORNERS, ModelConfig
+from .oddspapi import (TEAM_CARDS_AWAY, TEAM_CARDS_HOME,
+                       TEAM_CORNERS_AWAY, TEAM_CORNERS_HOME)
 from ..pricing.counts.errors import LadderError
 from ..pricing.counts.fit import fit_ladder
 from ..pricing.counts.ladder import Ladder, Rung
@@ -76,6 +78,8 @@ def _excluded_lines() -> dict[str, set[float]]:
 
 
 def _market_name(market_key: str) -> str:
+    if market_key.startswith("team_"):
+        return "team_corners" if "corners" in market_key else "team_cards"
     for word in ("corners", "cards", "goals"):
         if word in market_key:
             return word
@@ -98,6 +102,11 @@ _CONFIGS: dict[str, ModelConfig] = {
     CORNERS_MARKET: CORNERS,
     CARDS_MARKET: CARDS,
     GOALS_MARKET: GOALS,
+    # A single team's corners/cards — team-scaled bounds, same model.
+    TEAM_CORNERS_HOME: TEAM_CORNERS,
+    TEAM_CORNERS_AWAY: TEAM_CORNERS,
+    TEAM_CARDS_HOME: TEAM_CARDS,
+    TEAM_CARDS_AWAY: TEAM_CARDS,
 }
 
 

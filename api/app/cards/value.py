@@ -87,7 +87,10 @@ def compute_value_bets(
     """Return CardValueRows where edge >= min_edge, sorted best-edge-first."""
     from .client import CARDS_MARKET_KEYS
     if market_keys is None:
-        market_keys = CARDS_MARKET_KEYS
+        from .oddspapi import (TEAM_CARDS_AWAY, TEAM_CARDS_HOME,
+                               TEAM_CORNERS_AWAY, TEAM_CORNERS_HOME)
+        market_keys = [*CARDS_MARKET_KEYS, TEAM_CORNERS_HOME, TEAM_CORNERS_AWAY,
+                       TEAM_CARDS_HOME, TEAM_CARDS_AWAY]
 
     rows: list[CardValueRow] = []
 
