@@ -117,10 +117,13 @@ async def lifespan(app: FastAPI):
     # GG / GG-No-Draw / TTS / Win-and-Over / Win-to-Nil off. Without a key it
     # degrades to TheOddsApi, which cannot derive those off the grid and prices
     # compound legs naively — a stopgap, not an equivalent.
+    # "bettingiscool" is accepted as a LEGACY alias for "oddspapi": bettingiscool
+    # is gone, but a stale COUPON_ODDS_SOURCE=bettingiscool on Render must route
+    # to OddsPapi rather than silently drop the tracker to the mock.
     source = settings.coupon_odds_source
     provider = None
 
-    if source == "oddspapi":
+    if source in ("oddspapi", "bettingiscool"):
         if settings.oddspapi_api_key:
             from .cards.oddspapi import OddsPapiClient
             provider = OddsPapiCouponProvider(
@@ -129,12 +132,12 @@ async def lifespan(app: FastAPI):
             )
         else:
             logger.warning(
-                "COUPON_ODDS_SOURCE=oddspapi but ODDSPAPI_API_KEY is unset — "
-                "falling back to TheOddsApi for coupon pricing."
+                "COUPON_ODDS_SOURCE=%s but ODDSPAPI_API_KEY is unset — "
+                "falling back to TheOddsApi for coupon pricing.", source
             )
 
     if provider is None and odds_client is not None and source in (
-        "oddspapi", "theoddsapi",
+        "oddspapi", "bettingiscool", "theoddsapi",
     ):
         provider = TheOddsApiProvider(
             odds_client, cache_ttl=settings.coupon_odds_cache_ttl
