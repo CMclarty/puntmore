@@ -296,7 +296,7 @@ def merge_pinnacle(events: list[dict], provider) -> list[dict]:
         logger.warning(
             "cards: the coupon odds provider is %s, which carries no Pinnacle "
             "corners/cards board — every Paddy Power price will go unvalued. "
-            "The fair side needs bettingiscool (set BETTINGISCOOL_API_KEY).",
+            "The fair side needs OddsPapi (set ODDSPAPI_API_KEY / ODDSPAPI_FAIR_BOOK).",
             type(provider).__name__,
         )
         return events

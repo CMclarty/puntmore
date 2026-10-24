@@ -13,7 +13,7 @@ to the symptom of a bad photo, which is why it took a screenshot to find.
 So two things are pinned here: the provider refuses what it cannot price
 instead of approximating it, and the app says which markets those are.
 """
-from app.providers.bettingiscool import BettingIsCoolProvider
+from app.providers.grid_coupon import GridCouponProvider
 from app.providers.odds_api import (
     TheOddsApiProvider, _extract_fair_odds, unsupported_reason,
 )
@@ -129,7 +129,7 @@ def test_refusals_are_logged_once_per_pass_with_the_count(caplog):
     assert "Team to Score" in msg and "10 selection(s)" in msg
     # It must name the remedy — the whole point is that the cause is a missing
     # env var, which no other symptom points at.
-    assert "BETTINGISCOOL_API_KEY" in msg
+    assert "ODDSPAPI_API_KEY" in msg
 
 
 def test_every_unpriceable_coupon_type_is_nameable():
@@ -155,7 +155,7 @@ def test_every_unpriceable_coupon_type_is_nameable():
 
 # --- the LIVE provider says why a leg is blank, instead of just blanking it ---
 
-class _BoardProvider(BettingIsCoolProvider):
+class _BoardProvider(GridCouponProvider):
     """bettingiscool with the network stubbed."""
 
     def __init__(self, board, odds_rows):

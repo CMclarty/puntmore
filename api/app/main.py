@@ -21,10 +21,7 @@ from .odds.client import TheOddsApiClient
 from . import coupon_types
 from .providers import odds_api
 from .providers.odds_api import TheOddsApiProvider
-from .providers.bettingiscool import (
-    BettingIsCoolProvider,
-    BettingIsCoolProviderNotConfigured,
-)
+from .providers.oddspapi_coupon import OddsPapiCouponProvider
 from .providers.mock_odds import MockOddsProvider
 from .providers.claude_ocr import ClaudeOCRProvider
 from .providers.gemini_ocr import GeminiOCRProvider
@@ -102,8 +99,7 @@ async def lifespan(app: FastAPI):
         app.state.cards_client = None
     # Paddy Power's corners/cards come from OddsPapi when it is configured:
     # TheOddsApi does not carry them (cards/oddspapi.py). Pinnacle's side comes
-    # from OddsPapi too (`oddspapi_fair_book`), falling back to bettingiscool
-    # in merge_pinnacle for any fixture it does not carry.
+    # from OddsPapi too (`oddspapi_fair_book`).
     if settings.oddspapi_api_key:
         from .cards.oddspapi import OddsPapiClient, OddsPapiPaddySource
         app.state.cards_client = OddsPapiPaddySource(
@@ -111,39 +107,34 @@ async def lifespan(app: FastAPI):
         )
         logger.info("Cards: Paddy Power side from OddsPapi, fair side from %s",
                     f"OddsPapi {settings.oddspapi_fair_book}"
-                    if settings.oddspapi_fair_book else "bettingiscool")
+                    if settings.oddspapi_fair_book else "none (set ODDSPAPI_FAIR_BOOK)")
 
     # Coupon odds provider (behind the OddsProvider seam).
     #
-    # bettingiscool is the live source (SPEC §5) and is implemented. Without a
-    # key it degrades to TheOddsApi rather than to the mock: a deployed
-    # instance must keep pricing real legs. Note TheOddsApi cannot derive
-    # Win-and-Over off the score grid, so that fallback prices compound legs
-    # naively — it is a stopgap, not an equivalent.
-    #
-    # TheOddsApi pulls one full /v4/sports/{sport}/odds response per sport and
-    # reuses it for coupon_odds_cache_ttl across every leg and the 10-min
-    # refresh loop.
+    # OddsPapi is the live source: Pinnacle's 1X2 + goal totals + team goal
+    # totals come back in one bulk request per tournament chunk, which the
+    # provider-agnostic GridCouponProvider fits the score grid from and derives
+    # GG / GG-No-Draw / TTS / Win-and-Over / Win-to-Nil off. Without a key it
+    # degrades to TheOddsApi, which cannot derive those off the grid and prices
+    # compound legs naively — a stopgap, not an equivalent.
     source = settings.coupon_odds_source
     provider = None
 
-    if source == "bettingiscool":
-        if settings.bettingiscool_api_key:
-            try:
-                provider = BettingIsCoolProvider(
-                    settings.bettingiscool_api_key,
-                    cache_ttl=settings.coupon_odds_cache_ttl,
-                )
-            except BettingIsCoolProviderNotConfigured as exc:
-                logger.error("bettingiscool provider unavailable: %s", exc)
+    if source == "oddspapi":
+        if settings.oddspapi_api_key:
+            from .cards.oddspapi import OddsPapiClient
+            provider = OddsPapiCouponProvider(
+                OddsPapiClient(settings.oddspapi_api_key),
+                cache_ttl=settings.coupon_odds_cache_ttl,
+            )
         else:
             logger.warning(
-                "COUPON_ODDS_SOURCE=bettingiscool but BETTINGISCOOL_API_KEY is "
-                "unset — falling back to TheOddsApi for coupon pricing."
+                "COUPON_ODDS_SOURCE=oddspapi but ODDSPAPI_API_KEY is unset — "
+                "falling back to TheOddsApi for coupon pricing."
             )
 
     if provider is None and odds_client is not None and source in (
-        "bettingiscool", "theoddsapi",
+        "oddspapi", "theoddsapi",
     ):
         provider = TheOddsApiProvider(
             odds_client, cache_ttl=settings.coupon_odds_cache_ttl
@@ -159,25 +150,26 @@ async def lifespan(app: FastAPI):
     # SILENTLY and identically to a bad photo: the legs save, the coupon opens,
     # every row simply has no fair odds. A "Team to Score 2" sheet on TheOddsApi
     # is 154 selections and 154 blanks, which reads as "the scan is broken"
-    # rather than "this deploy has no bettingiscool key" — the actual cause.
+    # rather than "this deploy has no OddsPapi key" — the actual cause.
     if isinstance(app.state.odds_provider, MockOddsProvider):
         logger.warning(
             "COUPON PRICING IS MOCKED — no odds provider is configured, so "
             "EVERY selection will show blank fair odds. Set "
-            "BETTINGISCOOL_API_KEY (or ODDS_API_KEY) to price real legs."
+            "ODDSPAPI_API_KEY (or ODDS_API_KEY) to price real legs."
         )
     elif isinstance(app.state.odds_provider, TheOddsApiProvider):
         logger.warning(
             "Coupon pricing is on the TheOddsApi FALLBACK. It serves h2h + "
             "totals only, so these coupon types cannot price at all and every "
-            "selection on them will be blank: %s. Set BETTINGISCOOL_API_KEY to "
+            "selection on them will be blank: %s. Set ODDSPAPI_API_KEY to "
             "restore them.",
             ", ".join(
                 t.label for t in coupon_types.COUPON_TYPES
                 if odds_api.unsupported_reason(t.selection) is not None
             ),
         )
-    # The default TTL suits bettingiscool (500k tokens/DAY). TheOddsApi bills
+    # The default TTL suits OddsPapi (per-request, generous daily budget).
+    # TheOddsApi bills
     # 500 credits/MONTH, where a short cache burns the whole allowance in hours.
     if (
         isinstance(app.state.odds_provider, TheOddsApiProvider)

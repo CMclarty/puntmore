@@ -320,19 +320,10 @@ def test_provider_logs_borderline_match(caplog):
 
 def test_default_coupon_odds_source_is_bettingiscool():
     from app.config import Settings
-    assert Settings().coupon_odds_source == "bettingiscool"
+    assert Settings().coupon_odds_source == "oddspapi"
 
 
-def test_bettingiscool_provider_requires_a_key():
-    from app.providers.bettingiscool import (
-        BettingIsCoolProvider,
-        BettingIsCoolProviderNotConfigured,
-    )
-    with pytest.raises(BettingIsCoolProviderNotConfigured):
-        BettingIsCoolProvider("")
-
-
-# --- BettingIsCoolProvider pricing ---
+# --- GridCouponProvider pricing ---
 # Row shapes below are copied from a real /api/odds response (Ecuador Serie A,
 # July 2026). Index convention: 0 = draw, 1 = home/over, 2 = away/under.
 
@@ -355,11 +346,11 @@ def _bic_rows():
 
 
 class _BicProvider:
-    """BettingIsCoolProvider with transport stubbed out."""
+    """GridCouponProvider with transport stubbed out."""
 
     def __new__(cls, fixtures, rows):
-        from app.providers.bettingiscool import BettingIsCoolProvider
-        p = BettingIsCoolProvider("test-key")
+        from app.providers.grid_coupon import GridCouponProvider
+        p = GridCouponProvider()
         p._fixtures = lambda: fixtures
         p._odds = lambda event_id: rows
         return p
@@ -451,7 +442,7 @@ def test_bic_ignores_asian_lines_as_grid_constraints():
     # Only clean .5 lines feed the fit. Quarter lines are split stakes and
     # integer lines push; both are ignored (measured cost: rmse 0.0117 ->
     # 0.0119, still over-determined at 7 constraints for 3 parameters).
-    from app.providers.bettingiscool import BettingIsCoolProvider as P
+    from app.providers.grid_coupon import GridCouponProvider as P
     assert P._is_half_line(2.5) and P._is_half_line(0.5) and P._is_half_line(3.5)
     assert not P._is_half_line(2.0)    # integer: pushes
     assert not P._is_half_line(2.25)   # quarter: split stake

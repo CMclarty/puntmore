@@ -19,7 +19,7 @@ from app.fixture_checks import (
     query_is_senior,
 )
 from app.providers.base import MatchQuery
-from app.providers.bettingiscool import BettingIsCoolProvider
+from app.providers.grid_coupon import GridCouponProvider
 
 SAT_1945 = datetime(2026, 10, 10, 19, 45)      # a Saturday
 
@@ -104,7 +104,7 @@ def test_the_window_is_wide_on_purpose():
 
 # --- through the provider ----------------------------------------------------------
 
-class _Board(BettingIsCoolProvider):
+class _Board(GridCouponProvider):
     def __init__(self, board):
         super().__init__("test-key")
         self._board = board

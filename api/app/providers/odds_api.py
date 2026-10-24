@@ -303,7 +303,7 @@ class TheOddsApiProvider(OddsProvider):
             logger.warning(
                 "TheOddsApi cannot price %s — %d selection(s) left unpriced. "
                 "This provider serves h2h + totals only; %s needs the live "
-                "bettingiscool source (set BETTINGISCOOL_API_KEY).",
+                "OddsPapi source (set ODDSPAPI_API_KEY).",
                 reason, count, reason,
             )
         return results

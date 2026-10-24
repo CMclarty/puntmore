@@ -6,11 +6,11 @@ import pytest
 from app.pricing.grid import (
     score_grid, p_btts, p_gg_no_draw, p_draw, p_team_over,
 )
-from app.providers.bettingiscool import BettingIsCoolProvider
+from app.providers.grid_coupon import GridCouponProvider
 
 
 def _provider():
-    return BettingIsCoolProvider("test-key")
+    return GridCouponProvider()
 
 
 def _team_totals_rows():
@@ -98,7 +98,7 @@ def test_gg_is_not_team_specific():
 
 def test_gg_no_draw_matches_before_plain_gg():
     """"GG No Draw" contains "GG" — the more specific pattern must win."""
-    from app.providers.bettingiscool import _GG_NO_DRAW_RE, _GG_RE
+    from app.providers.grid_coupon import _GG_NO_DRAW_RE, _GG_RE
     assert _GG_NO_DRAW_RE.search("gg no draw")
     assert _GG_RE.search("gg no draw")  # both match...
     # ...so the ordering in _fair_odds_for is what makes it correct. Pin the

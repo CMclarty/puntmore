@@ -258,6 +258,55 @@ def team_markets(catalogue) -> dict[str, tuple[str, float, dict[str, str]]]:
     return out
 
 
+# The coupon score-grid's Pinnacle inputs: match result + goal totals + team
+# goal totals. marketType -> the bettingiscool row "market" the grid expects.
+_COUPON_MARKET_TYPES = {
+    "1x2": "moneyline",
+    "totals": "totals",
+    "teamtotals-team1": "home_totals",
+    "teamtotals-team2": "away_totals",
+}
+_MONEYLINE_ROLE = {"1": 1, "x": 0, "2": 2, "home": 1, "draw": 0, "away": 2}
+
+
+def coupon_markets(catalogue) -> dict[str, tuple[str, float | None, dict[str, int]]]:
+    """{marketId: (market, line, sides)} for the coupon grid's inputs, where
+    `market` is moneyline/totals/home_totals/away_totals and `sides` maps an
+    outcomeId to the row index the grid reads (moneyline 1=home 0=draw 2=away;
+    over=1 under=0) — so _odds can emit rows in the format _grid_constraints
+    expects, identical to bettingiscool's."""
+    out = {}
+    for m in _as_list(catalogue):
+        market = _COUPON_MARKET_TYPES.get(str(_first(m, "marketType", "type") or "").lower())
+        if market is None:
+            continue
+        if str(_first(m, "sportId", "sport_id") or SOCCER) != str(SOCCER):
+            continue
+        if str(_first(m, "period", "periodName") or "").strip().lower() not in _FULL_TIME:
+            continue
+        line = _first(m, "handicap", "line", "value", "points", "total")
+        try:
+            line = float(line) if line is not None else None
+        except (TypeError, ValueError):
+            line = None
+        if market != "moneyline" and line is None:
+            continue
+        sides = {}
+        for o in _as_list(_first(m, "outcomes") or []):
+            oid = _first(o, "outcomeId", "id", "_id")
+            name = str(_first(o, "outcomeName", "name") or "").strip().lower()
+            if oid is None:
+                continue
+            role = (_MONEYLINE_ROLE.get(name) if market == "moneyline"
+                    else 1 if "over" in name else 0 if "under" in name else None)
+            if role is not None:
+                sides[str(oid)] = role
+        mid = _first(m, "marketId", "id", "_id")
+        if mid is not None and len(sides) == (3 if market == "moneyline" else 2):
+            out[str(mid)] = (market, line, sides)
+    return out
+
+
 def participant_names(data) -> dict[str, str]:
     out = {}
     for p in _as_list(data):

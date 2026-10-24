@@ -13,8 +13,8 @@ import time
 import pytest
 
 from app.odds.client import CACHE_MAX, EVENT_CACHE_MAX, TheOddsApiClient
-from app.providers.bettingiscool import (
-    GRID_CACHE_MAX, ODDS_CACHE_MAX, BettingIsCoolProvider,
+from app.providers.grid_coupon import (
+    GRID_CACHE_MAX, ODDS_CACHE_MAX, GridCouponProvider,
 )
 from app.ttl_cache import MISS, TTLCache
 
@@ -72,7 +72,7 @@ def test_a_cached_none_is_not_a_miss():
 # --- the caches that actually leaked ---------------------------------------
 
 def test_the_coupon_odds_caches_are_bounded():
-    p = BettingIsCoolProvider("test-key")
+    p = GridCouponProvider()
     for event_id in range(ODDS_CACHE_MAX * 3):
         p._odds_cache.set(event_id, [{"market": "totals"}] * 40)
         p._grid_cache.set(event_id, {(0, 0): 0.1})

@@ -7,13 +7,13 @@ the home side is usually the favourite, that overstates value, inventing edge
 rather than hiding it.
 """
 from app.providers.base import MatchQuery
-from app.providers.bettingiscool import (
-    BettingIsCoolProvider, _side_of, SIDE_THRESHOLD,
+from app.providers.grid_coupon import (
+    GridCouponProvider, _side_of, SIDE_THRESHOLD,
 )
 
 
 def _provider():
-    return BettingIsCoolProvider("test-key")
+    return GridCouponProvider()
 
 
 def _moneyline_rows():
@@ -84,7 +84,7 @@ def test_match_totals_are_not_team_specific():
 
 # --- the side is resolved from the PICK, not the fixture name ---
 
-class _StubProvider(BettingIsCoolProvider):
+class _StubProvider(GridCouponProvider):
     """Provider with the network stubbed, to exercise get_fair_odds itself."""
 
     def __init__(self, fixture, odds_rows):
@@ -145,7 +145,7 @@ def test_alias_canonicalises_both_directions():
 def test_per_side_rescues_a_one_sided_name_difference():
     """Whole-string averages a perfect side into a mismatched one and loses the
     fixture. Scoring side-by-side keeps it."""
-    from app.providers.bettingiscool import BettingIsCoolProvider as P
+    from app.providers.grid_coupon import GridCouponProvider as P
     board = ["Crvena Zvezda vs Larne", "Some Other vs Fixture"]
     got = P._best_match("Red Star Belgrade v Larne", board)
     assert got is not None and got[0] == "Crvena Zvezda vs Larne"
@@ -154,14 +154,14 @@ def test_per_side_rescues_a_one_sided_name_difference():
 def test_per_side_takes_the_weaker_side_so_one_match_cannot_carry_it():
     """min(), not max() or mean: both teams must independently look right, or a
     coincidental overlap on one name drags in an unrelated fixture."""
-    from app.providers.bettingiscool import BettingIsCoolProvider as P
+    from app.providers.grid_coupon import GridCouponProvider as P
     # Away side identical, home side unrelated -> the weak side governs.
     assert P._pair_score(("arsenal", "larne"), ("chelsea", "larne")) < 0.5
 
 
 def test_unrelated_fixtures_are_still_rejected():
     """The guard that matters most: never invent a match."""
-    from app.providers.bettingiscool import BettingIsCoolProvider as P
+    from app.providers.grid_coupon import GridCouponProvider as P
     board = ["Newmarket vs North Lakes United", "Crvena Zvezda vs Larne"]
     assert P._best_match("Nonexistent FC vs Fake United", board) is None
 
@@ -222,7 +222,7 @@ def test_different_clubs_sharing_a_name_stay_apart():
 def test_one_matching_side_cannot_carry_a_fixture():
     """The bug this replaced: a long shared name dragged the whole-string score
     over the line while the OTHER team was someone else entirely."""
-    from app.providers.bettingiscool import BettingIsCoolProvider as P
+    from app.providers.grid_coupon import GridCouponProvider as P
     board = ["Brondby vs FC Nordsjaelland", "Brommapojkarna vs Malmo"]
     assert P._best_match("Horsens v Nordsjaelland", board) is None
     assert P._best_match("Brommapojkarna v Hammarby", board) is None
@@ -275,7 +275,7 @@ def test_reserve_side_does_not_steal_the_first_team():
 
 
 def test_team_fragment_stops_at_the_market():
-    from app.providers.bettingiscool import _team_fragment
+    from app.providers.grid_coupon import _team_fragment
     assert _team_fragment("Lyon Win and Over 2.5") == "Lyon"
     assert _team_fragment("Kairat Almaty to Score 1") == "Kairat Almaty"
     assert _team_fragment("Nice Win to Nil") == "Nice"
@@ -291,7 +291,7 @@ def test_a_club_ending_in_a_number_is_not_read_as_a_totals_line():
     was derived at a 96-goal line — probability zero, no price, and a leg that
     looked like a fixture the board did not carry.
     """
-    from app.providers.bettingiscool import _OVER_RE
+    from app.providers.grid_coupon import _OVER_RE
     m = _OVER_RE.search("hannover 96 win and over 2.5")
     assert m is not None and m.group(1) == "2.5"
 
@@ -374,10 +374,10 @@ def test_the_fixture_matcher_refuses_the_under_21_fixture_for_a_senior_leg():
     """End to end through the board matcher: the U21 fixture is on the board,
     the senior one is not — the leg must come back UNMATCHED, not priced off
     the youth game."""
-    from app.providers.bettingiscool import BettingIsCoolProvider
+    from app.providers.grid_coupon import GridCouponProvider
     board = ["England U-21s vs Spain U-21s", "Germany vs France"]
-    assert BettingIsCoolProvider._best_match("England v Spain", board) is None
-    assert BettingIsCoolProvider._best_match(
+    assert GridCouponProvider._best_match("England v Spain", board) is None
+    assert GridCouponProvider._best_match(
         "England U21 v Spain U21", board
     )[0] == "England U-21s vs Spain U-21s"
 

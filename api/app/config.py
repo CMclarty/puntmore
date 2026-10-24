@@ -224,24 +224,22 @@ class Settings(BaseSettings):
     accabonus_alert_min_edge: float = 0.02
     accabonus_alert_minutes: int = 30
     # Coupon tracker odds source (behind the OddsProvider seam).
-    # "bettingiscool" (default, user decision July 2026) prices coupon legs
-    # Pinnacle-referenced via BettingIsCoolProvider. "theoddsapi" is retained
-    # as a working fallback but is no longer the intended source.
+    # "oddspapi" (default, Oct 2026) prices coupon legs Pinnacle-referenced via
+    # OddsPapiCouponProvider (the provider-agnostic GridCouponProvider over an
+    # OddsPapi board). "theoddsapi" is retained as a working fallback but cannot
+    # derive the GG/TTS/Win-and-Over markets off the grid.
     #
-    # BettingIsCoolProvider's transport is NOT implemented (the vendor's request
-    # /response schema isn't known yet), so with the default source selected and
-    # no key present, main.py falls back to TheOddsApi if an ODDS_API_KEY is
-    # available, else the mock. That keeps a deployed instance pricing real legs
-    # instead of silently serving mock data.
-    coupon_odds_source: str = "bettingiscool"
-    bettingiscool_api_key: str = ""
+    # With the default source and no ODDSPAPI_API_KEY, main.py falls back to
+    # TheOddsApi if an ODDS_API_KEY is present, else the mock — a deployed
+    # instance keeps pricing real legs rather than silently serving mock data.
+    coupon_odds_source: str = "oddspapi"
     # Cache TTL (seconds) for the coupon tracker's odds pulls, reused across
     # every leg and the 10-min refresh loop. Independent of odds_cache_ttl
     # (which the hidden AccaBonus/Cards tools use).
     #
-    # Default 600 = 10 min, matching the refresh cadence, which is what
-    # bettingiscool's quota supports: 500,000 tokens per UTC DAY, and a full
-    # refresh of a 10-leg coupon costs ~250. Prices stay fresh.
+    # Default 600 = 10 min, matching the refresh cadence. OddsPapi is billed per
+    # request, but the whole coupon board is a handful of bulk requests per
+    # refresh (one per tournament chunk), well within the daily budget.
     #
     # ⚠️ If you set COUPON_ODDS_SOURCE=theoddsapi, RAISE this to 86400. That
     # source is billed 500 credits per MONTH and a 10-min cache would exhaust

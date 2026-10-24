@@ -1,44 +1,29 @@
-"""BettingIsCool OddsProvider — Pinnacle-referenced coupon fair odds.
+"""Provider-agnostic coupon fair odds — the score grid + de-vig + derived
+markets + fixture matching, over a Pinnacle board ANY vendor can supply.
 
-The coupon tracker's odds source (SPEC §5). Pinnacle-native: team totals are a
-standard market and RAW prices are exposed on every snapshot, which is what
-in-house de-vig (§7) and the derived score-grid model (§8) need.
+`GridCouponProvider` is the coupon tracker's odds engine (SPEC §5/§7/§8). It is
+vendor-neutral: a concrete provider implements just two data methods —
+`_fixtures()` and `_odds(event_id)` — and everything else (in-house de-vig,
+the fitted score grid, GG / GG-No-Draw / TTS / Win-and-Over / Win-to-Nil
+derivation, fuzzy fixture matching, the `/api/ready` tally) is shared here.
+OddsPapiCouponProvider (oddspapi_coupon.py) is the live implementation.
 
-Vendor API (https://api.bettingiscool.com, `X-API-Key` header, OpenAPI at
-/openapi.json). Verified against the live API, July 2026:
+THE ROW CONTRACT a provider must satisfy:
 
-  GET /api/fixtures?sport_id=29&starts_from=&starts_to=&limit=
-      → [{event_id, league_name, runner_home, runner_away, starts, ...}]
-        `limit` maxes at 1000 (422 above). `starts_to` bounds the window.
-  GET /api/odds?event_id=
-      → one row per (period, market, line). `main_lines_only=1` collapses this
-        to the single main line and is deliberately NOT used — see _odds().
-        market  ∈ moneyline | totals | home_totals | away_totals | spread
-        period  0 = full match, 1 = first half
+  _fixtures() -> [{event_id, league_name, runner_home, runner_away, starts, ...}]
+      every fixture on the board, each with a stable event_id.
+  _odds(event_id) -> [{period, market, line, odds0, odds1, odds2}]
+        market  ∈ moneyline | totals | home_totals | away_totals
+        period  0 = full match (only period used)
         line    the handicap/total (null for moneyline)
-        odds0/1/2   RAW prices   ← the pricing path uses these
-        todds0/1/2  vendor de-vigged  ← cross-check tests ONLY (§7.1)
-
-  Index convention (confirmed empirically — index 0 is null on every
-  two-outcome market, and is the draw price on moneyline):
-        0 = draw          1 = home / over        2 = away / under
-
-  Billing: 1 token per request + 1 per row. Quota is reported per UTC DAY via
-  X-Quota-Limit / X-Quota-Remaining (500,000/day on the current plan), so the
-  free-tier arithmetic that constrains TheOddsApi does not apply here.
-
-De-vig cross-check (July 2026): our `devigd_multi` reproduces the vendor's
-`todds` to within 0.03% on all five markets including the 3-way moneyline —
-independent confirmation that the power method is the right one. The pricing
-path still de-vigs in-house so the provider stays swappable (§7.1).
+        odds0/1/2   RAW prices (in-house de-vig runs here, so the provider
+                    stays swappable — never a vendor's devigged field)
+      Index convention: 0 = draw, 1 = home / over, 2 = away / under.
 """
 import difflib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 import logging
 import re
-import time
-
-import httpx
 
 from .base import OddsProvider, MatchQuery, OddsResult
 from ..normalise import normalise_match, normalise_sides, split_sides, team_similarity
@@ -55,22 +40,9 @@ from ..pricing.grid import (
 
 logger = logging.getLogger("uvicorn.error")
 
-BASE_URL = "https://api.bettingiscool.com"
-SOCCER_SPORT_ID = 29
+# A full-match total (period 0) is what the score grid is fitted from; halves
+# (period 1) are ignored. A concrete provider's _odds() rows carry this.
 FULL_MATCH_PERIOD = 0
-# The board must cover a whole coupon window, not just today. The vendor caps a
-# single /api/fixtures response at 1000 rows (it 422s above) — and on a busy
-# weekend one day of soccer alone approaches that (Jul 25 2026: 907 fixtures),
-# so a single request starting today runs out only ~1.5 days ahead. A coupon for
-# the coming weekend then matched nothing and showed no fair odds AT ALL. So the
-# board is fetched ONE DAY PER REQUEST (starts_from == starts_to) across a
-# horizon and merged: each slice is a whole day, comfortably under the cap. Cost
-# is ~1 token per row against a 500k/DAY quota, cached for cache_ttl — the
-# handful of extra requests is immaterial.
-FIXTURE_LIMIT = 1000
-# How many days ahead to build the board (today + the next 6). Coupons run up to
-# ~a week; a slice per day keeps every request under FIXTURE_LIMIT.
-FIXTURE_HORIZON_DAYS = 7
 
 # Fuzzy-match thresholds. HIGHER than the TheOddsApi provider's 0.6 on purpose:
 # that one scores against ~10 fixtures per league, this one against the whole
@@ -116,12 +88,8 @@ _team_fragment = team_fragment
 _side_of = side_of
 
 
-class BettingIsCoolProviderNotConfigured(RuntimeError):
-    """Raised when the provider is constructed without an API key."""
-
-
 def _parse_starts(raw) -> datetime | None:
-    """Fixture kickoff. The vendor sends naive ISO strings that are UTC."""
+    """Fixture kickoff from an ISO string (naive == UTC), or None."""
     if not isinstance(raw, str):
         return None
     try:
@@ -146,21 +114,14 @@ def _fair(prices: dict[int, float], want: int) -> float | None:
     return round(fair_prices[idx.index(want)], 4)
 
 
-class BettingIsCoolProvider(OddsProvider):
-    def __init__(
-        self,
-        api_key: str,
-        cache_ttl: int | None = None,
-        sport_id: int = SOCCER_SPORT_ID,
-    ):
-        if not api_key:
-            raise BettingIsCoolProviderNotConfigured(
-                "BETTINGISCOOL_API_KEY is not set"
-            )
-        self._api_key = api_key
+class GridCouponProvider(OddsProvider):
+    """Coupon fair odds over a Pinnacle board. Subclass and implement the two
+    data methods — `_fixtures()` and `_odds()` — to the row contract in the
+    module docstring; the grid, de-vig, derived markets and fixture matching
+    are all here."""
+
+    def __init__(self, cache_ttl: int | None = None):
         self._cache_ttl = cache_ttl or 600
-        self._sport_id = sport_id
-        self._fixtures_cache: tuple[float, list[dict]] | None = None
         # BOUNDED, and that is not a detail. These are keyed by fixture id and
         # fed by the 10-minute refresh loop, so as plain dicts they accumulated
         # every fixture the app had ever priced — measured at ~110 KB of odds
@@ -178,107 +139,17 @@ class BettingIsCoolProvider(OddsProvider):
         # log line that may already have scrolled away.
         self.last_pass: dict | None = None
 
-    # --- transport ---
-
-    def _get(self, path: str, params: dict) -> list[dict]:
-        resp = httpx.get(
-            f"{BASE_URL}{path}",
-            params=params,
-            headers={"X-API-Key": self._api_key},
-            timeout=20.0,
-        )
-        resp.raise_for_status()
-        remaining = resp.headers.get("x-quota-remaining")
-        if remaining is not None and int(remaining) < 10000:
-            logger.warning("bettingiscool quota low: %s left today", remaining)
-        data = resp.json()
-        return data if isinstance(data, list) else []
+    # --- board: a concrete provider supplies these two (see module docstring) ---
 
     def _fixtures(self) -> list[dict]:
-        now = time.time()
-        if self._fixtures_cache and now - self._fixtures_cache[0] < self._cache_ttl:
-            return self._fixtures_cache[1]
+        """Every fixture on the board: dicts with event_id / league_name /
+        runner_home / runner_away / starts."""
+        raise NotImplementedError
 
-        today = datetime.fromtimestamp(now, tz=timezone.utc).date()
-        merged: dict[int, dict] = {}
-        fetched_any = False
-        for offset in range(FIXTURE_HORIZON_DAYS):
-            day = (today + timedelta(days=offset)).isoformat()
-            try:
-                rows = self._get(
-                    "/api/fixtures",
-                    {
-                        "sport_id": self._sport_id,
-                        "starts_from": day,
-                        "starts_to": day,
-                        "limit": FIXTURE_LIMIT,
-                    },
-                )
-            except Exception as exc:
-                # One slice failing is not fatal — keep the days that did load so
-                # most legs still price. Only a total wipe-out falls back below.
-                logger.error("bettingiscool fixtures fetch failed (%s): %s", day, exc)
-                continue
-            fetched_any = True
-            # A single day at the cap means fixtures on it were dropped — surface
-            # it, because the resulting "no match" is indistinguishable from a bad
-            # name. If this ever fires, the slice needs splitting finer than a day.
-            if len(rows) >= FIXTURE_LIMIT:
-                logger.warning(
-                    "bettingiscool: %s hit the %d-row cap — some fixtures that "
-                    "day are missing from the board", day, FIXTURE_LIMIT,
-                )
-            for r in rows:
-                eid = r.get("event_id")
-                if eid is not None:
-                    merged.setdefault(eid, r)
-
-        # Every slice failed (transient network blip) — keep the last good board
-        # rather than blanking every leg. A partial board (some slices loaded) is
-        # kept as-is: partial coverage prices most legs and the next refresh completes it.
-        if not fetched_any:
-            return self._fixtures_cache[1] if self._fixtures_cache else []
-
-        board = list(merged.values())
-        # AN EMPTY BOARD IS THE LOUDEST FAILURE THERE IS, and it used to be the
-        # quietest. Every slice answered 200 and returned nothing, so no request
-        # failed, nothing was logged, and `get_fair_odds` matched every leg
-        # against an empty list — a whole coupon of blank selections that looks
-        # exactly like a bad scan. The causes are all config or vendor-shaped
-        # (wrong sport_id, a date window the vendor reads as empty, an API
-        # change, the vendor simply down), and none of them are visible from
-        # the tracker.
-        if not board:
-            logger.error(
-                "bettingiscool returned an EMPTY BOARD for sport_id=%s across "
-                "%d day(s) from %s — every leg will be unmatched and every "
-                "selection blank. The requests SUCCEEDED and returned no "
-                "fixtures, so this is not a network or key failure: check "
-                "sport_id, the starts_from/starts_to window, and the vendor.",
-                self._sport_id, FIXTURE_HORIZON_DAYS, today.isoformat(),
-            )
-        self._fixtures_cache = (now, board)
-        return board
-
-    def _odds(self, event_id: int) -> list[dict]:
-        cached = self._odds_cache.get(event_id)
-        if cached is not MISS:
-            return cached
-        try:
-            # NOT main_lines_only: coupons name specific lines ("Over 2.5") and
-            # the main line is often something else (2.75 on the fixture this
-            # was verified against). The full ladder costs ~22 tokens instead of
-            # ~11 and is also what the derived score grid needs.
-            rows = self._get("/api/odds", {"event_id": event_id})
-        except Exception as exc:
-            # No stale value to fall back on any more — an expired entry is
-            # DELETED rather than kept for this case, which is the whole point.
-            # An empty board prices nothing this pass and retries on the next;
-            # holding the last good copy for ever is what the leak was.
-            logger.error("bettingiscool odds fetch failed (%s): %s", event_id, exc)
-            return []
-        self._odds_cache.set(event_id, rows)
-        return rows
+    def _odds(self, event_id) -> list[dict]:
+        """Normalized Pinnacle rows for one event: {period, market, line,
+        odds0, odds1, odds2}, market in moneyline/totals/home_totals/away_totals."""
+        raise NotImplementedError
 
     # --- public accessors ---
     #
@@ -528,7 +399,7 @@ class BettingIsCoolProvider(OddsProvider):
                 # "Horsens v Nordsjaelland" priced off "Brondby vs
                 # Nordsjaelland", and "Brommapojkarna v Hammarby" off
                 # "Brommapojkarna vs Malmo". Both were confident wrong prices.
-                score = BettingIsCoolProvider._pair_score(q_sides, c_sides)
+                score = GridCouponProvider._pair_score(q_sides, c_sides)
             else:
                 # Not a fixture pair (shouldn't happen for a coupon leg, but a
                 # malformed name must still be comparable) — fall back to the
@@ -727,7 +598,7 @@ class BettingIsCoolProvider(OddsProvider):
         blanks = tally["legs"] - tally["priced"]
         log = logger.info if blanks == 0 else logger.warning
         log(
-            "bettingiscool pricing pass: %d/%d priced off a %d-fixture board "
+            "coupon pricing pass: %d/%d priced off a %d-fixture board "
             "(no_board=%d no_match=%d [refused: youth=%d day=%d] no_odds=%d "
             "no_market=%d no_side=%d)",
             tally["priced"], tally["legs"], tally["board"],

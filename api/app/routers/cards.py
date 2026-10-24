@@ -179,8 +179,8 @@ def diagnose(client, pinnacle) -> dict:
         verdict = None          # fair side fine — fall through to the pricing checks
     elif not pinnacle or not (hasattr(pinnacle, "board") and hasattr(pinnacle, "odds_for")):
         verdict = (
-            "The coupon odds provider is not bettingiscool, so there is no "
-            "Pinnacle corners board to price against. Set BETTINGISCOOL_API_KEY."
+            "No Pinnacle corners board to price against. Set ODDSPAPI_API_KEY "
+            "and ODDSPAPI_FAIR_BOOK."
         )
     elif fair.get("derived_fixtures", 0) == 0:
         verdict = (

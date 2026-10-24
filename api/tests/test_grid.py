@@ -149,7 +149,7 @@ def test_win_to_nil_is_a_strict_subset_of_the_win():
 def test_win_to_nil_does_not_price_as_a_plain_win():
     """The pick text contains "win", so the moneyline branch would have caught
     it first and returned a much shorter (wrong) price."""
-    from app.providers.bettingiscool import _WIN_TO_NIL_RE, _WIN_RE
+    from app.providers.grid_coupon import _WIN_TO_NIL_RE, _WIN_RE
     assert _WIN_TO_NIL_RE.search("kairat win to nil")
     assert not _WIN_TO_NIL_RE.search("kairat win and over 2.5")
     assert _WIN_RE.search("kairat win to nil")   # why order matters
