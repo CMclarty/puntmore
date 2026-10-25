@@ -343,6 +343,9 @@ class AwLegOut(BaseModel):
     fair_odds: float | None = None
     fixture_id: str | None = None
     result: str
+    # Married snapshot line (aw26/marry.py): what was offered vs `odds` taken.
+    offered_odds: float | None = None
+    snapshot_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

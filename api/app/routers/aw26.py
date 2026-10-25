@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from ..aw26.legs import classify, find_fixture_id
 from ..aw26 import snapshots
+from ..aw26.marry import marry_slip
 from ..aw26.offers import OFFERS
 from ..aw26.service import (
     build_slip, parse_when, price_slip, recent_fairs, settle_slip, summary,
@@ -97,6 +98,7 @@ async def upload_slip(
 
     slip = build_slip(read, offer=offer, user=user, image_path=image_path,
                       events=_sweep_events(request))
+    marry_slip(db, slip)
     price_slip(slip, recent_fairs(db))
     db.add(slip)
     try:
@@ -170,6 +172,7 @@ def edit_slip(slip_id: int, body: SlipEdit, request: Request, db: Session = Depe
         slip.legs[:] = kept
     slip.edited = True
     slip.ev = None
+    marry_slip(db, slip, refresh=True)
     price_slip(slip, recent_fairs(db))
     settle_slip(slip)
     try:

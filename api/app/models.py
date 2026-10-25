@@ -355,6 +355,18 @@ class AwLeg(Base):
     result = Column(String, nullable=False, default="pending")  # pending | won | lost | void
 
     slip = relationship("AwSlip", back_populates="legs")
+    # The line this leg was married to (aw_leg_lines; aw26/marry.py) — a side
+    # table because aw_legs takes no new columns without a migration.
+    line_link = relationship("AwLegLine", uselist=False, back_populates="leg",
+                             cascade="all, delete-orphan")
+
+    @property
+    def offered_odds(self) -> float | None:
+        return self.line_link.offered_odds_at_snapshot if self.line_link else None
+
+    @property
+    def snapshot_at(self):
+        return self.line_link.snapshot_at if self.line_link else None
 
 
 class AwFair(Base):
@@ -428,3 +440,29 @@ class ValueLine(Base):
     basis = Column(String, nullable=True)            # ladder | hybrid | matched | saves
 
     snapshot = relationship("ValueSnapshot", back_populates="lines")
+
+
+class AwLegLine(Base):
+    """An AW 26 leg married to the snapshot line it came from (aw26/marry.py):
+    the nearest snapshot at or before the slip's placed_at that quoted the
+    same fixture, market, line and side.
+
+    The line's prices are COPIED here, so the marriage survives the snapshot
+    being pruned (line_id then points nowhere and is cleared). `offered_odds`
+    is what the bookmaker showed in that snapshot; the leg's own `odds` is the
+    price taken, so the two together are offered-vs-taken."""
+    __tablename__ = "aw_leg_lines"
+
+    id = Column(Integer, primary_key=True)
+    leg_id = Column(Integer, ForeignKey("aw_legs.id", ondelete="CASCADE"),
+                    nullable=False, unique=True, index=True)
+    line_id = Column(Integer, ForeignKey("value_lines.id", ondelete="SET NULL"), nullable=True)
+    source = Column(String, nullable=False)          # the snapshot's source (paddy, ...)
+    snapshot_at = Column(DateTime, nullable=False)
+    offered_odds_at_snapshot = Column(Float, nullable=False)
+    fair_odds = Column(Float, nullable=False)        # the line's fair at that snapshot
+    edge_at_snapshot = Column(Float, nullable=False)
+    match_score = Column(Float, nullable=False)      # the weaker team-name similarity
+    basis = Column(String, nullable=True)            # ladder | hybrid | matched | saves
+
+    leg = relationship("AwLeg", back_populates="line_link")

@@ -121,6 +121,10 @@ def price_slip(slip: AwSlip, fairs) -> None:
     for leg in slip.legs:
         if leg.fair_odds is None:
             leg.fair_odds = find_fair(leg, fairs)
+        # No Bookie Bashing fair: the married snapshot line's own fair
+        # (aw26/marry.py), said in the note below.
+        if leg.fair_odds is None and leg.line_link is not None:
+            leg.fair_odds = leg.line_link.fair_odds
     missing = sum(1 for leg in slip.legs if leg.fair_odds is None or leg.odds is None)
     if not slip.legs or slip.stake is None:
         slip.ev_note = "nothing to price"
@@ -131,7 +135,25 @@ def price_slip(slip: AwSlip, fairs) -> None:
         slip.ev = round(expected_value(slip.offer, slip.stake, odds,
                                        [leg.fair_odds for leg in slip.legs]), 2)
         why = problems(slip.offer, odds)
-        slip.ev_note = f"valued without the {slip.offer}: {'; '.join(why)}" if why else None
+        notes = [f"valued without the {slip.offer}: {'; '.join(why)}"] if why else []
+        by_line = [leg for leg in slip.legs if fair_source(leg) not in (None, "bb")]
+        if by_line:
+            sources = sorted({fair_source(leg) for leg in by_line})
+            notes.append(f"fair from the {'/'.join(sources)} snapshot on "
+                         f"{len(by_line)} of {len(slip.legs)} legs")
+        slip.ev_note = "; ".join(notes) or None
+
+
+def fair_source(leg) -> str | None:
+    """Where a leg's fair price came from: the married snapshot line's source
+    (paddy, ...) when the fair IS that line's, else "bb" (Bookie Bashing, or
+    typed in by hand — the two are not told apart). None: no fair."""
+    if leg.fair_odds is None:
+        return None
+    link = leg.line_link
+    if link is not None and abs(leg.fair_odds - link.fair_odds) < 1e-9:
+        return link.source
+    return "bb"
 
 
 def settle_slip(slip: AwSlip, now: datetime | None = None) -> None:

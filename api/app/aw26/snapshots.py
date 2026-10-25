@@ -16,7 +16,7 @@ CARDS_MIN_EDGE (default -2%): a line priced worse than that is not on file.
 from datetime import datetime, timedelta, timezone
 
 from ..config import settings
-from ..models import ValueLine, ValueSnapshot
+from ..models import AwLegLine, ValueLine, ValueSnapshot
 from ..time_utils import utcnow
 
 KEEP_DAYS = 30
@@ -107,6 +107,10 @@ def prune(db, keep_days: int = KEEP_DAYS, now: datetime | None = None,
     cascade without the foreign-key pragma). Returns snapshots deleted."""
     cutoff = (now or utcnow()) - timedelta(days=keep_days)
     old = db.query(ValueSnapshot.id).filter(ValueSnapshot.at < cutoff)
+    gone = db.query(ValueLine.id).filter(ValueLine.snapshot_id.in_(old.scalar_subquery()))
+    # A married leg keeps its copy of the prices; only the pointer goes.
+    db.query(AwLegLine).filter(AwLegLine.line_id.in_(gone.scalar_subquery())) \
+        .update({AwLegLine.line_id: None}, synchronize_session=False)
     db.query(ValueLine).filter(ValueLine.snapshot_id.in_(old.scalar_subquery())) \
         .delete(synchronize_session=False)
     n = db.query(ValueSnapshot).filter(ValueSnapshot.at < cutoff) \

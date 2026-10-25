@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..aw26.legs import classify
+from ..aw26.marry import marry_slip
 from ..aw26.offers import OFFERS
 from ..aw26.results import MatchStats, apply_match_stats
 from ..aw26.service import (
@@ -121,6 +122,7 @@ def ingest_slip(body: SlipIn, request: Request, db: Session = Depends(get_db)):
     for leg, given in zip(slip.legs, body.legs):
         if given.fair_odds is not None:
             leg.fair_odds = given.fair_odds
+    marry_slip(db, slip)
     price_slip(slip, recent_fairs(db))
     settle_slip(slip)
     db.add(slip)
