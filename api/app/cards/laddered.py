@@ -355,9 +355,11 @@ def _compute_laddered_value(
     # pricing it, Pinnacle not posting it, a ladder too thin, or no value.
     by_market = {
         _market_name(mk): dict(paddy_only=0, pinnacle_only=0, both=0, thin=0, matched=0,
-                               hybrid=0, split_disagreement=0, unfittable=0, fitted=0,
-                               paddy_lines=0, push_lines=0, out_of_bounds=0, rows=0,
-                               best_edge=None)
+                               hybrid=0, split_disagreement=0,
+                               # which of Pinnacle's quotes pinned the team shares
+                               split_sources=dict(home_line=0, away_line=0, handicap=0),
+                               unfittable=0, fitted=0, paddy_lines=0, push_lines=0,
+                               out_of_bounds=0, rows=0, best_edge=None)
         for mk in _CONFIGS
     }
 
@@ -405,6 +407,8 @@ def _compute_laddered_value(
                         tally["split_disagreement"] += 1
                         continue
                     tally["hybrid"] += 1
+                    for name in share.sources:
+                        tally["split_sources"][name] += 1
                     home = market_key.endswith("_home")
 
                     def priced_off_split(line, skey=skey, totals=totals, share=share, home=home,

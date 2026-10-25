@@ -457,6 +457,7 @@ def test_a_one_rung_team_ladder_borrows_the_match_ladder_s_shape():
     assert all(r.basis == "hybrid" for r in rows)
     t = LAST_RUN["by_market"]["team_corners"]
     assert t["thin"] == 1 and t["hybrid"] == 1 and t["matched"] == 0 and t["fitted"] == 0
+    assert t["split_sources"] == {"home_line": 1, "away_line": 0, "handicap": 0}
     # Beyond the single quoted rung the usual honesty applies: the 6.5 line sits
     # past the grace and must carry the extrapolation marker if it is priced.
     far = [r for r in rows if r.line == 6.5]
