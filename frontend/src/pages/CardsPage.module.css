@@ -37,6 +37,21 @@
 .row > :nth-child(n+3) { text-align: right; }
 /* Fair decimal odds, the reference the value % is measured against. */
 .fair { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.tappable { cursor: pointer; }
+.more { font-size: 11px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+
+/* Ladder drop-down: a selection's other value lines, under its lead row. */
+.sub { background: var(--accent-soft); }
+.subRow {
+  display: grid;
+  grid-template-columns: 22px 1fr 44px 56px 44px;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.subRow > :nth-child(n+3) { text-align: right; }
+.subLine { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
 .top5 {
   display: flex; align-items: baseline; gap: 14px;
   padding: 10px 12px; border-bottom: 1px solid var(--line);

@@ -179,6 +179,10 @@ class CardFeedBet(BaseModel):
     value: float
     # corners | cards | goals | saves — what the page filters on.
     market: str = ""
+    # The line and side, so the UI can group a selection's ladder (tap a bet to
+    # drop down its other value lines) without re-parsing the pick.
+    line: float = 0.0
+    side: str = ""       # "Over" | "Under"
 
 
 class CardFeedItem(BaseModel):

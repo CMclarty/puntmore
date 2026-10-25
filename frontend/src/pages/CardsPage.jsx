@@ -86,6 +86,11 @@ function Chips({ options, isOn, onPick, icons = false }) {
 
 const shortPick = p => p.replace(/^Over /, 'O').replace(/^Under /, 'U')
 const evPct = v => `${((1 + v) * 100).toFixed(1)}%`
+const lineLabel = b => (b.side === 'Over' ? 'O' : 'U') + b.line.toFixed(1)
+// A selection = one match · market · side · (team): its lines differ only by the
+// number. Drop the line from the pick (always " X.X ", space-padded) to get a
+// key shared across the ladder — for plain Over/Under and team picks alike.
+const selKey = b => `${b.matchId}|${b.pick.replace(` ${b.line.toFixed(1)} `, ' ')}`
 function kickoff(iso) {
   const d = new Date(iso)
   const day = d.toDateString() === new Date().toDateString() ? ''
@@ -93,18 +98,40 @@ function kickoff(iso) {
   return day + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function Row({ bet }) {
+// One selection: the best value line, tappable to drop down its other value
+// lines (the ladder) when there are any.
+function Selection({ lead, others, expanded, onToggle }) {
+  const has = others.length > 0
   return (
-    <div className={f.row}>
-      <MarketIcon market={bet.market} size={22} />
-      <span className={f.what}>
-        <span className={f.pick}>{shortPick(bet.pick)}</span>
-        <span className={f.match}>{bet.match} · {kickoff(bet.commence_time)}</span>
-      </span>
-      <span className={f.odds}>{bet.odds.toFixed(2)}</span>
-      <span className={`${f.value} ${bet.value >= 0.04 ? f.strong : ''}`}>{evPct(bet.value)}</span>
-      <span className={f.fair}>{bet.fair.toFixed(2)}</span>
-    </div>
+    <>
+      <div className={`${f.row} ${has ? f.tappable : ''}`}
+        role={has ? 'button' : undefined} aria-expanded={has ? expanded : undefined}
+        onClick={has ? onToggle : undefined}>
+        <MarketIcon market={lead.market} size={22} />
+        <span className={f.what}>
+          <span className={f.pick}>
+            {shortPick(lead.pick)}
+            {has && <span className={f.more}> {expanded ? '▴' : '▾'} +{others.length}</span>}
+          </span>
+          <span className={f.match}>{lead.match} · {kickoff(lead.commence_time)}</span>
+        </span>
+        <span className={f.odds}>{lead.odds.toFixed(2)}</span>
+        <span className={`${f.value} ${lead.value >= 0.04 ? f.strong : ''}`}>{evPct(lead.value)}</span>
+        <span className={f.fair}>{lead.fair.toFixed(2)}</span>
+      </div>
+      {has && expanded && (
+        <div className={f.sub}>
+          {others.map(o => (
+            <div className={f.subRow} key={o.pick}>
+              <span /><span className={f.subLine}>{lineLabel(o)}</span>
+              <span className={f.odds}>{o.odds.toFixed(2)}</span>
+              <span className={`${f.value} ${o.value >= 0.04 ? f.strong : ''}`}>{evPct(o.value)}</span>
+              <span className={f.fair}>{o.fair.toFixed(2)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   )
 }
 
@@ -117,6 +144,8 @@ export default function CardsPage() {
   const [items, setItems] = useState(null)
   const [error, setError] = useState(null)
   const [why, setWhy] = useState(null)
+  const [expanded, setExpanded] = useState(() => new Set())
+  const toggle = k => setExpanded(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
 
   useEffect(() => {
     try { localStorage.setItem(OFFER_KEY, offer) } catch { /* private mode */ }
@@ -194,8 +223,18 @@ export default function CardsPage() {
         stake: refund ? null : Math.round(BOOST_KELLY * r.kelly * BOOST_BANKROLL) }
     }
   }
-  const body = list.length
-    ? list.map(({ b }) => <Row key={b.matchId + b.pick} bet={b} />)
+  // Group each selection's value lines: the best line leads, the rest drop down.
+  const groups = new Map()
+  for (const { b } of list) {
+    const k = selKey(b)
+    if (groups.has(k)) groups.get(k).others.push(b)
+    else groups.set(k, { key: k, lead: b, others: [] })
+  }
+  for (const g of groups.values()) g.others.sort((a, b) => b.line - a.line)
+  const body = groups.size
+    ? [...groups.values()].map(g => (
+        <Selection key={g.key} lead={g.lead} others={g.others}
+          expanded={expanded.has(g.key)} onToggle={() => toggle(g.key)} />))
     : <p className={f.empty}>{applied ? 'Nothing matches these options.'
       : offer === 'value' ? 'No bets at or above fair right now.' : `No legs at ${ACCA_FLOOR}+ right now.`}</p>
 
