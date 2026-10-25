@@ -9,13 +9,17 @@ import os
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..aw26.legs import classify, find_fixture_id
+from ..aw26 import snapshots
+from ..aw26.marry import marry_slip
 from ..aw26.offers import OFFERS
 from ..aw26.service import (
     build_slip, parse_when, price_slip, recent_fairs, settle_slip, summary,
@@ -56,7 +60,7 @@ def _all(db) -> list[AwSlip]:
 def list_slips(db: Session = Depends(get_db)):
     slips = _all(db)
     return {
-        "summary": summary(slips),
+        "summary": summary(slips, snapshot=snapshots.latest(db, "paddy")),
         "slips": [AwSlipOut.model_validate(s).model_dump(mode="json") for s in slips],
     }
 
@@ -94,6 +98,7 @@ async def upload_slip(
 
     slip = build_slip(read, offer=offer, user=user, image_path=image_path,
                       events=_sweep_events(request))
+    marry_slip(db, slip)
     price_slip(slip, recent_fairs(db))
     db.add(slip)
     try:
@@ -167,6 +172,7 @@ def edit_slip(slip_id: int, body: SlipEdit, request: Request, db: Session = Depe
         slip.legs[:] = kept
     slip.edited = True
     slip.ev = None
+    marry_slip(db, slip, refresh=True)
     price_slip(slip, recent_fairs(db))
     settle_slip(slip)
     try:
@@ -219,3 +225,64 @@ def results_check(request: Request, fixture: str):
         except Exception as exc:
             out[path.strip("/") + "_error"] = str(exc)
     return out
+
+
+# --- value snapshots: what was on offer (aw26/snapshots.py) -----------------
+
+
+class SnapshotOut(BaseModel):
+    id: int
+    at: datetime
+    source: str
+    n_lines: int
+    n_value: int
+    best_edge: float | None = None
+    sum_edge_positive: float
+
+    model_config = {"from_attributes": True}
+
+
+class ValueLineOut(BaseModel):
+    event_id: str | None = None
+    home: str
+    away: str
+    kickoff: datetime | None = None
+    sport_key: str | None = None
+    market: str
+    team: str | None = None
+    line: float | None = None
+    side: str | None = None
+    pick: str | None = None
+    offered_odds: float
+    fair_odds: float
+    edge: float
+    basis: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class LatestSnapshotOut(BaseModel):
+    at: datetime
+    source: str
+    lines: list[ValueLineOut]
+
+
+class SnapshotsOut(BaseModel):
+    snapshots: list[SnapshotOut]
+    latest: LatestSnapshotOut | None = None
+
+
+@router.get("/snapshots", response_model=SnapshotsOut)
+def list_snapshots(hours: float = Query(default=24, gt=0, le=24 * snapshots.KEEP_DAYS),
+                   source: str | None = Query(default=None),
+                   db: Session = Depends(get_db)):
+    """The last `hours` of snapshot headlines, and the newest snapshot's lines
+    (best edge first). `source` narrows both (paddy | coupon | bb | market)."""
+    recent = snapshots.recent(db, hours, source=source)
+    newest = snapshots.latest(db, source)
+    latest = None
+    if newest is not None:
+        lines = sorted(newest.lines, key=lambda ln: ln.edge, reverse=True)
+        latest = LatestSnapshotOut(at=newest.at, source=newest.source,
+                                   lines=[ValueLineOut.model_validate(ln) for ln in lines])
+    return SnapshotsOut(snapshots=[SnapshotOut.model_validate(s) for s in recent], latest=latest)

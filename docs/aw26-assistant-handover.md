@@ -152,3 +152,18 @@ Everything else (marrying, attribution, "value on offer") depends on this.
 3. Results source: FlashScore alone, or require a second source as the
    `settle-bet-slips` skill does?
 4. Any UI for snapshots/attribution (the UI rule says none until asked).
+
+## Status on branch `aw26-assistant` (25 Oct 2026, not deployed)
+- §1 built: `value_snapshots`/`value_lines` (+ `sport_key`, `team` columns:
+  league lookup for §6 and team-line marrying), `aw26/snapshots.py`, hook in
+  `sweep_cards`, `GET /api/aw26/snapshots`. Rows are the sweep's, already cut
+  at `CARDS_MIN_EDGE` (-2%), so lines worse than that are never on file.
+- §3 built: `aw_leg_lines`, `aw26/marry.py` (3h lookback, paddy only).
+- §4 built: `aw26/attribution.py`; legs carry `edge`/`fair_source`/
+  `offered_odds`, slips `ev_by_source`; `summary()` adds `value_on_offer` and
+  `ev_by_source`.
+- §6 built: `local/systemd/` units + README (not enabled; Playwright is not
+  installed on this PC), `GET /api/aw26/open-leagues`. Cards still a TODO.
+- §7 built: `daily_message()` appends EV by source, value on offer, and a £0
+  free-bet placeholder line.
+- §2 and §5 not started: they wait on the decisions above.

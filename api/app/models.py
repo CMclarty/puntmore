@@ -1,7 +1,7 @@
 import json
 
 from sqlalchemy import (
-    Boolean, Column, Integer, String, Float, DateTime, Date, ForeignKey, Text,
+    Boolean, Column, Integer, String, Float, DateTime, Date, ForeignKey, Index, Text,
 )
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -330,6 +330,11 @@ class AwSlip(Base):
     def has_image(self) -> bool:
         return bool(self.image_path)
 
+    @property
+    def ev_by_source(self) -> dict | None:
+        from .aw26.attribution import ev_by_source
+        return ev_by_source(self)
+
 
 class AwLeg(Base):
     """One selection on an AW 26 slip, as printed, plus what it was worth."""
@@ -355,6 +360,35 @@ class AwLeg(Base):
     result = Column(String, nullable=False, default="pending")  # pending | won | lost | void
 
     slip = relationship("AwSlip", back_populates="legs")
+    # The line this leg was married to (aw_leg_lines; aw26/marry.py) — a side
+    # table because aw_legs takes no new columns without a migration.
+    line_link = relationship("AwLegLine", uselist=False, back_populates="leg",
+                             cascade="all, delete-orphan")
+
+    @property
+    def offered_odds(self) -> float | None:
+        return self.line_link.offered_odds_at_snapshot if self.line_link else None
+
+    @property
+    def snapshot_at(self):
+        return self.line_link.snapshot_at if self.line_link else None
+
+    @property
+    def fair_source(self) -> str | None:
+        """Where `fair_odds` came from: the married snapshot line's source
+        (paddy, ...) when the fair IS that line's, else "bb" (Bookie Bashing,
+        or typed in by hand — the two are not told apart). None: no fair."""
+        if self.fair_odds is None:
+            return None
+        link = self.line_link
+        if link is not None and abs(self.fair_odds - link.fair_odds) < 1e-9:
+            return link.source
+        return "bb"
+
+    @property
+    def edge(self) -> float | None:
+        from .aw26.attribution import leg_edge
+        return leg_edge(self)
 
 
 class AwFair(Base):
@@ -374,3 +408,83 @@ class AwFair(Base):
     line = Column(Float, nullable=True)
     side = Column(String, nullable=True)
     fair_odds = Column(Float, nullable=False)
+
+
+class ValueSnapshot(Base):
+    """What value was on offer at one moment (aw26/snapshots.py).
+
+    The Paddy sweep's rows are computed every two minutes and otherwise never
+    stored; a snapshot keeps them, throttled to AW26_SNAPSHOT_MINUTES, so a
+    slip can be married to the line it came from and the day's "value on
+    offer" can be reported. `source` says which tool produced the lines:
+    paddy (the sweep) today; coupon | bb | market fit the same columns later.
+    Kept 30 days (snapshots.KEEP_DAYS)."""
+    __tablename__ = "value_snapshots"
+
+    id = Column(Integer, primary_key=True)
+    at = Column(DateTime, nullable=False, default=utcnow, index=True)   # naive UTC
+    source = Column(String, nullable=False)          # paddy | coupon | bb | market
+    n_lines = Column(Integer, nullable=False, default=0)
+    n_value = Column(Integer, nullable=False, default=0)     # edge >= 0
+    best_edge = Column(Float, nullable=True)                 # NULL: no lines
+    sum_edge_positive = Column(Float, nullable=False, default=0.0)
+
+    lines = relationship("ValueLine", back_populates="snapshot",
+                         cascade="all, delete-orphan", passive_deletes=True)
+
+
+class ValueLine(Base):
+    """One priced line inside a ValueSnapshot. `market` is the Paddy page's
+    market name (corners | cards | goals | saves | team_corners | team_cards);
+    a team line says which team in `team` (home | away), since the pick alone
+    is prose. `side` is lower-case over | under, as AwLeg.side is."""
+    __tablename__ = "value_lines"
+    __table_args__ = (
+        Index("ix_value_lines_key", "event_id", "market", "line", "side"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    snapshot_id = Column(Integer, ForeignKey("value_snapshots.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+    event_id = Column(String, nullable=True)
+    home = Column(String, nullable=False)
+    away = Column(String, nullable=False)
+    kickoff = Column(DateTime, nullable=True)        # naive UTC
+    sport_key = Column(String, nullable=True)        # the league, e.g. soccer_epl
+    market = Column(String, nullable=False)
+    team = Column(String, nullable=True)             # home | away for a team line
+    line = Column(Float, nullable=True)
+    side = Column(String, nullable=True)             # over | under
+    pick = Column(String, nullable=True)             # "Over 9.5 corners", as the page prints it
+    offered_odds = Column(Float, nullable=False)     # the bookmaker's price (Paddy)
+    fair_odds = Column(Float, nullable=False)
+    edge = Column(Float, nullable=False)             # offered / fair - 1
+    basis = Column(String, nullable=True)            # ladder | hybrid | matched | saves
+
+    snapshot = relationship("ValueSnapshot", back_populates="lines")
+
+
+class AwLegLine(Base):
+    """An AW 26 leg married to the snapshot line it came from (aw26/marry.py):
+    the nearest snapshot at or before the slip's placed_at that quoted the
+    same fixture, market, line and side.
+
+    The line's prices are COPIED here, so the marriage survives the snapshot
+    being pruned (line_id then points nowhere and is cleared). `offered_odds`
+    is what the bookmaker showed in that snapshot; the leg's own `odds` is the
+    price taken, so the two together are offered-vs-taken."""
+    __tablename__ = "aw_leg_lines"
+
+    id = Column(Integer, primary_key=True)
+    leg_id = Column(Integer, ForeignKey("aw_legs.id", ondelete="CASCADE"),
+                    nullable=False, unique=True, index=True)
+    line_id = Column(Integer, ForeignKey("value_lines.id", ondelete="SET NULL"), nullable=True)
+    source = Column(String, nullable=False)          # the snapshot's source (paddy, ...)
+    snapshot_at = Column(DateTime, nullable=False)
+    offered_odds_at_snapshot = Column(Float, nullable=False)
+    fair_odds = Column(Float, nullable=False)        # the line's fair at that snapshot
+    edge_at_snapshot = Column(Float, nullable=False)
+    match_score = Column(Float, nullable=False)      # the weaker team-name similarity
+    basis = Column(String, nullable=True)            # ladder | hybrid | matched | saves
+
+    leg = relationship("AwLeg", back_populates="line_link")
