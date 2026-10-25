@@ -70,6 +70,15 @@ _TEAM_MARKET_KEYS = {
     "Bookings - Over Under Team 1": TEAM_CARDS_HOME,
     "Bookings - Over Under Team 2": TEAM_CARDS_AWAY,
 }
+# Pinnacle's corners / bookings HANDICAP (full time): the third observation of
+# the home side's share of the match count, checking the two team lines
+# (pricing/counts/split.py). Outcome "1" is the home side + handicap.
+CORNERS_HANDICAP = "corners_handicap"
+CARDS_HANDICAP = "cards_handicap"
+_HANDICAP_MARKET_KEYS = {
+    "Corners - Handicap": CORNERS_HANDICAP,
+    "Bookings - Handicap": CARDS_HANDICAP,
+}
 
 # Sofascore tournament id -> the TheOddsApi-style key the counts model keys its
 # per-league dispersion priors by. A tournament missing here still prices; it
@@ -253,6 +262,44 @@ def team_markets(catalogue) -> dict[str, tuple[str, float, dict[str, str]]]:
         mid = _first(m, "marketId", "id", "_id")
         if mid is not None and len(sides) == 2:
             out[str(mid)] = (key, line, sides)
+    return out
+
+
+def handicap_markets(catalogue) -> dict[str, tuple[str, float, dict[str, str]]]:
+    """Full-time corners/bookings handicaps, HALF-integer only (an integer
+    handicap pushes, and pushes are never modelled): {marketId: (key, handicap,
+    {outcomeId: "Home" | "Away"})}. The handicap is the home side's — "1" wins
+    when home + handicap > away. Carried on the event like any other market, so
+    the team split can read it; never priced as a bet."""
+    out = {}
+    for m in _as_list(catalogue):
+        key = _HANDICAP_MARKET_KEYS.get(str(_first(m, "marketName", "name") or "").strip())
+        if key is None:
+            continue
+        sport = _first(m, "sportId", "sport_id")
+        if sport is not None and str(sport) != str(SOCCER):
+            continue
+        if str(_first(m, "period", "periodName") or "").strip().lower() not in _FULL_TIME:
+            continue
+        try:
+            hcap = float(_first(m, "handicap", "line", "value"))
+        except (TypeError, ValueError):
+            continue
+        if abs(hcap * 2) % 2 != 1:
+            continue
+        sides: dict[str, str] = {}
+        for o in _as_list(_first(m, "outcomes") or []):
+            oid = _first(o, "outcomeId", "id", "_id")
+            oname = str(_first(o, "outcomeName", "name") or "").strip()
+            if oid is None:
+                continue
+            if oname == "1":
+                sides[str(oid)] = "Home"
+            elif oname == "2":
+                sides[str(oid)] = "Away"
+        mid = _first(m, "marketId", "id", "_id")
+        if mid is not None and len(sides) == 2:
+            out[str(mid)] = (key, hcap, sides)
     return out
 
 
@@ -829,6 +876,9 @@ class OddsPapiPaddySource:
             markets = match_total_markets(self._client.catalogue(),
                                           kinds=(CORNERS, CARDS, SAVES, GOALS))
             markets.update(team_markets(self._client.catalogue()))  # one team's corners/cards
+            # Pinnacle's corners/bookings handicap: read by the team split as a
+            # check on the team lines, never priced. Same bulk response, so free.
+            markets.update(handicap_markets(self._client.catalogue()))
             names = participant_names(self._client.participants())
         except Exception as exc:
             logger.error("cards (oddspapi): reference data failed: %s", exc)

@@ -473,14 +473,60 @@ def _mk(key, lines):
     return {"key": key, "outcomes": outcomes}
 
 
-def test_three_way_is_symmetric_for_identical_teams():
-    from app.cards.most import three_way
-    from app.pricing.counts.dist import CountDist
-    d = CountDist(5.0, 1.2, 30, 0.0)
-    p_home, p_tie, p_away = three_way(d, d)
-    assert p_home == pytest.approx(p_away, abs=1e-9)
-    assert p_home + p_tie + p_away == pytest.approx(1.0, abs=1e-9)
-    assert 0 < p_tie < p_home
+def _joined_split(pin_match, *, home=None, away=None, handicap=None, paddy_home=None):
+    """Pinnacle's match ladder plus any of: a home team line, an away team line,
+    a corners handicap (as {h: (home_price, away_price)}); Paddy quotes the
+    home team's lines."""
+    from app.cards.oddspapi import CORNERS_HANDICAP, TEAM_CORNERS_AWAY, TEAM_CORNERS_HOME
+    pin = [_mk("alternate_totals_corners", pin_match)]
+    if home:
+        pin.append(_mk(TEAM_CORNERS_HOME, home))
+    if away:
+        pin.append(_mk(TEAM_CORNERS_AWAY, away))
+    if handicap:
+        pin.append({"key": CORNERS_HANDICAP, "outcomes": [
+            o for h, (ph, pa) in handicap.items()
+            for o in ({"name": "Home", "point": h, "price": ph},
+                      {"name": "Away", "point": h, "price": pa})]})
+    return [{
+        "id": "e1", "home_team": "Arsenal", "away_team": "Chelsea",
+        "commence_time": _iso(0.5), "sport_key": "soccer_epl",
+        "bookmakers": [{"key": "pinnacle", "markets": pin},
+                       {"key": PADDY_POWER, "markets": [_mk(TEAM_CORNERS_HOME, paddy_home or {})]}],
+    }]
+
+
+def test_the_share_reads_the_handicap_as_a_third_source():
+    from app.cards.laddered import team_split
+    from app.cards.value import _get_bookmaker
+    events = _joined_split(PIN, home={5.5: (1.90, 1.95)}, away={4.5: (1.95, 1.90)},
+                           handicap={-0.5: (1.80, 2.05), 0.5: (1.50, 2.60)})
+    split = team_split(events[0], _get_bookmaker(events[0], "pinnacle"), "team_corners_home", "soccer_epl")
+    assert split is not None
+    _, point, totals, share, quoted = split
+    assert set(share.sources) == {"home_line", "away_line", "handicap"}
+    assert 0.5 < share.p < 0.7 and not share.disagree
+    assert len(totals) == 3                      # the match law and its band
+    assert quoted == {"home": (5.5, 5.5), "away": (4.5, 4.5)}
+    # The nearest-zero handicap is the one read: -0.5 before +0.5.
+    assert share.sources["handicap"] == pytest.approx(
+        __import__("app.pricing.counts.split", fromlist=["share_from_handicap"])
+        .share_from_handicap(totals[0], -0.5, 1 / __import__("app.odds.utils", fromlist=["devigd"]).devigd(1.80, 2.05)[0]),
+        abs=1e-6)
+
+
+def test_a_contradicted_share_prices_nothing_and_is_counted():
+    """The home line says the home side has the larger share; the away line
+    says the away side does. Pinnacle's own quotes disagree, so no team line
+    is priced off them, no three-way is published, and the tally says why."""
+    from app.cards.laddered import compute_laddered_value, LAST_RUN
+    from app.cards.most import most_fairs
+    events = _joined_split(PIN, home={6.5: (1.90, 1.95)}, away={6.5: (1.90, 1.95)},
+                           paddy_home={5.5: (2.60, 1.50), 6.5: (3.40, 1.30)})
+    assert compute_laddered_value(events, -0.5) == []
+    t = LAST_RUN["by_market"]["team_corners"]
+    assert t["thin"] == 1 and t["split_disagreement"] == 1 and t["hybrid"] == 0
+    assert most_fairs(events) == []
 
 
 def test_most_corners_fair_comes_from_the_two_team_lines():
@@ -510,17 +556,22 @@ def test_most_corners_fair_comes_from_the_two_team_lines():
     assert f.fair("tie") > f.fair("home")
 
 
-def test_most_needs_both_teams_priced():
+def test_most_needs_a_share_from_somewhere():
+    """One team line (or the handicap) is enough to pin the share; a fixture
+    with only the match ladder has no share and publishes nothing."""
     from app.cards.most import most_fairs
     from app.cards.oddspapi import TEAM_CORNERS_HOME
-    events = [{
-        "id": "e1", "home_team": "Arsenal", "away_team": "Chelsea",
-        "commence_time": _iso(0.5), "sport_key": "soccer_epl",
-        "bookmakers": [{"key": "pinnacle", "markets": [
-            _mk("alternate_totals_corners", PIN), _mk(TEAM_CORNERS_HOME, {5.5: (1.90, 1.95)}),
-        ]}],
-    }]
-    assert most_fairs(events) == []
+
+    def event(markets):
+        return [{
+            "id": "e1", "home_team": "Arsenal", "away_team": "Chelsea",
+            "commence_time": _iso(0.5), "sport_key": "soccer_epl",
+            "bookmakers": [{"key": "pinnacle", "markets": markets}],
+        }]
+    assert most_fairs(event([_mk("alternate_totals_corners", PIN)])) == []
+    one = most_fairs(event([_mk("alternate_totals_corners", PIN),
+                            _mk(TEAM_CORNERS_HOME, {5.5: (1.90, 1.95)})]))
+    assert [f.market_key for f in one] == ["most_corners"]
 
 
 def test_an_extrapolated_row_says_so_in_its_label():

@@ -38,13 +38,15 @@ from ..ttl_cache import MISS, TTLCache
 from . import shadow_store
 
 from ..pricing.counts.config import CARDS, CORNERS, GOALS, TEAM_CARDS, TEAM_CORNERS, ModelConfig
-from .oddspapi import (TEAM_CARDS_AWAY, TEAM_CARDS_HOME,
-                       TEAM_CORNERS_AWAY, TEAM_CORNERS_HOME)
+from .oddspapi import (CARDS_HANDICAP, CORNERS_HANDICAP, TEAM_CARDS_AWAY,
+                       TEAM_CARDS_HOME, TEAM_CORNERS_AWAY, TEAM_CORNERS_HOME)
 from ..pricing.counts.errors import LadderError
 from ..pricing.counts.fit import fit_ladder
 from ..pricing.counts.ladder import Ladder, Rung
 from ..pricing.counts.lines import is_half_line
-from ..pricing.counts.price import is_priceable, price_line
+from ..pricing.counts.price import _band_dispersions, is_priceable, price_line
+from ..pricing.counts.dist import CountDist
+from ..pricing.counts.split import TeamSplit, estimate_share, price_team_line
 from ..odds.utils import devigd
 from .value import CardValueRow, _get_bookmaker, _get_market, _market_label
 
@@ -61,6 +63,7 @@ LAST_RUN: dict = {}
 # the edges (cheap) are recomputed. Bounded, like every cache here.
 _FITS = TTLCache(ttl=6 * 3600, maxsize=2000)
 _PRICES = TTLCache(ttl=6 * 3600, maxsize=10000)
+_SPLITS = TTLCache(ttl=6 * 3600, maxsize=2000)    # team shares, per fixture and family
 _REFUSED = object()
 # One pricing pass at a time: a page load during a sweep waits, then reads the
 # fits the sweep just cached, instead of computing the same ones beside it.
@@ -176,37 +179,158 @@ def _match_fit(event: dict, pin: dict, market_key: str, sport_key: str):
     return None if fit is _REFUSED else fit
 
 
-def team_dist(event: dict, pin: dict, market_key: str, sport_key: str):
-    """(CountDist, basis) for one team's corners/cards off Pinnacle's side, or
-    None. A 2+ rung team ladder fits on its own ("ladder"); one rung borrows the
-    match ladder's shape ("hybrid") — the same rule, and the same fit cache, as
-    the pricing loop, so cards/most.py never fits twice.
-    """
-    outcomes = _get_market(pin, market_key)
-    config = _CONFIGS.get(market_key)
-    if not outcomes or config is None:
-        return None
-    ladder = ladder_from(outcomes, event["id"], market_key, sport_key)
-    two_sided = [r for r in ladder.rungs if r.over and r.under]
-    if not two_sided:
-        return None
-    d_override, basis = None, "ladder"
-    if len(two_sided) < MIN_RUNGS_TO_PRICE:
-        base = _match_fit(event, pin, market_key, sport_key)
-        if base is None:
-            return None
-        d_override, basis = base.dispersion, "hybrid"
-    sig = _signature(event, market_key, sport_key, outcomes)
-    if d_override is not None:
-        sig = sig + ("hybrid", round(d_override, 4))
-    fit = _FITS.get(sig)
-    if fit is MISS:
+_FAMILIES = {
+    "corners": (TEAM_CORNERS_HOME, TEAM_CORNERS_AWAY, CORNERS_HANDICAP),
+    "cards": (TEAM_CARDS_HOME, TEAM_CARDS_AWAY, CARDS_HANDICAP),
+}
+
+
+def _one_rung(outcomes: list[dict]):
+    """The first two-sided .5 rung of a team line as (line, devigged p_over)."""
+    for line, sides in sorted(_lines(outcomes).items()):
+        if is_half_line(line) and sides.get("Over") and sides.get("Under"):
+            fair_over, _, _ = devigd(sides["Over"], sides["Under"])
+            return line, 1.0 / fair_over
+    return None
+
+
+def _handicap(outcomes: list[dict]):
+    """The half-integer handicap nearest zero quoted both ways, as
+    (handicap, devigged P(home + handicap > away))."""
+    by_h: dict[float, dict[str, float]] = {}
+    for o in outcomes:
         try:
-            fit = fit_ladder(ladder, config, d_override=d_override)
-        except LadderError:
-            fit = _REFUSED
-        _FITS.set(sig, fit)
-    return None if fit is _REFUSED else (fit.dist, basis)
+            by_h.setdefault(float(o["point"]), {})[str(o.get("name"))] = float(o["price"])
+        except (KeyError, TypeError, ValueError):
+            continue
+    for h in sorted(by_h, key=abs):
+        sides = by_h[h]
+        if sides.get("Home") and sides.get("Away"):
+            fair_home, _, _ = devigd(sides["Home"], sides["Away"])
+            return h, 1.0 / fair_home
+    return None
+
+
+def team_split(event: dict, pin: dict, market_key: str, sport_key: str):
+    """The team SPLIT for a team market's family (corners or cards), or None:
+    (cache key, point law, [match law + its dispersion band], share, quoted
+    lines per side). pricing/counts/split.py explains the model; this reads
+    its three observations off Pinnacle's side of the event — the home line,
+    the away line and the handicap — and needs the fixture's match ladder to
+    have fitted. Cached per fixture and family, so the two team markets and
+    cards/most.py share one estimate.
+    """
+    base_key = _base_market(market_key)
+    if base_key is None:
+        return None
+    family = "corners" if "corners" in market_key else "cards"
+    home_key, away_key, hcap_key = _FAMILIES[family]
+    home_out = _get_market(pin, home_key)
+    away_out = _get_market(pin, away_key)
+    hcap_out = _get_market(pin, hcap_key)
+    base_out = _get_market(pin, base_key)
+    key = (event.get("id"), family, _signature(event, base_key, sport_key, base_out),
+           tuple(sorted((o.get("name"), o.get("point"), o.get("price"))
+                        for o in home_out + away_out + hcap_out)))
+    hit = _SPLITS.get(key)
+    if hit is not MISS:
+        return hit
+
+    result = None
+    base = _match_fit(event, pin, market_key, sport_key)
+    if base is not None:
+        share = estimate_share(
+            base.dist,
+            home_line=_one_rung(home_out), away_line=_one_rung(away_out),
+            handicap=_handicap(hcap_out),
+        )
+        if share is not None:
+            config = _CONFIGS[base_key]
+            totals = [base.dist]
+            for d in _band_dispersions(base)[1:]:
+                try:
+                    totals.append(CountDist(base.lam, d, config.grid_max, config.zero_excess))
+                except LadderError:
+                    continue
+            home_rung, away_rung = _one_rung(home_out), _one_rung(away_out)
+            quoted = {
+                "home": (home_rung[0], home_rung[0]) if home_rung else None,
+                "away": (away_rung[0], away_rung[0]) if away_rung else None,
+            }
+            result = (key, TeamSplit(base.dist, share.p), totals, share, quoted)
+    _SPLITS.set(key, result)
+    return result
+
+
+def _price_paddy_lines(event: dict, market_key: str, sport_key: str, config: ModelConfig,
+                       paddy_outcomes: list[dict], tally: dict, min_edge: float,
+                       price_fn, rows: list[CardValueRow], basis: str) -> int:
+    """Price every line Paddy quotes for one market with `price_fn(line) ->
+    FairPrice | None`, appending the value rows. Returns the priceable count.
+
+    ONE body for the fitted ladder and the team split, so the eligibility
+    rules (named exclusions, .5 only, the market's bounds) and the edge rule
+    (against the band, extrapolation-penalised) cannot drift apart.
+    """
+    excluded = _excluded_lines().get(_market_name(market_key), set())
+    priceable = 0
+    for line, sides in sorted(_lines(paddy_outcomes).items()):
+        if line in excluded:
+            continue
+        # Pushes are never bet: only the .5 lines reach pricing, scoring or the
+        # feed (is_half_line — shared with the saves and matched-line paths).
+        if not is_half_line(line):
+            tally["push_lines"] += 1
+            continue
+        tally["paddy_lines"] += 1
+        if not is_priceable(line, config):
+            tally["out_of_bounds"] += 1
+            continue
+        priceable += 1
+        priced = price_fn(line)
+        if priced is None:
+            continue
+        for side in ("Over", "Under"):
+            quote = sides.get(side)
+            if quote is None:
+                continue
+            # min_edge is the floor, not edge_vs: the acca offers ask for legs a
+            # little under fair (see edge_vs.allow_negative).
+            edge = priced.edge_vs(
+                quote, side.lower(), require_band=True, config=config, allow_negative=True,
+            )
+            if edge is not None and (tally["best_edge"] is None or edge > tally["best_edge"]):
+                tally["best_edge"] = round(edge, 4)
+            if edge is None or edge < min_edge:
+                continue
+            tally["rows"] += 1
+            fair = priced.fair_over if side == "Over" else priced.fair_under
+            label = _market_label(market_key, side, line)
+            if priced.extrapolated:
+                # The row must say when its fair price came from beyond
+                # Pinnacle's quoted range — same number, different kind of number.
+                label += f" +{priced.beyond_ladder:g}"
+            rows.append(CardValueRow(
+                event_id=event["id"],
+                home_team=event.get("home_team", ""),
+                away_team=event.get("away_team", ""),
+                commence_time=event.get("commence_time", ""),
+                sport_key=sport_key,
+                market_key=market_key,
+                market_label=label,
+                line=line,
+                side=side,
+                paddy_odds=round(quote, 3),
+                # No raw Pinnacle price exists for a line they do not quote; the
+                # fair price IS the model's answer, so the raw column carries it
+                # rather than a fabricated quote.
+                pinnacle_odds=round(fair, 3),
+                fair_odds=round(fair, 3),
+                pinnacle_margin=0.0,
+                edge=round(edge, 4),
+                basis=basis,
+            ))
+    return priceable
 
 
 def compute_laddered_value(events: list[dict], min_edge: float) -> list[CardValueRow]:
@@ -231,8 +355,9 @@ def _compute_laddered_value(
     # pricing it, Pinnacle not posting it, a ladder too thin, or no value.
     by_market = {
         _market_name(mk): dict(paddy_only=0, pinnacle_only=0, both=0, thin=0, matched=0,
-                               hybrid=0, unfittable=0, fitted=0, paddy_lines=0, push_lines=0,
-                               out_of_bounds=0, rows=0, best_edge=None)
+                               hybrid=0, split_disagreement=0, unfittable=0, fitted=0,
+                               paddy_lines=0, push_lines=0, out_of_bounds=0, rows=0,
+                               best_edge=None)
         for mk in _CONFIGS
     }
 
@@ -265,18 +390,42 @@ def _compute_laddered_value(
             # number. The fit's own sparse handling exists to keep a two-rung
             # ladder honest, not to make a one-rung one bettable.
             two_sided = [r for r in ladder.rungs if r.over and r.under]
-            hybrid_d = None
             if len(two_sided) < MIN_RUNGS_TO_PRICE:
                 tally["thin"] += 1
                 # Pinnacle posts a team's corners/cards as ONE line. Too thin to
-                # fit a SHAPE on its own — but the fixture's MATCH ladder (4-5
-                # rungs) gives a fixture-specific dispersion, and the team rung
-                # pins the team's mean: a hybrid fit, both parameters from live
-                # Pinnacle money on this game. It carries the wide sparse band,
-                # the extrapolation penalty and a "hybrid" basis on every row.
-                base = _match_fit(event, pin, market_key, sport_key) if two_sided else None
-                if base is not None:
-                    hybrid_d = base.dispersion
+                # fit a shape on its own, so a team is priced as a binomial
+                # SPLIT of the fixture's fitted match ladder — the team lines
+                # and the handicap pin the share (pricing/counts/split.py).
+                # Rows carry basis "hybrid". A share Pinnacle's own quotes
+                # contradict is not priced at all, and counted.
+                split = team_split(event, pin, market_key, sport_key)
+                if split is not None:
+                    skey, _, totals, share, quoted = split
+                    if share.disagree:
+                        tally["split_disagreement"] += 1
+                        continue
+                    tally["hybrid"] += 1
+                    home = market_key.endswith("_home")
+
+                    def priced_off_split(line, skey=skey, totals=totals, share=share, home=home,
+                                         q=quoted["home" if home else "away"],
+                                         grace=config.extrapolation_grace):
+                        ck = ("split", skey, home, line)
+                        priced = _PRICES.get(ck)
+                        if priced is MISS:
+                            try:
+                                priced = price_team_line(totals, share, line, home,
+                                                         quoted_range=q, grace=grace)
+                            except LadderError:
+                                priced = _REFUSED
+                            _PRICES.set(ck, priced)
+                        return None if priced is _REFUSED else priced
+
+                    priceable_lines += _price_paddy_lines(
+                        event, market_key, sport_key, config, paddy_outcomes, tally,
+                        min_edge, priced_off_split, rows, "hybrid",
+                    )
+                    continue
                 else:
                     refused += 1
                     # No match ladder to borrow a shape from. A two-sided rung
@@ -320,52 +469,28 @@ def _compute_laddered_value(
                     continue
 
             sig = _signature(event, market_key, sport_key, pin_outcomes)
-            if hybrid_d is not None:
-                sig = sig + ("hybrid", round(hybrid_d, 4))
             fit = _FITS.get(sig)
             if fit is MISS:
                 try:
-                    fit = fit_ladder(ladder, config, d_override=hybrid_d)
-                    if hybrid_d is not None:
-                        fit.flags.append("hybrid_dispersion")
+                    fit = fit_ladder(ladder, config)
                 except LadderError as exc:
                     fit = _REFUSED
                     logger.info(
                         "cards: %s %s not fittable — %s", event.get("id"), market_key, exc
                     )
                 _FITS.set(sig, fit)
-                if fit is not _REFUSED and hybrid_d is None:
+                if fit is not _REFUSED:
                     # Measure the model against this ladder later, off the
-                    # request path (cards/shadow_store.py). No vendor cost. A
-                    # one-rung hybrid has nothing to measure itself against.
+                    # request path (cards/shadow_store.py). No vendor cost.
                     shadow_store.queue(ladder, market_key, config)
             if fit is _REFUSED:
                 refused += 1
                 tally["unfittable"] += 1
                 continue
-            if hybrid_d is not None:
-                tally["hybrid"] += 1
-            else:
-                fitted += 1
-                tally["fitted"] += 1
+            fitted += 1
+            tally["fitted"] += 1
 
-            excluded = _excluded_lines().get(_market_name(market_key), set())
-            for line, sides in sorted(_lines(paddy_outcomes).items()):
-                # Only lines Paddy actually offers, only .5 lines, and only
-                # inside the range the model is allowed to quote.
-                if line in excluded:
-                    continue
-                # Pushes are never bet: only the .5 lines reach pricing, scoring
-                # or the feed (is_half_line — shared with the saves and
-                # matched-line paths, so no path can leak one).
-                if not is_half_line(line):
-                    tally["push_lines"] += 1
-                    continue
-                tally["paddy_lines"] += 1
-                if not is_priceable(line, config):
-                    tally["out_of_bounds"] += 1
-                    continue
-                priceable_lines += 1
+            def priced_off_ladder(line, sig=sig, fit=fit, ladder=ladder):
                 priced = _PRICES.get((sig, line))
                 if priced is MISS:
                     try:
@@ -373,53 +498,12 @@ def _compute_laddered_value(
                     except LadderError:
                         priced = _REFUSED
                     _PRICES.set((sig, line), priced)
-                if priced is _REFUSED:
-                    continue
+                return None if priced is _REFUSED else priced
 
-                for side in ("Over", "Under"):
-                    quote = sides.get(side)
-                    if quote is None:
-                        continue
-                    # min_edge is the floor, not edge_vs: the acca offers ask for
-                    # legs a little under fair (see edge_vs.allow_negative).
-                    edge = priced.edge_vs(
-                        quote, side.lower(), require_band=True, config=config,
-                        allow_negative=True,
-                    )
-                    if edge is not None and (tally["best_edge"] is None or edge > tally["best_edge"]):
-                        tally["best_edge"] = round(edge, 4)
-                    if edge is None or edge < min_edge:
-                        continue
-                    tally["rows"] += 1
-
-                    fair = priced.fair_over if side == "Over" else priced.fair_under
-                    label = _market_label(market_key, side, line)
-                    if priced.extrapolated:
-                        # The row must say when its fair price came from beyond
-                        # Pinnacle's quoted range — same number, different kind
-                        # of number.
-                        label += f" +{priced.beyond_ladder:g}"
-
-                    rows.append(CardValueRow(
-                        event_id=event["id"],
-                        home_team=event.get("home_team", ""),
-                        away_team=event.get("away_team", ""),
-                        commence_time=event.get("commence_time", ""),
-                        sport_key=sport_key,
-                        market_key=market_key,
-                        market_label=label,
-                        line=line,
-                        side=side,
-                        paddy_odds=round(quote, 3),
-                        # No raw Pinnacle price exists for a line they do not
-                        # quote; the fair price IS the model's answer, so the
-                        # raw column carries it rather than a fabricated quote.
-                        pinnacle_odds=round(fair, 3),
-                        fair_odds=round(fair, 3),
-                        pinnacle_margin=0.0,
-                        edge=round(edge, 4),
-                        basis="hybrid" if hybrid_d is not None else "ladder",
-                    ))
+            priceable_lines += _price_paddy_lines(
+                event, market_key, sport_key, config, paddy_outcomes, tally,
+                min_edge, priced_off_ladder, rows, "ladder",
+            )
 
     LAST_RUN.update({
         "events": len(events), "with_both_books": both_books,
