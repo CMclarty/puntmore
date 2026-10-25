@@ -4,7 +4,7 @@ from ..config import settings
 from ..schemas import CardValueOut, CardFeedItem, CardFeedBet, CardFeedFair
 from ..cards.value import compute_value_bets
 from ..cards.laddered import compute_laddered_value
-from ..cards.most import most_fairs
+from ..cards.most import most_fairs, most_value
 from ..cards.saves import saves_value
 
 
@@ -23,6 +23,9 @@ def price_events(events, min_edge):
     # Saves are priced off Bookie Bashing's fair figure, not Pinnacle — a
     # separate path, joined here so every consumer sees them.
     rows += saves_value(events, min_edge)
+    # "Most corners / cards": Paddy's price comes from the desktop scraper, the
+    # fair from the team split (cards/most.py).
+    rows += most_value(events, min_edge)
     rows.sort(key=lambda r: r.edge, reverse=True)
     return rows
 
@@ -44,6 +47,10 @@ def describe(bet) -> str:
     or "Arsenal Over 4.5 corners" for a team line, since there the match isn't
     the subject. One decimal always: every line is an x.5 (pushes are never bet).
     """
+    if bet.market_key.startswith("most_"):
+        # A three-way: side is Home | Tie | Away, there is no line.
+        who = {"Home": bet.home_team, "Away": bet.away_team}.get(bet.side, "Tie")
+        return f"{who} most {bet.market_key.split('_', 1)[1]}"
     if bet.market_key.startswith("team_"):
         team = bet.home_team if bet.market_key.endswith("_home") else bet.away_team
         kind = "corners" if "corners" in bet.market_key else "cards"
@@ -97,9 +104,13 @@ def build_feed(client, min_edge: float) -> list[CardFeedItem]:
             basis=bet.basis,
         ))
 
-    # Team to have most corners / cards: a FAIR three-way only (cards/most.py).
-    # No Paddy quote on the feed, so no value — it is read against the terminal.
+    # Team to have most corners / cards (cards/most.py): where Paddy's price has
+    # arrived from the desktop scraper the three-way is already in `bets`;
+    # otherwise it rides along as a FAIR-only row, read against the terminal.
+    priced = {(b.event_id, b.market_key) for b in bets if b.market_key.startswith("most_")}
     for fair in most_fairs(events):
+        if (fair.event_id, fair.market_key) in priced:
+            continue
         kind = fair.market_key.split("_", 1)[1]
         for outcome, who in (("home", fair.home_team), ("tie", "Tie"), ("away", fair.away_team)):
             price = fair.fair(outcome)
