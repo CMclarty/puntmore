@@ -19,8 +19,9 @@ THE MODEL CANNOT BEAT PINNACLE. Between their rungs it interpolates a sharp
 book's own opinion, which is as good as this gets. Outside them it decays toward
 the shape assumption, and it reproduces any error Pinnacle makes faithfully. So:
 
-  * hard bounds (counts.config) refuse to quote outside 4.5-13.5 corners /
-    0.5-6.5 cards at all;
+  * hard bounds (counts.config) refuse to quote outside each market's priceable
+    range (e.g. 4.5-13.5 corners, 0.5-6.5 cards; goals and the team markets
+    carry their own) at all;
   * `edge_vs(require_band=True)` demands a quote clear the whole uncertainty
     band, not the midpoint;
   * the extrapolation penalty raises the bar per count beyond Pinnacle's quoted
@@ -42,7 +43,7 @@ from .oddspapi import (TEAM_CARDS_AWAY, TEAM_CARDS_HOME,
 from ..pricing.counts.errors import LadderError
 from ..pricing.counts.fit import fit_ladder
 from ..pricing.counts.ladder import Ladder, Rung
-from ..pricing.counts.lines import HALF, line_kind
+from ..pricing.counts.lines import is_half_line
 from ..pricing.counts.price import is_priceable, price_line
 from .value import CardValueRow, _get_bookmaker, _get_market, _market_label
 
@@ -230,16 +231,10 @@ def _compute_laddered_value(
                 # inside the range the model is allowed to quote.
                 if line in excluded:
                     continue
-                # Pushes are never bet (Callum's call, Oct 2026): Paddy's shops
-                # also quote whole-number corner/card lines, which return the
-                # stake on the exact count. We only ever back the .5 line, so
-                # integer (and quarter) lines never reach pricing, scoring or
-                # the feed at all.
-                try:
-                    if line_kind(line) != HALF:
-                        tally["push_lines"] += 1
-                        continue
-                except LadderError:
+                # Pushes are never bet: only the .5 lines reach pricing, scoring
+                # or the feed (is_half_line — shared with the saves and
+                # matched-line paths, so no path can leak one).
+                if not is_half_line(line):
                     tally["push_lines"] += 1
                     continue
                 tally["paddy_lines"] += 1
@@ -261,7 +256,7 @@ def _compute_laddered_value(
                     quote = sides.get(side)
                     if quote is None:
                         continue
-                    # min_edge is the floor, not edge_vs: the acca tabs ask for
+                    # min_edge is the floor, not edge_vs: the acca offers ask for
                     # legs a little under fair (see edge_vs.allow_negative).
                     edge = priced.edge_vs(
                         quote, side.lower(), require_band=True, config=config,

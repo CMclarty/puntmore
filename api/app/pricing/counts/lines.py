@@ -46,6 +46,19 @@ def line_kind(line: float) -> str:
     raise LadderError(f"unsupported line: {line}")
 
 
+def is_half_line(line: float) -> bool:
+    """True for the x.5 lines — the only ones the tool ever backs.
+
+    A whole-number line pushes (stake back on the exact count) and a quarter
+    line splits; neither is considered anywhere (Callum's call, Oct 2026). One
+    check shared by every pricing path, so a push can't leak in through one.
+    """
+    try:
+        return line_kind(line) == HALF
+    except LadderError:
+        return False
+
+
 @dataclass(frozen=True)
 class Constraint:
     """One rung, reduced to something the fit can take a residual against."""
@@ -110,8 +123,3 @@ def fair_quarter_odds(dist: CountDist, line: float, over: bool = True) -> float:
     if denom <= 0:
         raise LadderError(f"quarter line {line} has no winning outcome")
     return (2.0 - (b1 + b2)) / denom
-
-
-def threshold_of(line: float) -> float:
-    """The count a line separates, used for distance-from-centre weighting."""
-    return float(line)

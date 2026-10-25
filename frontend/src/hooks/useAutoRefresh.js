@@ -12,11 +12,14 @@ import { useEffect, useRef } from 'react'
 export const REFRESH_MS = 2 * 60_000
 
 export default function useAutoRefresh(refresh, { everyMs = REFRESH_MS, staleMs = 30_000 } = {}) {
+  // Latest callback, written after render rather than during it, so the hook
+  // stays pure; the timers below only ever read it at event time.
   const fn = useRef(refresh)
-  fn.current = refresh
-  const last = useRef(Date.now())
+  useEffect(() => { fn.current = refresh })
+  const last = useRef(0)
 
   useEffect(() => {
+    last.current = Date.now()
     const run = () => { last.current = Date.now(); fn.current() }
     const tick = setInterval(() => {
       if (document.visibilityState === 'visible') run()

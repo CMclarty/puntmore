@@ -177,10 +177,11 @@ class CardFeedBet(BaseModel):
     odds: float
     fair: float          # de-vigged fair decimal odds, shown beside the value %
     value: float
-    # corners | cards | goals | saves — what the page filters on.
+    # corners | cards | goals | saves | team_corners | team_cards — what the
+    # page filters on.
     market: str = ""
     # The line and side, so the UI can group a selection's ladder (tap a bet to
-    # drop down its other value lines) without re-parsing the pick.
+    # drop down its other value lines) and label each rung.
     line: float = 0.0
     side: str = ""       # "Over" | "Under"
 

@@ -10,8 +10,7 @@ the corners and cards lines live.
 WHAT THIS FILE PRODUCES. TheOddsApi-shaped events — {id, home_team, away_team,
 commence_time, sport_key, bookmakers: [{key: "paddypower", markets: [{key:
 "alternate_totals_corners", outcomes: [{name: "Over", point: 9.5, price}]}]}]}
-— so `merge_pinnacle`, `value.py`, `laddered.py` and the diagnostics consume it
-unchanged. Swapping vendor is this file plus one branch in `main.py`.
+— so `value.py`, `laddered.py` and the diagnostics consume it unchanged. Swapping vendor is this file plus one branch in `main.py`.
 
 HOW OddsPapi IS SHAPED (read off the trial responses, Aug–Sept 2026):
   - Ids are SOFASCORE's. Tournaments (LaLiga 8, Champions League 7, EFL Cup
@@ -55,7 +54,6 @@ logger = logging.getLogger("uvicorn.error")
 BASE_URL = "https://api.oddspapi.io/v4"
 SOCCER = 10
 PADDY_POWER = "paddypower"
-PINNACLE = "pinnacle"
 CORNERS = "alternate_totals_corners"
 CARDS = "alternate_totals_cards"
 # A SINGLE team's corners/cards — OddsPapi "Team 1/2" (full time). Team 1 is the
@@ -430,8 +428,7 @@ def to_events(fixtures, markets, names, *, now=None, window_hours=None,
             "away_team": away,
             "commence_time": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "sport_key": TOURNAMENT_SPORT_KEYS.get(fx.get("tournamentId"), "soccer"),
-            # Set when the fair side came from OddsPapi, so merge_pinnacle does
-            # not go looking for a second one on bettingiscool.
+            # Which vendor the fair side came from (None = no fair side joined).
             "fair_source": "oddspapi" if fair_book else None,
             "bookmakers": books,
         })

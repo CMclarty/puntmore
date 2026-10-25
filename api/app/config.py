@@ -75,7 +75,6 @@ class Settings(BaseSettings):
     # Friday-morning sweep missed Sunday). A week covers a midweek round and
     # the weekend after it.
     oddspapi_window_hours: float = 168.0
-    oddspapi_ttl_seconds: int = 1800   # superseded by oddspapi_ttl_tiers; unused
     # How stale a competition chunk's odds may get, by how soon its NEXT
     # fixture kicks off (read off the cached response itself, so choosing the
     # gear costs nothing — OddsPapi bills /fixtures too). "seconds:ttl" pairs,
@@ -92,7 +91,8 @@ class Settings(BaseSettings):
     # carries a 5-line corners ladder and a 5-line "Bookings" (card count)
     # ladder — /api/cards/oddspapi-check, Nations League, 28 Sept — and it
     # sits on the SAME fixture id as Paddy's, so the join is exact rather
-    # than bettingiscool's team-name match. Blank = bettingiscool as before.
+    # than a team-name match. Blank = no fair side at all (the feed stays empty
+    # and /paddy/diagnostics says so).
     oddspapi_fair_book: str = "pinnacle"
     # Major UK/Euro competitions. The fixture-list endpoint is FREE, so listing
     # a key that is out of season or has no fixtures costs nothing.

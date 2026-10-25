@@ -100,11 +100,14 @@ async def lifespan(app: FastAPI):
     # Paddy Power's corners/cards come from OddsPapi when it is configured:
     # TheOddsApi does not carry them (cards/oddspapi.py). Pinnacle's side comes
     # from OddsPapi too (`oddspapi_fair_book`).
+    # ONE OddsPapi client for both the Paddy source and the coupon provider: its
+    # rate-limit lock, daily budget and caches are per instance, so two of them
+    # doubled the effective daily cap and fetched the same Pinnacle chunks twice.
+    oddspapi_client = None
     if settings.oddspapi_api_key:
         from .cards.oddspapi import OddsPapiClient, OddsPapiPaddySource
-        app.state.cards_client = OddsPapiPaddySource(
-            OddsPapiClient(settings.oddspapi_api_key)
-        )
+        oddspapi_client = OddsPapiClient(settings.oddspapi_api_key)
+        app.state.cards_client = OddsPapiPaddySource(oddspapi_client)
         logger.info("Cards: Paddy Power side from OddsPapi, fair side from %s",
                     f"OddsPapi {settings.oddspapi_fair_book}"
                     if settings.oddspapi_fair_book else "none (set ODDSPAPI_FAIR_BOOK)")
@@ -124,11 +127,9 @@ async def lifespan(app: FastAPI):
     provider = None
 
     if source in ("oddspapi", "bettingiscool"):
-        if settings.oddspapi_api_key:
-            from .cards.oddspapi import OddsPapiClient
+        if oddspapi_client is not None:
             provider = OddsPapiCouponProvider(
-                OddsPapiClient(settings.oddspapi_api_key),
-                cache_ttl=settings.coupon_odds_cache_ttl,
+                oddspapi_client, cache_ttl=settings.coupon_odds_cache_ttl,
             )
         else:
             logger.warning(

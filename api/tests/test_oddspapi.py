@@ -198,7 +198,7 @@ def test_the_diagnostics_verdict_still_reads_an_oddspapi_sweep():
     from app.routers.cards import diagnose
     src = op.OddsPapiPaddySource(_Fake())
     src.get_events()
-    verdict = diagnose(src, None)["verdict"]
+    verdict = diagnose(src)["verdict"]
     assert "No cards client" not in verdict and "No sweep" not in verdict
 
 
@@ -324,22 +324,6 @@ def test_the_pricing_pipeline_values_paddy_against_oddspapi_pinnacle():
                              now=NOW, window_hours=48, fair_book="pinnacle")
     rows = price_events(events, -1.0)
     assert rows, "a fixture with both books must produce rows"
-
-
-def test_merge_pinnacle_leaves_an_oddspapi_fair_side_alone():
-    from app.cards.client import merge_pinnacle
-
-    class Boom:
-        def board(self):
-            raise AssertionError("bettingiscool must not be asked")
-
-        def odds_for(self, _):
-            raise AssertionError("bettingiscool must not be asked")
-
-    fixtures = op.merge_books([_fixture()], [_pin_fixture()])
-    events, _ = op.to_events(fixtures, op.corner_card_markets(CATALOGUE), NAMES,
-                             now=NOW, window_hours=48, fair_book="pinnacle")
-    assert merge_pinnacle(events, Boom()) is events
 
 
 def test_a_rate_limited_request_is_retried_once_after_the_wait_it_names(monkeypatch):
@@ -544,11 +528,11 @@ def test_the_empty_screen_names_a_pinnacle_failure_on_the_oddspapi_path():
         "fixtures_in_window": 55, "carried_paddy_prices": 55, "carried_pinnacle_prices": 0,
         "errors": ["pinnacle+30 [17]: OddsPapi /odds-by-tournaments: HTTP 403: RESTRICTED_ACCESS"],
     })
-    v = diagnose(client, None)["verdict"]
+    v = diagnose(client)["verdict"]
     assert "Pinnacle (pinnacle+30)" in v and "403" in v
     client.last_sweep.update(carried_pinnacle_prices=40, errors=[])
     # Fair side fine: it must NOT fall back to the old bettingiscool verdicts.
-    assert "bettingiscool" not in diagnose(client, None)["verdict"]
+    assert "bettingiscool" not in diagnose(client)["verdict"]
 
 
 def test_requests_from_two_threads_never_overlap(monkeypatch):
@@ -582,7 +566,7 @@ def test_diagnostics_names_a_sweep_that_failed_before_pricing():
     from app.routers.cards import diagnose
     scheduler.LAST_CARDS_ERROR.update(at="now", error="KeyError('point')")
     try:
-        d = diagnose(SimpleNamespace(last_sweep={"fixtures_in_window": 3, "carried_paddy_prices": 3}), None)
+        d = diagnose(SimpleNamespace(last_sweep={"fixtures_in_window": 3, "carried_paddy_prices": 3}))
         assert "FAILED before pricing" in d["verdict"] and "KeyError" in d["verdict"]
     finally:
         scheduler.LAST_CARDS_ERROR.clear()

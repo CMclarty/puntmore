@@ -5,8 +5,8 @@ percent; the disagreement between devig methods alone is of the same order. A
 point estimate quoted to two decimal places implies a precision the model does
 not have, so every price carries the range it could plausibly take:
 
-    full ladder   4 devig methods x D in {fit, fit +/- 0.03}   = 12 refits
-    sparse ladder 4 devig methods x D in {prior, prior +/- 0.10} = 12 refits
+    full ladder   3 devig methods x D in {fit, fit +/- 0.03}   = 9 refits
+    sparse ladder 3 devig methods x D in {prior, prior +/- 0.10} = 9 refits
 
 The sparse band is wider because the dispersion is a stale league average rather
 than this fixture's market, and the price should say so.
@@ -160,7 +160,6 @@ def _fair_odds(dist: CountDist, line: float) -> tuple[float, float]:
 
 def _band_dispersions(fit: FitResult) -> list[float]:
     if fit.dispersion_from_prior:
-        prior = fit.config.d_prior(None)
         spread = 0.10
         base = fit.dispersion
     else:

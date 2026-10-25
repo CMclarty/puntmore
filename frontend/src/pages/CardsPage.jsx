@@ -9,9 +9,9 @@ import { boostEval, boostLegScore } from '../accaBoost'
 /**
  * Paddy — Paddy Power's corners, cards, goals and saves against fair prices.
  *
- * One feed. The offer (Value / Refund / Boost) and every filter live in a single
- * folded options pane; the collapsed line names the active offer and what is
- * applied:
+ * One feed. The offer (Value / Refund / Boost) is a floating switch at the
+ * bottom; every filter lives in a single folded options pane whose collapsed
+ * line names what is applied:
  *   Value   every bet at or above fair, best value first.
  *   Refund  the acca insurance offer (5-fold, legs 1.20+, stake back as a
  *           bonus if exactly one leg loses): every qualifying leg, best down.
@@ -21,10 +21,12 @@ import { boostEval, boostLegScore } from '../accaBoost'
  * the list is the tool, the picking is Callum's.
  */
 
-// One fetch serves all three offers: 95% of fair, because the acca offers carry
-// value of their own and a leg a little under fair can still belong. The
-// Value offer shows only fair-or-better from it.
-const FETCH_EV = 0.95
+// One fetch serves all three offers: down to 95% of fair (min_edge -0.05),
+// because the acca offers carry value of their own and a leg a little under
+// fair can still belong. The Value offer shows only fair-or-better from it.
+const FETCH_MIN_EDGE = -0.05
+// Value at or above this is set in the accent colour.
+const STRONG = 0.04
 const ACCA_FLOOR = ACCA_DEFAULTS.minOdds
 const OFFERS = [['value', 'Value'], ['refund', 'Refund'], ['boost', 'Boost']]
 const OFFER_KEY = 'paddy.tab'
@@ -33,7 +35,7 @@ const BOOST_BANKROLL = 50_000
 const BOOST_KELLY = 0.10
 
 // Filters: folded away under one line that says what is applied, so the usual
-// visit is open → set the offer → bet. Shared across offers, remembered.
+// visit is open → glance → bet. Shared across offers, remembered.
 const MARKETS = ['corners', 'cards', 'goals', 'saves', 'team_corners', 'team_cards']
 const MARKET_LABELS = { team_corners: 'Team corners', team_cards: 'Team cards' }
 const marketLabel = m => MARKET_LABELS[m] || m[0].toUpperCase() + m.slice(1)
@@ -47,11 +49,22 @@ const PER_MATCH = [[false, 'All legs'], [true, '1 per match']]   // Refund / Boo
 const freeBetScore = b => (1 + b.value) * (b.odds - 1) / b.odds
 const FILTER_KEY = 'paddy.filters'
 const NO_FILTERS = { markets: MARKETS, within: null, maxOdds: null, minValue: 0, sort: 'best', onePerMatch: false }
+// A saved filter must never hold a value its option list no longer offers (the
+// retired "< 3h" kick-off, the old league filter …): summary() looks the value
+// up by option and would throw, taking the whole page down.
 function loadFilters() {
   try {
     const v = JSON.parse(localStorage.getItem(FILTER_KEY))
-    // `comp` was a league filter (removed); a saved one must not hide rows.
-    if (v && Array.isArray(v.markets)) { const { comp, ...rest } = v; return { ...NO_FILTERS, ...rest } } // eslint-disable-line no-unused-vars
+    if (!v || !Array.isArray(v.markets)) return NO_FILTERS
+    const oneOf = (x, opts, dflt) => (opts.includes(x) ? x : dflt)
+    return {
+      markets: v.markets.filter(m => MARKETS.includes(m)),
+      within: oneOf(v.within, WITHIN.map(([w]) => w), null),
+      maxOdds: oneOf(v.maxOdds, MAX_ODDS, null),
+      minValue: oneOf(v.minValue, MIN_VALUE, 0),
+      sort: oneOf(v.sort, [...SORTS.map(([k]) => k), 'freebet'], 'best'),
+      onePerMatch: v.onePerMatch === true,
+    }
   } catch { /* none saved, or private mode */ }
   return NO_FILTERS
 }
@@ -91,6 +104,12 @@ const lineLabel = b => (b.side === 'Over' ? 'O' : 'U') + b.line.toFixed(1)
 // number. Drop the line from the pick (always " X.X ", space-padded) to get a
 // key shared across the ladder — for plain Over/Under and team picks alike.
 const selKey = b => `${b.matchId}|${b.pick.replace(` ${b.line.toFixed(1)} `, ' ')}`
+// The best-scoring leg from each match (an acca takes one leg per game).
+const bestPerMatch = xs => {
+  const top = new Map()
+  for (const x of xs) if (!top.has(x.b.matchId) || x.s > top.get(x.b.matchId).s) top.set(x.b.matchId, x)
+  return [...top.values()]
+}
 function kickoff(iso) {
   const d = new Date(iso)
   const day = d.toDateString() === new Date().toDateString() ? ''
@@ -116,7 +135,7 @@ function Selection({ lead, others, expanded, onToggle }) {
           <span className={f.match}>{lead.match} · {kickoff(lead.commence_time)}</span>
         </span>
         <span className={f.odds}>{lead.odds.toFixed(2)}</span>
-        <span className={`${f.value} ${lead.value >= 0.04 ? f.strong : ''}`}>{evPct(lead.value)}</span>
+        <span className={`${f.value} ${lead.value >= STRONG ? f.strong : ''}`}>{evPct(lead.value)}</span>
         <span className={f.fair}>{lead.fair.toFixed(2)}</span>
       </div>
       {has && expanded && (
@@ -125,7 +144,7 @@ function Selection({ lead, others, expanded, onToggle }) {
             <div className={f.subRow} key={o.pick}>
               <span /><span className={f.subLine}>{lineLabel(o)}</span>
               <span className={f.odds}>{o.odds.toFixed(2)}</span>
-              <span className={`${f.value} ${o.value >= 0.04 ? f.strong : ''}`}>{evPct(o.value)}</span>
+              <span className={`${f.value} ${o.value >= STRONG ? f.strong : ''}`}>{evPct(o.value)}</span>
               <span className={f.fair}>{o.fair.toFixed(2)}</span>
             </div>
           ))}
@@ -144,6 +163,7 @@ export default function CardsPage() {
   const [items, setItems] = useState(null)
   const [error, setError] = useState(null)
   const [why, setWhy] = useState(null)
+  const [now, setNow] = useState(() => Date.now())   // kick-off clock, advanced per refresh
   const [expanded, setExpanded] = useState(() => new Set())
   const toggle = k => setExpanded(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
 
@@ -158,16 +178,20 @@ export default function CardsPage() {
   // Load, then refresh in place (useAutoRefresh). A failed refresh hides the
   // list rather than leave old prices on screen.
   const live = useRef(true)
-  const load = useCallback(() => getCardsFeed(FETCH_EV - 1)
-    .then(async data => {
-      if (!live.current) return
-      setItems(data)
-      setError(null)
-      if (!data.length) {
+  const seq = useRef(0)   // refreshes overlap (interval + focus): only the latest may land
+  const load = useCallback(() => {
+    const id = ++seq.current
+    return getCardsFeed(FETCH_MIN_EDGE)
+      .then(async data => {
+        if (!live.current || id !== seq.current) return
+        setItems(data)
+        setError(null)
+        setNow(Date.now())
+        if (data.length) { setWhy(null); return }
         try { setWhy((await getCardsDiagnostics()).verdict) } catch { /* plain empty state */ }
-      }
-    })
-    .catch(err => live.current && setError(err.message)), [])
+      })
+      .catch(err => live.current && id === seq.current && setError(err.message))
+  }, [])
   useEffect(() => {
     live.current = true
     load()
@@ -176,7 +200,6 @@ export default function CardsPage() {
   useAutoRefresh(load)
 
   // Every bet, flat, carrying its match and kick-off, through the filters.
-  const now = Date.now()
   const bets = (items || [])
     .filter(item => inWindow(item.commence_time, fl.within, now))
     .flatMap(item => item.bets.map(b => ({
@@ -191,13 +214,8 @@ export default function CardsPage() {
     ? bets.filter(b => b.value >= fl.minValue).map(b => ({ b, s: b.value }))
     : bets.filter(b => b.odds >= ACCA_FLOOR)
       .map(b => ({ b, s: refund ? legScore(b, ACCA_DEFAULTS) : boostLegScore(b).growth }))
-  // Refund / Boost: one selection per match — the highest-scoring one, since
-  // an acca takes a single leg from each game.
-  if (offer !== 'value' && fl.onePerMatch) {
-    const top = new Map()
-    for (const x of list) if (!top.has(x.b.matchId) || x.s > top.get(x.b.matchId).s) top.set(x.b.matchId, x)
-    list.splice(0, list.length, ...top.values())
-  }
+  // Refund / Boost: one selection per match — the highest-scoring one.
+  if (offer !== 'value' && fl.onePerMatch) list.splice(0, list.length, ...bestPerMatch(list))
   list.sort(
     fl.sort === 'shortest' ? (x, y) => x.b.odds - y.b.odds || y.s - x.s
     : fl.sort === 'freebet' && offer === 'value' ? (x, y) => freeBetScore(y.b) - freeBetScore(x.b)
@@ -209,12 +227,7 @@ export default function CardsPage() {
   // "a number to see at a glance if it's worth betting").
   let top5 = null
   if (offer !== 'value') {
-    const seen = new Set(), picks = []
-    for (const x of [...list].sort((a, b) => b.s - a.s)) {
-      if (seen.has(x.b.matchId)) continue
-      seen.add(x.b.matchId); picks.push(x.b)
-      if (picks.length === 5) break
-    }
+    const picks = bestPerMatch(list).sort((a, b) => b.s - a.s).slice(0, 5).map(x => x.b)
     if (picks.length === 5) {
       const odds = picks.map(b => b.odds), probs = picks.map(trueProb)
       const r = refund ? evaluate({ odds, probs }, ACCA_DEFAULTS) : boostEval(odds, probs)

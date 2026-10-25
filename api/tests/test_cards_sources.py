@@ -1,21 +1,17 @@
-"""Cards & corners: Paddy Power from TheOddsApi, Pinnacle from bettingiscool.
+"""Cards & corners: the Paddy Power client, the sweep, the ladder pricing and
+the diagnostics.
 
 The old client asked the BULK endpoint for `alternate_totals` — a market that
 endpoint rejects, and goal totals rather than corners anyway — then swallowed
 the rejection. It returned no row in its entire life and looked like a market
-with no value in it.
-
-The split is a COST decision. TheOddsApi bills (markets x regions) per event;
-Paddy Power is `uk` and Pinnacle is `eu`, so asking one vendor for both spans
-two regions. Asking only for Paddy Power is unambiguously one, and bettingiscool
-is Pinnacle-native on a per-DAY quota.
+with no value in it. Only Paddy Power is requested here (one region); the fair
+side comes from OddsPapi on the same fixture id (test_oddspapi.py).
 """
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.cards.client import CardsApiClient, merge_pinnacle, PADDY_POWER
-from app.cards.pinnacle import pinnacle_books, _strip_marker, _kind
+from app.cards.client import CardsApiClient, PADDY_POWER
 from app.cards.value import compute_value_bets
 from app.config import settings
 
@@ -157,124 +153,7 @@ def test_the_budget_keeps_the_soonest_fixtures():
     assert [call["event_id"] for call in stub.event_calls] == ["sooner"]
 
 
-# --- the bettingiscool fair side -------------------------------------------
-
-class _StubBic:
-    """A bettingiscool provider exposing only what the cards tool needs."""
-
-    def __init__(self, board, odds):
-        self._board = board
-        self._odds = odds
-
-    def board(self):
-        return self._board
-
-    def odds_for(self, event_id):
-        return self._odds.get(event_id, [])
-
-
-def _corner_board():
-    return [
-        {"event_id": 900, "league_name": "England - Premier League (Corners)",
-         "runner_home": "Arsenal (Corners)", "runner_away": "Chelsea (Corners)"},
-        # A normal fixture must never be mistaken for a derived one.
-        {"event_id": 901, "league_name": "England - Premier League",
-         "runner_home": "Arsenal", "runner_away": "Chelsea"},
-    ]
-
-
-def _corner_odds():
-    return {900: [
-        {"period": 0, "market": "totals", "line": 10.5,
-         "odds1": 1.90, "odds2": 1.95},
-        {"period": 1, "market": "totals", "line": 4.5,      # first half — ignored
-         "odds1": 2.00, "odds2": 1.85},
-    ]}
-
-
-def test_derived_fixtures_are_identified_and_normal_ones_are_not():
-    board = _corner_board()
-    assert _kind(board[0]) == "alternate_totals_corners"
-    assert _kind(board[1]) is None
-    assert _strip_marker("Arsenal (Corners)") == "Arsenal"
-
-
-def test_pinnacle_prices_come_back_raw_for_value_to_devig():
-    """De-vigging lives in value.py and must stay there.
-
-    Handing it fair prices would have it de-vig them a second time.
-    """
-    bic = _StubBic(_corner_board(), _corner_odds())
-    books = pinnacle_books(bic, [{"id": "e1", "home_team": "Arsenal",
-                                  "away_team": "Chelsea"}])
-    outcomes = books["e1"]["markets"][0]["outcomes"]
-    assert books["e1"]["key"] == "pinnacle"
-    # RAW, exactly as the vendor sent them.
-    assert {o["price"] for o in outcomes} == {1.90, 1.95}
-
-
-def test_only_full_match_totals_are_used():
-    """A first-half line priced as a full-match one is a wrong price."""
-    bic = _StubBic(_corner_board(), _corner_odds())
-    books = pinnacle_books(bic, [{"id": "e1", "home_team": "Arsenal",
-                                  "away_team": "Chelsea"}])
-    points = {o["point"] for o in books["e1"]["markets"][0]["outcomes"]}
-    assert points == {10.5}
-
-
-def test_an_unrelated_fixture_gets_no_fair_price():
-    """Never invent a match — a wrong fair price is worse than none."""
-    bic = _StubBic(_corner_board(), _corner_odds())
-    books = pinnacle_books(bic, [{"id": "e1", "home_team": "Real Madrid",
-                                  "away_team": "Barcelona"}])
-    assert books == {}
-
-
-# --- the two vendors join, and value.py stays vendor-agnostic --------------
-
-def test_the_two_sources_join_into_one_valued_row():
-    """End to end: Paddy from TheOddsApi, Pinnacle from bettingiscool.
-
-    Pinnacle 1.90/1.95 de-vigs to roughly 2.03/1.98; Paddy's 2.10 over is value.
-    """
-    stub = _StubOddsApi({"soccer_epl": [{"id": "e1", "commence_time": _iso(0.5)}]})
-    events = CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
-    events = merge_pinnacle(events, _StubBic(_corner_board(), _corner_odds()))
-
-    books = {bm["key"] for bm in events[0]["bookmakers"]}
-    assert books == {PADDY_POWER, "pinnacle"}
-
-    rows = compute_value_bets(events, min_edge=-0.50)
-    assert rows, "the joined event must produce a valued row"
-    over = next(r for r in rows if r.side == "Over")
-    assert over.paddy_odds == 2.10
-    assert over.pinnacle_odds == 1.90
-    assert over.fair_odds > 1.90        # de-vigged, so longer than raw
-    assert over.edge == pytest.approx(2.10 / over.fair_odds - 1, abs=1e-3)
-
-
-def test_a_provider_without_a_board_is_reported_not_crashed():
-    """The coupon provider is only bettingiscool when a key is configured.
-
-    On the fallback or the mock there is no corners board, and that must be
-    said rather than raised — an empty feed otherwise reads as "no value".
-    """
-    class _NoBoard:
-        pass
-
-    events = [{"id": "e1", "bookmakers": []}]
-    assert merge_pinnacle(events, _NoBoard()) == events
-
-
-def test_no_fair_price_means_no_row_rather_than_an_unvalued_one():
-    """value.py already needs both books; this pins that the join keeps it so."""
-    stub = _StubOddsApi({"soccer_epl": [{"id": "e1", "commence_time": _iso(0.5)}]})
-    events = CardsApiClient(stub, sport_keys=["soccer_epl"]).get_events()
-    events = merge_pinnacle(events, _StubBic([], {}))     # empty board
-    assert compute_value_bets(events, min_edge=-0.50) == []
-
-
-# --- the 5-minute sweep, and not re-alerting the same bet every tick --------
+# --- the sweep, and not re-alerting the same bet every tick -----------------
 
 class _Notifier:
     def __init__(self):
@@ -285,11 +164,30 @@ class _Notifier:
 
 
 def _valued_client():
-    """A client whose sweep yields one Paddy Power event with real value."""
-    return CardsApiClient(
+    """A client whose sweep yields one Paddy Power event with real value.
+
+    The fair side rides on the SAME event, as OddsPapi delivers it: Pinnacle
+    1.90/1.95 at 10.5 de-vigs to ~2.03/1.98, so Paddy's 2.10 over is value.
+    """
+    client = CardsApiClient(
         _StubOddsApi({"soccer_epl": [{"id": "e1", "commence_time": _iso(0.5)}]}),
         sport_keys=["soccer_epl"],
     )
+    paddy_only = client.get_events
+
+    def with_pinnacle():
+        events = paddy_only()
+        for e in events:
+            books = e.setdefault("bookmakers", [])
+            if not any(b.get("key") == "pinnacle" for b in books):
+                books.append({"key": "pinnacle", "markets": [{
+                    "key": "alternate_totals_corners", "outcomes": [
+                        {"name": "Over", "point": 10.5, "price": 1.90},
+                        {"name": "Under", "point": 10.5, "price": 1.95},
+                    ]}]})
+        return events
+    client.get_events = with_pinnacle
+    return client
 
 
 def _reset_dedupe():
@@ -300,8 +198,8 @@ def _reset_dedupe():
 def test_sweep_alerts_new_value_once_not_every_tick(monkeypatch):
     """The whole reason for tier dedupe.
 
-    A bet sits in its fixture's window for hours and the sweep runs every five
-    minutes. Without this it would fire ~48 Discord messages for one bet.
+    A bet sits in its fixture's window for hours and the sweep runs every two
+    minutes. Without this it would fire ~120 Discord messages for one bet.
 
     Alerts default OFF while the feed is unproven, so this turns them on to
     test the dedupe rather than the switch.
@@ -310,15 +208,14 @@ def test_sweep_alerts_new_value_once_not_every_tick(monkeypatch):
     monkeypatch.setattr(settings, "cards_discord_alerts", True)
     monkeypatch.setattr(settings, "cards_use_ladder_model", False)
     _reset_dedupe()
-    bic = _StubBic(_corner_board(), _corner_odds())
     notifier = _Notifier()
 
-    first = sweep_cards(_valued_client(), bic, notifier)
+    first = sweep_cards(_valued_client(), notifier)
     assert first > 0
     assert len(notifier.sent) == 1
 
     # Same bet, same tier, next tick — silence.
-    sweep_cards(_valued_client(), bic, notifier)
+    sweep_cards(_valued_client(), notifier)
     assert len(notifier.sent) == 1
 
 
@@ -331,13 +228,12 @@ def test_sweep_forgets_bets_that_drop_off(monkeypatch):
     from app import scheduler as sched
     monkeypatch.setattr(settings, "cards_use_ladder_model", False)
     _reset_dedupe()
-    bic = _StubBic(_corner_board(), _corner_odds())
-    sched.sweep_cards(_valued_client(), bic, _Notifier())
+    sched.sweep_cards(_valued_client(), _Notifier())
     assert sched._cards_notified
 
     # Next sweep finds nothing (fixtures kicked off, markets down).
     empty = CardsApiClient(_StubOddsApi({"soccer_epl": []}), sport_keys=["soccer_epl"])
-    sched.sweep_cards(empty, bic, _Notifier())
+    sched.sweep_cards(empty, _Notifier())
     assert sched._cards_notified == {}
 
 
@@ -350,12 +246,12 @@ def test_sweep_survives_a_vendor_failure():
             raise RuntimeError("vendor down")
 
     _reset_dedupe()
-    assert sweep_cards(_Boom(), None, _Notifier()) == 0
+    assert sweep_cards(_Boom(), _Notifier()) == 0
 
 
 def test_no_cards_client_means_no_sweep():
     from app.scheduler import sweep_cards
-    assert sweep_cards(None, None, _Notifier()) == 0
+    assert sweep_cards(None, _Notifier()) == 0
 
 
 def test_the_job_is_registered_only_when_the_client_exists(monkeypatch):
@@ -388,14 +284,14 @@ def test_cards_alerts_are_off_by_default():
     from app.scheduler import sweep_cards
     _reset_dedupe()
     notifier = _Notifier()
-    sweep_cards(_valued_client(), _StubBic(_corner_board(), _corner_odds()), notifier)
+    sweep_cards(_valued_client(), notifier)
     assert notifier.sent == []
 
 
 # --- laddered pricing: every line PADDY quotes, off Pinnacle's whole ladder --
 
 def _pin_ladder_book(lines):
-    """A Pinnacle corners ladder as merge_pinnacle would attach it."""
+    """A Pinnacle corners ladder as OddsPapi attaches it to the event."""
     outcomes = []
     for line, (over, under) in sorted(lines.items()):
         outcomes.append({"name": "Over", "point": line, "price": over})
@@ -527,7 +423,7 @@ def test_an_unfittable_ladder_is_skipped_not_crashed():
 
 def test_diagnostics_names_a_missing_client():
     from app.routers.cards import diagnose
-    assert "ODDS_API_KEY" in diagnose(None, None)["verdict"]
+    assert "ODDSPAPI_API_KEY" in diagnose(None)["verdict"]
 
 
 def test_diagnostics_distinguishes_no_fixtures_from_no_value():
@@ -539,7 +435,7 @@ def test_diagnostics_distinguishes_no_fixtures_from_no_value():
 
     quiet = CardsApiClient(_StubOddsApi({"soccer_epl": []}), sport_keys=["soccer_epl"])
     quiet.get_events()
-    verdict = diagnose(quiet, None)["verdict"]
+    verdict = diagnose(quiet)["verdict"]
     assert "within" in verdict and "kickoff" in verdict
 
     # Fixtures fetched and priced, but nothing clears the guards.
@@ -550,7 +446,7 @@ def test_diagnostics_distinguishes_no_fixtures_from_no_value():
     })
     busy = _valued_client()
     busy.get_events()
-    verdict = diagnose(busy, _StubBic(_corner_board(), _corner_odds()))["verdict"]
+    verdict = diagnose(busy)["verdict"]
     assert verdict.startswith("WORKING"), verdict
     laddered.LAST_RUN.clear()
 
@@ -569,7 +465,7 @@ def test_diagnostics_reports_paddy_not_posting_the_market():
         sport_keys=["soccer_epl"],
     )
     client.get_events()
-    assert "not posting" in diagnose(client, None)["verdict"]
+    assert "not posting" in diagnose(client)["verdict"]
 
 
 # --- three tiers: the window widened without the cadence following it ------
@@ -747,14 +643,14 @@ def test_the_empty_verdict_names_the_next_kickoff_and_the_dead_keys():
                            active=["soccer_epl"])
     c = CardsApiClient(stub, sport_keys=["soccer_epl", "soccer_nope"])
     c.get_events()
-    verdict = diagnose(c, None)["verdict"]
+    verdict = diagnose(c)["verdict"]
     assert "Next listed kickoff" in verdict
     assert "soccer_nope" in verdict
     # Nothing listed anywhere is said outright.
     empty = CardsApiClient(_StubWithSports({}, active=["soccer_epl"]),
                            sport_keys=["soccer_epl"])
     empty.get_events()
-    assert "No upcoming fixture is listed" in diagnose(empty, None)["verdict"]
+    assert "No upcoming fixture is listed" in diagnose(empty)["verdict"]
 
 
 # --- probe: who carries corners/cards for one match --------------------------------

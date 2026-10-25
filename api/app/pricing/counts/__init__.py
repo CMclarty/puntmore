@@ -1,9 +1,8 @@
-"""Laddered corners & cards pricing — INACTIVE.
+"""Laddered corners, cards & goals pricing — the LIVE path (cards/laddered.py).
 
-Nothing in the running app imports this package. It exists so the cards tool can
-one day price a line Paddy Power quotes and Pinnacle does not, which is most
-fixtures: today a comparison is only possible where the two books happen to pick
-the same line.
+It prices any line Paddy Power quotes off Pinnacle's fitted ladder, which is
+most of Paddy's board: a direct comparison is only possible where the two books
+happen to pick the same line (the matched-line fallback, cards/value.py).
 
 WHAT IT IS, AND WHAT IT IS NOT. This contains no football knowledge whatsoever —
 it never sees the teams. Its whole input is Pinnacle's own quoted ladder, and all
@@ -28,7 +27,7 @@ Pure Python on purpose, same reasoning as pricing/grid.py: the grid is 81 points
 and the fit has 2 free parameters, so numpy/scipy would add ~171 MB of image and
 ~79 MB of RSS (measured) to a 512 MB instance while being no faster at this size
 — array-creation overhead dominates below a few thousand elements. A full fit
-runs in ~0.8 ms and the 12-refit uncertainty band in ~10 ms. Python floats ARE
+runs in ~0.8 ms and the 9-refit uncertainty band in ~10 ms. Python floats ARE
 float64, so the numerics match a numpy implementation; only the API differs.
 Do not "fix" this back to scipy without re-measuring both.
 """

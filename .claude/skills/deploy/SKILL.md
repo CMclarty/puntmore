@@ -1,45 +1,62 @@
 ---
 name: deploy
-description: Build and deploy the Puntmore stack live (docker compose), health-check and smoke-test it, and auto-roll-back on failure. Use when asked to deploy, ship, or release Puntmore.
+description: Ship Puntmore to production — push `main`, which Render auto-deploys; verify with /api/ready. Use when asked to deploy, ship, or release Puntmore.
 ---
 
-# Deploy Puntmore (live)
+# Deploy Puntmore (production)
 
-One command ships the current working tree to the live stack on this box —
-`puntmore.com` via the Caddy container → `bettingtools-nginx-1` → api + frontend.
-There is no staging; this is production.
+There is **no deploy script and no local stack**. puntmore.com is ONE Render web
+service (`render.yaml`, `autoDeploy: true`): the API image (`api/Dockerfile`)
+builds the frontend into itself and serves it from the same origin. **Every push
+to `main` is a production deploy.** Render promotes the new build only once
+`healthCheckPath: /api/ready` returns 200, so a build that can't serve never
+goes live. There is no staging.
 
-## Run it
+Work in the active clone **/home/callum/bettingtools** on `main`.
+(`/home/callum/puntmore` is a stale scraper checkout — don't deploy from it.)
 
-From the repo root:
+## Before pushing
 
 ```bash
-./deploy.sh
+cd /home/callum/bettingtools
+git status --short                                   # only the intended files
+(cd api && ./.venv/bin/python -m pytest -q)          # backend suite
+(cd frontend && npm run lint && npm run test && npm run build)
 ```
 
-It performs, in order:
+A frontend change must also be **looked at in a browser** first — use the `run`
+skill (headless Chrome + stubbed feed, no backend needed).
 
-1. **Snapshot** the current `bettingtools-{api,frontend,nginx}` image ids — the
-   rollback point.
-2. **Build + start**: `docker compose up --build -d`.
-3. **Wait** for nginx on `:8080`.
-4. **Smoke test** against the live nginx:
-   - frontend `/` → 200
-   - `/api/coupons` → 401 (coupon router mounted)
-   - `/api/accabonus/feed`, `/api/cards/feed` → 404 (**hidden on purpose**, PLAN v5)
-   - authenticated `login` → 200 and `GET /api/coupons` → 200, using the first
-     `AUTH_USERS` entry from `.env`.
-5. **Rollback on any failure**: retag the previous images, `up -d --no-build`,
-   exit non-zero.
+## Ship
+
+```bash
+git add <files>
+git commit            # message ends with the Co-Authored-By line
+git push origin main  # gitleaks pre-push hook runs; Render starts the build
+```
+
+## Verify
+
+```bash
+curl -fsS https://puntmore.com/api/ready   # {"status":"ready","checks":{"database":true,"providers":true},...}
+```
+
+- The build takes a few minutes. `/api/ready` stays 200 throughout (old instance
+  serves until the new one passes), so it confirms health, **not** which commit
+  is live — there is no version endpoint. Confirm a change by eyeballing the
+  app, or via the Render dashboard's deploy log.
+- Backend only: the response shape of the changed endpoint, if it's unauthenticated.
+
+## Rollback
+
+```bash
+git revert <sha> && git push origin main      # Render redeploys the revert
+```
+or "Rollback to previous deploy" in the Render dashboard.
 
 ## Report back
 
-- Relay the smoke-test pass/fail lines and whether it **deployed** or **rolled
-  back**. If it rolled back, name the failing check — do not blindly retry.
-- The AccaBonus/Cards 404s are the intended coupon-only state, never a failure.
-- Never echo secrets: creds and keys live in `.env` (git-ignored).
-
-## After a successful deploy
-
-If a git remote exists, offer to commit the working tree and push, so the
-off-box copy matches what is now live.
+- The commit sha pushed, the `/api/ready` status, and exactly what to eyeball.
+- Never echo secrets: env vars live on Render (`sync: false` in `render.yaml`)
+  and in the git-ignored `.env`. If a feature needs a new env var, say so —
+  it's a dashboard edit, not a redeploy.

@@ -13,7 +13,6 @@ from .coupon_images import delete_coupon_image
 from .database import SessionLocal
 from .models import Coupon, Leg
 from .comparison import value_tier
-from .cards.client import merge_pinnacle
 from .goalscorers.service import (
     build_watchlist,
     cleanup_stale_alerts,
@@ -175,24 +174,24 @@ def _cards_key(row) -> tuple:
     return (row.event_id, row.market_key, row.line, row.side)
 
 
-def sweep_cards(cards_client, pinnacle=None, notifier=None) -> int:
+def sweep_cards(cards_client, notifier=None) -> int:
     """One cards/corners sweep: fetch, value, alert on new value. Returns rows.
 
-    Runs on a 5-MINUTE tick, but that is not the same as calling every fixture
-    every five minutes. The client tiers each fixture by time to kickoff (via
+    Runs on a 2-MINUTE tick, but that is not the same as calling every fixture
+    every two minutes. The client tiers each fixture by time to kickoff (via
     the odds cache's per-read TTL), so a tick only spends credits on fixtures
     inside the fast window; the rest are served from cache. The cost dial is the
     WINDOW, not this interval — see cards/client.py.
 
     Alerts are deduped by value tier, the same rule the coupon refresh follows:
     a bet is announced when its tier appears or changes, never once per tick.
-    Without that a live value bet would fire every five minutes for four hours.
+    Without that a live value bet would fire every two minutes for four hours.
     """
     if cards_client is None:
         return 0
     try:
         from .routers.cards import price_events      # one pricing entry point
-        events = merge_pinnacle(cards_client.get_events(), pinnacle)
+        events = cards_client.get_events()
         rows = price_events(events, settings.cards_min_edge)
     except Exception as exc:
         # Logged with the cause: a silent failure here is what made the old
@@ -239,11 +238,10 @@ def sweep_cards(cards_client, pinnacle=None, notifier=None) -> int:
     # a value tool that alerts before anyone has checked it trains trust it has
     # not earned. The sweep still runs, and the rows are still on the screen.
     if fresh and settings.cards_discord_alerts:
-        from .routers.cards import market_name
+        from .routers.cards import describe
         notify_rows(notifier, "paddy", ":triangular_flag_on_post: Paddy — {n} new/changed value bet(s):", [
-            (r.edge, f"  {r.home_team} v {r.away_team} — {r.side[0]}{r.line:g} "
-                     f"{market_name(r.market_key)} @ {r.paddy_odds}, "
-                     f"fair {r.fair_odds:.2f}, +{r.edge:.1%}")
+            (r.edge, f"  {r.home_team} v {r.away_team} — {describe(r)} "
+                     f"@ {r.paddy_odds}, fair {r.fair_odds:.2f}, +{r.edge:.1%}")
             for r in fresh
         ])
     return len(rows)
@@ -393,10 +391,10 @@ def start_scheduler(
         kwargs={"odds_provider": odds_provider, "notifier": notifier},
     )
 
-    # Cards/corners: a 5-minute tick, but only fixtures inside the fast window
-    # actually cost a call — the client tiers them by time to kickoff. Gated on
-    # the client existing, so no ODDS_API_KEY means no job rather than a job
-    # that wakes every five minutes to do nothing.
+    # Cards/corners: a 2-minute tick (OddsPapi's tightest gear), but only
+    # fixtures inside the fast window actually cost a call — the client tiers
+    # them by time to kickoff. Gated on the client existing, so no
+    # ODDSPAPI_API_KEY means no job rather than one that wakes to do nothing.
     if settings.enable_cards and cards_client is not None:
         scheduler.add_job(
             sweep_cards,
@@ -415,7 +413,6 @@ def start_scheduler(
             max_instances=1,
             kwargs={
                 "cards_client": cards_client,
-                "pinnacle": odds_provider,
                 "notifier": notifier,
             },
         )

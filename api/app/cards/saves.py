@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 
 from ..normalise import team_similarity
 from ..ttl_cache import TTLCache
+from ..pricing.counts.lines import is_half_line
 from .oddspapi import SAVES
 from .value import CardValueRow, _get_bookmaker, _get_market, _market_label, _price
 
@@ -106,6 +107,8 @@ def saves_value(events: list[dict], min_edge: float, entries=None) -> list[CardV
         if not outcomes:
             continue
         for line, fair in _fair_for(event, entries).items():
+            if not is_half_line(line):      # pushes are never bet
+                continue
             for side, fair_odds in (("Over", fair.over), ("Under", fair.under)):
                 paddy_price = _price(outcomes, side, line)
                 if paddy_price is None:

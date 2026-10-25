@@ -4,7 +4,6 @@ from ..config import settings
 from ..schemas import CardValueOut, CardFeedItem, CardFeedBet
 from ..cards.value import compute_value_bets
 from ..cards.laddered import compute_laddered_value
-from ..cards.client import merge_pinnacle
 from ..cards.saves import saves_value
 
 
@@ -36,6 +35,18 @@ def market_name(market_key: str) -> str:
             return word
     return market_key
 
+
+def describe(bet) -> str:
+    """The pick as the page and the Discord alert print it — "Over 9.5 corners",
+    or "Arsenal Over 4.5 corners" for a team line, since there the match isn't
+    the subject. One decimal always: every line is an x.5 (pushes are never bet).
+    """
+    if bet.market_key.startswith("team_"):
+        team = bet.home_team if bet.market_key.endswith("_home") else bet.away_team
+        kind = "corners" if "corners" in bet.market_key else "cards"
+        return f"{team} {bet.side} {bet.line:.1f} {kind}"
+    return f"{bet.side} {bet.line:.1f} {market_name(bet.market_key)}"
+
 router = APIRouter()
 
 
@@ -49,20 +60,15 @@ def get_card_value_bets(
     client = request.app.state.cards_client
     if client is None:
         return []
-    # Paddy Power from TheOddsApi, Pinnacle from bettingiscool — joined into
-    # one event before valuing, so value.py stays vendor-agnostic.
-    events = merge_pinnacle(
-        client.get_events(), getattr(request.app.state, "odds_provider", None)
-    )
-    return price_events(events, min_edge)
+    return price_events(client.get_events(), min_edge)
 
 
-def build_feed(client, min_edge: float, pinnacle=None) -> list[CardFeedItem]:
+def build_feed(client, min_edge: float) -> list[CardFeedItem]:
     """Cards/corners feed grouped by match, sorted by best value. Shared with /state."""
     if client is None:
         return []
 
-    bets = price_events(merge_pinnacle(client.get_events(), pinnacle), min_edge)
+    bets = price_events(client.get_events(), min_edge)
 
     groups: dict[str, dict] = {}
     for bet in bets:
@@ -75,17 +81,8 @@ def build_feed(client, min_edge: float, pinnacle=None) -> list[CardFeedItem]:
                 "bets": [],
             }
         market = market_name(bet.market_key)
-        # One decimal always: a whole line can PUSH (exactly N), so "O7.0" must
-        # not read like a truncated "O7.5" — the x.5 lines never push.
-        if bet.market_key.startswith("team_"):
-            # One team's line — name the team, since the match isn't the subject.
-            team = bet.home_team if bet.market_key.endswith("_home") else bet.away_team
-            kind = "corners" if "corners" in bet.market_key else "cards"
-            pick = f"{team} {bet.side} {bet.line:.1f} {kind}"
-        else:
-            pick = f"{bet.side} {bet.line:.1f} {market}"
         groups[bet.event_id]["bets"].append(CardFeedBet(
-            pick=pick,
+            pick=describe(bet),
             odds=bet.paddy_odds,
             fair=bet.fair_odds,
             value=bet.edge,
@@ -117,39 +114,35 @@ def get_cards_feed(
 ):
     if min_edge is None:
         min_edge = settings.cards_min_edge
-    return build_feed(
-        request.app.state.cards_client, min_edge,
-        getattr(request.app.state, "odds_provider", None),
-    )
+    return build_feed(request.app.state.cards_client, min_edge)
 
 
-def diagnose(client, pinnacle) -> dict:
+def diagnose(client) -> dict:
     """Why the cards screen is showing what it is showing.
 
     An empty screen has at least six distinct causes and they look identical
     from the outside — no fixtures near kickoff, Paddy Power not posting the
-    market, bettingiscool carrying no corners board, ladders too thin to fit,
-    or simply nothing clearing the value guards. The last of those is a SUCCESS
+    market, no Pinnacle side to price against, ladders too thin to fit, or
+    simply nothing clearing the value guards. The last of those is a SUCCESS
     and must not be mistaken for a broken tool.
 
     The counts come from whatever the last sweep actually did, so this reports
     the real pipeline rather than re-running it.
     """
-    from ..cards import laddered, pinnacle as pinnacle_src
+    from ..cards import laddered
 
     sweep = dict(getattr(client, "last_sweep", {}) or {})
-    # Pinnacle from OddsPapi (same fixture ids) rather than bettingiscool.
+    # The fair side comes from OddsPapi on the same fixture id as Paddy's.
     oddspapi_fair = str(sweep.get("fair_source", "")).startswith("oddspapi")
-    fair = dict(getattr(pinnacle_src, "LAST_RUN", {}) or {})
     priced = dict(getattr(laddered, "LAST_RUN", {}) or {})
 
     if client is None:
         verdict = (
-            "No cards client — ODDS_API_KEY is not set, so Paddy Power's prices "
-            "are never fetched."
+            "No cards client — ODDSPAPI_API_KEY is not set, so Paddy Power's "
+            "prices are never fetched."
         )
     elif not sweep:
-        verdict = "No sweep has run yet. Open the feed or wait for the 5-minute tick."
+        verdict = "No sweep has run yet. Open the feed or wait for the 2-minute tick."
     elif sweep.get("fixtures_in_window", 0) == 0:
         nxt = sweep.get("next_kickoff")
         inactive = sweep.get("inactive_keys") or []
@@ -159,7 +152,7 @@ def diagnose(client, pinnacle) -> dict:
             f"the normal state between matches, not a failure. "
             + (f"Next listed kickoff: {nxt}. " if nxt else
                f"No upcoming fixture is listed in ANY of the "
-               f"{sweep.get('sport_keys')} covered competitions. ")
+               f"{sweep.get('sport_keys') or ''} covered competitions. ")
             + (f"{len(inactive)} configured key(s) not currently listed by "
                f"TheOddsApi (out of season, or misspelled): "
                f"{', '.join(inactive)}." if inactive else "")
@@ -178,31 +171,15 @@ def diagnose(client, pinnacle) -> dict:
             + (f"with an error: {errs[0][:240]}" if errs else
                "with no corners/cards/goals lines on any of them — nothing to price against.")
         )
-    elif oddspapi_fair:
-        verdict = None          # fair side fine — fall through to the pricing checks
-    elif not pinnacle or not (hasattr(pinnacle, "board") and hasattr(pinnacle, "odds_for")):
+    elif not oddspapi_fair and not priced:
+        # No fair side on the sweep AND nothing was ever priced: the legacy
+        # TheOddsApi path, or OddsPapi with the fair book unset.
         verdict = (
-            "No Pinnacle corners board to price against. Set ODDSPAPI_API_KEY "
-            "and ODDSPAPI_FAIR_BOOK."
-        )
-    elif fair.get("derived_fixtures", 0) == 0:
-        verdict = (
-            f"bettingiscool's board ({fair.get('board_fixtures', 0)} fixtures) "
-            f"carries no derived corners/cards events, so there is no fair price "
-            f"to measure Paddy Power against."
-        )
-    elif fair.get("matched", 0) == 0:
-        verdict = (
-            f"{fair.get('derived_fixtures')} derived fixture(s) on the board but "
-            f"none matched a Paddy Power fixture by name."
-        )
-    elif fair.get("no_totals", 0) and not priced.get("ladders_fitted"):
-        verdict = (
-            f"{fair.get('no_totals')} matched fixture(s) carry no totals, so no "
-            f"ladder could be built."
+            "No Pinnacle side to price against. Set ODDSPAPI_FAIR_BOOK — the fair "
+            "side comes from OddsPapi on the same fixture id as Paddy Power's."
         )
     else:
-        verdict = None
+        verdict = None          # fair side fine — fall through to the pricing checks
     # Both books in hand: what the pricing made of them.
     if verdict is None and priced.get("ladders_fitted", 0) == 0:
         verdict = (
@@ -226,7 +203,6 @@ def diagnose(client, pinnacle) -> dict:
         "verdict": verdict,
         "sweep_error": dict(LAST_CARDS_ERROR) or None,
         "sweep": sweep,
-        "fair_side": fair,
         "pricing": priced,
         "using_ladder_model": settings.cards_use_ladder_model,
     }
@@ -421,7 +397,4 @@ def oddspapi_check(request: Request, book: str | None = None, tournament: int = 
 @router.get("/diagnostics")
 def get_cards_diagnostics(request: Request):
     """One request that says why the screen looks the way it does."""
-    return diagnose(
-        request.app.state.cards_client,
-        getattr(request.app.state, "odds_provider", None),
-    )
+    return diagnose(request.app.state.cards_client)

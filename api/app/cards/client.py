@@ -14,8 +14,8 @@ THREE THINGS DRIVE THE COST, and only one of them is the refresh interval.
 
   REGIONS   Only Paddy Power is requested — `bookmakers=paddypower`, and no
             `regions` parameter at all. Paddy Power is a `uk` book; Pinnacle is
-            `eu`, so asking for both here would span two regions. Pinnacle comes
-            from bettingiscool instead (cards/pinnacle.py).
+            `eu`, so asking for both here would span two regions. Pinnacle's
+            side comes from OddsPapi instead (cards/oddspapi.py).
             NOTE regions describe where the BOOKMAKER is licensed, not where the
             league is — Paddy Power prices La Liga from the `uk` region fine.
             The league is chosen by sport key, and the fixture list is FREE.
@@ -263,48 +263,3 @@ class CardsApiClient:
             self.calls_today, settings.cards_daily_call_budget,
         )
         return events
-
-
-def merge_pinnacle(events: list[dict], provider) -> list[dict]:
-    """Attach bettingiscool's Pinnacle prices to Paddy Power's events.
-
-    The two halves come from different vendors, but `value.py` wants them on
-    ONE event the way TheOddsApi would have delivered them — so they are joined
-    here rather than by teaching the value logic about two sources. That keeps
-    the pricing maths untouched and vendor-agnostic, which is the point of the
-    seam: swapping either side back is a change in this function alone.
-
-    An event whose Pinnacle side is missing is left as it is. `value.py` already
-    skips any event without both books, so a fixture with no fair price is
-    dropped rather than valued against nothing.
-    """
-    # Events whose fair side already came from OddsPapi (same fixture id, no
-    # name match) need nothing more; only the rest go to bettingiscool.
-    events_needing = [e for e in events or []
-                      if not any(b.get("key") == "pinnacle" for b in e.get("bookmakers", []))]
-    if not events_needing:
-        return events
-    if provider is None:
-        return events
-    # The coupon odds provider is only bettingiscool when a key is configured;
-    # it degrades to TheOddsApi or the mock otherwise, and neither carries a
-    # board of derived corners fixtures. Say so once rather than raising — this
-    # is the same silent-degradation trap the coupon tracker had, where a
-    # missing key produced an empty feed that looked like a market with no
-    # value in it.
-    if not (hasattr(provider, "board") and hasattr(provider, "odds_for")):
-        logger.warning(
-            "cards: the coupon odds provider is %s, which carries no Pinnacle "
-            "corners/cards board — every Paddy Power price will go unvalued. "
-            "The fair side needs OddsPapi (set ODDSPAPI_API_KEY / ODDSPAPI_FAIR_BOOK).",
-            type(provider).__name__,
-        )
-        return events
-    from .pinnacle import pinnacle_books
-
-    books = pinnacle_books(provider, events_needing)
-    for event in events_needing:
-        book = books.get(event.get("id"))
-        if book:
-            event.setdefault("bookmakers", []).append(book)
-    return events

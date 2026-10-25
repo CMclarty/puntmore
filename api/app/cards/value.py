@@ -11,6 +11,7 @@ odds/utils.py::devigd):
 from dataclasses import dataclass
 
 from ..odds.utils import devigd as _devigd_shared
+from ..pricing.counts.lines import is_half_line
 
 
 @dataclass
@@ -25,7 +26,9 @@ class CardValueRow:
     line: float
     side: str             # "Over" | "Under"
     paddy_odds: float
-    pinnacle_odds: float  # raw Pinnacle price before de-vig
+    pinnacle_odds: float  # matched path: raw Pinnacle price before de-vig; ladder
+                          # rows carry the model's fair here, saves rows Bookie
+                          # Bashing's (no raw quote exists on those paths)
     fair_odds: float      # de-vigged Pinnacle
     pinnacle_margin: float
     edge: float           # paddy_odds / fair_odds - 1
@@ -109,6 +112,8 @@ def compute_value_bets(
                 continue
 
             for line in _pinnacle_lines(pin_outcomes):
+                if not is_half_line(line):      # pushes are never bet
+                    continue
                 pin_over = _price(pin_outcomes, "Over", line)
                 pin_under = _price(pin_outcomes, "Under", line)
                 if pin_over is None or pin_under is None:
