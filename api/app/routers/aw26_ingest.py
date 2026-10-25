@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..aw26.legs import classify
+from ..aw26.legs import TEAM_MIN, classify
 from ..aw26.marry import marry_slip
 from ..aw26.offers import OFFERS
 from ..aw26.results import MatchStats, apply_match_stats
@@ -20,7 +20,8 @@ from ..aw26.service import (
     FAIRS_KEEP_DAYS, build_slip, parse_when, price_slip, recent_fairs, settle_slip,
 )
 from ..database import get_db
-from ..models import AwFair, AwSlip
+from ..models import AwFair, AwLeg, AwSlip, ValueLine
+from ..normalise import split_sides, team_similarity
 from ..providers.slip_ocr import ExtractedSlip, ExtractedSlipLeg
 from ..time_utils import utcnow
 from .aw26 import _sweep_events
@@ -168,3 +169,40 @@ class ResultsIn(BaseModel):
 def post_results(batch: ResultsIn, db: Session = Depends(get_db)):
     stats = [MatchStats(**m.model_dump()) for m in batch.matches]
     return apply_match_stats(db, stats)
+
+
+# --- which leagues the FlashScore scraper should read -------------------------
+#
+# The scraper used to read a fixed list of eight leagues every run. It now asks
+# here first: the events on legs still pending on open slips, and the league of
+# each, looked up in the value snapshots (a snapshot line carries the sweep's
+# sport_key, and outlives the fixture on the sweep by KEEP_DAYS). An event no
+# snapshot knows is listed under `unknown`; the scraper then falls back to its
+# full list, so a leg is never left unsettled for want of a league.
+
+OPEN_LEAGUES_LOOKBACK_DAYS = 14
+
+
+@router.get("/open-leagues", dependencies=[Depends(require_ingest_key)])
+def open_leagues(db: Session = Depends(get_db)):
+    events = sorted({
+        leg.event for leg in db.query(AwLeg).join(AwSlip)
+        .filter(AwSlip.status == "open", AwLeg.result == "pending").all()
+    })
+    cutoff = utcnow() - timedelta(days=OPEN_LEAGUES_LOOKBACK_DAYS)
+    known = (db.query(ValueLine.home, ValueLine.away, ValueLine.sport_key)
+             .filter(ValueLine.sport_key.isnot(None), ValueLine.kickoff >= cutoff)
+             .distinct().all())
+    sport_keys, unknown = set(), []
+    for event in events:
+        sides = split_sides(event)
+        hit = None
+        if sides:
+            hit = next((k for h, a, k in known
+                        if min(team_similarity(sides[0], h), team_similarity(sides[1], a)) >= TEAM_MIN),
+                       None)
+        if hit:
+            sport_keys.add(hit)
+        else:
+            unknown.append(event)
+    return {"events": events, "sport_keys": sorted(sport_keys), "unknown": unknown}

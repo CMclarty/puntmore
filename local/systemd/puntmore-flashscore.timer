@@ -1,0 +1,14 @@
+# Every 2 hours from 13:00 to 23:00, plus 00:00 (London time): the first
+# Saturday games finish ~14:50, the last evening ones ~22:00.
+[Unit]
+Description=Puntmore AW 26 - FlashScore results every 2h, 13:00-00:00 London
+
+[Timer]
+OnCalendar=*-*-* 13/2:00:00 Europe/London
+OnCalendar=*-*-* 00:00:00 Europe/London
+# A run missed while the PC was off happens at the next boot.
+Persistent=true
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target

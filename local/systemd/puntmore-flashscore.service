@@ -1,0 +1,18 @@
+# AW 26 settlement: read finished matches off FlashScore and POST them to
+# /api/aw26/results (local/flashscore_results.py once). Started by
+# puntmore-flashscore.timer; see README.md in this folder.
+[Unit]
+Description=Puntmore AW 26 - FlashScore results -> slip settlement
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# SAVES_INGEST_KEY=... (required), PUNTMORE_URL=... (optional)
+EnvironmentFile=%h/.config/puntmore/flashscore.env
+WorkingDirectory=%h/bettingtools/local
+ExecStart=%h/.venvs/flashscore/bin/python %h/bettingtools/local/flashscore_results.py once
+# A FlashScore read of a few leagues takes minutes; a hung browser must not
+# hold the next run.
+TimeoutStartSec=30min
+Nice=10

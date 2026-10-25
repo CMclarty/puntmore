@@ -17,15 +17,24 @@ Confirmed page structure (22 Oct 2026):
                    sent as null, so the server leaves cards legs pending (never
                    assumed). TODO: read the incident icons for a card count.
 
+WHICH LEAGUES
+  Unless FLASHSCORE_LEAGUES / --leagues names them, the leagues come from the
+  server: GET /api/aw26/open-leagues lists the events on still-pending legs
+  and their leagues (sport keys, from the value snapshots). Nothing pending ->
+  nothing scraped. An event with no known league, a sport key with no path in
+  SPORT_KEY_LEAGUES, or the server unreachable -> the full DEFAULT_LEAGUES, so
+  a leg is never left unsettled for want of a league.
+
 COMMANDS
     check   Scrape and PRINT the match stats (no POST) — verify the read.
-    once    Scrape and POST once (for Task Scheduler / cron, after the day's games).
+    once    Scrape and POST once (the systemd user timer runs this every 2h,
+            13:00-00:00 London — local/systemd/README.md).
     run     The same, then again every --every minutes.
 
 SETTINGS (environment variables, or flags)
     PUNTMORE_URL         default https://puntmore.com
     SAVES_INGEST_KEY     the same key as the server (one key for the BB + FS scripts)
-    FLASHSCORE_LEAGUES   comma list of result-page paths; default below
+    FLASHSCORE_LEAGUES   comma list of result-page paths; overrides the server's list
     FLASHSCORE_MAX       most-recent matches to take per league (default 20)
 """
 import argparse
@@ -40,6 +49,19 @@ DEFAULT_LEAGUES = [
     "italy/serie-a", "germany/bundesliga", "france/ligue-1",
     "europe/champions-league", "europe/europa-league",
 ]
+# The sweep's sport keys (api/app/cards/oddspapi.py TOURNAMENT_SPORT_KEYS) ->
+# FlashScore result-page paths. Only the paths DEFAULT_LEAGUES already uses —
+# the rest are unverified, so their keys fall back to the full list.
+SPORT_KEY_LEAGUES = {
+    "soccer_epl": "england/premier-league",
+    "soccer_efl_champ": "england/championship",
+    "soccer_spain_la_liga": "spain/laliga",
+    "soccer_italy_serie_a": "italy/serie-a",
+    "soccer_germany_bundesliga": "germany/bundesliga",
+    "soccer_france_ligue_one": "france/ligue-1",
+    "soccer_uefa_champs_league": "europe/champions-league",
+    "soccer_uefa_europa_league": "europe/europa-league",
+}
 STAT_LABELS = {"Corner kicks": "corners", "Goalkeeper saves": "saves"}
 
 
@@ -127,6 +149,25 @@ def scrape(leagues, limit):
     return matches
 
 
+def leagues_for(open_body):
+    """The league paths to scrape, from GET /api/aw26/open-leagues' body.
+    [] when nothing is pending; DEFAULT_LEAGUES when any league is unknown."""
+    if not open_body.get("events"):
+        return []
+    paths = [SPORT_KEY_LEAGUES.get(k) for k in open_body.get("sport_keys", [])]
+    if open_body.get("unknown") or None in paths:
+        return list(DEFAULT_LEAGUES)
+    return sorted(set(paths))
+
+
+def _open_leagues(server, key):
+    import httpx
+    r = httpx.get(server.rstrip("/") + "/api/aw26/open-leagues",
+                  headers={"X-API-Key": key}, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
 def _post(matches, server, key):
     import httpx
     r = httpx.post(server.rstrip("/") + "/api/aw26/results",
@@ -144,18 +185,40 @@ def main():
     ap.add_argument("--max", type=int, default=int(os.environ.get("FLASHSCORE_MAX", "20")))
     ap.add_argument("--every", type=float, default=12 * 60, help="minutes between runs")
     a = ap.parse_args()
-    leagues = [s.strip() for s in a.leagues.split(",")] if a.leagues else DEFAULT_LEAGUES
+    if not a.key and a.command != "check":
+        sys.exit("Set SAVES_INGEST_KEY or pass --key.")
+    fixed = [s.strip() for s in a.leagues.split(",")] if a.leagues else None
 
     while True:
         stamp = datetime.now().strftime("%d %b %H:%M")
+        leagues = fixed
+        if leagues is None and not a.key:          # `check` with no key: read them all
+            leagues = list(DEFAULT_LEAGUES)
+        if leagues is None:
+            try:
+                leagues = leagues_for(_open_leagues(a.server, a.key))
+            except Exception as exc:
+                print(f"{stamp}  open legs unavailable ({exc}); reading every league",
+                      file=sys.stderr)
+                leagues = list(DEFAULT_LEAGUES)
+        if not leagues:
+            print(f"{stamp}  no pending legs; nothing to read")
+            if a.command != "run":
+                return
+            time.sleep(a.every * 60)
+            continue
         matches = scrape(leagues, a.max)
         if a.command == "check":
             for m in matches:
                 print(m)
             print(f"\n{stamp}  scraped {len(matches)} finished match(es) (not posted)")
             return
-        if not a.key:
-            sys.exit("Set SAVES_INGEST_KEY or pass --key.")
+        if not matches:
+            print(f"{stamp}  no finished matches found in {len(leagues)} league(s)")
+            if a.command == "once":
+                return
+            time.sleep(a.every * 60)
+            continue
         try:
             body = _post(matches, a.server, a.key)
             print(f"{stamp}  posted {len(matches)}, resolved {body['resolved']} leg(s), "
