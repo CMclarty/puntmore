@@ -431,19 +431,19 @@ PIN = {
 def test_a_line_pinnacle_does_not_quote_is_still_priced():
     """The whole reason this path exists.
 
-    The matched-line path sees nothing here: Paddy quotes 9.0 and 12.5, neither
+    The matched-line path sees nothing here: Paddy quotes 7.5 and 12.5, neither
     of which Pinnacle prices. Most of Paddy's board looks like this.
     """
     from app.cards.laddered import compute_laddered_value
     from app.cards.value import compute_value_bets
 
-    # Fair at 9.0 is ~1.63 and at 12.5 ~4.22; these beat the band comfortably.
-    events = _joined(PIN, {9.0: (1.80, 2.35), 12.5: (4.80, 1.24)})
+    # Fair at 7.5 is short and at 12.5 ~4.22; both beat the band comfortably.
+    events = _joined(PIN, {7.5: (1.33, 3.40), 12.5: (4.80, 1.24)})
     assert compute_value_bets(events, -0.5) == [], "matched-line path sees nothing"
 
     rows = compute_laddered_value(events, -0.5)
     assert rows, "laddered path must price lines Pinnacle does not quote"
-    assert {r.line for r in rows} <= {9.0, 12.5}
+    assert {r.line for r in rows} <= {7.5, 12.5}
 
 
 def test_only_lines_paddy_offers_are_priced():
@@ -458,6 +458,21 @@ def test_lines_outside_the_hard_bounds_are_never_priced():
     from app.cards.laddered import compute_laddered_value
     rows = compute_laddered_value(
         _joined(PIN, {2.5: (1.02, 15.0), 18.5: (26.0, 1.01), 10.5: (2.60, 1.60)}),
+        -0.5,
+    )
+    assert {r.line for r in rows} == {10.5}
+
+
+def test_push_lines_are_never_priced():
+    """Whole-number (push) lines are never bet, so the model never quotes them.
+
+    Paddy's shops quote a 9.0 corner line (stake back on exactly 9) beside the
+    .5 lines. We only ever back the .5 line, so the integer line must not reach
+    the feed even though it is in bounds and Paddy offers it.
+    """
+    from app.cards.laddered import compute_laddered_value
+    rows = compute_laddered_value(
+        _joined(PIN, {9.0: (1.85, 2.30), 10.5: (2.60, 1.60)}),
         -0.5,
     )
     assert {r.line for r in rows} == {10.5}

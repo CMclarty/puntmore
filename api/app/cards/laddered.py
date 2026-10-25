@@ -42,6 +42,7 @@ from .oddspapi import (TEAM_CARDS_AWAY, TEAM_CARDS_HOME,
 from ..pricing.counts.errors import LadderError
 from ..pricing.counts.fit import fit_ladder
 from ..pricing.counts.ladder import Ladder, Rung
+from ..pricing.counts.lines import HALF, line_kind
 from ..pricing.counts.price import is_priceable, price_line
 from .value import CardValueRow, _get_bookmaker, _get_market, _market_label
 
@@ -162,7 +163,8 @@ def _compute_laddered_value(
     # pricing it, Pinnacle not posting it, a ladder too thin, or no value.
     by_market = {
         _market_name(mk): dict(paddy_only=0, pinnacle_only=0, both=0, thin=0, unfittable=0,
-                               fitted=0, paddy_lines=0, out_of_bounds=0, rows=0, best_edge=None)
+                               fitted=0, paddy_lines=0, push_lines=0, out_of_bounds=0,
+                               rows=0, best_edge=None)
         for mk in _CONFIGS
     }
 
@@ -224,9 +226,21 @@ def _compute_laddered_value(
 
             excluded = _excluded_lines().get(_market_name(market_key), set())
             for line, sides in sorted(_lines(paddy_outcomes).items()):
-                # Only lines Paddy actually offers (and its shops carry), and
-                # only inside the range the model is allowed to quote.
+                # Only lines Paddy actually offers, only .5 lines, and only
+                # inside the range the model is allowed to quote.
                 if line in excluded:
+                    continue
+                # Pushes are never bet (Callum's call, Oct 2026): Paddy's shops
+                # also quote whole-number corner/card lines, which return the
+                # stake on the exact count. We only ever back the .5 line, so
+                # integer (and quarter) lines never reach pricing, scoring or
+                # the feed at all.
+                try:
+                    if line_kind(line) != HALF:
+                        tally["push_lines"] += 1
+                        continue
+                except LadderError:
+                    tally["push_lines"] += 1
                     continue
                 tally["paddy_lines"] += 1
                 if not is_priceable(line, config):
