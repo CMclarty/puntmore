@@ -184,6 +184,17 @@ class CardFeedBet(BaseModel):
     # drop down its other value lines) and label each rung.
     line: float = 0.0
     side: str = ""       # "Over" | "Under"
+    # How the fair was reached: ladder | hybrid | matched | saves (value.py).
+    basis: str = "ladder"
+
+
+class CardFeedFair(BaseModel):
+    """A FAIR three-way price with no Paddy quote on the feed (most corners /
+    most cards — cards/most.py): read against the terminal, which does quote it."""
+    pick: str            # "Arsenal most corners" | "Tie most corners"
+    market: str          # most_corners | most_cards
+    fair: float
+    basis: str = "hybrid"
 
 
 class CardFeedItem(BaseModel):
@@ -193,6 +204,7 @@ class CardFeedItem(BaseModel):
     sport_key: str = ""
     best_value: float
     bets: list[CardFeedBet]
+    fairs: list[CardFeedFair] = []
 
 
 # Private P&L bet tracker — one settled bet's net result. stake/returned are

@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Query, Request
 
 from ..config import settings
-from ..schemas import CardValueOut, CardFeedItem, CardFeedBet
+from ..schemas import CardValueOut, CardFeedItem, CardFeedBet, CardFeedFair
 from ..cards.value import compute_value_bets
 from ..cards.laddered import compute_laddered_value
+from ..cards.most import most_fairs
 from ..cards.saves import saves_value
 
 
@@ -28,6 +29,8 @@ def price_events(events, min_edge):
 def market_name(market_key: str) -> str:
     """corners | cards | goals | saves | team_corners | team_cards, from
     whichever key a vendor used."""
+    if market_key.startswith("most_"):
+        return market_key
     if market_key.startswith("team_"):
         return "team_corners" if "corners" in market_key else "team_cards"
     for word in ("corners", "cards", "goals", "saves"):
@@ -68,28 +71,43 @@ def build_feed(client, min_edge: float) -> list[CardFeedItem]:
     if client is None:
         return []
 
-    bets = price_events(client.get_events(), min_edge)
+    events = client.get_events()
+    bets = price_events(events, min_edge)
 
     groups: dict[str, dict] = {}
+
+    def group(row):
+        return groups.setdefault(row.event_id, {
+            "event_id": row.event_id,
+            "match": f"{row.home_team} vs {row.away_team}",
+            "commence_time": row.commence_time,
+            "sport_key": row.sport_key,
+            "bets": [], "fairs": [],
+        })
+
     for bet in bets:
-        if bet.event_id not in groups:
-            groups[bet.event_id] = {
-                "event_id": bet.event_id,
-                "match": f"{bet.home_team} vs {bet.away_team}",
-                "commence_time": bet.commence_time,
-                "sport_key": bet.sport_key,
-                "bets": [],
-            }
-        market = market_name(bet.market_key)
-        groups[bet.event_id]["bets"].append(CardFeedBet(
+        group(bet)["bets"].append(CardFeedBet(
             pick=describe(bet),
             odds=bet.paddy_odds,
             fair=bet.fair_odds,
             value=bet.edge,
-            market=market,
+            market=market_name(bet.market_key),
             line=bet.line,
             side=bet.side,
+            basis=bet.basis,
         ))
+
+    # Team to have most corners / cards: a FAIR three-way only (cards/most.py).
+    # No Paddy quote on the feed, so no value — it is read against the terminal.
+    for fair in most_fairs(events):
+        kind = fair.market_key.split("_", 1)[1]
+        for outcome, who in (("home", fair.home_team), ("tie", "Tie"), ("away", fair.away_team)):
+            price = fair.fair(outcome)
+            if price is not None:
+                group(fair)["fairs"].append(CardFeedFair(
+                    pick=f"{who} most {kind}", market=fair.market_key,
+                    fair=price, basis=fair.basis,
+                ))
 
     result = []
     for g in groups.values():
@@ -99,8 +117,10 @@ def build_feed(client, min_edge: float) -> list[CardFeedItem]:
             match=g["match"],
             commence_time=g["commence_time"],
             sport_key=g["sport_key"],
-            best_value=max(b.value for b in g["bets"]),
+            # A match with only fair three-ways has no value to rank by.
+            best_value=max((b.value for b in g["bets"]), default=-1.0),
             bets=g["bets"],
+            fairs=g["fairs"],
         ))
 
     result.sort(key=lambda x: -x.best_value)

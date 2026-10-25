@@ -45,6 +45,7 @@ from ..pricing.counts.fit import fit_ladder
 from ..pricing.counts.ladder import Ladder, Rung
 from ..pricing.counts.lines import is_half_line
 from ..pricing.counts.price import is_priceable, price_line
+from ..odds.utils import devigd
 from .value import CardValueRow, _get_bookmaker, _get_market, _market_label
 
 logger = logging.getLogger("uvicorn.error")
@@ -142,6 +143,72 @@ def ladder_from(outcomes: list[dict], fixture_id: str, market: str,
     return Ladder(fixture_id, market, rungs, league=league)
 
 
+def _base_market(market_key: str) -> str | None:
+    """The MATCH market whose fitted ladder lends a team market its shape."""
+    if not market_key.startswith("team_"):
+        return None
+    return CORNERS_MARKET if "corners" in market_key else CARDS_MARKET
+
+
+def _match_fit(event: dict, pin: dict, market_key: str, sport_key: str):
+    """The fixture's fitted match ladder for a team market, or None.
+
+    Shares the fit cache with the normal path, and needs only Pinnacle's side:
+    Paddy may not quote the match market at all and the shape is still real.
+    """
+    base_key = _base_market(market_key)
+    if base_key is None:
+        return None
+    outcomes = _get_market(pin, base_key)
+    if not outcomes:
+        return None
+    ladder = ladder_from(outcomes, event["id"], base_key, sport_key)
+    if len([r for r in ladder.rungs if r.over and r.under]) < MIN_RUNGS_TO_PRICE:
+        return None
+    sig = _signature(event, base_key, sport_key, outcomes)
+    fit = _FITS.get(sig)
+    if fit is MISS:
+        try:
+            fit = fit_ladder(ladder, _CONFIGS[base_key])
+        except LadderError:
+            fit = _REFUSED
+        _FITS.set(sig, fit)
+    return None if fit is _REFUSED else fit
+
+
+def team_dist(event: dict, pin: dict, market_key: str, sport_key: str):
+    """(CountDist, basis) for one team's corners/cards off Pinnacle's side, or
+    None. A 2+ rung team ladder fits on its own ("ladder"); one rung borrows the
+    match ladder's shape ("hybrid") — the same rule, and the same fit cache, as
+    the pricing loop, so cards/most.py never fits twice.
+    """
+    outcomes = _get_market(pin, market_key)
+    config = _CONFIGS.get(market_key)
+    if not outcomes or config is None:
+        return None
+    ladder = ladder_from(outcomes, event["id"], market_key, sport_key)
+    two_sided = [r for r in ladder.rungs if r.over and r.under]
+    if not two_sided:
+        return None
+    d_override, basis = None, "ladder"
+    if len(two_sided) < MIN_RUNGS_TO_PRICE:
+        base = _match_fit(event, pin, market_key, sport_key)
+        if base is None:
+            return None
+        d_override, basis = base.dispersion, "hybrid"
+    sig = _signature(event, market_key, sport_key, outcomes)
+    if d_override is not None:
+        sig = sig + ("hybrid", round(d_override, 4))
+    fit = _FITS.get(sig)
+    if fit is MISS:
+        try:
+            fit = fit_ladder(ladder, config, d_override=d_override)
+        except LadderError:
+            fit = _REFUSED
+        _FITS.set(sig, fit)
+    return None if fit is _REFUSED else (fit.dist, basis)
+
+
 def compute_laddered_value(events: list[dict], min_edge: float) -> list[CardValueRow]:
     with _PRICING_LOCK:
         return _compute_laddered_value(events, min_edge)
@@ -163,9 +230,9 @@ def _compute_laddered_value(
     # Per market, so "no cards rows" says WHICH step lost them: Paddy not
     # pricing it, Pinnacle not posting it, a ladder too thin, or no value.
     by_market = {
-        _market_name(mk): dict(paddy_only=0, pinnacle_only=0, both=0, thin=0, unfittable=0,
-                               fitted=0, paddy_lines=0, push_lines=0, out_of_bounds=0,
-                               rows=0, best_edge=None)
+        _market_name(mk): dict(paddy_only=0, pinnacle_only=0, both=0, thin=0, matched=0,
+                               hybrid=0, unfittable=0, fitted=0, paddy_lines=0, push_lines=0,
+                               out_of_bounds=0, rows=0, best_edge=None)
         for mk in _CONFIGS
     }
 
@@ -198,32 +265,89 @@ def _compute_laddered_value(
             # number. The fit's own sparse handling exists to keep a two-rung
             # ladder honest, not to make a one-rung one bettable.
             two_sided = [r for r in ladder.rungs if r.over and r.under]
+            hybrid_d = None
             if len(two_sided) < MIN_RUNGS_TO_PRICE:
-                refused += 1
                 tally["thin"] += 1
-                continue
+                # Pinnacle posts a team's corners/cards as ONE line. Too thin to
+                # fit a SHAPE on its own — but the fixture's MATCH ladder (4-5
+                # rungs) gives a fixture-specific dispersion, and the team rung
+                # pins the team's mean: a hybrid fit, both parameters from live
+                # Pinnacle money on this game. It carries the wide sparse band,
+                # the extrapolation penalty and a "hybrid" basis on every row.
+                base = _match_fit(event, pin, market_key, sport_key) if two_sided else None
+                if base is not None:
+                    hybrid_d = base.dispersion
+                else:
+                    refused += 1
+                    # No match ladder to borrow a shape from. A two-sided rung
+                    # is still Pinnacle's own price at that line: where Paddy
+                    # quotes the same line, de-vig it directly (the matched-line
+                    # maths) — exact, no model; Paddy's other lines stay unpriced.
+                    paddy_lines = _lines(paddy_outcomes)
+                    for rung in two_sided:
+                        if not is_half_line(rung.line) or rung.line not in paddy_lines:
+                            continue
+                        fair_over, fair_under, margin = devigd(rung.over, rung.under)
+                        for side, pin_raw, fair in (("Over", rung.over, fair_over),
+                                                    ("Under", rung.under, fair_under)):
+                            quote = paddy_lines[rung.line].get(side)
+                            if quote is None:
+                                continue
+                            edge = round(quote / fair - 1, 4)
+                            if tally["best_edge"] is None or edge > tally["best_edge"]:
+                                tally["best_edge"] = edge
+                            if edge < min_edge:
+                                continue
+                            tally["matched"] += 1
+                            tally["rows"] += 1
+                            rows.append(CardValueRow(
+                                event_id=event["id"],
+                                home_team=event.get("home_team", ""),
+                                away_team=event.get("away_team", ""),
+                                commence_time=event.get("commence_time", ""),
+                                sport_key=sport_key,
+                                market_key=market_key,
+                                market_label=_market_label(market_key, side, rung.line),
+                                line=rung.line,
+                                side=side,
+                                paddy_odds=round(quote, 3),
+                                pinnacle_odds=round(pin_raw, 3),
+                                fair_odds=round(fair, 3),
+                                pinnacle_margin=round(margin, 4),
+                                edge=edge,
+                                basis="matched",
+                            ))
+                    continue
 
             sig = _signature(event, market_key, sport_key, pin_outcomes)
+            if hybrid_d is not None:
+                sig = sig + ("hybrid", round(hybrid_d, 4))
             fit = _FITS.get(sig)
             if fit is MISS:
                 try:
-                    fit = fit_ladder(ladder, config)
+                    fit = fit_ladder(ladder, config, d_override=hybrid_d)
+                    if hybrid_d is not None:
+                        fit.flags.append("hybrid_dispersion")
                 except LadderError as exc:
                     fit = _REFUSED
                     logger.info(
                         "cards: %s %s not fittable — %s", event.get("id"), market_key, exc
                     )
                 _FITS.set(sig, fit)
-                if fit is not _REFUSED:
+                if fit is not _REFUSED and hybrid_d is None:
                     # Measure the model against this ladder later, off the
-                    # request path (cards/shadow_store.py). No vendor cost.
+                    # request path (cards/shadow_store.py). No vendor cost. A
+                    # one-rung hybrid has nothing to measure itself against.
                     shadow_store.queue(ladder, market_key, config)
             if fit is _REFUSED:
                 refused += 1
                 tally["unfittable"] += 1
                 continue
-            fitted += 1
-            tally["fitted"] += 1
+            if hybrid_d is not None:
+                tally["hybrid"] += 1
+            else:
+                fitted += 1
+                tally["fitted"] += 1
 
             excluded = _excluded_lines().get(_market_name(market_key), set())
             for line, sides in sorted(_lines(paddy_outcomes).items()):
@@ -294,6 +418,7 @@ def _compute_laddered_value(
                         fair_odds=round(fair, 3),
                         pinnacle_margin=0.0,
                         edge=round(edge, 4),
+                        basis="hybrid" if hybrid_d is not None else "ladder",
                     ))
 
     LAST_RUN.update({

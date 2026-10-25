@@ -374,6 +374,155 @@ def test_push_lines_are_never_priced():
     assert {r.line for r in rows} == {10.5}
 
 
+# --- a one-rung Pinnacle ladder (team markets): matched line only -----------
+
+def _joined_team(pin_lines, paddy_lines):
+    from app.cards.oddspapi import TEAM_CORNERS_HOME
+
+    def book(key, lines):
+        outcomes = []
+        for line, (over, under) in sorted(lines.items()):
+            outcomes.append({"name": "Over", "point": line, "price": over})
+            outcomes.append({"name": "Under", "point": line, "price": under})
+        return {"key": key, "markets": [{"key": TEAM_CORNERS_HOME, "outcomes": outcomes}]}
+
+    return [{
+        "id": "e1", "home_team": "Arsenal", "away_team": "Chelsea",
+        "commence_time": _iso(0.5), "sport_key": "soccer_epl",
+        "bookmakers": [book("pinnacle", pin_lines), book(PADDY_POWER, paddy_lines)],
+    }]
+
+
+def test_a_single_pinnacle_rung_prices_only_the_matching_paddy_line():
+    """Pinnacle posts team corners as ONE line. That is too thin to fit a shape,
+    but it is still Pinnacle's price at that line: where Paddy quotes the same
+    line it is de-vigged directly, and Paddy's other lines stay unpriced.
+    """
+    from app.cards.laddered import compute_laddered_value, LAST_RUN
+    rows = compute_laddered_value(
+        _joined_team({4.5: (1.90, 1.95)}, {4.5: (2.10, 1.80), 5.5: (2.60, 1.50)}),
+        -0.5,
+    )
+    assert {r.line for r in rows} == {4.5}, "only the line both books quote"
+    over = next(r for r in rows if r.side == "Over")
+    assert over.pinnacle_odds == 1.90
+    assert over.fair_odds > 1.90                       # de-vigged, so longer than raw
+    assert over.edge == pytest.approx(2.10 / over.fair_odds - 1, abs=1e-3)
+    tally = LAST_RUN["by_market"]["team_corners"]
+    assert tally["thin"] == 1 and tally["matched"] == 2 and tally["fitted"] == 0
+
+
+def test_a_single_rung_prices_nothing_off_paddy_s_other_lines():
+    """No shared line, no row — one rung must never become a fitted curve."""
+    from app.cards.laddered import compute_laddered_value
+    rows = compute_laddered_value(_joined_team({4.5: (1.90, 1.95)}, {5.5: (2.60, 1.50)}), -0.5)
+    assert rows == []
+
+
+def _joined_team_with_match(pin_match, pin_team, paddy_team):
+    """Pinnacle's match-corners ladder AND one team rung; Paddy quotes only
+    the team lines (it need not quote the match market for the shape to count)."""
+    from app.cards.oddspapi import TEAM_CORNERS_HOME
+
+    def market(key, lines):
+        outcomes = []
+        for line, (over, under) in sorted(lines.items()):
+            outcomes.append({"name": "Over", "point": line, "price": over})
+            outcomes.append({"name": "Under", "point": line, "price": under})
+        return {"key": key, "outcomes": outcomes}
+
+    return [{
+        "id": "e1", "home_team": "Arsenal", "away_team": "Chelsea",
+        "commence_time": _iso(0.5), "sport_key": "soccer_epl",
+        "bookmakers": [
+            {"key": "pinnacle", "markets": [market("alternate_totals_corners", pin_match),
+                                             market(TEAM_CORNERS_HOME, pin_team)]},
+            {"key": PADDY_POWER, "markets": [market(TEAM_CORNERS_HOME, paddy_team)]},
+        ],
+    }]
+
+
+def test_a_one_rung_team_ladder_borrows_the_match_ladder_s_shape():
+    """The hybrid: the team rung pins the mean, the fixture's fitted match
+    ladder lends its dispersion, so Paddy's OTHER team lines get a fair price
+    — every row saying so (basis "hybrid"), with the wide sparse band.
+    """
+    from app.cards.laddered import compute_laddered_value, LAST_RUN
+    rows = compute_laddered_value(
+        _joined_team_with_match(PIN, {4.5: (1.90, 1.95)},
+                                {4.5: (2.10, 1.80), 5.5: (2.60, 1.50), 6.5: (3.80, 1.25)}),
+        -0.5,
+    )
+    assert {r.line for r in rows} >= {4.5, 5.5}, "lines beyond the one rung are priced"
+    assert all(r.basis == "hybrid" for r in rows)
+    t = LAST_RUN["by_market"]["team_corners"]
+    assert t["thin"] == 1 and t["hybrid"] == 1 and t["matched"] == 0 and t["fitted"] == 0
+    # Beyond the single quoted rung the usual honesty applies: the 6.5 line sits
+    # past the grace and must carry the extrapolation marker if it is priced.
+    far = [r for r in rows if r.line == 6.5]
+    assert all("+" in r.market_label for r in far)
+
+
+# --- team to have MOST corners / cards: a fair three-way off the two teams ---
+
+def _mk(key, lines):
+    outcomes = []
+    for line, (over, under) in sorted(lines.items()):
+        outcomes.append({"name": "Over", "point": line, "price": over})
+        outcomes.append({"name": "Under", "point": line, "price": under})
+    return {"key": key, "outcomes": outcomes}
+
+
+def test_three_way_is_symmetric_for_identical_teams():
+    from app.cards.most import three_way
+    from app.pricing.counts.dist import CountDist
+    d = CountDist(5.0, 1.2, 30, 0.0)
+    p_home, p_tie, p_away = three_way(d, d)
+    assert p_home == pytest.approx(p_away, abs=1e-9)
+    assert p_home + p_tie + p_away == pytest.approx(1.0, abs=1e-9)
+    assert 0 < p_tie < p_home
+
+
+def test_most_corners_fair_comes_from_the_two_team_lines():
+    """Both teams at one Pinnacle rung each, the match ladder for the shape:
+    the side pinned at the higher line is the favourite, basis says hybrid."""
+    from app.cards.most import most_fairs
+    from app.cards.oddspapi import TEAM_CORNERS_AWAY, TEAM_CORNERS_HOME
+    events = [{
+        "id": "e1", "home_team": "Arsenal", "away_team": "Chelsea",
+        "commence_time": _iso(0.5), "sport_key": "soccer_epl",
+        "bookmakers": [
+            {"key": "pinnacle", "markets": [
+                _mk("alternate_totals_corners", PIN),
+                _mk(TEAM_CORNERS_HOME, {5.5: (1.90, 1.95)}),
+                _mk(TEAM_CORNERS_AWAY, {4.5: (1.90, 1.95)}),
+            ]},
+            {"key": PADDY_POWER, "markets": []},
+        ],
+    }]
+    fairs = most_fairs(events)
+    assert [f.market_key for f in fairs] == ["most_corners"]
+    f = fairs[0]
+    assert f.basis == "hybrid"
+    assert f.p_home + f.p_tie + f.p_away == pytest.approx(1.0, abs=1e-9)
+    assert f.p_home > f.p_away
+    assert f.fair("home") < f.fair("away")
+    assert f.fair("tie") > f.fair("home")
+
+
+def test_most_needs_both_teams_priced():
+    from app.cards.most import most_fairs
+    from app.cards.oddspapi import TEAM_CORNERS_HOME
+    events = [{
+        "id": "e1", "home_team": "Arsenal", "away_team": "Chelsea",
+        "commence_time": _iso(0.5), "sport_key": "soccer_epl",
+        "bookmakers": [{"key": "pinnacle", "markets": [
+            _mk("alternate_totals_corners", PIN), _mk(TEAM_CORNERS_HOME, {5.5: (1.90, 1.95)}),
+        ]}],
+    }]
+    assert most_fairs(events) == []
+
+
 def test_an_extrapolated_row_says_so_in_its_label():
     """Beyond Pinnacle's quoted range is the same number of a different kind."""
     from app.cards.laddered import compute_laddered_value
@@ -410,13 +559,18 @@ def test_a_quote_that_only_beats_the_midpoint_is_rejected():
     assert below and all(r.edge <= 0 for r in below)
 
 
-def test_an_unfittable_ladder_is_skipped_not_crashed():
-    """One rung with one side is not a ladder; the fixture is passed over."""
-    from app.cards.laddered import compute_laddered_value
-    events = _joined({9.5: (1.74, 2.10)}, {9.5: (2.60, 2.00)})
-    assert compute_laddered_value(events, -0.5) == [], (
-        "one rung pins nothing — the shape would come entirely from the prior"
-    )
+def test_a_one_rung_match_ladder_is_never_fitted():
+    """One rung pins nothing — the shape would come entirely from the prior, so
+    no curve is fitted. The rung is still Pinnacle's own price at that line,
+    so the ONE line Paddy shares is priced off it directly (basis "matched")
+    and nothing else is."""
+    from app.cards.laddered import compute_laddered_value, LAST_RUN
+    events = _joined({9.5: (1.74, 2.10)}, {9.5: (2.60, 2.00), 10.5: (3.10, 1.40)})
+    rows = compute_laddered_value(events, -0.5)
+    assert {r.line for r in rows} == {9.5}
+    assert all(r.basis == "matched" for r in rows)
+    t = LAST_RUN["by_market"]["corners"]
+    assert t["thin"] == 1 and t["fitted"] == 0 and t["hybrid"] == 0
 
 
 # --- the empty screen must say WHICH kind of empty it is -------------------

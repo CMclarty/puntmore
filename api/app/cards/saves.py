@@ -131,6 +131,7 @@ def saves_value(events: list[dict], min_edge: float, entries=None) -> list[CardV
                     fair_odds=round(fair_odds, 3),
                     pinnacle_margin=0.0,
                     edge=edge,
+                    basis="saves",
                 ))
     rows.sort(key=lambda r: r.edge, reverse=True)
     return rows

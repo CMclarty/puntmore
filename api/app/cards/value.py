@@ -32,6 +32,10 @@ class CardValueRow:
     fair_odds: float      # de-vigged Pinnacle
     pinnacle_margin: float
     edge: float           # paddy_odds / fair_odds - 1
+    # How the fair price was reached: ladder (fitted Pinnacle ladder), hybrid
+    # (a team rung + the match ladder's shape), matched (Pinnacle's own rung,
+    # de-vigged), saves (Bookie Bashing's figure).
+    basis: str = "ladder"
 
 
 def _get_bookmaker(event: dict, bm_key: str) -> dict | None:
@@ -148,6 +152,7 @@ def compute_value_bets(
                         fair_odds=round(fair, 3),
                         pinnacle_margin=round(margin, 4),
                         edge=edge,
+                        basis="matched",
                     ))
 
     rows.sort(key=lambda r: r.edge, reverse=True)

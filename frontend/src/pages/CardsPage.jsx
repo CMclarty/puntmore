@@ -36,8 +36,14 @@ const BOOST_KELLY = 0.10
 
 // Filters: folded away under one line that says what is applied, so the usual
 // visit is open → glance → bet. Shared across offers, remembered.
-const MARKETS = ['corners', 'cards', 'goals', 'saves', 'team_corners', 'team_cards']
-const MARKET_LABELS = { team_corners: 'Team corners', team_cards: 'Team cards' }
+const MARKETS = ['corners', 'cards', 'goals', 'saves', 'team_corners', 'team_cards', 'most_corners', 'most_cards']
+const MARKET_LABELS = { team_corners: 'Team corners', team_cards: 'Team cards',
+  most_corners: 'Most corners', most_cards: 'Most cards' }
+// "Most corners / cards" rows carry a FAIR price only — the vendor feed has no
+// Paddy quote for them; the terminal does. Read against the shop screen, so
+// off by default.
+const FAIR_ONLY = ['most_corners', 'most_cards']
+const DEFAULT_MARKETS = MARKETS.filter(m => !FAIR_ONLY.includes(m))
 const marketLabel = m => MARKET_LABELS[m] || m[0].toUpperCase() + m.slice(1)
 const WITHIN = [[null, 'Any'], [1, '< 1h'], ['today', 'Today'], [24, '24h'], [48, '48h'], [72, '72h']]
 const MAX_ODDS = [null, 1.5, 2, 3, 5]
@@ -46,9 +52,9 @@ const SORTS = [['best', 'Best'], ['shortest', 'Shortest']]
 const PER_MATCH = [[false, 'All legs'], [true, '1 per match']]   // Refund / Boost only
 // Free-bet EV rate: a free bet's stake isn't returned, so you keep (odds-1)/odds
 // of a win — higher odds retain more. Scaled by the value edge. Value offer only.
-const freeBetScore = b => (1 + b.value) * (b.odds - 1) / b.odds
+const freeBetScore = b => (b.odds == null ? -Infinity : (1 + b.value) * (b.odds - 1) / b.odds)
 const FILTER_KEY = 'paddy.filters'
-const NO_FILTERS = { markets: MARKETS, within: null, maxOdds: null, minValue: 0, sort: 'best', onePerMatch: false }
+const NO_FILTERS = { markets: DEFAULT_MARKETS, within: null, maxOdds: null, minValue: 0, sort: 'best', onePerMatch: false }
 // A saved filter must never hold a value its option list no longer offers (the
 // retired "< 3h" kick-off, the old league filter …): summary() looks the value
 // up by option and would throw, taking the whole page down.
@@ -78,7 +84,12 @@ function inWindow(iso, within, now) {
 // What is applied, in a few words; empty when nothing is.
 function summary(fl, offer) {
   const bits = []
-  if (fl.markets.length < MARKETS.length) bits.push(fl.markets.length ? fl.markets.map(marketLabel).join(', ') : 'no markets')
+  // Markets: "+ Most corners" when only the fair-only ones were switched on;
+  // the full list once anything usual is switched off.
+  const added = fl.markets.filter(m => !DEFAULT_MARKETS.includes(m))
+  const removed = DEFAULT_MARKETS.filter(m => !fl.markets.includes(m))
+  if (!removed.length && added.length) bits.push('+ ' + added.map(marketLabel).join(', '))
+  else if (removed.length) bits.push(fl.markets.length ? fl.markets.map(marketLabel).join(', ') : 'no markets')
   if (fl.within != null) bits.push(WITHIN.find(([w]) => w === fl.within)[1])
   if (fl.maxOdds != null) bits.push(`≤ ${fl.maxOdds.toFixed(2)}`)
   if (offer === 'value' && fl.minValue > 0) bits.push(`${(100 + fl.minValue * 100).toFixed(0)}%+`)
@@ -130,21 +141,26 @@ function Selection({ lead, others, expanded, onToggle }) {
         <span className={f.what}>
           <span className={f.pick}>
             {shortPick(lead.pick)}
+            {lead.basis === 'hybrid' && <span className={f.more} title="Fair from the team's one Pinnacle line plus the match ladder's shape">~</span>}
             {has && <span className={f.more}> {expanded ? '▴' : '▾'} +{others.length}</span>}
           </span>
           <span className={f.match}>{lead.match} · {kickoff(lead.commence_time)}</span>
         </span>
-        <span className={f.odds}>{lead.odds.toFixed(2)}</span>
-        <span className={`${f.value} ${lead.value >= STRONG ? f.strong : ''}`}>{evPct(lead.value)}</span>
+        <span className={f.odds}>{lead.odds == null ? '—' : lead.odds.toFixed(2)}</span>
+        <span className={`${f.value} ${lead.value != null && lead.value >= STRONG ? f.strong : ''}`}>
+          {lead.value == null ? '—' : evPct(lead.value)}
+        </span>
         <span className={f.fair}>{lead.fair.toFixed(2)}</span>
       </div>
       {has && expanded && (
         <div className={f.sub}>
           {others.map(o => (
             <div className={f.subRow} key={o.pick}>
-              <span /><span className={f.subLine}>{lineLabel(o)}</span>
-              <span className={f.odds}>{o.odds.toFixed(2)}</span>
-              <span className={`${f.value} ${o.value >= STRONG ? f.strong : ''}`}>{evPct(o.value)}</span>
+              <span /><span className={f.subLine}>{lineLabel(o)}{o.basis === 'hybrid' && <span className={f.more}>~</span>}</span>
+              <span className={f.odds}>{o.odds == null ? '—' : o.odds.toFixed(2)}</span>
+              <span className={`${f.value} ${o.value != null && o.value >= STRONG ? f.strong : ''}`}>
+                {o.value == null ? '—' : evPct(o.value)}
+              </span>
               <span className={f.fair}>{o.fair.toFixed(2)}</span>
             </div>
           ))}
@@ -202,22 +218,29 @@ export default function CardsPage() {
   // Every bet, flat, carrying its match and kick-off, through the filters.
   const bets = (items || [])
     .filter(item => inWindow(item.commence_time, fl.within, now))
-    .flatMap(item => item.bets.map(b => ({
-      ...b, match: item.match, matchId: item.event_id, commence_time: item.commence_time,
-    })))
+    .flatMap(item => [
+      ...item.bets.map(b => ({
+        ...b, match: item.match, matchId: item.event_id, commence_time: item.commence_time,
+      })),
+      // Fair-only rows (most corners / cards): no Paddy price, no value.
+      ...(item.fairs || []).map(fr => ({
+        ...fr, odds: null, value: null, line: 0, side: '',
+        match: item.match, matchId: item.event_id, commence_time: item.commence_time,
+      })),
+    ])
     .filter(b => (!b.market || fl.markets.includes(b.market))
       && (fl.maxOdds == null || b.odds <= fl.maxOdds))
 
   // Best down: value on the Value offer, Kelly growth in the offer on the others.
   const refund = offer === 'refund'
   const list = offer === 'value'
-    ? bets.filter(b => b.value >= fl.minValue).map(b => ({ b, s: b.value }))
+    ? bets.filter(b => b.value == null || b.value >= fl.minValue).map(b => ({ b, s: b.value ?? -Infinity }))
     : bets.filter(b => b.odds >= ACCA_FLOOR)
       .map(b => ({ b, s: refund ? legScore(b, ACCA_DEFAULTS) : boostLegScore(b).growth }))
   // Refund / Boost: one selection per match — the highest-scoring one.
   if (offer !== 'value' && fl.onePerMatch) list.splice(0, list.length, ...bestPerMatch(list))
   list.sort(
-    fl.sort === 'shortest' ? (x, y) => x.b.odds - y.b.odds || y.s - x.s
+    fl.sort === 'shortest' ? (x, y) => (x.b.odds ?? Infinity) - (y.b.odds ?? Infinity) || y.s - x.s
     : fl.sort === 'freebet' && offer === 'value' ? (x, y) => freeBetScore(y.b) - freeBetScore(x.b)
     : (x, y) => y.s - x.s)
 
