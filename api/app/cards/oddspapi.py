@@ -266,11 +266,12 @@ def team_markets(catalogue) -> dict[str, tuple[str, float, dict[str, str]]]:
 
 
 def handicap_markets(catalogue) -> dict[str, tuple[str, float, dict[str, str]]]:
-    """Full-time corners/bookings handicaps, HALF-integer only (an integer
-    handicap pushes, and pushes are never modelled): {marketId: (key, handicap,
-    {outcomeId: "Home" | "Away"})}. The handicap is the home side's — "1" wins
-    when home + handicap > away. Carried on the event like any other market, so
-    the team split can read it; never priced as a bet."""
+    """Full-time corners/bookings handicaps, .5 and integer (a quarter is a
+    split bet and is not read): {marketId: (key, handicap, {outcomeId: "Home" |
+    "Away"})}. The handicap is the home side's — "1" wins when home + handicap >
+    away, and an integer one pushes on equality (pricing/counts/split.py reads
+    it push-aware). Carried on the event like any other market, so the team
+    split can read it; never priced as a bet."""
     out = {}
     for m in _as_list(catalogue):
         key = _HANDICAP_MARKET_KEYS.get(str(_first(m, "marketName", "name") or "").strip())
@@ -285,7 +286,7 @@ def handicap_markets(catalogue) -> dict[str, tuple[str, float, dict[str, str]]]:
             hcap = float(_first(m, "handicap", "line", "value"))
         except (TypeError, ValueError):
             continue
-        if abs(hcap * 2) % 2 != 1:
+        if abs(hcap * 2) % 1 != 0:          # quarter lines are split bets
             continue
         sides: dict[str, str] = {}
         for o in _as_list(_first(m, "outcomes") or []):

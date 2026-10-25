@@ -55,6 +55,25 @@ def test_share_round_trips_from_each_source():
     assert share_from_handicap(T, -1.5, s.handicap_cover(-1.5)) == pytest.approx(0.58, abs=2e-3)
 
 
+def test_integer_lines_are_read_with_the_push_rule():
+    """An integer quote excludes the push (the exact count refunds), so it is
+    matched on win/(win+lose). Feeding the naive P(over) instead would land on
+    the wrong share — the push mass is the single most likely outcome."""
+    from app.pricing.counts.split import _conditional, _cover, _team_outcome
+    s = TeamSplit(T, 0.58)
+    win, push = _team_outcome(T, 0.58, 5.0, home=True)
+    assert push > 0.05 and win + push < 1.0
+    q = _conditional(win, push)
+    assert share_from_team_line(T, 5.0, q, home=True) == pytest.approx(0.58, abs=2e-3)
+    assert share_from_team_line(T, 5.0, win, home=True) != pytest.approx(0.58, abs=5e-3)
+    cover, push = _cover(T, 0.58, -1.0)
+    assert push > 0.05
+    assert share_from_handicap(T, -1.0, _conditional(cover, push)) == pytest.approx(0.58, abs=2e-3)
+    # The split still never prices an integer line for a user.
+    with pytest.raises(Exception):
+        s.over(5.0)
+
+
 def test_sources_that_agree_give_a_tight_range_and_contradiction_is_flagged():
     s = TeamSplit(T, 0.58)
     # Every quote Pinnacle posts goes in: two home rungs, an away rung, two

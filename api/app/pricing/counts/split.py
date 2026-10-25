@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 
 from .dist import CountDist
 from .errors import LadderError
-from .lines import HALF, is_half_line
+from .lines import HALF, INTEGER, is_half_line, line_kind
 from .price import FairPrice, _round
 
 P_MIN, P_MAX = 0.02, 0.98
@@ -112,15 +112,9 @@ class TeamSplit:
         return more, equal, max(0.0, 1.0 - more - equal)
 
     def handicap_cover(self, hcap: float) -> float:
-        """P(H + hcap > A) for a half-integer handicap (home + hcap, no push)."""
-        if is_half_line(abs(hcap)) is False and abs(hcap) != 0.5:
-            pass
-        cover = 0.0
-        for t, pt in _rows(self.total):
-            row = _binomial_row(t, self.p)
-            # H + hcap > T - H  <=>  2H > T - hcap
-            cover += pt * sum(row[k] for k in range(t + 1) if 2 * k > t - hcap)
-        return cover
+        """P(H + hcap > A): the home side covers (home + hcap). Push-free for a
+        half-integer handicap; an integer one also pushes when H + hcap == A."""
+        return _cover(self.total, self.p, hcap)[0]
 
 
 # --- p from what Pinnacle quotes ---------------------------------------------
@@ -151,27 +145,65 @@ def _bisect(f, target: float, increasing: bool, lo: float = P_MIN, hi: float = P
     return 0.5 * (lo + hi)
 
 
-def share_from_team_line(total: CountDist, line: float, p_over: float, home: bool = True) -> float:
-    """The share at which the model's P(team >= line + 0.5) equals Pinnacle's
-    devigged p_over for that team's line."""
-    k = int(line + 0.5)
+# THE PUSH RULE. Pinnacle quotes team lines and handicaps at integer values as
+# well as halves. Those are OBSERVATIONS here, never bets (users only ever see
+# .5 lines): on an integer line the exact count refunds both sides — Paddy's
+# settlement rule and Pinnacle's — so the quote prices win against lose with
+# the push taken out, and the model is matched on win / (win + lose), never on
+# win alone. A quarter line is a split bet and is not read.
 
-    def over(p: float) -> float:
-        share = p if home else 1.0 - p
-        return sum(
-            pt * sum(_binomial_row(t, share)[k:]) for t, pt in _rows(total) if t >= k
-        )
-    return _bisect(over, p_over, increasing=home)
+def _team_outcome(total: CountDist, p: float, line: float, home: bool) -> tuple[float, float]:
+    """(P(win), P(push)) for the team's OVER at `line`."""
+    share = p if home else 1.0 - p
+    if is_half_line(line):
+        k, push_at = int(line + 0.5), None
+    elif line_kind(line) == INTEGER:
+        k, push_at = int(line) + 1, int(line)
+    else:
+        raise LadderError(f"line {line} is not an observation the split reads")
+    win = push = 0.0
+    for t, pt in _rows(total):
+        row = _binomial_row(t, share)
+        win += pt * sum(row[k:])
+        if push_at is not None and push_at <= t:
+            push += pt * row[push_at]
+    return win, push
+
+
+def _cover(total: CountDist, p: float, hcap: float) -> tuple[float, float]:
+    """(P(cover), P(push)) for home + hcap against away: cover when
+    2H > T - hcap, push when 2H == T - hcap (integer handicaps only)."""
+    if not (is_half_line(abs(hcap)) or line_kind(abs(hcap)) == INTEGER):
+        raise LadderError(f"handicap {hcap} is not an observation the split reads")
+    cover = push = 0.0
+    for t, pt in _rows(total):
+        row = _binomial_row(t, p)
+        edge = t - hcap
+        for k, b in enumerate(row):
+            if 2 * k > edge:
+                cover += pt * b
+            elif 2 * k == edge:
+                push += pt * b
+    return cover, push
+
+
+def _conditional(win: float, push: float) -> float:
+    """win / (win + lose): what a push-excluding quote prices."""
+    denom = 1.0 - push
+    return win / denom if denom > 1e-12 else 0.5
+
+
+def share_from_team_line(total: CountDist, line: float, p_over: float, home: bool = True) -> float:
+    """The share at which the model's price for the team's OVER at `line`
+    equals Pinnacle's devigged p_over — push-aware on an integer line."""
+    return _bisect(lambda p: _conditional(*_team_outcome(total, p, line, home)),
+                   p_over, increasing=home)
 
 
 def share_from_handicap(total: CountDist, hcap: float, p_cover: float) -> float:
-    """The share at which P(H + hcap > A) equals the devigged cover price."""
-    def cover(p: float) -> float:
-        return sum(
-            pt * sum(b for k, b in enumerate(_binomial_row(t, p)) if 2 * k > t - hcap)
-            for t, pt in _rows(total)
-        )
-    return _bisect(cover, p_cover, increasing=True)
+    """The share at which the model's cover price for home + hcap equals the
+    devigged quote — push-aware on an integer handicap."""
+    return _bisect(lambda p: _conditional(*_cover(total, p, hcap)), p_cover, increasing=True)
 
 
 @dataclass(frozen=True)

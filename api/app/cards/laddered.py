@@ -43,7 +43,7 @@ from .oddspapi import (CARDS_HANDICAP, CORNERS_HANDICAP, TEAM_CARDS_AWAY,
 from ..pricing.counts.errors import LadderError
 from ..pricing.counts.fit import fit_ladder
 from ..pricing.counts.ladder import Ladder, Rung
-from ..pricing.counts.lines import is_half_line
+from ..pricing.counts.lines import INTEGER, is_half_line, line_kind
 from ..pricing.counts.price import _band_dispersions, is_priceable, price_line
 from ..pricing.counts.dist import CountDist
 from ..pricing.counts.split import TeamSplit, estimate_share, price_team_line
@@ -185,18 +185,28 @@ _FAMILIES = {
 }
 
 
+def _observable(line: float) -> bool:
+    """A .5 or integer line is an observation for the split (the integer one
+    push-aware, pricing/counts/split.py); a quarter line is not read."""
+    try:
+        return is_half_line(line) or line_kind(line) == INTEGER
+    except LadderError:
+        return False
+
+
 def _rungs(outcomes: list[dict]) -> list[tuple[float, float]]:
-    """EVERY two-sided .5 rung of a team line as (line, devigged p_over)."""
+    """EVERY two-sided .5 or integer rung of a team line as (line, devigged
+    p_over). Information only — users never see an integer line."""
     out = []
     for line, sides in sorted(_lines(outcomes).items()):
-        if is_half_line(line) and sides.get("Over") and sides.get("Under"):
+        if _observable(line) and sides.get("Over") and sides.get("Under"):
             fair_over, _, _ = devigd(sides["Over"], sides["Under"])
             out.append((line, 1.0 / fair_over))
     return out
 
 
 def _handicaps(outcomes: list[dict]) -> list[tuple[float, float]]:
-    """EVERY half-integer handicap quoted both ways, nearest zero first, as
+    """EVERY .5 or integer handicap quoted both ways, nearest zero first, as
     (handicap, devigged P(home + handicap > away))."""
     by_h: dict[float, dict[str, float]] = {}
     for o in outcomes:
@@ -207,7 +217,7 @@ def _handicaps(outcomes: list[dict]) -> list[tuple[float, float]]:
     out = []
     for h in sorted(by_h, key=abs):
         sides = by_h[h]
-        if sides.get("Home") and sides.get("Away"):
+        if _observable(abs(h)) and sides.get("Home") and sides.get("Away"):
             fair_home, _, _ = devigd(sides["Home"], sides["Away"])
             out.append((h, 1.0 / fair_home))
     return out

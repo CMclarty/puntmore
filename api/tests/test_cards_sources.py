@@ -500,17 +500,19 @@ def _joined_split(pin_match, *, home=None, away=None, handicap=None, paddy_home=
 def test_the_share_reads_the_handicap_as_a_third_source():
     from app.cards.laddered import team_split
     from app.cards.value import _get_bookmaker
-    events = _joined_split(PIN, home={5.5: (1.90, 1.95)}, away={4.5: (1.95, 1.90)},
-                           handicap={-0.5: (1.80, 2.05), 0.5: (1.50, 2.60)})
+    # An INTEGER home rung (5.0) and an integer handicap (-1.0) are quoted too:
+    # information for the share, read with the push rule, never shown.
+    events = _joined_split(PIN, home={5.0: (1.95, 1.90), 5.5: (1.90, 1.95)}, away={4.5: (1.95, 1.90)},
+                           handicap={-0.5: (1.80, 2.05), 0.5: (1.50, 2.60), -1.0: (2.05, 1.80)})
     split = team_split(events[0], _get_bookmaker(events[0], "pinnacle"), "team_corners_home", "soccer_epl")
     assert split is not None
     _, point, totals, share, quoted = split
-    # Every quote is an observation: one home rung, one away rung, BOTH handicaps.
     assert share.kinds == {"home_line", "away_line", "handicap"}
-    assert set(share.sources) == {"home_line@5.5", "away_line@4.5", "handicap@-0.5", "handicap@0.5"}
+    assert set(share.sources) == {"home_line@5", "home_line@5.5", "away_line@4.5",
+                                  "handicap@-0.5", "handicap@0.5", "handicap@-1"}
     assert 0.5 < share.p < 0.7 and not share.disagree
     assert len(totals) == 3                      # the match law and its band
-    assert quoted == {"home": (5.5, 5.5), "away": (4.5, 4.5)}
+    assert quoted == {"home": (5.0, 5.5), "away": (4.5, 4.5)}
 
 
 def test_a_contradicted_share_prices_nothing_and_is_counted():
