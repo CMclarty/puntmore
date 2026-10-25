@@ -37,7 +37,7 @@ const BOOST_KELLY = 0.10
 const MARKETS = ['corners', 'cards', 'goals', 'saves', 'team_corners', 'team_cards']
 const MARKET_LABELS = { team_corners: 'Team corners', team_cards: 'Team cards' }
 const marketLabel = m => MARKET_LABELS[m] || m[0].toUpperCase() + m.slice(1)
-const WITHIN = [[null, 'Any'], [1, '< 1h'], [3, '< 3h'], ['today', 'Today'], [24, '24h'], [48, '48h'], [72, '72h']]
+const WITHIN = [[null, 'Any'], [1, '< 1h'], ['today', 'Today'], [24, '24h'], [48, '48h'], [72, '72h']]
 const MAX_ODDS = [null, 1.5, 2, 3, 5]
 const MIN_VALUE = [0, 0.02, 0.04, 0.06]               // Value offer only
 const SORTS = [['best', 'Best'], ['shortest', 'Shortest']]
@@ -204,7 +204,6 @@ export default function CardsPage() {
     : (x, y) => y.s - x.s)
 
   const applied = summary(fl, offer)
-  const offerLabel = OFFERS.find(([k]) => k === offer)[1]
 
   // Refund / Boost: the acca of the top 5 by score, one per match (asked for:
   // "a number to see at a glance if it's worth betting").
@@ -242,7 +241,7 @@ export default function CardsPage() {
     <div className={f.page}>
       <div className={`${f.filterBar} ${applied ? f.filtered : ''}`}>
         <button type="button" className={f.summary} aria-expanded={open} onClick={() => setOpen(o => !o)}>
-          {applied ? `${offerLabel} · ${applied}` : offerLabel}
+          {applied || 'All bets'}
         </button>
         <button type="button" className={f.filterToggle} aria-expanded={open} onClick={() => setOpen(o => !o)}>
           Options {open ? '▴' : '▾'}
@@ -250,10 +249,6 @@ export default function CardsPage() {
       </div>
       {open && (
         <div className={f.panel}>
-          <div className={f.group} role="group" aria-label="Offer">
-            <span className={f.label}>Offer</span>
-            <Chips options={OFFERS} isOn={k => offer === k} onPick={setOffer} />
-          </div>
           <div className={f.group} role="group" aria-label="Market">
             <Chips icons options={MARKETS.map(m => [m, marketLabel(m)])} isOn={m => fl.markets.includes(m)}
               onPick={m => setF({ markets: fl.markets.includes(m) ? fl.markets.filter(x => x !== m) : [...fl.markets, m] })} />
@@ -303,6 +298,13 @@ export default function CardsPage() {
           {body}
         </div>
       )}
+
+      <div className={f.offerSwitch} role="group" aria-label="Offer">
+        {OFFERS.map(([k, label]) => (
+          <button key={k} type="button" className={`${f.offerBtn} ${offer === k ? f.offerOn : ''}`}
+            aria-pressed={offer === k} onClick={() => setOffer(k)}>{label}</button>
+        ))}
+      </div>
     </div>
   )
 }
