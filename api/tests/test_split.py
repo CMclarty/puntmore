@@ -57,27 +57,32 @@ def test_share_round_trips_from_each_source():
 
 def test_sources_that_agree_give_a_tight_range_and_contradiction_is_flagged():
     s = TeamSplit(T, 0.58)
+    # Every quote Pinnacle posts goes in: two home rungs, an away rung, two
+    # handicaps — five observations of the one share.
     agreed = estimate_share(
-        T, home_line=(5.5, s.over(5.5)), away_line=(4.5, s.over(4.5, home=False)),
-        handicap=(-1.5, s.handicap_cover(-1.5)),
+        T, home_lines=[(5.5, s.over(5.5)), (6.5, s.over(6.5))],
+        away_lines=[(4.5, s.over(4.5, home=False))],
+        handicaps=[(-1.5, s.handicap_cover(-1.5)), (0.5, s.handicap_cover(0.5))],
     )
     assert agreed.p == pytest.approx(0.58, abs=3e-3)
     assert agreed.hi - agreed.lo < 0.01 and not agreed.disagree
-    assert set(agreed.sources) == {"home_line", "away_line", "handicap"}
+    assert len(agreed.sources) == 5 and agreed.kinds == {"home_line", "away_line", "handicap"}
+    assert set(agreed.sources) == {"home_line@5.5", "home_line@6.5", "away_line@4.5",
+                                   "handicap@-1.5", "handicap@0.5"}
 
     # The home line says 0.58, the away line says the away side has 0.58 too.
     contradiction = estimate_share(
-        T, home_line=(5.5, s.over(5.5)), away_line=(5.5, s.over(5.5)),
+        T, home_lines=[(5.5, s.over(5.5))], away_lines=[(5.5, s.over(5.5))],
     )
     assert contradiction.disagree and contradiction.hi - contradiction.lo > DISAGREE
 
-    solo = estimate_share(T, home_line=(5.5, s.over(5.5)))
+    solo = estimate_share(T, home_lines=[(5.5, s.over(5.5))])
     assert "share_from_one_source" in solo.flags and solo.hi - solo.lo == pytest.approx(0.06)
     assert estimate_share(T) is None
 
 
 def test_a_team_line_is_priced_with_a_band_that_contains_the_point():
-    share = estimate_share(T, home_line=(5.5, TeamSplit(T, 0.58).over(5.5)))
+    share = estimate_share(T, home_lines=[(5.5, TeamSplit(T, 0.58).over(5.5))])
     band = [T, CountDist(10.5, 1.15, 80), CountDist(10.5, 1.35, 80)]
     fp = price_team_line(band, share, 6.5, home=True, quoted_range=(5.5, 5.5))
     assert fp.kind == "half" and fp.p_push == 0.0

@@ -505,15 +505,12 @@ def test_the_share_reads_the_handicap_as_a_third_source():
     split = team_split(events[0], _get_bookmaker(events[0], "pinnacle"), "team_corners_home", "soccer_epl")
     assert split is not None
     _, point, totals, share, quoted = split
-    assert set(share.sources) == {"home_line", "away_line", "handicap"}
+    # Every quote is an observation: one home rung, one away rung, BOTH handicaps.
+    assert share.kinds == {"home_line", "away_line", "handicap"}
+    assert set(share.sources) == {"home_line@5.5", "away_line@4.5", "handicap@-0.5", "handicap@0.5"}
     assert 0.5 < share.p < 0.7 and not share.disagree
     assert len(totals) == 3                      # the match law and its band
     assert quoted == {"home": (5.5, 5.5), "away": (4.5, 4.5)}
-    # The nearest-zero handicap is the one read: -0.5 before +0.5.
-    assert share.sources["handicap"] == pytest.approx(
-        __import__("app.pricing.counts.split", fromlist=["share_from_handicap"])
-        .share_from_handicap(totals[0], -0.5, 1 / __import__("app.odds.utils", fromlist=["devigd"]).devigd(1.80, 2.05)[0]),
-        abs=1e-6)
 
 
 def test_a_contradicted_share_prices_nothing_and_is_counted():

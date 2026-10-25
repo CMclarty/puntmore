@@ -185,17 +185,18 @@ _FAMILIES = {
 }
 
 
-def _one_rung(outcomes: list[dict]):
-    """The first two-sided .5 rung of a team line as (line, devigged p_over)."""
+def _rungs(outcomes: list[dict]) -> list[tuple[float, float]]:
+    """EVERY two-sided .5 rung of a team line as (line, devigged p_over)."""
+    out = []
     for line, sides in sorted(_lines(outcomes).items()):
         if is_half_line(line) and sides.get("Over") and sides.get("Under"):
             fair_over, _, _ = devigd(sides["Over"], sides["Under"])
-            return line, 1.0 / fair_over
-    return None
+            out.append((line, 1.0 / fair_over))
+    return out
 
 
-def _handicap(outcomes: list[dict]):
-    """The half-integer handicap nearest zero quoted both ways, as
+def _handicaps(outcomes: list[dict]) -> list[tuple[float, float]]:
+    """EVERY half-integer handicap quoted both ways, nearest zero first, as
     (handicap, devigged P(home + handicap > away))."""
     by_h: dict[float, dict[str, float]] = {}
     for o in outcomes:
@@ -203,12 +204,13 @@ def _handicap(outcomes: list[dict]):
             by_h.setdefault(float(o["point"]), {})[str(o.get("name"))] = float(o["price"])
         except (KeyError, TypeError, ValueError):
             continue
+    out = []
     for h in sorted(by_h, key=abs):
         sides = by_h[h]
         if sides.get("Home") and sides.get("Away"):
             fair_home, _, _ = devigd(sides["Home"], sides["Away"])
-            return h, 1.0 / fair_home
-    return None
+            out.append((h, 1.0 / fair_home))
+    return out
 
 
 def team_split(event: dict, pin: dict, market_key: str, sport_key: str):
@@ -239,10 +241,10 @@ def team_split(event: dict, pin: dict, market_key: str, sport_key: str):
     result = None
     base = _match_fit(event, pin, market_key, sport_key)
     if base is not None:
+        home_rungs, away_rungs = _rungs(home_out), _rungs(away_out)
         share = estimate_share(
-            base.dist,
-            home_line=_one_rung(home_out), away_line=_one_rung(away_out),
-            handicap=_handicap(hcap_out),
+            base.dist, home_lines=home_rungs, away_lines=away_rungs,
+            handicaps=_handicaps(hcap_out),
         )
         if share is not None:
             config = _CONFIGS[base_key]
@@ -252,11 +254,11 @@ def team_split(event: dict, pin: dict, market_key: str, sport_key: str):
                     totals.append(CountDist(base.lam, d, config.grid_max, config.zero_excess))
                 except LadderError:
                     continue
-            home_rung, away_rung = _one_rung(home_out), _one_rung(away_out)
-            quoted = {
-                "home": (home_rung[0], home_rung[0]) if home_rung else None,
-                "away": (away_rung[0], away_rung[0]) if away_rung else None,
-            }
+
+            def span(rungs):
+                lines = [line for line, _ in rungs]
+                return (min(lines), max(lines)) if lines else None
+            quoted = {"home": span(home_rungs), "away": span(away_rungs)}
             result = (key, TeamSplit(base.dist, share.p), totals, share, quoted)
     _SPLITS.set(key, result)
     return result
@@ -407,8 +409,8 @@ def _compute_laddered_value(
                         tally["split_disagreement"] += 1
                         continue
                     tally["hybrid"] += 1
-                    for name in share.sources:
-                        tally["split_sources"][name] += 1
+                    for kind in share.kinds:
+                        tally["split_sources"][kind] += 1
                     home = market_key.endswith("_home")
 
                     def priced_off_split(line, skey=skey, totals=totals, share=share, home=home,

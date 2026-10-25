@@ -186,23 +186,29 @@ class ShareEstimate:
     def disagree(self) -> bool:
         return "share_disagreement" in self.flags
 
+    @property
+    def kinds(self) -> set[str]:
+        """Which kinds of quote pinned the share: home_line, away_line, handicap."""
+        return {name.split("@", 1)[0] for name in self.sources}
 
-def estimate_share(total: CountDist, *, home_line=None, away_line=None,
-                   handicap=None) -> ShareEstimate | None:
-    """Combine whatever Pinnacle quotes into one share with an honest range.
 
-    Each argument is (line_or_handicap, devigged probability) or None. With one
-    source the range is +/- SOLO_HALF_WIDTH; with several it is their spread,
-    and a spread beyond DISAGREE is flagged — the sources contradict each other
-    and the price should be read with that in mind (or not at all).
+def estimate_share(total: CountDist, *, home_lines=(), away_lines=(),
+                   handicaps=()) -> ShareEstimate | None:
+    """Combine EVERY share-bearing line Pinnacle quotes into one share with an
+    honest range: every two-sided .5 line on either team and every half-integer
+    handicap, each as (line_or_handicap, devigged probability). One observation
+    gives a range of +/- SOLO_HALF_WIDTH; several give their spread, and a
+    spread beyond DISAGREE is flagged — the quotes contradict each other and the
+    price should be read with that in mind (or not at all). `sources` records
+    the share each quote implies, keyed "kind@line".
     """
     sources: dict[str, float] = {}
-    if home_line is not None:
-        sources["home_line"] = share_from_team_line(total, home_line[0], home_line[1], home=True)
-    if away_line is not None:
-        sources["away_line"] = share_from_team_line(total, away_line[0], away_line[1], home=False)
-    if handicap is not None:
-        sources["handicap"] = share_from_handicap(total, handicap[0], handicap[1])
+    for line, q in home_lines:
+        sources[f"home_line@{line:g}"] = share_from_team_line(total, line, q, home=True)
+    for line, q in away_lines:
+        sources[f"away_line@{line:g}"] = share_from_team_line(total, line, q, home=False)
+    for hcap, q in handicaps:
+        sources[f"handicap@{hcap:g}"] = share_from_handicap(total, hcap, q)
     if not sources:
         return None
     ps = list(sources.values())
