@@ -69,7 +69,9 @@ def test_a_fixture_with_a_price_becomes_value_rows_measured_against_the_band():
     assert {r.side for r in rows} == {"Home", "Tie", "Away"}
     assert all(r.edge < 0 for r in rows) and all(r.basis == "hybrid" for r in rows)
     assert all(r.line == 0.0 and r.market_key == "most_corners" for r in rows)
-    assert next(r for r in rows if r.side == "Home").fair_odds == fair.fair("home")
+    # The row shows the fair the edge was measured against, so Odds ÷ Fair − 1
+    # on the page IS the value printed.
+    assert next(r for r in rows if r.side == "Home").fair_odds == round(fair.fair_high("home"), 3)
     # A price 10% above the band's far end is +10% value, on that outcome only.
     generous = _quote(prices=(fair.fair_high("home") * 1.10, 7.0, 2.4))
     rows = most_value([event], 0.0, entries=[generous])

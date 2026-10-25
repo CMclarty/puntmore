@@ -160,8 +160,9 @@ def most_value(events: list[dict], min_edge: float, entries=None) -> list[CardVa
     """Value rows for Paddy's "most" three-ways that have a fair from the split.
 
     The edge is measured against the band's least favourable fair, exactly as
-    a line's is (FairPrice.edge_vs with require_band); the row shows the point
-    fair. `side` carries Home | Tie | Away and `line` is 0 — no line exists.
+    a line's is (FairPrice.edge_vs with require_band), and the row shows that
+    same fair so Odds ÷ Fair − 1 is the Value printed. `side` carries
+    Home | Tie | Away and `line` is 0 — no line exists.
     """
     entries = list(STORE.values()) if entries is None else entries
     if not entries:
@@ -193,7 +194,7 @@ def most_value(events: list[dict], min_edge: float, entries=None) -> list[CardVa
                     side=side,
                     paddy_odds=round(price, 3),
                     pinnacle_odds=round(point, 3),
-                    fair_odds=round(point, 3),
+                    fair_odds=round(reference, 3),
                     pinnacle_margin=0.0,
                     edge=edge,
                     basis="hybrid",

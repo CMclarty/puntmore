@@ -51,7 +51,8 @@
   border-bottom: 1px solid var(--line);
 }
 .subRow > :nth-child(n+3) { text-align: right; }
-.subLine { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+/* Same face as .pick: "O5.5" under "O6.5 cards" should read as one list. */
+.subLine { font-size: 14px; color: var(--ink); }
 .top5 {
   display: flex; align-items: baseline; gap: 14px;
   padding: 10px 12px; border-bottom: 1px solid var(--line);

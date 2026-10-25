@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_ERROR
 
+from .cards import health, laddered
 from .config import settings
 from .notifications.routes import notify_rows
 from .coupon_images import delete_coupon_image
@@ -203,8 +204,10 @@ def sweep_cards(cards_client, notifier=None) -> int:
         # /paddy/diagnostics too, which otherwise shows only an empty pricing.
         logger.exception("Cards sweep failed")
         LAST_CARDS_ERROR.update(at=utcnow().isoformat(), error=repr(exc)[:500])
+        health.record(None, 0, error=True)
         return 0
     LAST_CARDS_ERROR.clear()
+    health.record(laddered.LAST_RUN, len(rows))
 
     # AW 26: keep what was on offer (throttled, aw26/snapshots.py). Reuses the
     # priced rows — no vendor call — and is never allowed to break the sweep.
@@ -366,6 +369,29 @@ def aw26_daily(notifier=None):
         logger.info("aw26 daily: %s", message.replace("\n", " | "))
     finally:
         db.close()
+    paddy_health(notifier)
+
+
+def paddy_health(notifier=None) -> list[str]:
+    """The Paddy lines under the morning post (cards/health.py): the day's
+    sweeps, the team split's disagreements, whether the scraper fed anything
+    and whether snapshots landed. Never allowed to break the daily job."""
+    try:
+        from .cards import most, saves
+        from .models import ValueSnapshot
+        db = SessionLocal()
+        try:
+            snapshots = (db.query(ValueSnapshot)
+                         .filter(ValueSnapshot.at >= utcnow() - timedelta(days=1)).count())
+        finally:
+            db.close()
+        lines = health.report(saves=len(saves.STORE), most=len(most.STORE), snapshots=snapshots)
+    except Exception:
+        logger.exception("Paddy health report failed")
+        return []
+    logger.info("paddy health: %s", " | ".join(lines))
+    notify_rows(notifier, "aw26", "**Paddy health**", [(None, line) for line in lines])
+    return lines
 
 
 def start_scheduler(

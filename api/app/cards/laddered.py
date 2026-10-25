@@ -316,7 +316,12 @@ def _price_paddy_lines(event: dict, market_key: str, sport_key: str, config: Mod
             if edge is None or edge < min_edge:
                 continue
             tally["rows"] += 1
-            fair = priced.fair_over if side == "Over" else priced.fair_under
+            # The row shows the fair the edge was measured against — the band's
+            # least favourable end — so Odds ÷ Fair − 1 is the Value the page
+            # prints. The point fair stays in the FairPrice for diagnostics.
+            _, fair = priced.band_over if side == "Over" else priced.band_under
+            if fair <= 0:
+                fair = priced.fair_over if side == "Over" else priced.fair_under
             label = _market_label(market_key, side, line)
             if priced.extrapolated:
                 # The row must say when its fair price came from beyond

@@ -17,7 +17,8 @@ import { boostEval, boostLegScore } from '../accaBoost'
  *           bonus if exactly one leg loses): every qualifying leg, best down.
  *   Boost   winnings +10/20/30% on a 4/5/6-fold, legs 1.20+: same.
  * Order is Kelly growth (accaInsurance.js / accaBoost.js). Each row shows the
- * Paddy odds, the value %, and the fair odds. No acca is built or recommended —
+ * Paddy odds, the value %, and the fair odds (the one the value % is measured
+ * against, so odds ÷ fair − 1 is the value shown). No acca is built or recommended —
  * the list is the tool, the picking is Callum's.
  */
 
