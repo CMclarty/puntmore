@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from ..models import AwFair, AwLeg, AwSlip
 from ..time_utils import utcnow
+from .attribution import add_up
 from .legs import classify, find_fair, find_fixture_id
 from .offers import expected_value, problems, settle
 
@@ -145,15 +146,8 @@ def price_slip(slip: AwSlip, fairs) -> None:
 
 
 def fair_source(leg) -> str | None:
-    """Where a leg's fair price came from: the married snapshot line's source
-    (paddy, ...) when the fair IS that line's, else "bb" (Bookie Bashing, or
-    typed in by hand — the two are not told apart). None: no fair."""
-    if leg.fair_odds is None:
-        return None
-    link = leg.line_link
-    if link is not None and abs(leg.fair_odds - link.fair_odds) < 1e-9:
-        return link.source
-    return "bb"
+    """Where a leg's fair price came from (AwLeg.fair_source)."""
+    return leg.fair_source
 
 
 def settle_slip(slip: AwSlip, now: datetime | None = None) -> None:
@@ -182,8 +176,21 @@ def _totals(slips) -> dict:
     }
 
 
-def summary(slips, today: date | None = None) -> dict:
-    """The page's headline and the daily update's figures, from the slips."""
+def value_on_offer(snapshot) -> dict | None:
+    """A ValueSnapshot's headline (aw26/snapshots.py), or None."""
+    if snapshot is None:
+        return None
+    return {"at": snapshot.at.isoformat(), "source": snapshot.source,
+            "lines": snapshot.n_lines, "value_lines": snapshot.n_value,
+            "best_edge": snapshot.best_edge,
+            "sum_edge_positive": snapshot.sum_edge_positive}
+
+
+def summary(slips, today: date | None = None, snapshot=None) -> dict:
+    """The page's headline and the daily update's figures, from the slips.
+
+    `snapshot` (the latest ValueSnapshot, optional) adds what was on offer
+    beside what was taken: `value_on_offer` is None without it."""
     today = today or london_day(utcnow())
     by_day = [s for s in slips if london_day(s.placed_at) == today]
     first = min((london_day(s.placed_at) for s in slips), default=today)
@@ -197,9 +204,12 @@ def summary(slips, today: date | None = None) -> dict:
             "date": today.isoformat(), **_totals(by_day),
             "settled": round(sum(profit(s) for s in settled_today), 2),
             "settled_slips": len(settled_today),
+            "ev_by_source": add_up(by_day),
         },
-        "total": {**total, "days": days, "ev_target": round(days * EV_PER_DAY_TARGET, 2)},
+        "total": {**total, "days": days, "ev_target": round(days * EV_PER_DAY_TARGET, 2),
+                  "ev_by_source": add_up(slips)},
         "targets": {"ev_per_day": EV_PER_DAY_TARGET, "profit": PROFIT_TARGET},
+        "value_on_offer": value_on_offer(snapshot),
     }
 
 

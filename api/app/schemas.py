@@ -346,6 +346,8 @@ class AwLegOut(BaseModel):
     # Married snapshot line (aw26/marry.py): what was offered vs `odds` taken.
     offered_odds: float | None = None
     snapshot_at: datetime | None = None
+    edge: float | None = None                   # odds / fair - 1
+    fair_source: str | None = None              # paddy | bb (aw26/attribution.py)
 
     model_config = {"from_attributes": True}
 
@@ -365,6 +367,7 @@ class AwSlipOut(BaseModel):
     ev_note: str | None = None
     edited: bool = False
     has_image: bool = False
+    ev_by_source: dict[str, float] | None = None   # sums to ev (aw26/attribution.py)
     legs: list[AwLegOut] = []
 
     model_config = {"from_attributes": True}

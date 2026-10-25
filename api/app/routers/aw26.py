@@ -60,7 +60,7 @@ def _all(db) -> list[AwSlip]:
 def list_slips(db: Session = Depends(get_db)):
     slips = _all(db)
     return {
-        "summary": summary(slips),
+        "summary": summary(slips, snapshot=snapshots.latest(db, "paddy")),
         "slips": [AwSlipOut.model_validate(s).model_dump(mode="json") for s in slips],
     }
 

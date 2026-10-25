@@ -177,6 +177,9 @@ def test_ingest_without_a_bb_fair_is_priced_off_the_married_line():
     assert slip["ev_note"] == "fair from the paddy snapshot on 1 of 1 legs"
     assert slip["legs"][0]["offered_odds"] == 2.10
     assert slip["legs"][0]["fair_odds"] == 2.00
+    assert slip["legs"][0]["fair_source"] == "paddy"
+    assert slip["legs"][0]["edge"] == pytest.approx(0.025)
+    assert slip["ev_by_source"] == {"paddy": body["ev"]}
 
 
 def test_a_bb_fair_still_wins_and_the_note_stays_clean():

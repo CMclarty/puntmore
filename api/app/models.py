@@ -330,6 +330,11 @@ class AwSlip(Base):
     def has_image(self) -> bool:
         return bool(self.image_path)
 
+    @property
+    def ev_by_source(self) -> dict | None:
+        from .aw26.attribution import ev_by_source
+        return ev_by_source(self)
+
 
 class AwLeg(Base):
     """One selection on an AW 26 slip, as printed, plus what it was worth."""
@@ -367,6 +372,23 @@ class AwLeg(Base):
     @property
     def snapshot_at(self):
         return self.line_link.snapshot_at if self.line_link else None
+
+    @property
+    def fair_source(self) -> str | None:
+        """Where `fair_odds` came from: the married snapshot line's source
+        (paddy, ...) when the fair IS that line's, else "bb" (Bookie Bashing,
+        or typed in by hand — the two are not told apart). None: no fair."""
+        if self.fair_odds is None:
+            return None
+        link = self.line_link
+        if link is not None and abs(self.fair_odds - link.fair_odds) < 1e-9:
+            return link.source
+        return "bb"
+
+    @property
+    def edge(self) -> float | None:
+        from .aw26.attribution import leg_edge
+        return leg_edge(self)
 
 
 class AwFair(Base):
