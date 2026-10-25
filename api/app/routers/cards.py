@@ -87,6 +87,7 @@ def build_feed(client, min_edge: float, pinnacle=None) -> list[CardFeedItem]:
         groups[bet.event_id]["bets"].append(CardFeedBet(
             pick=pick,
             odds=bet.paddy_odds,
+            fair=bet.fair_odds,
             value=bet.edge,
             market=market,
         ))

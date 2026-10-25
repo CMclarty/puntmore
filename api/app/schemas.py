@@ -175,6 +175,7 @@ class AccaBonusFeedItem(BaseModel):
 class CardFeedBet(BaseModel):
     pick: str
     odds: float
+    fair: float          # de-vigged fair decimal odds, shown beside the value %
     value: float
     # corners | cards | goals | saves — what the page filters on.
     market: str = ""

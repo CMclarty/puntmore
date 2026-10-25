@@ -1,26 +1,5 @@
-/* Paddy: tabs, a folded filter line, then one list. */
+/* Paddy: one panel — a folded options line (offer + filters), then one list. */
 .page { display: flex; flex-direction: column; flex: 1; }
-
-.header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  padding: 6px 12px 0;
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
-}
-.tabs { display: flex; gap: 2px; }
-.tab {
-  border: none;
-  background: none;
-  padding: 8px 10px 9px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--muted);
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-}
-.on { color: var(--ink); border-bottom-color: var(--accent); }
 
 .filterBar {
   display: flex; align-items: center; gap: 10px;
@@ -46,22 +25,18 @@
 .chipOn { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); font-weight: 600; }
 .reset { margin-left: auto; border: none; background: none; font-size: 12px; color: var(--accent); }
 
-.list { display: flex; flex-direction: column; padding-bottom: 72px; }  /* clear of the floating button */
+.list { display: flex; flex-direction: column; padding-bottom: 24px; }
 .row {
   display: grid;
-  grid-template-columns: 22px 1fr 52px 62px;
-  gap: 10px;
+  grid-template-columns: 22px 1fr 44px 56px 44px;
+  gap: 8px;
   align-items: center;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
 }
 .row > :nth-child(n+3) { text-align: right; }
-.scored { grid-template-columns: 22px 1fr 38px 54px 42px; gap: 8px; }
-.score { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--ink); }
-/* Score tiers: green = smash, orange = filler, grey = leave it. */
-.s100 { color: #2F7D55; }
-.s80 { color: #C2611F; }
-.sLow { color: var(--faint); font-weight: 500; }
+/* Fair decimal odds, the reference the value % is measured against. */
+.fair { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
 .top5 {
   display: flex; align-items: baseline; gap: 14px;
   padding: 10px 12px; border-bottom: 1px solid var(--line);
@@ -84,15 +59,3 @@
 
 .empty { padding: 24px 12px; font-size: 13px; color: var(--muted); }
 .error { padding: 12px; font-size: 12px; color: var(--red); }
-
-/* Refund / Boost: "1 per match", floating bottom-right, level with the tool
-   switcher in the dock (BottomNav: 12px + safe area from the bottom). */
-.fab {
-  position: fixed; z-index: 51;
-  right: 16px; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-  min-height: 44px; padding: 0 18px; border-radius: 999px;
-  border: 1px solid var(--ink); background: var(--paper); color: var(--ink);
-  font-size: 14px; font-weight: 700;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
-}
-.fabOn { background: var(--ink); color: var(--paper); }

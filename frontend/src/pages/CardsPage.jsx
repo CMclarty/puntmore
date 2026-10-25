@@ -9,39 +9,41 @@ import { boostEval, boostLegScore } from '../accaBoost'
 /**
  * Paddy — Paddy Power's corners, cards, goals and saves against fair prices.
  *
- * Three tabs, one list each (Callum, Oct 2026: "this is a tool — keep it clean
- * and informative"; open, tap one of three, bet in seconds). Filters are
- * folded under one line that names what is applied:
+ * One feed. The offer (Value / Refund / Boost) and every filter live in a single
+ * folded options pane; the collapsed line names the active offer and what is
+ * applied:
  *   Value   every bet at or above fair, best value first.
  *   Refund  the acca insurance offer (5-fold, legs 1.20+, stake back as a
  *           bonus if exactly one leg loses): every qualifying leg, best down.
  *   Boost   winnings +10/20/30% on a 4/5/6-fold, legs 1.20+: same.
- * Order is Kelly growth (accaInsurance.js / accaBoost.js). No acca is built or
- * recommended — the list is the tool, the picking is Callum's.
+ * Order is Kelly growth (accaInsurance.js / accaBoost.js). Each row shows the
+ * Paddy odds, the value %, and the fair odds. No acca is built or recommended —
+ * the list is the tool, the picking is Callum's.
  */
 
-// One fetch serves all three tabs: 95% of fair, because the acca offers carry
+// One fetch serves all three offers: 95% of fair, because the acca offers carry
 // value of their own and a leg a little under fair can still belong. The
-// Value tab shows only fair-or-better from it.
+// Value offer shows only fair-or-better from it.
 const FETCH_EV = 0.95
 const ACCA_FLOOR = ACCA_DEFAULTS.minOdds
-const TABS = [['value', 'Value'], ['refund', 'Refund'], ['boost', 'Boost']]
-const TAB_KEY = 'paddy.tab'
+const OFFERS = [['value', 'Value'], ['refund', 'Refund'], ['boost', 'Boost']]
+const OFFER_KEY = 'paddy.tab'
 // Boost's suggested stake: a tenth of full Kelly on a £50k bankroll (Callum).
 const BOOST_BANKROLL = 50_000
 const BOOST_KELLY = 0.10
 
 // Filters: folded away under one line that says what is applied, so the usual
-// visit is open → tap a tab → bet. Shared by all three tabs, remembered.
+// visit is open → set the offer → bet. Shared across offers, remembered.
 const MARKETS = ['corners', 'cards', 'goals', 'saves', 'team_corners', 'team_cards']
 const MARKET_LABELS = { team_corners: 'Team corners', team_cards: 'Team cards' }
 const marketLabel = m => MARKET_LABELS[m] || m[0].toUpperCase() + m.slice(1)
 const WITHIN = [[null, 'Any'], [1, '< 1h'], [3, '< 3h'], ['today', 'Today'], [24, '24h'], [48, '48h'], [72, '72h']]
 const MAX_ODDS = [null, 1.5, 2, 3, 5]
-const MIN_VALUE = [0, 0.02, 0.04, 0.06]               // Value tab only
+const MIN_VALUE = [0, 0.02, 0.04, 0.06]               // Value offer only
 const SORTS = [['best', 'Best'], ['shortest', 'Shortest']]
+const PER_MATCH = [[false, 'All legs'], [true, '1 per match']]   // Refund / Boost only
 // Free-bet EV rate: a free bet's stake isn't returned, so you keep (odds-1)/odds
-// of a win — higher odds retain more. Scaled by the value edge. Value tab only.
+// of a win — higher odds retain more. Scaled by the value edge. Value offer only.
 const freeBetScore = b => (1 + b.value) * (b.odds - 1) / b.odds
 const FILTER_KEY = 'paddy.filters'
 const NO_FILTERS = { markets: MARKETS, within: null, maxOdds: null, minValue: 0, sort: 'best', onePerMatch: false }
@@ -61,14 +63,15 @@ function inWindow(iso, within, now) {
   return ko - now <= within * 3600_000
 }
 // What is applied, in a few words; empty when nothing is.
-function summary(fl, tab) {
+function summary(fl, offer) {
   const bits = []
   if (fl.markets.length < MARKETS.length) bits.push(fl.markets.length ? fl.markets.map(marketLabel).join(', ') : 'no markets')
   if (fl.within != null) bits.push(WITHIN.find(([w]) => w === fl.within)[1])
   if (fl.maxOdds != null) bits.push(`≤ ${fl.maxOdds.toFixed(2)}`)
-  if (tab === 'value' && fl.minValue > 0) bits.push(`${(100 + fl.minValue * 100).toFixed(0)}%+`)
+  if (offer === 'value' && fl.minValue > 0) bits.push(`${(100 + fl.minValue * 100).toFixed(0)}%+`)
   if (fl.sort === 'shortest') bits.push('shortest first')
-  if (fl.sort === 'freebet' && tab === 'value') bits.push('free bet')
+  if (fl.sort === 'freebet' && offer === 'value') bits.push('free bet')
+  if (offer !== 'value' && fl.onePerMatch) bits.push('1 per match')
   return bits.join(' · ')
 }
 
@@ -90,17 +93,9 @@ function kickoff(iso) {
   return day + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-// Score: the leg's Kelly growth in the offer against a FIXED yardstick — 100
-// is a fair 1.25 leg (the neutral partner every leg is already scored beside).
-// Absolute, so a number means the same thing every day (Callum, Oct 2026: a
-// relative "best = 100" said nothing about whether a leg was any good).
-// Tiers (Callum): GREEN 100+ = smash it (better than a fair short leg),
-// ORANGE 80-99 = filler when an acca needs a leg, GREY below = leave it.
-const scoreTier = s => (s >= 100 ? f.s100 : s >= 80 ? f.s80 : f.sLow)
-
-function Row({ bet, score }) {
+function Row({ bet }) {
   return (
-    <div className={`${f.row} ${score != null ? f.scored : ''}`}>
+    <div className={f.row}>
       <MarketIcon market={bet.market} size={22} />
       <span className={f.what}>
         <span className={f.pick}>{shortPick(bet.pick)}</span>
@@ -108,14 +103,14 @@ function Row({ bet, score }) {
       </span>
       <span className={f.odds}>{bet.odds.toFixed(2)}</span>
       <span className={`${f.value} ${bet.value >= 0.04 ? f.strong : ''}`}>{evPct(bet.value)}</span>
-      {score != null && <span className={`${f.score} ${scoreTier(score)}`}>{score}</span>}
+      <span className={f.fair}>{bet.fair.toFixed(2)}</span>
     </div>
   )
 }
 
 export default function CardsPage() {
-  const [tab, setTab] = useState(() => {
-    try { return localStorage.getItem(TAB_KEY) || 'value' } catch { return 'value' }
+  const [offer, setOffer] = useState(() => {
+    try { return localStorage.getItem(OFFER_KEY) || 'value' } catch { return 'value' }
   })
   const [fl, setFl] = useState(loadFilters)
   const [open, setOpen] = useState(false)
@@ -124,8 +119,8 @@ export default function CardsPage() {
   const [why, setWhy] = useState(null)
 
   useEffect(() => {
-    try { localStorage.setItem(TAB_KEY, tab) } catch { /* private mode */ }
-  }, [tab])
+    try { localStorage.setItem(OFFER_KEY, offer) } catch { /* private mode */ }
+  }, [offer])
   useEffect(() => {
     try { localStorage.setItem(FILTER_KEY, JSON.stringify(fl)) } catch { /* private mode */ }
   }, [fl])
@@ -161,31 +156,31 @@ export default function CardsPage() {
     .filter(b => (!b.market || fl.markets.includes(b.market))
       && (fl.maxOdds == null || b.odds <= fl.maxOdds))
 
-  // Best down: value on the Value tab, Kelly growth in the offer on the others.
-  const refund = tab === 'refund'
-  const list = tab === 'value'
+  // Best down: value on the Value offer, Kelly growth in the offer on the others.
+  const refund = offer === 'refund'
+  const list = offer === 'value'
     ? bets.filter(b => b.value >= fl.minValue).map(b => ({ b, s: b.value }))
     : bets.filter(b => b.odds >= ACCA_FLOOR)
       .map(b => ({ b, s: refund ? legScore(b, ACCA_DEFAULTS) : boostLegScore(b).growth }))
   // Refund / Boost: one selection per match — the highest-scoring one, since
   // an acca takes a single leg from each game.
-  if (tab !== 'value' && fl.onePerMatch) {
+  if (offer !== 'value' && fl.onePerMatch) {
     const top = new Map()
     for (const x of list) if (!top.has(x.b.matchId) || x.s > top.get(x.b.matchId).s) top.set(x.b.matchId, x)
     list.splice(0, list.length, ...top.values())
   }
   list.sort(
     fl.sort === 'shortest' ? (x, y) => x.b.odds - y.b.odds || y.s - x.s
-    : fl.sort === 'freebet' && tab === 'value' ? (x, y) => freeBetScore(y.b) - freeBetScore(x.b)
+    : fl.sort === 'freebet' && offer === 'value' ? (x, y) => freeBetScore(y.b) - freeBetScore(x.b)
     : (x, y) => y.s - x.s)
 
-  const applied = summary(fl, tab)
+  const applied = summary(fl, offer)
+  const offerLabel = OFFERS.find(([k]) => k === offer)[1]
 
   // Refund / Boost: the acca of the top 5 by score, one per match (asked for:
-  // "a number to see at a glance if it's worth betting"). Its EV is absolute,
-  // unlike the relative Score column.
+  // "a number to see at a glance if it's worth betting").
   let top5 = null
-  if (tab !== 'value') {
+  if (offer !== 'value') {
     const seen = new Set(), picks = []
     for (const x of [...list].sort((a, b) => b.s - a.s)) {
       if (seen.has(x.b.matchId)) continue
@@ -199,36 +194,27 @@ export default function CardsPage() {
         stake: refund ? null : Math.round(BOOST_KELLY * r.kelly * BOOST_BANKROLL) }
     }
   }
-  const scored = tab !== 'value'
-  const neutral = { odds: ACCA_DEFAULTS.refOdds, value: 0 }
-  const yardstick = refund ? legScore(neutral, ACCA_DEFAULTS) : boostLegScore(neutral).growth
   const body = list.length
-    ? list.map(({ b, s }) => <Row key={b.matchId + b.pick} bet={b}
-        score={scored ? (yardstick > 0 ? Math.round(100 * s / yardstick) : 0) : null} />)
-    : <p className={f.empty}>{applied ? 'Nothing matches these filters.'
-      : tab === 'value' ? 'No bets at or above fair right now.' : `No legs at ${ACCA_FLOOR}+ right now.`}</p>
+    ? list.map(({ b }) => <Row key={b.matchId + b.pick} bet={b} />)
+    : <p className={f.empty}>{applied ? 'Nothing matches these options.'
+      : offer === 'value' ? 'No bets at or above fair right now.' : `No legs at ${ACCA_FLOOR}+ right now.`}</p>
 
   return (
     <div className={f.page}>
-      <header className={f.header}>
-        <nav className={f.tabs} aria-label="Paddy">
-          {TABS.map(([k, label]) => (
-            <button key={k} type="button" className={`${f.tab} ${tab === k ? f.on : ''}`}
-              aria-pressed={tab === k} onClick={() => setTab(k)}>{label}</button>
-          ))}
-        </nav>
-      </header>
-
       <div className={`${f.filterBar} ${applied ? f.filtered : ''}`}>
         <button type="button" className={f.summary} aria-expanded={open} onClick={() => setOpen(o => !o)}>
-          {applied || 'All bets'}
+          {applied ? `${offerLabel} · ${applied}` : offerLabel}
         </button>
         <button type="button" className={f.filterToggle} aria-expanded={open} onClick={() => setOpen(o => !o)}>
-          Filters {open ? '▴' : '▾'}
+          Options {open ? '▴' : '▾'}
         </button>
       </div>
       {open && (
         <div className={f.panel}>
+          <div className={f.group} role="group" aria-label="Offer">
+            <span className={f.label}>Offer</span>
+            <Chips options={OFFERS} isOn={k => offer === k} onPick={setOffer} />
+          </div>
           <div className={f.group} role="group" aria-label="Market">
             <Chips icons options={MARKETS.map(m => [m, marketLabel(m)])} isOn={m => fl.markets.includes(m)}
               onPick={m => setF({ markets: fl.markets.includes(m) ? fl.markets.filter(x => x !== m) : [...fl.markets, m] })} />
@@ -240,25 +226,23 @@ export default function CardsPage() {
             <Chips options={MAX_ODDS.map(o => [o, o == null ? 'Any' : o.toFixed(1)])}
               isOn={o => fl.maxOdds === o} onPick={o => setF({ maxOdds: o })} />
           </div>
-          {tab === 'value' && (
+          {offer === 'value' && (
             <div className={f.group}><span className={f.label}>Min value</span>
               <Chips options={MIN_VALUE.map(v => [v, v ? `${100 + v * 100}%` : 'Fair'])}
                 isOn={v => fl.minValue === v} onPick={v => setF({ minValue: v })} />
             </div>
           )}
+          {offer !== 'value' && (
+            <div className={f.group}><span className={f.label}>Per match</span>
+              <Chips options={PER_MATCH} isOn={v => fl.onePerMatch === v} onPick={v => setF({ onePerMatch: v })} />
+            </div>
+          )}
           <div className={f.group}><span className={f.label}>Sort</span>
-            <Chips options={tab === 'value' ? [...SORTS, ['freebet', 'Free bet']] : SORTS}
+            <Chips options={offer === 'value' ? [...SORTS, ['freebet', 'Free bet']] : SORTS}
               isOn={k => fl.sort === k} onPick={k => setF({ sort: k })} />
             {applied && <button type="button" className={f.reset} onClick={() => setF(NO_FILTERS)}>Reset</button>}
           </div>
         </div>
-      )}
-
-      {tab !== 'value' && (
-        <button type="button" className={`${f.fab} ${fl.onePerMatch ? f.fabOn : ''}`}
-          aria-pressed={fl.onePerMatch} onClick={() => setF({ onePerMatch: !fl.onePerMatch })}>
-          1 per match
-        </button>
       )}
 
       {error && <p className={f.error}>{error}</p>}
@@ -274,8 +258,8 @@ export default function CardsPage() {
               {top5.stake != null && <span className={f.top5Stake}>£{top5.stake.toLocaleString('en-GB')}</span>}
             </div>
           )}
-          <div className={`${f.row} ${f.colHead} ${scored ? f.scored : ''}`}>
-            <span /><span>Bet</span><span>Odds</span><span>Value</span>{scored && <span>Score</span>}
+          <div className={`${f.row} ${f.colHead}`}>
+            <span /><span>Bet</span><span>Odds</span><span>Value</span><span>Fair</span>
           </div>
           {body}
         </div>
