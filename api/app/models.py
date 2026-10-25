@@ -1,7 +1,7 @@
 import json
 
 from sqlalchemy import (
-    Boolean, Column, Integer, String, Float, DateTime, Date, ForeignKey, Text,
+    Boolean, Column, Integer, String, Float, DateTime, Date, ForeignKey, Index, Text,
 )
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -374,3 +374,57 @@ class AwFair(Base):
     line = Column(Float, nullable=True)
     side = Column(String, nullable=True)
     fair_odds = Column(Float, nullable=False)
+
+
+class ValueSnapshot(Base):
+    """What value was on offer at one moment (aw26/snapshots.py).
+
+    The Paddy sweep's rows are computed every two minutes and otherwise never
+    stored; a snapshot keeps them, throttled to AW26_SNAPSHOT_MINUTES, so a
+    slip can be married to the line it came from and the day's "value on
+    offer" can be reported. `source` says which tool produced the lines:
+    paddy (the sweep) today; coupon | bb | market fit the same columns later.
+    Kept 30 days (snapshots.KEEP_DAYS)."""
+    __tablename__ = "value_snapshots"
+
+    id = Column(Integer, primary_key=True)
+    at = Column(DateTime, nullable=False, default=utcnow, index=True)   # naive UTC
+    source = Column(String, nullable=False)          # paddy | coupon | bb | market
+    n_lines = Column(Integer, nullable=False, default=0)
+    n_value = Column(Integer, nullable=False, default=0)     # edge >= 0
+    best_edge = Column(Float, nullable=True)                 # NULL: no lines
+    sum_edge_positive = Column(Float, nullable=False, default=0.0)
+
+    lines = relationship("ValueLine", back_populates="snapshot",
+                         cascade="all, delete-orphan", passive_deletes=True)
+
+
+class ValueLine(Base):
+    """One priced line inside a ValueSnapshot. `market` is the Paddy page's
+    market name (corners | cards | goals | saves | team_corners | team_cards);
+    a team line says which team in `team` (home | away), since the pick alone
+    is prose. `side` is lower-case over | under, as AwLeg.side is."""
+    __tablename__ = "value_lines"
+    __table_args__ = (
+        Index("ix_value_lines_key", "event_id", "market", "line", "side"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    snapshot_id = Column(Integer, ForeignKey("value_snapshots.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+    event_id = Column(String, nullable=True)
+    home = Column(String, nullable=False)
+    away = Column(String, nullable=False)
+    kickoff = Column(DateTime, nullable=True)        # naive UTC
+    sport_key = Column(String, nullable=True)        # the league, e.g. soccer_epl
+    market = Column(String, nullable=False)
+    team = Column(String, nullable=True)             # home | away for a team line
+    line = Column(Float, nullable=True)
+    side = Column(String, nullable=True)             # over | under
+    pick = Column(String, nullable=True)             # "Over 9.5 corners", as the page prints it
+    offered_odds = Column(Float, nullable=False)     # the bookmaker's price (Paddy)
+    fair_odds = Column(Float, nullable=False)
+    edge = Column(Float, nullable=False)             # offered / fair - 1
+    basis = Column(String, nullable=True)            # ladder | hybrid | matched | saves
+
+    snapshot = relationship("ValueSnapshot", back_populates="lines")

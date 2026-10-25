@@ -202,6 +202,14 @@ def sweep_cards(cards_client, notifier=None) -> int:
         return 0
     LAST_CARDS_ERROR.clear()
 
+    # AW 26: keep what was on offer (throttled, aw26/snapshots.py). Reuses
+    # `rows` — no vendor call — and is never allowed to break the sweep.
+    try:
+        from .aw26 import snapshots
+        snapshots.snapshot_sweep(rows, SessionLocal)
+    except Exception:
+        logger.exception("AW 26 value snapshot failed")
+
     # Measure the counts model against the ladders just fitted (a few per
     # tick). Never allowed to break the sweep.
     try:
