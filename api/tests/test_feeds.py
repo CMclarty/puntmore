@@ -69,18 +69,11 @@ def _totals_event(event_id, home, away, pin_over, pin_under, paddy_over, paddy_u
     }
 
 
-@pytest.fixture(autouse=True)
-def _matched_line_pricing(monkeypatch):
-    """These tests cover feed GROUPING, not pricing.
-
-    The laddered path needs a real Pinnacle ladder to fit and refuses lines
-    outside the corners bounds, so a one-rung 3.5 fixture produces nothing
-    through it — correctly. Pinning the matched-line path keeps these tests
-    about the thing they were written for; the laddered path has its own
-    coverage in test_cards_sources.py.
-    """
-    from app.config import settings
-    monkeypatch.setattr(settings, "cards_use_ladder_model", False)
+# These feed tests cover GROUPING, not pricing. A one-rung 3.5 fixture cannot
+# fit a ladder, so the pricer falls back to de-vigging Pinnacle's own rung
+# for the one line both books quote (cards/laddered.py) — which is exactly
+# the row these tests need. The pricing itself is covered in
+# test_cards_sources.py.
 
 
 # --- /accabonus/feed ---

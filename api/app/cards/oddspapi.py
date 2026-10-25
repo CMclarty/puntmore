@@ -839,7 +839,7 @@ def coverage(fixtures, index: dict[str, dict], bookmaker: str) -> dict:
 class OddsPapiPaddySource:
     """The cards tool's Paddy Power side from OddsPapi — and, with
     `oddspapi_fair_book` set (default "pinnacle"), its fair side too. Same interface as
-    `CardsApiClient`: `get_events()` and `last_sweep`."""
+    the sweep expects: `get_events()` and `last_sweep`."""
 
     def __init__(self, client: OddsPapiClient):
         self._sweep_lock = threading.Lock()

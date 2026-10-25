@@ -39,10 +39,6 @@ class Settings(BaseSettings):
     # bettingiscool is Pinnacle-native on a plan billing per DAY rather than
     # per month.
     #
-    # NOTE: regions in TheOddsApi are where the BOOKMAKER is licensed, not
-    # where the league is. Paddy Power prices La Liga and Serie A perfectly
-    # well from the `uk` region; the league is chosen by sport key.
-    cards_market_keys: str = "alternate_totals_corners,alternate_totals_cards"
     # PADDY POWER VIA ODDSPAPI (Sept 2026). TheOddsApi does not carry Paddy's
     # corners/cards (probe, 28 Sept: one book with corners, none with cards,
     # no Paddy). With a key set, Paddy's side comes from OddsPapi instead —
@@ -68,12 +64,11 @@ class Settings(BaseSettings):
         "17,18,24,8,23,35,34,238,7,679,UEFA Nations League,11,27"
     )
     oddspapi_tournaments_per_request: int = 5
-    # How far ahead OddsPapi fixtures are priced. NOT a cost dial, unlike
-    # cards_window_hours: odds-by-tournaments returns every fixture in the
-    # competitions named whatever the window, so trimming it to 48h only threw
-    # away games already paid for (Oct 2026: 57 of 185 listed kept, so a
-    # Friday-morning sweep missed Sunday). A week covers a midweek round and
-    # the weekend after it.
+    # How far ahead OddsPapi fixtures are priced. NOT a cost dial:
+    # odds-by-tournaments returns every fixture in the competitions named
+    # whatever the window, so trimming it to 48h only threw away games already
+    # paid for (Oct 2026: 57 of 185 listed kept, so a Friday-morning sweep
+    # missed Sunday). A week covers a midweek round and the weekend after it.
     oddspapi_window_hours: float = 168.0
     # How stale a competition chunk's odds may get, by how soon its NEXT
     # fixture kicks off (read off the cached response itself, so choosing the
@@ -94,97 +89,12 @@ class Settings(BaseSettings):
     # than a team-name match. Blank = no fair side at all (the feed stays empty
     # and /paddy/diagnostics says so).
     oddspapi_fair_book: str = "pinnacle"
-    # Major UK/Euro competitions. The fixture-list endpoint is FREE, so listing
-    # a key that is out of season or has no fixtures costs nothing.
-    # An unknown or out-of-season key 404s, which is FREE and cached empty, so a
-    # wrong key costs nothing — but it also returns nothing silently. Verify a
-    # new key against /v4/sports (also free) rather than assuming the spelling.
-    cards_sport_keys: str = (
-        "soccer_epl,soccer_efl_champ,soccer_england_league1,"
-        "soccer_spain_la_liga,soccer_italy_serie_a,"
-        "soccer_germany_bundesliga,soccer_france_ligue_one,"
-        "soccer_portugal_primeira_liga,"
-        "soccer_uefa_champs_league,soccer_uefa_europa_league,"
-        # Internationals (Sept 2026). Without these the sweep found nothing
-        # at all in an international window, which the diagnostics reported
-        # as "no fixture within 48h" — true, and entirely the key list's
-        # doing. Club football mostly pauses in a window, so these replace
-        # club spend rather than adding to it: a Nations League window is
-        # ~54 fixtures x ~43 credits, against ~40 top-flight fixtures a
-        # normal weekend. Qualifier keys cost nothing while out of season.
-        # Friendlies deliberately left out: noisy games, often unpriced.
-        "soccer_uefa_nations_league,soccer_uefa_euro_qualification,"
-        "soccer_fifa_world_cup_qualifiers_europe"
-    )
-    # TIERED REFRESH. Corners/cards markets are posted near kickoff and barely
-    # move until the last hour, so a flat 5-minute sweep over a wide window
-    # spends most of the budget re-reading prices that have not changed — and
-    # buys empty responses on fixtures whose markets are not up yet.
-    #
-    # Cost per fixture = sweeps x markets, so the WINDOW is the expensive dial,
-    # not the interval. 4h at 30 min + 1h at 5 min = 18 sweeps against the 48 a
-    # flat 5-minute 4-hour window would cost.
-    # THREE tiers, because the window and the cadence are separate dials and
-    # widening one without slowing the other is what blows a budget.
-    #
-    # Cost per fixture is sweeps x markets. At a 4h window that was
-    # 6 slow + 12 fast = 18 sweeps = 36 credits. Widening to 48h at the same
-    # 30-minute cadence would be ~106 sweeps = ~212 credits per fixture, or
-    # roughly 83k/month across the major leagues — four times a 20k plan.
-    #
-    # So the far tier is deliberately coarse. Three days out the question is
-    # only "has the market been posted yet", which does not need asking every
-    # half hour. Corners/cards are rarely up more than a few hours before
-    # kickoff, so most far-tier calls return nothing — and TheOddsApi bills
-    # (markets RETURNED x regions), so an empty response should cost little or
-    # nothing. That is unverified, which is exactly what the daily ceiling is
-    # for.
-    cards_window_hours: float = 48.0       # start watching this far out
-    cards_far_window_hours: float = 4.0    # coarse polling beyond this
-    cards_fast_window_hours: float = 1.0   # switch to the fast cadence here
-    # Every 12h from two days out to four hours. Twice a day is ample for the
-    # only question being asked out there — "is the market up yet" — and a
-    # fixture still gets ~4 looks before it reaches the 30-minute tier.
-    #
-    # 8h was affordable at this window (92% of plan) and 12h is 85%. The
-    # difference in usefulness is one extra look at a fixture whose market is
-    # almost certainly not posted; the difference in risk is all the headroom.
-    # Tighten it once x-requests-last has reported the REAL per-call cost —
-    # if that comes back as 1 rather than 2, everything here halves.
-    cards_far_interval_minutes: int = 720
-    cards_slow_interval_minutes: int = 30
-    cards_fast_interval_minutes: int = 5
-    # HARD CEILING on per-event calls in one UTC day. The exact credit cost of
-    # a per-event call is not yet confirmed (docs/provider-verification.md says
-    # markets x regions; routers/accabonus.py says naming bookmakers bills as
-    # one) — so the sweep measures the real rate from the response headers and
-    # STOPS rather than discovering it when the quota is gone.
-    # Stop when the vendor says this much of the monthly quota is left. This is
-    # the REAL guard: TheOddsApi reports remaining quota on every response, so it
-    # is authoritative where a locally-counted budget is a guess — it survives a
-    # restart, it already reflects the true per-call cost, and it does not depend
-    # on the (markets x regions) figure nobody has measured.
-    #
-    # The reserve exists so a runaway sweep cannot take the coupon tracker's
-    # fallback and the goalscorer scans down with it.
+    # TheOddsApi's monthly quota guard, for the tools still on that vendor
+    # (AccaBonus, the coupon fallback): stop when the vendor's own
+    # x-requests-remaining header falls to this. Authoritative — it survives a
+    # restart and already reflects the true per-call cost — and it keeps a
+    # runaway from taking the coupon fallback and the goalscorer scans down.
     cards_quota_reserve: int = 1500
-
-    # Secondary rate limiter: a per-UTC-day ceiling, so one bad day cannot spend
-    # a month even before the reserve is reached. 650 x 30 = 19,500, which sits
-    # UNDER a 20k plan rather than over it — 700/day was 21,000/month, i.e. the
-    # guard permitted more than the budget it was guarding.
-    cards_daily_call_budget: int = 650
-
-    # Price every line PADDY POWER quotes off Pinnacle's fitted ladder, rather
-    # than only the lines both books happen to pick. The two books rarely agree
-    # on a line, so without this most of Paddy's board is invisible.
-    #
-    # The model can never beat Pinnacle — between their rungs it interpolates
-    # their own opinion, outside them it decays toward a shape assumption. The
-    # hard bounds, the band requirement and the extrapolation penalty
-    # (pricing/counts) are what keep that honest; turn this off rather than
-    # relaxing any of them.
-    cards_use_ladder_model: bool = True
     # Paddy lines never shown, as "market:line" pairs. Paddy SHOPS don't carry
     # every line its website does, and the team bets in shops (Callum, Oct
     # 2026: no 11.5 corners). Pinnacle's rung at the same line still feeds the

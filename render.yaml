@@ -63,31 +63,15 @@ services:
         generateValue: true    # random, then stable — sessions survive deploys
       - key: AUTH_USERS
         sync: false
-      - key: BETTINGISCOOL_API_KEY
-        sync: false
-      # Cards/Corners: Paddy Power's price comes from TheOddsApi. Without this
-      # the cards client is None and the feed is empty — which is the state the
-      # tool was in for its whole life, so the absence is easy to miss.
-      #
-      # Billed per event as (markets x regions). Adding this key turns the
-      # sweep on immediately, so read Settings.cards_daily_call_budget below
-      # before setting it.
+      # TheOddsApi: the AccaBonus (bet365) tool and the coupon fallback only.
+      # Paddy Power's corners/cards never come from here.
       - key: ODDS_API_KEY
         sync: false
-      # Paddy Power's corners/cards (OddsPapi). When set, the cards tool reads
-      # Paddy from OddsPapi instead of TheOddsApi, which does not carry them.
-      # ~146 requests/day at the defaults — see Settings.oddspapi_* in config.
+      # Paddy Power's corners/cards AND the Pinnacle fair side (OddsPapi). The
+      # only source for the Paddy tool; without it the feed is empty and
+      # /api/paddy/diagnostics says so. Budget: Settings.oddspapi_* in config.
       - key: ODDSPAPI_API_KEY
         sync: false
-
-      # Hard ceiling on per-event cards calls in one UTC day. The true credit
-      # cost of a call is not yet measured (see docs/provider-verification.md),
-      # so this stops a sweep rather than letting it discover the rate when the
-      # month's quota is gone. Raise it once `x-requests-last` has been read off
-      # a real call — it is here rather than in code so that is a dashboard
-      # edit, not a redeploy.
-      - key: CARDS_DAILY_CALL_BUDGET
-        value: "650"
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: STATE_API_KEY

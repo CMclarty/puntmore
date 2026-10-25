@@ -192,7 +192,11 @@ def sweep_cards(cards_client, notifier=None) -> int:
     try:
         from .routers.cards import price_events      # one pricing entry point
         events = cards_client.get_events()
-        rows = price_events(events, settings.cards_min_edge)
+        # Price down to 95% of fair ONCE (what the page shows): the AW 26
+        # snapshot keeps every line a leg could have been taken on, while the
+        # alerts and their dedupe see only the lines at or above the floor.
+        priced = price_events(events, -0.05)
+        rows = [r for r in priced if r.edge >= settings.cards_min_edge]
     except Exception as exc:
         # Logged with the cause: a silent failure here is what made the old
         # cards client look like a market with no value in it. Kept for
@@ -202,11 +206,11 @@ def sweep_cards(cards_client, notifier=None) -> int:
         return 0
     LAST_CARDS_ERROR.clear()
 
-    # AW 26: keep what was on offer (throttled, aw26/snapshots.py). Reuses
-    # `rows` — no vendor call — and is never allowed to break the sweep.
+    # AW 26: keep what was on offer (throttled, aw26/snapshots.py). Reuses the
+    # priced rows — no vendor call — and is never allowed to break the sweep.
     try:
         from .aw26 import snapshots
-        snapshots.snapshot_sweep(rows, SessionLocal)
+        snapshots.snapshot_sweep(priced, SessionLocal)
     except Exception:
         logger.exception("AW 26 value snapshot failed")
 
@@ -408,10 +412,8 @@ def start_scheduler(
             sweep_cards,
             trigger="interval",
             # OddsPapi's tightest gear is 2 minutes, so tick that often; its
-            # cache decides what is actually fetched. TheOddsApi's path keeps
-            # its own interval (its tiers are tuned to it).
-            minutes=2 if type(cards_client).__name__ == "OddsPapiPaddySource"
-            else settings.cards_fast_interval_minutes,
+            # cache decides what is actually fetched.
+            minutes=2,
             id="cards_sweep",
             replace_existing=True,
             # Skip a tick rather than queue it if a sweep overruns — a backlog

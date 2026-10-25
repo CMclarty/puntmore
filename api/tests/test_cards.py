@@ -1,4 +1,4 @@
-"""Tests for cards/corners value-bet logic."""
+"""Tests for the cards/corners value helpers and the feed's labels."""
 import pytest
 from app.cards.value import (
     CardValueRow,
@@ -7,7 +7,6 @@ from app.cards.value import (
     _get_market,
     _price,
     _market_label,
-    compute_value_bets,
 )
 
 
@@ -63,137 +62,47 @@ def test_market_label_under_whole():
 
 
 # ---------------------------------------------------------------------------
-# compute_value_bets
+# the feed's labels (the pricing itself: test_cards_sources.py)
 # ---------------------------------------------------------------------------
 
-def _make_event(pin_over, pin_under, paddy_over, paddy_under, line=3.5):
-    """Build a minimal event dict with both Pinnacle and Paddy Power."""
-    def outcomes(over_price, under_price):
-        return [
-            {"name": "Over",  "point": line, "price": over_price},
-            {"name": "Under", "point": line, "price": under_price},
-        ]
-
-    return {
-        "id": "evt1",
-        "home_team": "Team A",
-        "away_team": "Team B",
-        "commence_time": "2026-06-10T15:00:00Z",
-        "sport_key": "soccer_epl",
-        "bookmakers": [
-            {
-                "key": "pinnacle",
-                "markets": [{"key": "alternate_totals_corners", "outcomes": outcomes(pin_over, pin_under)}],
-            },
-            {
-                "key": "paddypower",
-                "markets": [{"key": "alternate_totals_corners", "outcomes": outcomes(paddy_over, paddy_under)}],
-            },
-        ],
-    }
+PIN_CORNERS = {8.5: (1.44, 2.75), 9.5: (1.74, 2.10), 10.5: (2.20, 1.68), 11.5: (2.95, 1.42)}
+PIN_CARDS = {2.5: (1.60, 2.30), 3.5: (2.10, 1.72), 4.5: (3.00, 1.40), 5.5: (4.50, 1.20)}
 
 
-def test_compute_value_bets_returns_value_rows():
-    """Paddy Power over-priced vs fair → row returned."""
-    # Pinnacle: 1.90/1.90 → fair ≈ 2.0/2.0; Paddy: 2.10 over → edge ≈ +5%
-    events = [_make_event(1.90, 1.90, 2.10, 1.80)]
-    rows = compute_value_bets(events, min_edge=-0.10)
-    assert any(r.side == "Over" and r.edge > 0 for r in rows)
+def _mk(key, lines):
+    outcomes = []
+    for line, (over, under) in sorted(lines.items()):
+        outcomes.append({"name": "Over", "point": line, "price": over})
+        outcomes.append({"name": "Under", "point": line, "price": under})
+    return {"key": key, "outcomes": outcomes}
 
 
-def _team_event(market_key, pin_over, pin_under, paddy_over, paddy_under, line=5.5):
-    def outcomes(o, u):
-        return [{"name": "Over", "point": line, "price": o},
-                {"name": "Under", "point": line, "price": u}]
-    return {
-        "id": "evtT", "home_team": "Arsenal", "away_team": "Chelsea",
-        "commence_time": "2026-06-10T15:00:00Z", "sport_key": "soccer_epl",
-        "bookmakers": [
-            {"key": "pinnacle", "markets": [{"key": market_key, "outcomes": outcomes(pin_over, pin_under)}]},
-            {"key": "paddypower", "markets": [{"key": market_key, "outcomes": outcomes(paddy_over, paddy_under)}]},
-        ],
-    }
-
-
-def test_compute_value_bets_prices_team_corners():
-    rows = compute_value_bets([_team_event("team_corners_home", 1.90, 1.90, 2.10, 1.80)], min_edge=-0.10)
-    assert any(r.market_key == "team_corners_home" and r.side == "Over" and r.edge > 0 for r in rows)
-
-
-def test_feed_labels_a_team_market_with_the_team_name(monkeypatch):
-    from app.config import settings
+def test_feed_labels_a_team_market_with_the_team_name():
+    """A team line names the team, since the match isn't the subject; the
+    away side's market names the away team."""
     from app.routers.cards import build_feed
-    monkeypatch.setattr(settings, "cards_use_ladder_model", False)  # matched path, no ladder fit needed
 
     class _Client:
         def get_events(self):
-            return [_team_event("team_corners_home", 1.90, 1.90, 2.10, 1.80),
-                    _team_event("team_cards_away", 1.90, 1.90, 2.10, 1.80, line=2.5)]
+            return [{
+                "id": "evtT", "home_team": "Arsenal", "away_team": "Chelsea",
+                "commence_time": "2026-06-10T15:00:00Z", "sport_key": "soccer_epl",
+                "bookmakers": [
+                    {"key": "pinnacle", "markets": [
+                        _mk("alternate_totals_corners", PIN_CORNERS),
+                        _mk("alternate_totals_cards", PIN_CARDS),
+                        _mk("team_corners_home", {5.5: (1.90, 1.90)}),
+                        _mk("team_cards_away", {2.5: (1.90, 1.90)}),
+                    ]},
+                    {"key": "paddypower", "markets": [
+                        _mk("team_corners_home", {5.5: (2.10, 1.80)}),
+                        _mk("team_cards_away", {2.5: (2.10, 1.80)}),
+                    ]},
+                ],
+            }]
 
-    bets = [b for item in build_feed(_Client(), min_edge=-0.10) for b in item.bets]
-    corners = next(b for b in bets if b.market == "team_corners")
+    bets = [b for item in build_feed(_Client(), min_edge=-0.5) for b in item.bets]
+    corners = next(b for b in bets if b.market == "team_corners" and b.side == "Over")
     assert corners.pick == "Arsenal Over 5.5 corners"
-    cards = next(b for b in bets if b.market == "team_cards")
+    cards = next(b for b in bets if b.market == "team_cards" and b.side == "Over")
     assert cards.pick == "Chelsea Over 2.5 cards"  # away side → away team
-
-
-def test_compute_value_bets_filters_by_min_edge():
-    """Rows below min_edge are excluded."""
-    events = [_make_event(1.90, 1.90, 1.85, 1.85)]  # Paddy below fair
-    rows = compute_value_bets(events, min_edge=0.0)
-    assert all(r.edge >= 0.0 for r in rows)
-
-
-def test_compute_value_bets_sorts_best_edge_first():
-    """Output is sorted descending by edge."""
-    event1 = _make_event(1.90, 1.90, 2.10, 1.80, line=3.5)
-    event2 = {**_make_event(1.90, 1.90, 2.30, 1.70, line=4.5), "id": "evt2"}
-    rows = compute_value_bets([event1, event2], min_edge=-0.50)
-    edges = [r.edge for r in rows]
-    assert edges == sorted(edges, reverse=True)
-
-
-def test_compute_value_bets_missing_paddypower_skipped():
-    """Event with no Paddy Power bookmaker produces no rows."""
-    event = {
-        "id": "evt1",
-        "home_team": "A", "away_team": "B",
-        "commence_time": "2026-06-10T15:00:00Z",
-        "sport_key": "soccer_epl",
-        "bookmakers": [
-            {
-                "key": "pinnacle",
-                "markets": [{"key": "alternate_totals_corners", "outcomes": [
-                    {"name": "Over", "point": 3.5, "price": 1.9},
-                    {"name": "Under", "point": 3.5, "price": 1.9},
-                ]}],
-            }
-        ],
-    }
-    rows = compute_value_bets([event], min_edge=-0.50)
-    assert rows == []
-
-
-def test_compute_value_bets_missing_pinnacle_skipped():
-    """Event with no Pinnacle bookmaker produces no rows."""
-    event = {
-        "id": "evt1",
-        "home_team": "A", "away_team": "B",
-        "commence_time": "2026-06-10T15:00:00Z",
-        "sport_key": "soccer_epl",
-        "bookmakers": [
-            {
-                "key": "paddypower",
-                "markets": [{"key": "alternate_totals_corners", "outcomes": [
-                    {"name": "Over", "point": 3.5, "price": 2.1},
-                    {"name": "Under", "point": 3.5, "price": 1.8},
-                ]}],
-            }
-        ],
-    }
-    rows = compute_value_bets([event], min_edge=-0.50)
-    assert rows == []
-
-
-def test_compute_value_bets_empty_events():
-    assert compute_value_bets([], min_edge=-0.05) == []

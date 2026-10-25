@@ -11,7 +11,6 @@ odds/utils.py::devigd):
 from dataclasses import dataclass
 
 from ..odds.utils import devigd as _devigd_shared
-from ..pricing.counts.lines import is_half_line
 
 
 @dataclass
@@ -65,17 +64,6 @@ def _price(outcomes: list[dict], side: str, line: float) -> float | None:
     return None
 
 
-def _pinnacle_lines(outcomes: list[dict]) -> set[float]:
-    """Collect all unique line values present in a Pinnacle market."""
-    lines = set()
-    for o in outcomes:
-        try:
-            lines.add(float(o["point"]))
-        except (KeyError, ValueError, TypeError):
-            continue
-    return lines
-
-
 def _devigd(pin_over: float, pin_under: float) -> tuple[float, float, float]:
     return _devigd_shared(pin_over, pin_under)
 
@@ -84,76 +72,3 @@ def _market_label(market_key: str, side: str, line: float) -> str:
     prefix = "O" if side == "Over" else "U"
     line_str = str(int(line)) if line == int(line) else str(line)
     return f"{prefix}{line_str} ({market_key})"
-
-
-def compute_value_bets(
-    events: list[dict],
-    min_edge: float,
-    market_keys: list[str] | None = None,
-) -> list[CardValueRow]:
-    """Return CardValueRows where edge >= min_edge, sorted best-edge-first."""
-    from .client import CARDS_MARKET_KEYS
-    if market_keys is None:
-        from .oddspapi import (TEAM_CARDS_AWAY, TEAM_CARDS_HOME,
-                               TEAM_CORNERS_AWAY, TEAM_CORNERS_HOME)
-        market_keys = [*CARDS_MARKET_KEYS, TEAM_CORNERS_HOME, TEAM_CORNERS_AWAY,
-                       TEAM_CARDS_HOME, TEAM_CARDS_AWAY]
-
-    rows: list[CardValueRow] = []
-
-    for event in events:
-        pin = _get_bookmaker(event, "pinnacle")
-        paddy = _get_bookmaker(event, "paddypower")
-        if pin is None or paddy is None:
-            continue
-
-        sport_key = event.get("sport_key", "")
-
-        for mkey in market_keys:
-            pin_outcomes = _get_market(pin, mkey)
-            paddy_outcomes = _get_market(paddy, mkey)
-            if not pin_outcomes or not paddy_outcomes:
-                continue
-
-            for line in _pinnacle_lines(pin_outcomes):
-                if not is_half_line(line):      # pushes are never bet
-                    continue
-                pin_over = _price(pin_outcomes, "Over", line)
-                pin_under = _price(pin_outcomes, "Under", line)
-                if pin_over is None or pin_under is None:
-                    continue
-
-                fair_over, fair_under, margin = _devigd(pin_over, pin_under)
-
-                for side, pin_raw, fair in (
-                    ("Over",  pin_over,  fair_over),
-                    ("Under", pin_under, fair_under),
-                ):
-                    paddy_price = _price(paddy_outcomes, side, line)
-                    if paddy_price is None:
-                        continue
-
-                    edge = round((paddy_price / fair) - 1, 4)
-                    if edge < min_edge:
-                        continue
-
-                    rows.append(CardValueRow(
-                        event_id=event["id"],
-                        home_team=event.get("home_team", ""),
-                        away_team=event.get("away_team", ""),
-                        commence_time=event.get("commence_time", ""),
-                        sport_key=sport_key,
-                        market_key=mkey,
-                        market_label=_market_label(mkey, side, line),
-                        line=line,
-                        side=side,
-                        paddy_odds=round(paddy_price, 3),
-                        pinnacle_odds=round(pin_raw, 3),
-                        fair_odds=round(fair, 3),
-                        pinnacle_margin=round(margin, 4),
-                        edge=edge,
-                        basis="matched",
-                    ))
-
-    rows.sort(key=lambda r: r.edge, reverse=True)
-    return rows

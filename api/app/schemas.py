@@ -310,24 +310,6 @@ class StateOut(BaseModel):
     cards: list[CardFeedItem]
 
 
-# Cards & corners value bets
-class CardValueOut(BaseModel):
-    event_id: str
-    home_team: str
-    away_team: str
-    commence_time: str
-    sport_key: str
-    market_key: str
-    market_label: str
-    line: float
-    side: str
-    paddy_odds: float
-    pinnacle_odds: float
-    fair_odds: float
-    pinnacle_margin: float
-    edge: float
-
-
 # AW 26 — the acca project's slips
 class AwLegOut(BaseModel):
     id: int

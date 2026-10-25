@@ -494,29 +494,17 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   from `uk` perfectly well; the competition is chosen by sport key and the
   fixture list is free. Getting this backwards is what produced the original
   two-region design.
-- **The WINDOW and the CADENCE are separate dials, and widening one means
-  slowing the other.** Cost per fixture is `sweeps × markets`. THREE tiers via
-  the odds cache's per-read TTL: 48h–4h every 12h, 4h–1h every 30 min, then
-  every 5 min inside the last hour — 43 credits per fixture, ~17k/month over
-  the major UK/Euro leagues (84% of a 20k plan). Widening the window WITHOUT
-  adding the coarse far tier would have been ~212 credits per fixture and
-  ~83k/month, four times the plan. Never move `cards_window_hours` without
-  recomputing that.
-- **TWO budget guards, and they fail differently.** `cards_quota_reserve` stops
-  the sweep when TheOddsApi's own `x-requests-remaining` header falls to it —
-  authoritative, survives a restart, and already reflects the true per-call cost,
-  which is still unmeasured (this file's Odds API section says
-  `markets × regions`; `routers/accabonus.py` says naming bookmakers bills as
-  one — a 2× difference). `cards_daily_call_budget` is local arithmetic that
-  stops one bad day spending a month; keep it BELOW plan/30 (650 × 30 = 19,500
-  against a 20k plan — 700 was 21,000, i.e. the guard permitted more than the
-  budget it guarded). The reserve exists so a runaway sweep cannot take the
-  coupon fallback and the goalscorer scans down with it.
+- **OddsPapi is the ONLY source for the Paddy tool** (Oct 2026): Paddy's prices
+  and Pinnacle's fair side, joined on the same fixture id. The TheOddsApi Paddy
+  path (`CardsApiClient`, its tiered window/cadence, `probe-books`, the daily
+  call budget) is gone; TheOddsApi serves AccaBonus and the coupon fallback
+  only, guarded by `cards_quota_reserve` on its `x-requests-remaining` header.
 - **Every line PADDY POWER quotes is priced, off Pinnacle's fitted ladder**
-  (`cards/laddered.py`, `cards_use_ladder_model`). The matched-line path only
-  compares lines BOTH books picked, and books rarely agree — so most of Paddy's
-  board was invisible. Only lines Paddy actually offers are priced: a fair price
-  for a line nobody quotes cannot be bet.
+  (`cards/laddered.py`) — or the team split where Pinnacle posts one line, or
+  Pinnacle's own rung de-vigged where nothing fits. The matched-line path is
+  gone. Only lines Paddy actually offers are priced: a fair price for a line
+  nobody quotes cannot be bet. Users only ever see .5 lines; integer lines are
+  model information, read with the push rule.
   The model (`pricing/counts`) reads Pinnacle's ladder and nothing else — it has
   no football knowledge and **cannot beat Pinnacle**; between their rungs it
   interpolates their opinion, beyond them it decays toward a shape assumption.
@@ -575,15 +563,6 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
     reported at `/api/paddy/shadow` by market, distance and favourite vs
     long side. Re-derive the penalty from LIVE ladders once there are
     enough; no vendor cost.
-- **The sweep covers INTERNATIONALS too** (`cards_sport_keys`, Sept 2026):
-  Nations League, Euro and European World Cup qualifiers. Without them an
-  international window read as "no fixture within 48h". Club football mostly
-  pauses in a window, so they replace club spend rather than add to it.
-  Friendlies are deliberately left out. `list_events` answers an unknown key
-  with a 404 that reads as "no fixtures", so the sweep checks its keys against
-  the FREE `/v4/sports` list and names any it does not see (`inactive_keys`,
-  out of season or misspelled), with `fixtures_listed` and `next_kickoff`, so
-  "a quiet spell" and "a key list that misses the games" look different.
 - **Paddy Power's side comes from ODDSPAPI when `ODDSPAPI_API_KEY` is set**
   (`cards/oddspapi.py`, Sept 2026). TheOddsApi does NOT carry Paddy's
   corners/cards: a probe asked by region with no bookmaker filter, hours from
@@ -594,9 +573,7 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   fixtures carry participant ids, named via `/participants`; it bills per
   REQUEST and `odds-by-tournaments` returns every fixture in the tournaments
   named, so cost is refreshes x requests, not per fixture. Its window is
-  therefore its own (`oddspapi_window_hours`, 7 days) — `cards_window_hours`
-  (48h) is a TheOddsApi cost dial and cut a Friday sweep's Sunday games for
-  nothing. Refreshes follow
+  therefore its own (`oddspapi_window_hours`, 7 days). Refreshes follow
   kickoffs (`oddspapi_ttl_tiers`, read off the cached response so choosing
   costs nothing): 2 min inside 45 min, 5 inside 2h, 15 inside 6h, else
   hourly — ~15k/month on 13 competitions x 2 books, against a 100k plan

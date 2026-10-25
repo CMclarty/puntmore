@@ -1,25 +1,18 @@
 from fastapi import APIRouter, Query, Request
 
 from ..config import settings
-from ..schemas import CardValueOut, CardFeedItem, CardFeedBet, CardFeedFair
-from ..cards.value import compute_value_bets
+from ..schemas import CardFeedItem, CardFeedBet, CardFeedFair
 from ..cards.laddered import compute_laddered_value
 from ..cards.most import most_fairs, most_value
 from ..cards.saves import saves_value
 
 
 def price_events(events, min_edge):
-    """Value rows from joined events, by whichever pricing path is configured.
-
-    The laddered path prices every line Paddy Power quotes off Pinnacle's fitted
-    ladder; the matched-line path compares only lines both books picked. One
-    entry point so the router, the feed and the scheduler cannot diverge on
-    which is in use.
-    """
-    if settings.cards_use_ladder_model:
-        rows = compute_laddered_value(events, min_edge)
-    else:
-        rows = compute_value_bets(events, min_edge)
+    """Value rows from joined events: every line Paddy Power quotes, priced off
+    Pinnacle's fitted ladder (or the team split, or Pinnacle's own rung where
+    nothing fits — cards/laddered.py). One entry point so the router, the feed
+    and the scheduler cannot diverge."""
+    rows = compute_laddered_value(events, min_edge)
     # Saves are priced off Bookie Bashing's fair figure, not Pinnacle — a
     # separate path, joined here so every consumer sees them.
     rows += saves_value(events, min_edge)
@@ -58,19 +51,6 @@ def describe(bet) -> str:
     return f"{bet.side} {bet.line:.1f} {market_name(bet.market_key)}"
 
 router = APIRouter()
-
-
-@router.get("/value-bets", response_model=list[CardValueOut])
-def get_card_value_bets(
-    request: Request,
-    min_edge: float = Query(default=None, ge=-0.50, le=0.50),
-):
-    if min_edge is None:
-        min_edge = settings.cards_min_edge
-    client = request.app.state.cards_client
-    if client is None:
-        return []
-    return price_events(client.get_events(), min_edge)
 
 
 def build_feed(client, min_edge: float) -> list[CardFeedItem]:
@@ -176,17 +156,12 @@ def diagnose(client) -> dict:
         verdict = "No sweep has run yet. Open the feed or wait for the 2-minute tick."
     elif sweep.get("fixtures_in_window", 0) == 0:
         nxt = sweep.get("next_kickoff")
-        inactive = sweep.get("inactive_keys") or []
         verdict = (
             f"No fixture kicks off within {sweep.get('window_hours')}h, so nothing "
             f"was fetched. These markets are only posted near kickoff — this is "
             f"the normal state between matches, not a failure. "
             + (f"Next listed kickoff: {nxt}. " if nxt else
-               f"No upcoming fixture is listed in ANY of the "
-               f"{sweep.get('sport_keys') or ''} covered competitions. ")
-            + (f"{len(inactive)} configured key(s) not currently listed by "
-               f"TheOddsApi (out of season, or misspelled): "
-               f"{', '.join(inactive)}." if inactive else "")
+               "No upcoming fixture is listed in any covered competition. ")
         ).strip()
     elif sweep.get("carried_paddy_prices", 0) == 0:
         verdict = (
@@ -235,79 +210,6 @@ def diagnose(client) -> dict:
         "sweep_error": dict(LAST_CARDS_ERROR) or None,
         "sweep": sweep,
         "pricing": priced,
-        "using_ladder_model": settings.cards_use_ladder_model,
-    }
-
-
-@router.get("/probe-books")
-def probe_books(
-    request: Request,
-    region: str = "uk",
-    sport: str | None = None,
-    event_id: str | None = None,
-    markets: str | None = None,
-):
-    """Which bookmakers and markets TheOddsApi returns for ONE match.
-
-    COSTS CREDITS — one per-event call (markets x regions, so ~2), on demand,
-    never on a schedule. The sweep names Paddy Power, so an empty answer there
-    cannot say whether Paddy's corners are not up YET, are filed under
-    different market keys, or are not in this vendor's feed at all. This asks
-    by REGION with no bookmaker filter, so the answer is everything the vendor
-    carries for these markets on this match.
-
-    Defaults to the soonest fixture the sweep has in range. `markets` overrides
-    the configured keys, to try another spelling.
-    """
-    cards = request.app.state.cards_client
-    raw = getattr(cards, "_client", None)
-    if cards is None or raw is None:
-        return {"error": "ODDS_API_KEY is not set"}
-    if not hasattr(cards, "_due_fixtures"):
-        return {"error": "Paddy Power's side is OddsPapi now — this probe is "
-                         "TheOddsApi's. Use /api/paddy/oddspapi-check."}
-
-    if event_id is None or sport is None:
-        due = cards._due_fixtures()          # FREE: the fixture lists only
-        if not due:
-            return {"error": "no fixture in range to probe — try nearer a match"}
-        sport, fixture, _ = due[0]
-        event_id = fixture.get("id")
-        match = f"{fixture.get('home_team')} vs {fixture.get('away_team')}"
-        kickoff = fixture.get("commence_time")
-    else:
-        match = kickoff = None
-
-    wanted = markets or settings.cards_market_keys
-    try:
-        # ttl=0: a cached answer would defeat the point.
-        event = raw.fetch_event(sport, event_id, wanted, regions=region, ttl=0)
-    except Exception as exc:
-        return {"error": str(exc), "sport": sport, "event_id": event_id,
-                "markets_requested": wanted}
-
-    books: dict[str, list[str]] = {}
-    for bm in (event or {}).get("bookmakers", []):
-        books[bm.get("key")] = sorted(m.get("key") for m in bm.get("markets", []))
-    paddy = books.get("paddypower")
-    return {
-        "match": match or f"{event.get('home_team')} vs {event.get('away_team')}",
-        "kickoff": kickoff or event.get("commence_time"),
-        "sport": sport,
-        "region_requested": region,
-        "markets_requested": wanted,
-        "bookmakers": books,
-        "paddypower_present": paddy is not None,
-        "paddypower_markets": paddy or [],
-        "quota_remaining": getattr(raw, "quota_remaining", None),
-        "last_call_cost": getattr(raw, "last_call_cost", None),
-        "reading": (
-            "Paddy Power listed with markets: the feed carries them — the sweep "
-            "should price this match. Other books listed but not Paddy Power: "
-            "the vendor carries these markets, not from Paddy (yet). NO books at "
-            "all: nobody has posted them for this match yet, or the market keys "
-            "are wrong — try again nearer kickoff, or another `markets` spelling."
-        ),
     }
 
 

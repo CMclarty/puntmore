@@ -44,7 +44,6 @@ from .routers import auth as auth_router
 from .routers import state as state_router
 from .routers import diagnostics as diagnostics_router
 from . import diagnostics
-from .cards.client import CardsApiClient
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -87,16 +86,17 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
+    # TheOddsApi serves the AccaBonus tool and the coupon fallback only; Paddy's
+    # corners/cards come from OddsPapi (below) or not at all.
     if settings.odds_api_key:
         odds_client = TheOddsApiClient(
             settings.odds_api_key, cache_ttl=settings.odds_cache_ttl
         )
         app.state.arbs_client = odds_client
-        app.state.cards_client = CardsApiClient(odds_client)
     else:
         odds_client = None
         app.state.arbs_client = None
-        app.state.cards_client = None
+    app.state.cards_client = None
     # Paddy Power's corners/cards come from OddsPapi when it is configured:
     # TheOddsApi does not carry them (cards/oddspapi.py). Pinnacle's side comes
     # from OddsPapi too (`oddspapi_fair_book`).
