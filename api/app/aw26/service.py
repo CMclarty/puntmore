@@ -217,8 +217,24 @@ def _gbp(v: float) -> str:
     return ("−" if v < 0 else "") + f"£{abs(v):,.0f}"
 
 
-def daily_message(slips, day: date) -> str:
-    """The morning post: the day just gone, then the running totals."""
+# Free bets are NOT tracked yet: the aw_free_bets table (handover §5) waits on
+# Callum's refund and free-bet EV decisions. Until it exists the daily post
+# carries this placeholder balance, so the line is in place when it does.
+FREE_BET_BALANCE_PLACEHOLDER = 0.0
+
+
+def _pct(v: float) -> str:
+    return ("−" if v < 0 else "+") + f"{abs(v) * 100:.1f}%"
+
+
+def daily_message(slips, day: date, snapshot=None,
+                  free_bet_balance: float | None = None) -> str:
+    """The morning post: the day just gone, then the running totals.
+
+    Optional lines follow the original four, which never change: the day's EV
+    by pricing source (when any slip was priced), what is on offer now (the
+    latest value snapshot, when given), and the free-bet balance (when given —
+    a placeholder until free bets are tracked)."""
     s = summary([x for x in slips if london_day(x.placed_at) <= day], day)
     d, t = s["today"], s["total"]
     settled_that_day = [x for x in slips if x.settled_at and london_day(x.settled_at) == day]
@@ -232,6 +248,17 @@ def daily_message(slips, day: date) -> str:
         f"To date: EV {_gbp(t['ev'])} / {_gbp(t['ev_target'])} ({t['days']} days) · "
         f"profit {_gbp(t['profit'])} / {_gbp(PROFIT_TARGET)} · {t['open']} open",
     ]
+    if d["ev_by_source"]:
+        lines.append("EV by source: " + " · ".join(
+            f"{k} {_gbp(v)}" for k, v in sorted(d["ev_by_source"].items(), key=lambda kv: -kv[1])))
+    if snapshot is not None:
+        at = snapshot.at.replace(tzinfo=UTC).astimezone(LONDON)
+        best = f" · best {_pct(snapshot.best_edge)}" if snapshot.best_edge is not None else ""
+        lines.append(f"On offer now ({snapshot.source}, {at:%H:%M}): {snapshot.n_value} value "
+                     f"lines of {snapshot.n_lines}{best} · Σ edge {_pct(snapshot.sum_edge_positive)}")
+    if free_bet_balance is not None:
+        # Drop "(not tracked yet)" when aw_free_bets feeds the real balance.
+        lines.append(f"Free-bet balance {_gbp(free_bet_balance)} (not tracked yet)")
     return "\n".join(lines)
 
 
@@ -250,7 +277,9 @@ def run_daily(db, notifier, day: date | None = None) -> str:
             settle_slip(slip, now)
     db.commit()
     day = day or (london_day(now) - timedelta(days=1))
-    message = daily_message(slips, day)
+    from .snapshots import latest
+    message = daily_message(slips, day, snapshot=latest(db, "paddy"),
+                            free_bet_balance=FREE_BET_BALANCE_PLACEHOLDER)
     head, *rest = message.split("\n")
     notify_rows(notifier, "aw26", head, [(None, line) for line in rest])
     return message
