@@ -765,6 +765,18 @@ Grants are the tool names plus `value`, `state`, `ingest` (or `*`); `paddy` =
 `cards`, `365` = `accabonus+goalscorers`. In production run it in Render's
 shell (`cd /app`), which has `DATABASE_URL`. Full API docs: `docs/api.md`.
 
+**The API is a contract** (`docs/api.md`, Oct 2026): every route under `/api`
+has a `response_model` and a per-tool tag (`tests/test_openapi.py` fails
+otherwise); `/api/docs` and `/api/openapi.json` are served behind a session or
+any key, never public. Changes are ADDITIVE ONLY — a breaking change goes to
+`/api/v2/...`. `GET /api/value` is the cross-tool value feed in one
+`ValueSelection` shape, built from each tool's own feed builder (never a
+second pricing path). Tool logic lives in services (`cards/feed.py`,
+`accabonus/feed.py`, `coupons/service.py`, `pnl/service.py`,
+`shop/service.py`, `aw26/record.py`); routers stay thin. The Python client is
+`clients/python/puntmore`. Nothing in the API places a bet — read, record,
+report — and no bookmaker-account automation is ever added here.
+
 ## UI rules — these are TOOLS, build only what is asked
 Callum has had to strip unrequested additions out repeatedly (Oct 2026). A
 screen is for finding a bet and placing it in seconds.
