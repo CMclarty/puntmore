@@ -308,7 +308,11 @@ def test_selfcheck_reports_what_a_site_sees(tmp_path):
     # depends on the browser's own chrome (857 in Google Chrome, the full 1000
     # in CI's bundled headless Chromium), so only the window itself is fixed.
     assert seen["outer"] == [1600, 1000] and seen["inner"][1] <= 1000
-    assert seen["webdriver"] is False and seen["enable_automation"] is False
-    assert seen["automation_controlled_disabled"] is True
+    assert seen["webdriver"] is False
+    # The flags are read off chrome://version, which CI's headless shell does
+    # not render; webdriver being false above is the effect of them anyway.
+    if seen["command_line_read"]:
+        assert seen["enable_automation"] is False
+        assert seen["automation_controlled_disabled"] is True
     lines = browser.selfcheck_lines(seen, "test")
     assert any(line.split()[:2] == ["navigator.webdriver", "false"] for line in lines)
