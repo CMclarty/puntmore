@@ -31,7 +31,7 @@ go quiet. Every page load goes through a guard that enforces per-site budgets.
 | CI to GHCR ([workflow](https://github.com/CMclarty/puntmore/blob/scraper-v0.1/.github/workflows/scraper-image.yml)) | Written, **never run** (it only runs on `main`) |
 | Real Chrome install in the image | Untested (the sandbox couldn't reach Google) |
 | Parsers `bb_saves`, `pp_match` ([`parsers.py`](https://github.com/CMclarty/puntmore/blob/scraper-v0.1/local/scraper/parsers.py)) | **Not written.** They need real dumps and samples first |
-| Alert when an *already-open* page gets blocked | **Half done.** See open item 1 |
+| Alert when an *already-open* page gets blocked | Done 26 Oct (`runner._check_open`) |
 | Run against the real sites | **Never** |
 
 The tests are in [`tests/`](https://github.com/CMclarty/puntmore/tree/scraper-v0.1/local/scraper/tests).
@@ -44,7 +44,7 @@ localhost.
 - [`bcd94a3`](https://github.com/CMclarty/puntmore/commit/bcd94a3): groundwork. Records 403/429s the open pages receive, and attaches screenshots to Discord alerts. The runner doesn't use either yet.
 
 ## Open items, in order
-1. **Wire the open-page block check into the runner.** On each tick:
+1. **Done (26 Oct, branch `scraper-realism`).** Wire the open-page block check into the runner. On each tick:
    - for each open tab, check `capture.refused_within(600) >= 3`, a Cloudflare page (`browser.blocked`), or a logout;
    - on any of those, call `_on_blocked(site, reason, now, tab)` and screenshot the page into `data/blocks/`;
    - send the Discord alert with the image;

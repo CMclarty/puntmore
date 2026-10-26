@@ -18,11 +18,17 @@ run (data/samples/20261018-172951, three EPL match pages with payloads) shows:
   event page is fetched once, for the default tab, and every getMarketPrices
   market id is either named there or not a three-runner market.
 
-So the tab clicks did not bring these markets in, or brought them in by a
-response the capture does not keep. Next step: with the market enabled on
-the /scraper page, let it capture, then look for CORNERS_MATCH_BET in
-data/samples/ and write this from that payload (and a trimmed fixture under
-tests/fixtures/).
+So the tab clicks did not bring these markets in: after the first 6 s of
+each tab there is no event-page or pub fetch at all, and the getMarketPrices
+market set never changes. (The 200 MB run cap, spent on two tabs, also left
+most tabs with nothing.) Since 26 Oct the clicks wait for that fetch and
+say per tab whether it came (`loaded`), the payloads after each click are
+labelled in index.jsonl ("after": "tab:Corners") and pinned in
+`capture.pinned`, and every tab keeps its own disk share. Next step: run it,
+look for CORNERS_MATCH_BET in the payloads labelled after a click, and write
+this from that (and a trimmed fixture under tests/fixtures/). Note that the
+page shows one tab at a time: after clicking Corners then Cards & Fouls, only
+the Cards markets stay on screen and keep being polled.
 
 Row shape the endpoint takes:
     {"home": "Arsenal", "away": "Chelsea", "kickoff": "2026-10-18T15:00:00Z",

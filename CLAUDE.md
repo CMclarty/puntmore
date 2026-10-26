@@ -649,8 +649,13 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   server-side to the scraper's own floors. HOW each site is treated is code
   (`sites.py`: budgets, Paddy quiet hours 01-07, a Paddy block = every Paddy
   page closed + 24 h cool-off needing `resume`) — no page edit can loosen it.
-  It detects challenges and logouts and never answers them — no fingerprint
-  spoofing, no solvers, no proxies; do not add any. Parsers
+  It detects challenges and logouts (also on an already-open page: 3+
+  refusals in 10 min, Cloudflare, logout) and never answers them — no
+  fingerprint spoofing, no solvers, no proxies, no user-agent or navigator
+  overrides; do not add any. Chrome is configured coherently, not disguised
+  (`python -m scraper selfcheck` prints what a site sees; Playwright's
+  `--enable-automation` is left on). Page loads are spaced per site and
+  across sites (`sites.py load_gap_s`); jitter is drawn once per load. Parsers
   (`scraper/parsers/`, one module each) are written only from captured
   samples/dumps: `pp_most` and `bb_saves` are both unwritten (Oct 2026 — no
   priced most market in the samples; no Bookie Bashing page set).

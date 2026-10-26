@@ -23,8 +23,19 @@ each) are written only from `data/samples/` and `data/dumps/`. `pp_most` and
   cool-off starts. It also needs `resume`, and you get an alert.
 - Bookie Bashing logout or check → one alert and a back-off, with the tab left
   open so you can sort it over VNC.
+- A block is also caught on a page that is already open: 3+ refused
+  requests in 10 min, a Cloudflare page, or a logout. Every block alert
+  carries a screenshot (also in `data/blocks/`). A Paddy cool-off alerts once
+  when its hours are served and it waits on `resume`, and once when it runs
+  again.
+- Paced like one person with a few tabs: page loads are spaced (Paddy 90 s+,
+  Bookie Bashing 60 s+, and 20-45 s between any two), so nothing opens in a
+  burst at startup or after quiet hours; timed reloads are jittered once per
+  load. Market tabs are clicked through the mouse, then read down.
 - It never answers a challenge, never types a password, and never fakes a
-  fingerprint.
+  fingerprint. Chrome is set up the ordinary way for one UK reader
+  (en-GB from the environment, London time, a 1600x1000 window on a
+  1920x1080 screen); `selfcheck` shows exactly what a site sees.
 - **A datacentre IP is more likely to be challenged than a home one.** If Paddy
   challenges this server, the scraper stops and tells you. It does not work
   around the challenge.
@@ -67,7 +78,17 @@ docker exec puntmore-scraper python -m scraper status          # budget, cool-of
 docker exec puntmore-scraper python -m scraper dump bb-saves    # save the open page(s) to data/dumps/
 docker exec puntmore-scraper python -m scraper resume paddypower
 docker exec puntmore-scraper python -m scraper check            # the targets it would run, and from where
+docker exec puntmore-scraper python -m scraper selfcheck        # what a site sees of the browser (no network)
 ```
+
+Each match tab's status says what its market-tab clicks did (`loaded`,
+`clicked, nothing new`, `not found`, ...). A tab that is not found saves the
+page once per run to `data/samples/<run>/<target>-market-tab-not-found/`.
+
+Samples: each tab keeps its first distinct payloads on disk
+(`SCRAPER_CAPTURE_TAB_MB`, default 8, inside the run's `SCRAPER_CAPTURE_MB`),
+first-party hosts only, repeats of the same URL+size skipped, plus the page's
+HTML once. `index.jsonl` marks each market-tab click and labels what followed it.
 
 Health: Docker's healthcheck fails if the loop hasn't ticked for 5 minutes.
 Set `SCRAPER_HEALTHCHECK_URL` (e.g. healthchecks.io) for an alert when the
