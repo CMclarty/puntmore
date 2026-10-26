@@ -37,8 +37,13 @@ poll(); setInterval(poll, 1000);
 LOGIN = "<html><title>Sign in</title><body><form><input type=password></form></body></html>"
 
 
+PAGE = "<html><title>Saves</title><body><table><tr><td>7.5</td></tr></table></body></html>"
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     blocked_path = None
+    config = {"targets": []}          # what /api/scraper/config serves
+    reports: list = []                # what /api/scraper/status received
 
     def log_message(self, *a):
         pass
@@ -64,6 +69,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                               "application/json")
         if path == "/bb":
             return self._send(200, LOGIN)
+        if path == "/bbpage":
+            return self._send(200, PAGE)
+        if path == "/api/scraper/config":
+            return self._send(200, json.dumps(Handler.config), "application/json")
+        self._send(404, "no")
+
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers.get("content-length", 0)))
+        if self.path == "/api/scraper/status":
+            Handler.reports.append(json.loads(body))
+            return self._send(200, "{}", "application/json")
         self._send(404, "no")
 
 
@@ -71,16 +87,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
 def site():
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
+    Handler.config, Handler.reports = {"targets": []}, []
     yield f"http://127.0.0.1:{srv.server_port}"
     Handler.blocked_path = None
     srv.shutdown()
 
 
-def _runner(tmp_path, targets, p):
+def _runner(tmp_path, targets, p, server=None):
     from scraper import browser
     s = config.Settings(data_dir=tmp_path, profile_dir=tmp_path / "profile", channel=None,
-                        alert_webhook=None, healthcheck_url=None, puntmore_url="http://x",
-                        ingest_key=None, capture_mb=20, targets=targets)
+                        alert_webhook=None, healthcheck_url=None, puntmore_url=server or "http://x",
+                        ingest_key="k" if server else None, capture_mb=20, targets=targets,
+                        from_server=bool(server), targets_source="server" if server else "toml")
     guard = Guard(tmp_path / "g.sqlite3", {n: (r.per_hour, r.per_day) for n, r in SITES.items()})
     guard.quiet = (0, 0)
     ctx = browser.launch(p, s, headless=True)
@@ -90,7 +108,7 @@ def _runner(tmp_path, targets, p):
 def _pp(base):
     # Ticks are at fake times far ahead of the page's real activity, so a long
     # stale_min keeps the open tabs from looking quiet.
-    return config.Target(name="pp", site="paddypower", url=base + "/football", parser="pp_match",
+    return config.Target(name="pp", site="paddypower", url=base + "/football", parser="pp_most",
                          stale_min=120,
                          matches=config.Matches(max_tabs=3, market_tabs=("Cards", "Corners")))
 
@@ -142,4 +160,41 @@ def test_logged_out_alerts_once_and_keeps_tab(tmp_path, site):
         r.tick(t0 + 60)                                     # backing off: no reload
         assert r.guard.spent("bookiebashing", t0 + 60)[0] == 1
         assert (tmp_path / "alerts.log").read_text().count("logged out") == 1
+        ctx.close()
+
+
+def test_config_change_closes_removed_tabs_and_opens_new_ones(tmp_path, site):
+    """A change on the page reaches the running scraper on its next config
+    fetch: the removed target's tabs close, the new target opens - no restart -
+    and the status report says so."""
+    from playwright.sync_api import sync_playwright
+    from scraper.runner import CONFIG_EVERY_S
+    bb = {"name": "bb", "site": "bookiebashing", "url": site + "/bbpage", "every_min": 10,
+          "parser": "bb_saves"}
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [_pp(site)], p, server=site)
+        t0 = time.time()
+        r.tick(t0)
+        r.tick(t0 + 1)
+        assert any(k.startswith("pp:m:") for k in r.tabs) and "pp:list" in r.tabs
+        first = Handler.reports[-1]["targets"]
+        assert [(t["name"], t["state"]) for t in first] == [("pp", "running")]
+
+        Handler.config = {"targets": [bb]}                   # edited on the page
+        r.tick(t0 + 60)                                      # not due yet
+        assert "pp:list" in r.tabs and "bb" not in r.tabs
+        r.tick(t0 + CONFIG_EVERY_S + 5)
+        assert not any(k.startswith("pp") for k in r.tabs)   # every pp tab closed
+        assert "bb" in r.tabs                                # the new one opened
+        assert json.loads((tmp_path / "config.json").read_text()) == Handler.config
+        states = {t["name"]: t for t in Handler.reports[-1]["targets"]}
+        assert states["pp"]["state"] == "retired" and states["bb"]["state"] == "running"
+        assert "parser not written" in states["bb"]["detail"]
+        assert {s["site"] for s in Handler.reports[-1]["sites"]} == set(SITES)
+        assert Handler.reports[-1]["sites"][0]["loads_hour"] >= 1
+
+        Handler.config = {"targets": []}
+        r.tick(t0 + 2 * CONFIG_EVERY_S + 10)
+        assert not r.tabs
+        r.close_all()
         ctx.close()

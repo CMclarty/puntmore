@@ -9,6 +9,10 @@ Target kinds:
   page     one URL, one tab (e.g. Bookie Bashing's saves page)
   matches  a listing page (kept open) whose match links are opened, a few at
            a time, in their own kept-open tabs (e.g. a Paddy competition)
+
+Targets set on Puntmore's /scraper page are re-fetched every CONFIG_EVERY_S:
+a removed or changed target's tabs close, a new one opens on the next tick —
+no restart. The runner reports its state back every STATUS_EVERY_S.
 """
 import collections
 import json
@@ -19,6 +23,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 from . import browser
+from . import config
 from .capture import Capture, DiskBudget
 from .config import host_allowed
 from .parsers import PARSERS
@@ -26,6 +31,9 @@ from .sites import BACKOFF_MIN, SITES
 
 PARSE_EVERY_S = 60
 HEALTH_PING_S = 300
+CONFIG_EVERY_S = 300
+STATUS_EVERY_S = 60
+STATUS_PATH = "/api/scraper/status"
 
 
 class Tab:
@@ -54,8 +62,16 @@ class Runner:
         self.paused_said: dict[str, str] = {}
         self.last_open: dict[str, float] = {}
         self.retired: dict[str, collections.deque] = {}
-        self.parser_said: set[str] = set()
+        self.parser_said: dict[str, str] = {}
         self.next_health = 0.0
+        self.targets = list(settings.targets)
+        self.source = settings.targets_source         # server | cache | toml
+        self.next_config: float | None = None
+        self.next_status = 0.0
+        self.last_load_at: dict[str, float] = {}       # target name -> last good load
+        self.last_parse_at: dict[str, float] = {}      # ... last parse that returned rows
+        self.rows_posted: dict[str, int] = {}
+        self.retired_targets: dict[str, config.Target] = {}   # removed by a config change
         (settings.data_dir / "latest").mkdir(parents=True, exist_ok=True)
         (settings.data_dir / "requests").mkdir(parents=True, exist_ok=True)
 
@@ -133,6 +149,7 @@ class Runner:
             self._on_blocked(site, reason, now)
             return None
         self._on_clear(site)
+        self.last_load_at[target.name] = now
         browser.dismiss_consent(tab.page)
         browser.settle(tab.page)
         return tab
@@ -140,6 +157,7 @@ class Runner:
     # --- the tick -----------------------------------------------------------
     def tick(self, now=None):
         now = now or time.time()
+        self._refresh_config(now)
         for site in SITES:
             why = self._paused(site, now)
             if why != self.paused_said.get(site):
@@ -150,7 +168,7 @@ class Runner:
             if why and not why.startswith("backing off"):
                 self._close_site(site)
 
-        for t in self.s.targets:
+        for t in self.targets:
             if self._paused(t.site, now):
                 continue
             if t.matches:
@@ -162,6 +180,53 @@ class Runner:
             self._parse(tab, now)
         self._requests()
         self._heartbeat(now)
+        self._report(now)
+
+    # --- config from Puntmore ----------------------------------------------------
+    def _refresh_config(self, now):
+        if not self.s.from_server:
+            return
+        if self.next_config is None:                 # load() has just fetched it
+            self.next_config = now + CONFIG_EVERY_S
+            return
+        if now < self.next_config:
+            return
+        self.next_config = now + CONFIG_EVERY_S
+        try:
+            targets = config.fetch_server(self.s.puntmore_url, self.s.ingest_key, self.s.data_dir)
+        except Exception as exc:                     # keep what is running
+            print(f"config: refresh failed ({exc.__class__.__name__}: {exc}); "
+                  "keeping the current targets", flush=True)
+            return
+        self.source = "server"
+        self.apply_targets(targets)
+
+    def apply_targets(self, targets):
+        """Swap in a new target list. A target that is gone, or whose
+        definition changed, has its tabs closed; new and changed targets open
+        through the normal tick (and its guard) from the next tick on."""
+        old = {t.name: t for t in self.targets}
+        new = {t.name: t for t in targets}
+        if old == new:
+            return
+        for name, t in old.items():
+            if new.get(name) != t:
+                for key in [k for k, tab in self.tabs.items() if tab.target.name == name]:
+                    self._close(key)
+                self.retired.pop(name, None)
+                self.last_open.pop(name, None)
+                self.parser_said.pop(name, None)
+            if name not in new:
+                self.retired_targets[name] = t
+        for name in new:
+            self.retired_targets.pop(name, None)
+        added = sorted(set(new) - set(old))
+        removed = sorted(set(old) - set(new))
+        changed = sorted(n for n in set(old) & set(new) if old[n] != new[n])
+        print("config: " + "; ".join(f"{label} {', '.join(names)}" for label, names in
+                                     (("added", added), ("removed", removed), ("changed", changed))
+                                     if names), flush=True)
+        self.targets = list(targets)
 
     def _tick_page(self, t, key, url, now):
         tab = self.tabs.get(key)
@@ -247,27 +312,78 @@ class Runner:
         except NotImplementedError as exc:
             if t.name not in self.parser_said:
                 print(f"{t.name}: {exc} - capturing only", flush=True)
-                self.parser_said.add(t.name)
+                self.parser_said[t.name] = f"parser not written ({t.parser}) - capturing only"
             return
         except Exception as exc:
             print(f"{t.name}: parser failed: {exc}", flush=True)
             return
+        self.parser_said.pop(t.name, None)
         out = self.s.data_dir / "latest" / f"{_safe(t.name)}.json"
         out.write_text(json.dumps({"at": now, "url": tab.url, "rows": rows}, indent=1))
-        if t.post and rows:
-            self._post(t, rows)
+        if rows:
+            self.last_parse_at[t.name] = now
+        if t.post and rows and self._post(t, rows):
+            self.rows_posted[t.name] = self.rows_posted.get(t.name, 0) + len(rows)
 
-    def _post(self, t, rows):
+    def _post(self, t, rows) -> bool:
         if not self.s.ingest_key:
-            return
+            return False
         import httpx
         try:
             r = httpx.post(self.s.puntmore_url.rstrip("/") + t.post, json={"prices": rows},
                            headers={"X-API-Key": self.s.ingest_key}, timeout=30)
             r.raise_for_status()
             print(f"{t.name}: sent {len(rows)} -> {r.json()}", flush=True)
+            return True
         except Exception as exc:
             print(f"{t.name}: send failed: {exc}", flush=True)
+            return False
+
+    # --- status back to Puntmore -------------------------------------------------
+    def status(self, now) -> dict:
+        """Per target: state, detail, last load/parse, rows posted. Per site:
+        budget spent and cool-off. What `python -m scraper status` prints."""
+        targets = []
+        for t in [*self.targets, *self.retired_targets.values()]:
+            retired = t.name in self.retired_targets
+            why = self._paused(t.site, now)
+            if retired:
+                state, detail = "retired", "removed on the page"
+            elif why and (why.startswith("cooling off") or why.startswith("backing off")):
+                state, detail = "blocked", why
+            elif why:
+                state, detail = "paused", why
+            else:
+                n = sum(1 for tab in self.tabs.values() if tab.target.name == t.name)
+                state = "running"
+                detail = "; ".join(x for x in (f"{n} tab{'s' if n != 1 else ''} open",
+                                               self.parser_said.get(t.name)) if x)
+            targets.append({"name": t.name, "site": t.site, "url": t.url, "state": state,
+                            "detail": detail, "last_load": self.last_load_at.get(t.name),
+                            "last_parse": self.last_parse_at.get(t.name),
+                            "rows_posted": self.rows_posted.get(t.name, 0)})
+        return {"at": now, "source": self.source,
+                "targets": targets, "sites": site_status(self.guard, now)}
+
+    def _report(self, now):
+        if now < self.next_status:
+            return
+        self.next_status = now + STATUS_EVERY_S
+        body = self.status(now)
+        try:
+            (self.s.data_dir / "status.json").write_text(json.dumps(body, indent=1))
+        except OSError:
+            pass
+        if not (self.s.from_server and self.s.ingest_key):
+            return
+        import httpx
+        try:
+            r = httpx.post(self.s.puntmore_url.rstrip("/") + STATUS_PATH,
+                           json={"targets": body["targets"], "sites": body["sites"]},
+                           headers={"X-API-Key": self.s.ingest_key}, timeout=15)
+            r.raise_for_status()
+        except Exception as exc:
+            print(f"status: send failed: {exc}", flush=True)
 
     def _requests(self):
         """`python -m scraper dump <target>` drops a file; the running loop
@@ -303,6 +419,22 @@ class Runner:
     def close_all(self):
         for key in list(self.tabs):
             self._close(key)
+
+
+def site_status(guard, now) -> list[dict]:
+    """Budget spent and cool-off per site, off the guard's SQLite."""
+    out = []
+    for site, rules in SITES.items():
+        h, d = guard.spent(site, now)
+        c = guard.cooloff(site)
+        cooling = bool(c) and guard.cooloff_active(site, now)
+        left = (max(0.0, guard.cooloff_hours * 3600 - (now - c["since"])) / 3600) if cooling else None
+        out.append({"site": site, "loads_hour": h, "per_hour": rules.per_hour,
+                    "loads_day": d, "per_day": rules.per_day,
+                    "cooloff": c["reason"] if cooling else None,
+                    "cooloff_left_h": None if left is None else round(left, 2),
+                    "needs_resume": bool(cooling and not c["resumed"])})
+    return out
 
 
 def match_links(page, link_re, base_url) -> list[str]:

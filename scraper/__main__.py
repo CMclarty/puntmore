@@ -1,12 +1,13 @@
 """python -m scraper <command>
 
-  run              The service: one Chrome, every target in targets.toml kept
-                   open. This is what the container runs.
-  status           Budget spent, cool-offs, heartbeat age.
+  run              The service: one Chrome, every target kept open. Targets come
+                   from Puntmore's /scraper page (targets.toml offline). This
+                   is what the container runs.
+  status           Budget spent, cool-offs, each target's state, heartbeat age.
   resume <site>    End a cool-off early-ish: it still needs its hours to pass.
   dump <target>    Ask the RUNNING service to save that target's open page(s)
                    (HTML + screenshot) to data/dumps/ - no extra page load.
-  check            Validate targets.toml and print what would run.
+  check            Load the targets (server, cache or toml) and print them.
 """
 import signal
 import sys
@@ -30,8 +31,9 @@ def run(s):
     from . import browser
     from .runner import Runner
 
-    if not s.targets:
-        sys.exit(f"No targets - put a targets.toml in {s.data_dir} (see targets.example.toml).")
+    if not s.targets and not s.from_server:
+        sys.exit(f"No targets - set PUNTMORE_URL and SAVES_INGEST_KEY, or put a targets.toml "
+                 f"in {s.data_dir} (see targets.example.toml).")
     stop = []
 
     def on_signal(signum, _frame):
@@ -49,7 +51,7 @@ def run(s):
         # the other tabs' events (responses, websocket frames) be delivered.
         idle = ctx.pages[0] if ctx.pages else ctx.new_page()
         runner = Runner(s, ctx, guard, alerts, run_dir)
-        print(f"running {len(s.targets)} target(s): "
+        print(f"running {len(s.targets)} target(s) from {s.targets_source}: "
               + ", ".join(f"{t.name} ({t.site})" for t in s.targets), flush=True)
         while not stop:
             try:
@@ -73,16 +75,27 @@ def _prune(root, keep):
 
 
 def status(s):
-    g = _guard(s)
-    for site in SITES:
-        h, d = g.spent(site)
-        c = g.cooloff(site)
-        line = f"{site:14} loads {h}/{SITES[site].per_hour} this hour, {d}/{SITES[site].per_day} today"
-        if c and g.cooloff_active(site):
-            left = max(0, g.cooloff_hours * 3600 - (time.time() - c["since"])) / 3600
-            line += (f"  COOLING OFF ({c['reason']}), {left:.1f} h left, "
-                     f"{'resumed' if c['resumed'] else 'needs resume'}")
+    """Per site: budget and cool-off. Per target: the running service's last
+    report (data/status.json) - the same thing it posts to Puntmore."""
+    from .runner import site_status
+    for st in site_status(_guard(s), time.time()):
+        line = (f"{st['site']:14} loads {st['loads_hour']}/{st['per_hour']} this hour, "
+                f"{st['loads_day']}/{st['per_day']} today")
+        if st["cooloff"]:
+            line += (f"  COOLING OFF ({st['cooloff']}), {st['cooloff_left_h']:.1f} h left, "
+                     f"{'needs resume' if st['needs_resume'] else 'resumed'}")
         print(line)
+    rep = s.data_dir / "status.json"
+    if rep.exists():
+        import json
+        body = json.loads(rep.read_text())
+        print(f"targets        from {body.get('source')}, reported "
+              f"{int(time.time() - body['at'])} s ago")
+        for t in body["targets"]:
+            ago = lambda ts: "never" if ts is None else f"{int(time.time() - ts)} s ago"
+            print(f"  {t['name']:28} {t['state']:8} load {ago(t['last_load'])}, "
+                  f"parse {ago(t['last_parse'])}, posted {t['rows_posted']}"
+                  + (f"  ({t['detail']})" if t.get("detail") else ""))
     hb = s.data_dir / "heartbeat"
     print(f"heartbeat      {int(time.time() - int(hb.read_text()))} s ago" if hb.exists()
           else "heartbeat      none")
@@ -112,6 +125,7 @@ def main(argv=None):
         (req / f"dump-{rest[0]}").touch()
         print(f"asked the service to dump {rest[0]} - see data/dumps/ within ~15 s")
     elif cmd == "check":
+        print(f"targets from {s.targets_source}")
         for t in s.targets:
             print(f"{t.name}: {t.site} {t.url}"
                   + (f"  matches(max {t.matches.max_tabs}, tabs {list(t.matches.market_tabs)})" if t.matches else "")

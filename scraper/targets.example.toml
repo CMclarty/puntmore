@@ -1,5 +1,7 @@
-# Copy to /opt/puntmore-scraper/data/targets.toml and edit. Changes take
-# effect on the next restart (`docker restart puntmore-scraper`).
+# OFFLINE ONLY. With PUNTMORE_URL and SAVES_INGEST_KEY set, the targets come
+# from Puntmore's /scraper page and this file is not read (unless
+# SCRAPER_TARGETS points at it, which always wins). Here, changes take effect
+# on the next restart.
 #
 # Any mix of the two sites. Each site's budget, quiet hours and block
 # handling are fixed in code (sites.py), whatever is listed here.
@@ -9,7 +11,7 @@
 #   url        the page
 #   every_min  reload on this interval (min 5). Leave out to reload only
 #              when the page has gone quiet for stale_min (default 20, min 10)
-#   parser     name in parsers.py (leave out to just capture)
+#   parser     name in parsers/ (leave out to just capture)
 #   post       puntmore path the parsed rows are POSTed to
 #   [target.matches]  treat url as a listing: open its match links in
 #              kept-open tabs (max_tabs, at most 6), clicking market_tabs once
@@ -23,11 +25,12 @@ parser = "bb_saves"
 post = "/api/paddy/saves-fair"
 
 [[target]]
-name = "pp-epl"
+name = "pp-epl-most"
 site = "paddypower"
 url = "https://www.paddypower.com/football/english-premier-league"
-parser = "pp_match"
+parser = "pp_most"
+post = "/api/paddy/most-prices"
   [target.matches]
   link_re = "-v-"
   max_tabs = 3
-  market_tabs = ["Cards", "Corners", "Player"]
+  market_tabs = ["Corners", "Cards"]

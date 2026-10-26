@@ -1,13 +1,24 @@
-"""Settings (environment) and targets (targets.toml).
+"""Settings (environment) and targets (Puntmore's /scraper page, or targets.toml).
 
-WHAT is read is config: targets.toml lists pages, any mix of Paddy Power and
-Bookie Bashing, and changes without a code change. HOW each site is treated
+WHAT is read is config: a list of targets — pages, any mix of Paddy Power and
+Bookie Bashing — that changes without a code change. HOW each site is treated
 — its budget, quiet hours, what a block means — is code (sites.py), because
 those are the guarantees, and a config edit must not be able to loosen them.
+
+Where the targets come from, first that works:
+  1. SCRAPER_TARGETS set           -> that toml file, always (tests, by hand)
+  2. PUNTMORE_URL + SAVES_INGEST_KEY -> GET /api/scraper/config, cached to
+                                      data/config.json
+  3. the cache, data/config.json   -> server unreachable
+  4. data/targets.toml             -> neither (offline)
+The server serves the same structure targets.toml holds, so both go through
+`_target`. The runner re-fetches every CONFIG_EVERY_S and applies a change
+without a restart.
 
 Every rate limit is a CEILING: config can make the scraper slower or read
 less, never faster.
 """
+import json
 import os
 import pathlib
 import tomllib
@@ -67,6 +78,8 @@ class Settings:
     ingest_key: str | None
     capture_mb: float
     targets: list[Target] = field(default_factory=list)
+    from_server: bool = False           # targets come from Puntmore, re-fetched while running
+    targets_source: str = "toml"        # server | cache | toml
 
 
 def _target(t: dict) -> Target:
@@ -107,17 +120,89 @@ def load_targets(path: pathlib.Path) -> list[Target]:
     return targets
 
 
+def targets_from(raw: list[dict]) -> list[Target]:
+    """Targets from the server's list. Lenient where load_targets is strict:
+    one bad target is skipped and named, rather than stopping every other."""
+    out, names = [], set()
+    for t in raw:
+        try:
+            target = _target(t)
+        except (KeyError, TypeError, ValueError) as exc:
+            print(f"config: skipped target {t.get('name') if isinstance(t, dict) else t!r}: {exc}",
+                  flush=True)
+            continue
+        if target.name in names:
+            print(f"config: skipped duplicate target {target.name}", flush=True)
+            continue
+        names.add(target.name)
+        out.append(target)
+    return out
+
+
+CONFIG_PATH = "/api/scraper/config"
+CACHE_NAME = "config.json"
+
+
+def fetch_server(puntmore_url: str, key: str, data_dir: pathlib.Path,
+                 timeout: float = 15) -> list[Target]:
+    """GET the targets from Puntmore and cache the answer. Raises on any
+    failure (network, HTTP status, shape) so the caller can fall back."""
+    import httpx
+    r = httpx.get(puntmore_url.rstrip("/") + CONFIG_PATH, headers={"X-API-Key": key},
+                  timeout=timeout)
+    r.raise_for_status()
+    body = r.json()
+    raw = body["targets"]
+    if not isinstance(raw, list):
+        raise ValueError("config: targets is not a list")
+    targets = targets_from(raw)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    tmp = data_dir / (CACHE_NAME + ".tmp")
+    tmp.write_text(json.dumps(body, indent=1))
+    tmp.replace(data_dir / CACHE_NAME)
+    return targets
+
+
+def load_cache(data_dir: pathlib.Path) -> list[Target] | None:
+    path = data_dir / CACHE_NAME
+    if not path.exists():
+        return None
+    try:
+        return targets_from(json.loads(path.read_text())["targets"])
+    except (ValueError, KeyError, TypeError) as exc:
+        print(f"config: cache unreadable ({exc})", flush=True)
+        return None
+
+
 def load() -> Settings:
     data = pathlib.Path(os.environ.get("SCRAPER_DATA_DIR", HERE / "data"))
-    targets_file = pathlib.Path(os.environ.get("SCRAPER_TARGETS", data / "targets.toml"))
+    forced = os.environ.get("SCRAPER_TARGETS")
+    targets_file = pathlib.Path(forced or data / "targets.toml")
+    puntmore_url = os.environ.get("PUNTMORE_URL") or ""
+    key = os.environ.get("SAVES_INGEST_KEY") or None
+    from_server = bool(not forced and puntmore_url and key)
+
+    targets, source = None, "toml"
+    if from_server:
+        try:
+            targets, source = fetch_server(puntmore_url, key, data), "server"
+        except Exception as exc:
+            print(f"config: server unreachable ({exc.__class__.__name__}: {exc}); "
+                  "using the cache", flush=True)
+            targets, source = load_cache(data), "cache"
+    if targets is None:
+        targets, source = load_targets(targets_file), "toml"
+
     return Settings(
         data_dir=data,
         profile_dir=pathlib.Path(os.environ.get("SCRAPER_PROFILE_DIR", data / "profile")),
         channel=os.environ.get("SCRAPER_CHANNEL", "chrome") or None,
         alert_webhook=os.environ.get("SCRAPER_ALERT_WEBHOOK") or None,
         healthcheck_url=os.environ.get("SCRAPER_HEALTHCHECK_URL") or None,
-        puntmore_url=os.environ.get("PUNTMORE_URL", "https://puntmore.com"),
-        ingest_key=os.environ.get("SAVES_INGEST_KEY") or None,
+        puntmore_url=puntmore_url or "https://puntmore.com",
+        ingest_key=key,
         capture_mb=_clamp(float(os.environ.get("SCRAPER_CAPTURE_MB", 200)), hi=2000.0),
-        targets=load_targets(targets_file),
+        targets=targets,
+        from_server=from_server,
+        targets_source=source,
     )
