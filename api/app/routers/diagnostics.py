@@ -11,34 +11,32 @@ Either is sufficient. It is READ-only apart from the client-error intake and an
 explicit clear, and it deliberately exposes no request bodies or headers — see
 the module docstring in app/diagnostics.py.
 """
-import secrets
-
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from .. import diagnostics
-from ..config import settings
 from ..database import get_db
 from ..models import User
+from ..security import KeyAuth, api_key_auth, has_permission
 
 router = APIRouter(prefix="/diagnostics", tags=["diagnostics"])
 
 
 def require_admin_or_key(
     request: Request,
-    x_api_key: str | None = Header(default=None),
+    auth: KeyAuth = Depends(api_key_auth),
     db: Session = Depends(get_db),
 ):
-    """Admin session OR the state key.
+    """Admin session OR the state key (or an API client granted `state` or "*").
 
     Resolved by hand rather than through require_tool/user_permissions, because
     those raise 401 on a missing session — which would reject a perfectly valid
     key-authenticated call before the key was ever looked at.
     """
-    if x_api_key and settings.state_api_key:
-        if secrets.compare_digest(x_api_key, settings.state_api_key):
-            return
+    p = auth.principal
+    if p is not None and (p.permissions.strip() == "*" or has_permission(p.permissions, "state")):
+        return
     username = request.session.get("user")
     if username:
         user = db.query(User).filter(User.username == username).first()

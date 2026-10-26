@@ -5,24 +5,20 @@ Key-guarded rather than session-guarded, like /state: the caller is a script
 on Callum's PC, not a browser. It writes to a bounded, expiring in-memory store
 (cards/saves.py) and nothing else — no database, no vendor call.
 """
-import secrets
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from ..cards.most import PaddyMost, store as store_most
 from ..cards.saves import FairSaves, complete, store, _parse_time
-from ..config import settings
+from ..security import require_key_grant
 
 router = APIRouter()
 
 
-def require_ingest_key(x_api_key: str | None = Header(default=None)):
-    if not settings.saves_ingest_key:
-        raise HTTPException(status_code=503, detail="SAVES_INGEST_KEY not configured")
-    if not x_api_key or not secrets.compare_digest(x_api_key, settings.saves_ingest_key):
-        raise HTTPException(status_code=401, detail="Invalid API key")
+# The `ingest` grant: SAVES_INGEST_KEY, or an API client granted `ingest`.
+require_ingest_key = require_key_grant("ingest", "saves_ingest_key")
 
 
 class FairSavesIn(BaseModel):

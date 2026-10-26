@@ -8,26 +8,22 @@ entirely rather than allowing unauthenticated access.
 Feed data reads through the shared odds cache (same as the UI endpoints),
 so polling this endpoint never increases TheOddsApi call frequency.
 """
-import secrets
-
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session, selectinload
 
 from ..config import settings
 from ..database import get_db
 from ..models import Coupon
 from ..schemas import CouponStateOut, StateOut
+from ..security import require_key_grant
 from ..time_utils import utcnow
 from . import accabonus, cards
 
 router = APIRouter()
 
 
-def require_api_key(x_api_key: str | None = Header(default=None)):
-    if not settings.state_api_key:
-        raise HTTPException(status_code=503, detail="STATE_API_KEY not configured")
-    if not x_api_key or not secrets.compare_digest(x_api_key, settings.state_api_key):
-        raise HTTPException(status_code=401, detail="Invalid API key")
+# The `state` grant: STATE_API_KEY, or an API client granted `state`.
+require_api_key = require_key_grant("state", "state_api_key")
 
 
 @router.get("/state", response_model=StateOut, dependencies=[Depends(require_api_key)])

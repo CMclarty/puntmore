@@ -3,21 +3,34 @@
 No registration / reset flows. Users are seeded from Settings.auth_users on
 startup. require_user is the single guard applied to every data router.
 """
+import hashlib
+import secrets
 import time
+from dataclasses import dataclass
+from datetime import timedelta
 
 import bcrypt
 from fastapi import Depends, HTTPException, Request
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from .config import settings
 from .database import engine, get_db
-from .models import User
+from .models import ApiClient, User
+from .time_utils import utcnow
 
 # Every tool the suite knows about. "*" in a permission string means all of
 # these plus any added later (so an admin never needs their entry edited when a
 # tool ships). Keep in sync with the routers mounted in main.py.
 ALL_TOOLS = ("coupons", "accabonus", "cards", "goalscorers", "pnl", "kelly", "boost", "shop", "aw26", "scraper")
+
+# Grants that name no page — they exist for machine callers. `value` reads the
+# cross-tool value feed (GET /api/value); `state` is the whole-app snapshot
+# (GET /api/state); `ingest` is the scraper / Bookie Bashing write paths.
+# STATE_API_KEY and SAVES_INGEST_KEY are these last two, as static keys.
+MACHINE_GRANTS = ("value", "state", "ingest")
+ALL_GRANTS = ALL_TOOLS + MACHINE_GRANTS
 
 
 def hash_password(plain: str) -> str:
@@ -105,11 +118,115 @@ class LoginThrottle:
         self._failures.pop((username, ip), None)
 
 
-def require_user(request: Request) -> str:
-    """FastAPI dependency: returns the session username or raises 401.
+# --- machine keys -------------------------------------------------------------
+#
+# ONE mechanism for every machine caller. A key arrives as
+# `Authorization: Bearer <key>` (preferred) or `X-API-Key: <key>` and resolves
+# to a Principal: an ApiClient row (looked up by the key's sha256), or one of
+# the two static env keys, which are the grants `state` (STATE_API_KEY) and
+# `ingest` (SAVES_INGEST_KEY). A key is never logged or echoed anywhere.
 
+API_KEY_PREFIX = "pm_"
+# last_used_at is written at most this often per client, so a bot polling every
+# few seconds does not turn every read into a SQLite write.
+LAST_USED_EVERY = timedelta(minutes=1)
+# The static env keys, as (setting, grant). Kept working exactly as before —
+# the scraper box and the PC scripts send them.
+STATIC_KEYS = (("state_api_key", "state"), ("saves_ingest_key", "ingest"))
+
+_bearer = HTTPBearer(
+    auto_error=False, scheme_name="Bearer",
+    description="An API client key: `Authorization: Bearer <key>`.",
+)
+_x_api_key = APIKeyHeader(
+    name="X-API-Key", auto_error=False, scheme_name="X-API-Key",
+    description="The same key as the X-API-Key header (also how the static "
+                "STATE_API_KEY / SAVES_INGEST_KEY are sent).",
+)
+
+
+def generate_api_key() -> str:
+    return API_KEY_PREFIX + secrets.token_urlsafe(32)
+
+
+def hash_api_key(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+@dataclass(frozen=True)
+class Principal:
+    """Who a key belongs to. `kind` is "client" (an ApiClient row) or
+    "static" (STATE_API_KEY / SAVES_INGEST_KEY)."""
+    name: str
+    permissions: str
+    kind: str
+
+    @property
+    def username(self) -> str:
+        """The name a client acts under where a route records who did it (a
+        P&L bet, an AW 26 slip). Prefixed so it can never be a real user's."""
+        return f"api:{self.name}"
+
+
+@dataclass(frozen=True)
+class KeyAuth:
+    presented: bool                 # a key was sent at all
+    principal: Principal | None     # ... and it is valid (None = bad key)
+
+
+def presented_key(
+    bearer: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    x_api_key: str | None = Depends(_x_api_key),
+) -> str | None:
+    """The key on the request, Bearer first. None when there is none."""
+    if bearer is not None and bearer.credentials.strip():
+        return bearer.credentials.strip()
+    if x_api_key and x_api_key.strip():
+        return x_api_key.strip()
+    return None
+
+
+def resolve_api_key(key: str, db: Session) -> Principal | None:
+    """The principal behind `key`, or None. Never raises on a bad key."""
+    raw = key.encode()
+    for setting, grant in STATIC_KEYS:
+        configured = getattr(settings, setting)
+        if configured and secrets.compare_digest(raw, configured.encode()):
+            return Principal(name=f"{grant}-key", permissions=grant, kind="static")
+    client = (
+        db.query(ApiClient).filter(ApiClient.key_hash == hash_api_key(key)).first()
+    )
+    if client is None or not client.enabled:
+        return None
+    now = utcnow()
+    if client.last_used_at is None or now - client.last_used_at >= LAST_USED_EVERY:
+        client.last_used_at = now
+        db.commit()
+    return Principal(name=client.name, permissions=client.permissions or "", kind="client")
+
+
+def api_key_auth(
+    key: str | None = Depends(presented_key), db: Session = Depends(get_db),
+) -> KeyAuth:
+    """FastAPI dependency: the request's key, resolved. Cached per request by
+    FastAPI, so several guards on one route resolve it once."""
+    if key is None:
+        return KeyAuth(presented=False, principal=None)
+    return KeyAuth(presented=True, principal=resolve_api_key(key, db))
+
+
+def require_user(request: Request, auth: KeyAuth = Depends(api_key_auth)) -> str:
+    """FastAPI dependency: who is calling — the session username, or
+    "api:<name>" for an API client — else 401.
+
+    A key, when sent, IS the identity: a bad key is a 401 even beside a valid
+    session cookie, so a script can never silently act as a browser's user.
     Overridable in tests via app.dependency_overrides[require_user].
     """
+    if auth.presented:
+        if auth.principal is None:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        return auth.principal.username
     user = request.session.get("user")
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -173,14 +290,27 @@ def granted_tools(perms: str) -> list[str]:
     return [t for t in enabled_tools() if t in allowed]
 
 
-def user_permissions(request: Request, db: Session = Depends(get_db)) -> str:
-    """FastAPI dependency: the current user's permission string, read live from
-    the DB (so a re-seed takes effect without waiting for re-login).
+def user_permissions(
+    request: Request,
+    db: Session = Depends(get_db),
+    auth: KeyAuth = Depends(api_key_auth),
+) -> str:
+    """FastAPI dependency: the caller's permission string — an API client's
+    grant when a key is sent, else the session user's, read live from the DB
+    (so a re-seed takes effect without waiting for re-login).
 
     A single overridable seam — tests replace this one function to bypass
     per-tool authorization, and every require_tool guard resolves through it.
+    That is also why API clients are resolved HERE: every existing guard admits
+    a client with the grant, with no per-router change.
     """
-    username = require_user(request)
+    if auth.presented:
+        if auth.principal is None:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        return auth.principal.permissions
+    username = request.session.get("user")
+    if not username:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     user = db.query(User).filter(User.username == username).first()
     if user is None:
         # Session names a user that no longer exists (deleted between requests).
@@ -189,14 +319,46 @@ def user_permissions(request: Request, db: Session = Depends(get_db)) -> str:
 
 
 def require_tool(tool: str):
-    """Build a dependency that admits a request only if the session user is
-    granted `tool`. Router-level guard: seeing a tool means full use of it."""
+    """Build a dependency that admits a request only if the caller (session
+    user or API client) is granted `tool`. Router-level guard: seeing a tool
+    means full use of it."""
 
     def guard(perms: str = Depends(user_permissions)) -> None:
         if not has_permission(perms, tool):
             raise HTTPException(
                 status_code=403, detail="Insufficient permissions"
             )
+
+    return guard
+
+
+def require_any_grant(perms: str = Depends(user_permissions)) -> str:
+    """Any authenticated caller with at least one grant — the docs gate."""
+    if not parse_permissions(perms):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    return perms
+
+
+def require_key_grant(grant: str, static_setting: str):
+    """Guard for the KEY-ONLY machine routes (/state, the ingest paths).
+
+    Admits an API client granted `grant`, or the static env key that IS that
+    grant. Sessions do not count, exactly as before these were unified. The old
+    answers are kept: no static key configured and no client admitted → 503;
+    a missing or wrong key → 401. A valid client key without the grant → 403.
+    """
+
+    def guard(auth: KeyAuth = Depends(api_key_auth)) -> None:
+        p = auth.principal
+        if p is not None and has_permission(p.permissions, grant):
+            return
+        if p is not None and p.kind == "client":
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+        if not getattr(settings, static_setting):
+            raise HTTPException(
+                status_code=503, detail=f"{static_setting.upper()} not configured"
+            )
+        raise HTTPException(status_code=401, detail="Invalid API key")
 
     return guard
 

@@ -267,6 +267,28 @@ class User(Base):
     created_at = Column(DateTime, default=utcnow)
 
 
+class ApiClient(Base):
+    """A machine caller (a script, a future bet-placer) with its own key.
+
+    The key itself is NEVER stored: only its sha256, so a copy of the database
+    is not a copy of the keys. It is shown once, by `python -m app.apikeys
+    create`, and cannot be recovered afterwards — lose it and create another.
+    `permissions` uses the User grammar ("*" or tools joined by "+"), and is
+    resolved through the same `security.user_permissions` seam, so every
+    `require_tool` guard admits a client exactly as it would a user with that
+    grant. Revoking sets `enabled` False; the row stays as the record.
+    """
+    __tablename__ = "api_clients"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True, nullable=False)
+    key_hash = Column(String, unique=True, nullable=False, index=True)
+    permissions = Column(String, nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True, server_default="1")
+    created_at = Column(DateTime, default=utcnow)
+    last_used_at = Column(DateTime, nullable=True)
+
+
 class LadderShadow(Base):
     """One measured prediction error of the counts model (pricing/counts/shadow.py).
 

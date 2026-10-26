@@ -88,8 +88,10 @@ def test_page_routes_401_without_a_session(client):
     app.dependency_overrides.pop(user_permissions, None)
     app.dependency_overrides.pop(require_user, None)
     assert client.get("/scraper").status_code == 401
-    # ...and the key is not a way in to the page's routes.
-    assert client.get("/scraper", headers=H).status_code == 401
+    # ...and the key is not a way in to the page's routes. Since API clients
+    # (Oct 2026) the ingest key is a real identity holding only the `ingest`
+    # grant, so it is refused as unauthorised for the page: 403, not 401.
+    assert client.get("/scraper", headers=H).status_code == 403
 
 
 # --- config ------------------------------------------------------------------

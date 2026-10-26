@@ -6,7 +6,9 @@ from ..config import settings
 from ..database import get_db
 from ..models import User
 from ..security import (
+    KeyAuth,
     LoginThrottle,
+    api_key_auth,
     granted_tools,
     require_user,
     verify_login,
@@ -71,7 +73,17 @@ def logout(request: Request):
 
 
 @router.get("/me", response_model=UserOut)
-def me(username: str = Depends(require_user), db: Session = Depends(get_db)):
+def me(
+    username: str = Depends(require_user),
+    auth: KeyAuth = Depends(api_key_auth),
+    db: Session = Depends(get_db),
+):
+    """Who is calling: the session user, or an API client ("api:<name>") with
+    its grant — a key's own way to check what it may reach."""
+    if auth.principal is not None:
+        perms = auth.principal.permissions
+        return UserOut(username=auth.principal.username, permissions=perms,
+                       tools=granted_tools(perms))
     user = db.query(User).filter(User.username == username).first()
     if user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
