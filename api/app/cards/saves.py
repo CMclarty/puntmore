@@ -4,7 +4,7 @@ read off Bookie Bashing on Callum's own PC.
 WHY TWO PLACES. Pinnacle does not post a saves ladder, so there is nothing to
 de-vig here; Bookie Bashing publishes fair saves prices, but behind a login,
 so they are read by a script running locally in a logged-in browser
-(local/scraper, the `bb_saves` target) and POSTed to /api/paddy/saves-fair. Nothing
+(scraper/, the `bb_saves` target) and POSTed to /api/paddy/saves-fair. Nothing
 on the server ever holds the Bookie Bashing login.
 
 SCOPE. MATCH totals only (total saves in the game, over/under a line). Per-

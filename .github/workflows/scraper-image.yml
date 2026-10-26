@@ -1,14 +1,14 @@
 # Tests the scraper and publishes its image. The server's update.sh pulls
 # :latest every 15 min and restarts onto it, so a green push to main that
-# touches local/scraper/ is a deploy of the scraper.
+# touches scraper/ is a deploy of the scraper.
 name: scraper image
 
 on:
   push:
     branches: [main]
-    paths: ["local/scraper/**", ".github/workflows/scraper-image.yml"]
+    paths: ["scraper/**", ".github/workflows/scraper-image.yml"]
   pull_request:
-    paths: ["local/scraper/**", ".github/workflows/scraper-image.yml"]
+    paths: ["scraper/**", ".github/workflows/scraper-image.yml"]
   workflow_dispatch:
 
 jobs:
@@ -19,10 +19,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r local/scraper/requirements.txt -r local/scraper/requirements-dev.txt
+      - run: pip install -r scraper/requirements.txt -r scraper/requirements-dev.txt
       - run: python -m playwright install --with-deps chromium
       - run: python -m pytest scraper/tests -q
-        working-directory: local
 
   image:
     needs: test
@@ -42,7 +41,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v6
         with:
-          context: local/scraper
+          context: scraper
           platforms: linux/amd64
           push: true
           tags: |

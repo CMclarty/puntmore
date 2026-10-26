@@ -41,7 +41,7 @@ echo "$GHCR_PAT" | docker login ghcr.io -u cmclarty --password-stdin
 ( crontab -l 2>/dev/null; echo '*/15 * * * * /opt/puntmore-scraper/update.sh >> /opt/puntmore-scraper/update.log 2>&1' ) | crontab -
 ```
 
-**Updates:** push to `main` with changes under `local/scraper/`. CI runs the
+**Updates:** push to `main` with changes under `scraper/`. CI runs the
 tests and publishes the image, and within 15 minutes the server's cron restarts
 onto it. Profile, budget and cool-off state live in `data/`, so they survive
 the restart.
@@ -80,7 +80,7 @@ See `targets.example.toml`. There are two kinds:
 
 ## Tests
 ```sh
-cd local && pip install -r scraper/requirements.txt -r scraper/requirements-dev.txt
-python -m playwright install chromium
-python -m pytest scraper/tests -q      # includes a real browser against a fake localhost site
+pip install -r scraper/requirements.txt -r scraper/requirements-dev.txt
+python -m playwright install chromium   # or SCRAPER_CHROME_PATH=/usr/bin/google-chrome
+python -m pytest scraper/tests -q      # from the repo root      # includes a real browser against a fake localhost site
 ```
