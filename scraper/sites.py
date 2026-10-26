@@ -10,6 +10,11 @@ bookiebashing  Your subscription, logged in through VNC. Budget 8/h, 120/day.
 """
 from dataclasses import dataclass
 
+# Paddy's page fetches a tab's markets (names, runners, ids) from its event-page
+# and pub endpoints; getMarketPrices then polls their prices every few seconds.
+# A response matching this after a market-tab click is what "loaded" means.
+_PP_MARKET_LIST = r"/smspp/(event-page|pub)/v\d+"
+
 
 @dataclass(frozen=True)
 class Site:
@@ -19,11 +24,13 @@ class Site:
     needs_login: bool
     block_means_cooloff: bool   # True: stop the site and wait for `resume`
                                 # False: back off and retry on its own
+    market_list: str | None = None   # URL regex: a market tab's markets arrived
 
 
 SITES = {
     "paddypower": Site(per_hour=15, per_day=120, quiet_hours=True,
-                       needs_login=False, block_means_cooloff=True),
+                       needs_login=False, block_means_cooloff=True,
+                       market_list=_PP_MARKET_LIST),
     "bookiebashing": Site(per_hour=8, per_day=120, quiet_hours=False,
                           needs_login=True, block_means_cooloff=False),
 }

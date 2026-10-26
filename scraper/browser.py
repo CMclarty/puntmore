@@ -10,6 +10,8 @@ Challenges are only ever DETECTED, never answered.
 """
 import os
 import random
+import re
+import time
 
 # Background tabs in Chrome have their timers throttled to about once a minute,
 # which would stop a kept-open page refreshing its own prices. These keep every
@@ -71,7 +73,7 @@ def dismiss_consent(page):
         btn = page.get_by_role("button", name=label)
         try:
             if btn.count() and btn.first.is_visible():
-                btn.first.click(timeout=3000)
+                click(page, btn.first)
                 page.wait_for_timeout(random.randint(600, 1500))
                 return label
         except Exception:
@@ -88,3 +90,67 @@ def settle(page):
         page.mouse.wheel(0, random.randint(250, 700))
         page.wait_for_timeout(random.randint(700, 2200))
     page.mouse.wheel(0, -random.randint(800, 2000))
+
+
+def click(page, loc):
+    """Click the way a hand does: bring it into view, move the pointer over
+    it, pause, press and release - not a jump to its exact centre."""
+    loc.scroll_into_view_if_needed(timeout=5000)
+    page.wait_for_timeout(random.randint(300, 900))
+    box = loc.bounding_box()
+    if not box:
+        raise RuntimeError("element has no box")
+    x = box["x"] + box["width"] * random.uniform(0.3, 0.7)
+    y = box["y"] + box["height"] * random.uniform(0.35, 0.65)
+    page.mouse.move(x, y, steps=random.randint(12, 30))
+    page.wait_for_timeout(random.randint(250, 900))
+    page.mouse.click(x, y, delay=random.randint(50, 140))
+
+
+def read_down(page):
+    """Look down what a click has just shown, then back up to the top, so
+    markets drawn only when they come into view are drawn."""
+    for _ in range(random.randint(2, 4)):
+        page.mouse.move(random.randint(250, 1100), random.randint(300, 800),
+                        steps=random.randint(8, 25))
+        page.mouse.wheel(0, random.randint(300, 700))
+        page.wait_for_timeout(random.randint(900, 2500))
+    page.mouse.wheel(0, -random.randint(2500, 4000))
+    page.wait_for_timeout(random.randint(500, 1200))
+
+
+# Where a page's own tab bar is, when its tabs are not ARIA tabs/links/buttons.
+_TAB_BAR = (":is([role=tablist], nav, [class*='tab' i]:not([class*='table' i]), "
+            "[data-testid*='tab' i])")
+
+
+def find_tab(page, name):
+    """The visible in-page tab called `name`, as (locator, its text), or None.
+    An exact name wins over a prefix ("Cards" finds "Cards & Fouls" only when
+    there is no tab called just "Cards"). ARIA tabs, links and buttons first;
+    then plain elements inside something that looks like a tab bar."""
+    esc = re.escape(name.strip())
+    for pat in (re.compile(rf"^\s*{esc}\s*$", re.I), re.compile(rf"^\s*{esc}\b", re.I)):
+        candidates = [page.get_by_role(role, name=pat) for role in ("tab", "link", "button")]
+        candidates.append(page.locator(_TAB_BAR).get_by_text(pat))
+        for loc in candidates:
+            try:
+                for i in range(min(loc.count(), 5)):
+                    el = loc.nth(i)
+                    if el.is_visible():
+                        return el, " ".join(el.inner_text().split())
+            except Exception:
+                continue
+    return None
+
+
+def wait_for_feed(page, capture, since: float, feed, timeout_s: float = 12.0) -> bool:
+    """Wait, up to timeout_s, for the page's own network to answer: True once
+    a response whose URL matches `feed` has arrived after `since`."""
+    deadline = since + timeout_s
+    while time.time() < deadline:
+        if any(feed.search(url) for _ts, _k, url, _t in capture.since(since)):
+            page.wait_for_timeout(random.randint(1500, 3000))   # its prices follow
+            return True
+        page.wait_for_timeout(500)
+    return False

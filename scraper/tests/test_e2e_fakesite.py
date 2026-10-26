@@ -26,12 +26,19 @@ LISTING = """<html><title>Football</title><body>
 <a href="/football/arsenal-v-chelsea#stats">dup</a>
 <a href="/promo">promo</a></body></html>"""
 
+# Two kinds of tab control, as sites draw them: an ARIA tab, and a plain div in
+# a tab bar. A click fetches that tab's markets, as Paddy's event page does.
 MATCH = """<html><title>Match</title><body>
-<button role="tab">Cards</button><button role="tab">Corners</button>
-<div id=p></div><script>
+<div class="tabs__bar"><button role="tab">Corners</button>
+<div class="tabs__item" data-t="cards">Cards &amp; Fouls</div><div class="tabs__item">Shots</div></div>
+<div id=m style="height:3000px"></div><div id=p></div><script>
 async function poll(){ const r = await fetch('/api/prices?m='+location.pathname);
   document.getElementById('p').textContent = (await r.json()).prices.join(','); }
 poll(); setInterval(poll, 1000);
+for (const el of document.querySelectorAll('[role=tab], .tabs__item'))
+  el.addEventListener('click', async () => {
+    const r = await fetch('/smspp/event-page/v5?tab=' + encodeURIComponent(el.textContent));
+    document.getElementById('m').textContent = (await r.json()).markets.join(','); });
 </script></body></html>"""
 
 LOGIN = "<html><title>Sign in</title><body><form><input type=password></form></body></html>"
@@ -64,6 +71,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, LISTING)
         if path.startswith("/football/"):
             return self._send(200, MATCH)
+        if path.startswith("/smspp/event-page/"):
+            tab = path.split("tab=")[-1]
+            return self._send(200, json.dumps({"markets": [tab + " Match Bet"] * 20}),
+                              "application/json")
         if path.startswith("/api/prices"):
             return self._send(200, json.dumps({"prices": [1.91] * 40, "pad": "x" * 300}),
                               "application/json")
@@ -126,7 +137,7 @@ def test_keeps_match_tabs_open_and_captures(tmp_path, site):
         assert not any("fulham" in k for k in open_matches)  # the 4th waits
         assert r.guard.spent("paddypower", t0 + 1300)[0] == 4  # 1 listing + 3 matches, no reloads
         samples = list((tmp_path / "samples").rglob("*-http.txt"))
-        assert samples and '"prices"' in samples[0].read_text()
+        assert any('"prices"' in f.read_text() for f in samples)
         r.close_all()
         ctx.close()
 
@@ -196,5 +207,32 @@ def test_config_change_closes_removed_tabs_and_opens_new_ones(tmp_path, site):
         Handler.config = {"targets": []}
         r.tick(t0 + 2 * CONFIG_EVERY_S + 10)
         assert not r.tabs
+        r.close_all()
+        ctx.close()
+
+
+def test_market_tabs_are_clicked_and_their_markets_arrive(tmp_path, site):
+    """Each market tab is found (an ARIA tab, or a plain div in a tab bar; a
+    prefix finds "Cards & Fouls"), clicked with the mouse, and its markets
+    arrive and are pinned. One that is not there is reported, and the page is
+    saved once so the locator can be fixed from it."""
+    from playwright.sync_api import sync_playwright
+    t = config.Target(name="pp", site="paddypower", url=site + "/football", stale_min=120,
+                      matches=config.Matches(max_tabs=1,
+                                             market_tabs=("Corners", "Cards", "Goalscorer")))
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [t], p)
+        t0 = time.time()
+        r.tick(t0)
+        r.tick(t0 + 400)
+        tab = next(tab for k, tab in r.tabs.items() if ":m:" in k)
+        assert tab.market_tabs == {"Corners": "loaded", "Cards": "loaded",
+                                   "Goalscorer": "not found"}
+        labels = {p[4] for p in tab.capture.pinned if "event-page" in p[2]}
+        assert labels == {"tab:Corners", "tab:Cards & Fouls"}
+        detail = r.status(t0 + 400)["targets"][0]["detail"]
+        assert "Corners loaded 1/1" in detail and "Goalscorer not found 1/1" in detail
+        assert (tmp_path / "samples" / "pp-market-tab-not-found" / "page.html").exists()
+        assert r.guard.spent("paddypower", t0 + 400)[0] == 2   # clicks are not page loads
         r.close_all()
         ctx.close()

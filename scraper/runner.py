@@ -43,6 +43,7 @@ class Tab:
         self.last_load = self.opened
         self.reloaded_stale = False        # reloaded once for going quiet
         self.next_parse = 0.0
+        self.market_tabs: dict[str, str] = {}   # market tab name -> what the click did
 
 
 class SiteState:
@@ -72,6 +73,7 @@ class Runner:
         self.last_parse_at: dict[str, float] = {}      # ... last parse that returned rows
         self.rows_posted: dict[str, int] = {}
         self.retired_targets: dict[str, config.Target] = {}   # removed by a config change
+        self.snapshots: set = set()                    # (target, why) saved this run
         (settings.data_dir / "latest").mkdir(parents=True, exist_ok=True)
         (settings.data_dir / "requests").mkdir(parents=True, exist_ok=True)
 
@@ -279,24 +281,58 @@ class Runner:
 
     def _open_market_tabs(self, t, tab, now):
         """Click the in-page market tabs once, so the page fetches (and then
-        keeps refreshing) every market we want. A click that navigates counts
-        as a load."""
+        keeps refreshing) the markets we want. Each click goes through the
+        mouse, then waits for the page's own network to bring the tab's
+        markets in, then reads down them. What happened to each is kept on
+        the tab for the status report: loaded | clicked, nothing new |
+        not found | not clicked (budget) | click failed. A click that
+        navigates counts as a load."""
+        feed = re.compile(SITES[t.site].market_list or r"$^")
+        page, cap = tab.page, tab.capture
         for name in t.matches.market_tabs:
-            pat = re.compile(re.escape(name), re.I)
-            for role in ("tab", "link", "button"):
-                loc = tab.page.get_by_role(role, name=pat)
-                try:
-                    if loc.count() and loc.first.is_visible():
-                        before = tab.page.url
-                        if not self.guard.can_load(t.site, now)[0]:
-                            return
-                        loc.first.click(timeout=5000)
-                        tab.page.wait_for_timeout(random.randint(2500, 6000))
-                        if tab.page.url != before:
-                            self.guard.record_load(t.site, tab.page.url, now)
-                        break
-                except Exception:
-                    continue
+            if not self.guard.can_load(t.site, now)[0]:
+                tab.market_tabs[name] = "not clicked (budget)"
+                continue
+            found = browser.find_tab(page, name)
+            if not found:
+                tab.market_tabs[name] = "not found"
+                self._snapshot_once(t, tab, "market-tab-not-found")
+                continue
+            loc, label = found
+            before_url, before_docs = page.url, cap.documents
+            clicked_at = time.time()
+            cap.mark(f"tab:{label}")
+            try:
+                browser.click(page, loc)
+            except Exception as exc:
+                tab.market_tabs[name] = "click failed"
+                print(f"{tab.url}: market tab {label!r}: click failed: {exc}", flush=True)
+                continue
+            loaded = browser.wait_for_feed(page, cap, clicked_at, feed)
+            if page.url != before_url or cap.documents != before_docs:
+                self.guard.record_load(t.site, page.url, now)
+            tab.market_tabs[name] = "loaded" if loaded else "clicked, nothing new"
+            try:
+                browser.read_down(page)
+            except Exception:
+                pass
+        print(f"{tab.url}: market tabs: "
+              + ", ".join(f"{n} {o}" for n, o in tab.market_tabs.items()), flush=True)
+
+    def _snapshot_once(self, t, tab, why):
+        """Save the page as it is drawn (HTML + screenshot, no request) once
+        per target per run, so a locator that missed can be fixed from it."""
+        if (t.name, why) in self.snapshots:
+            return
+        self.snapshots.add((t.name, why))
+        out = self.run_dir / _safe(f"{t.name}-{why}")
+        try:
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "page.url").write_text(tab.page.url)
+            (out / "page.html").write_text(tab.page.content(), encoding="utf-8")
+            tab.page.screenshot(path=str(out / "page.png"))
+        except Exception as exc:
+            print(f"{t.name}: snapshot failed: {exc}", flush=True)
 
     # --- output -------------------------------------------------------------
     def _parse(self, tab, now):
@@ -354,9 +390,11 @@ class Runner:
             elif why:
                 state, detail = "paused", why
             else:
-                n = sum(1 for tab in self.tabs.values() if tab.target.name == t.name)
+                mine = [tab for tab in self.tabs.values() if tab.target.name == t.name]
+                n = len(mine)
                 state = "running"
                 detail = "; ".join(x for x in (f"{n} tab{'s' if n != 1 else ''} open",
+                                               market_tabs_said(mine),
                                                self.parser_said.get(t.name)) if x)
             targets.append({"name": t.name, "site": t.site, "url": t.url, "state": state,
                             "detail": detail, "last_load": self.last_load_at.get(t.name),
@@ -435,6 +473,18 @@ def site_status(guard, now) -> list[dict]:
                     "cooloff_left_h": None if left is None else round(left, 2),
                     "needs_resume": bool(cooling and not c["resumed"])})
     return out
+
+
+def market_tabs_said(tabs) -> str:
+    """'market tabs: Corners loaded 2/3, Cards not found 1/3' across a
+    target's open match tabs, or '' when none has clicked any."""
+    clicked = [tab for tab in tabs if tab.market_tabs]
+    if not clicked:
+        return ""
+    counts = collections.Counter((name, outcome) for tab in clicked
+                                 for name, outcome in tab.market_tabs.items())
+    return "market tabs: " + ", ".join(f"{name} {outcome} {c}/{len(clicked)}"
+                                       for (name, outcome), c in sorted(counts.items()))
 
 
 def match_links(page, link_re, base_url) -> list[str]:
