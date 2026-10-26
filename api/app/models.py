@@ -488,3 +488,86 @@ class AwLegLine(Base):
     basis = Column(String, nullable=True)            # ladder | hybrid | matched | saves
 
     leg = relationship("AwLeg", back_populates="line_link")
+
+
+# --- Scraper control plane (routers/scraper.py, scraper_control.py) ---------
+# The scraper (top-level scraper/, its own Docker image) asks the server what
+# to read and reports back. These rows are WHAT it reads and how often; HOW
+# each site is treated (budgets, quiet hours, blocks) stays in the scraper's
+# own sites.py, which no edit here can loosen.
+
+class ScraperLeague(Base):
+    """A competition listing page whose match links the scraper opens."""
+    __tablename__ = "scraper_leagues"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False, unique=True)   # "epl" -> target "pp-epl-most"
+    site = Column(String, nullable=False)                # paddypower
+    url = Column(String, nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+
+
+class ScraperMarket(Base):
+    """What is read on a site. A market with a `url` is a page target of its
+    own (bb_saves); one without is read on every enabled league of its site."""
+    __tablename__ = "scraper_markets"
+
+    key = Column(String, primary_key=True)               # most | bb_saves
+    label = Column(String, nullable=False)
+    site = Column(String, nullable=False)
+    tabs = Column(Text, nullable=False, default="[]")    # JSON list: in-page tabs to click
+    parser = Column(String, nullable=True)
+    post = Column(String, nullable=True)                 # ingest path the rows go to
+    url = Column(String, nullable=True)                  # page target only
+    enabled = Column(Boolean, nullable=False, default=True)
+
+    @property
+    def tab_list(self) -> list[str]:
+        try:
+            return [str(t) for t in json.loads(self.tabs or "[]")]
+        except ValueError:
+            return []
+
+
+class ScraperTiming(Base):
+    """Per-site timings, clamped to the scraper's floors on write."""
+    __tablename__ = "scraper_timings"
+
+    site = Column(String, primary_key=True)
+    every_min = Column(Float, nullable=True)             # None = reload only when stale
+    stale_min = Column(Float, nullable=False)
+    max_tabs = Column(Integer, nullable=False)
+    open_gap_min = Column(Float, nullable=False)
+    relist_min = Column(Float, nullable=False)
+    tab_max_hours = Column(Float, nullable=False)
+
+
+class ScraperTargetStatus(Base):
+    """The scraper's last report, one row per target. Replaced whole on each
+    report, so a target the scraper no longer has drops off."""
+    __tablename__ = "scraper_target_status"
+
+    name = Column(String, primary_key=True)
+    site = Column(String, nullable=False)
+    url = Column(String, nullable=False)
+    state = Column(String, nullable=False)               # running | paused | blocked | retired
+    detail = Column(String, nullable=True)
+    last_load = Column(DateTime, nullable=True)
+    last_parse = Column(DateTime, nullable=True)
+    rows_posted = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class ScraperSiteStatus(Base):
+    """Per-site budget spent and cool-off, from the same report."""
+    __tablename__ = "scraper_site_status"
+
+    site = Column(String, primary_key=True)
+    loads_hour = Column(Integer, nullable=False, default=0)
+    per_hour = Column(Integer, nullable=False, default=0)
+    loads_day = Column(Integer, nullable=False, default=0)
+    per_day = Column(Integer, nullable=False, default=0)
+    cooloff = Column(String, nullable=True)              # reason, None when not cooling off
+    cooloff_left_h = Column(Float, nullable=True)
+    needs_resume = Column(Boolean, nullable=False, default=False)
+    updated_at = Column(DateTime, nullable=False, default=utcnow)

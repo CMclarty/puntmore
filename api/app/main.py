@@ -43,6 +43,7 @@ from .routers import aw26_ingest as aw26_ingest_router
 from .routers import auth as auth_router
 from .routers import state as state_router
 from .routers import diagnostics as diagnostics_router
+from .routers import scraper as scraper_router
 from . import diagnostics
 
 logger = logging.getLogger("uvicorn.error")
@@ -61,6 +62,7 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed(db)
+        scraper_router.ensure_seeded(db)
         created, regranted = seed_users(db, settings.auth_users)
         if created:
             logger.info("Seeded %d user(s) from AUTH_USERS", created)
@@ -316,6 +318,11 @@ app.include_router(shop_router.router, dependencies=[Depends(require_tool("shop"
 # Bashing script through the key-guarded ingest, not a session.
 app.include_router(aw26_router.router, dependencies=[Depends(require_tool("aw26"))])
 app.include_router(aw26_ingest_router.router)
+
+# The scraper's control plane: the page edits it under the `scraper` grant;
+# the scraper box reads its config and reports status with the ingest key.
+app.include_router(scraper_router.router, dependencies=[Depends(require_tool("scraper"))])
+app.include_router(scraper_router.worker_router)
 
 # /state self-guards with a static API key (machine consumers, no session).
 app.include_router(state_router.router)
