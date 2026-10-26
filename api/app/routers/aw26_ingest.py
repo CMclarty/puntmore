@@ -9,21 +9,20 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..aw26.legs import TEAM_MIN, classify
-from ..aw26.marry import marry_slip
-from ..aw26.offers import OFFERS
 from ..aw26.results import MatchStats, apply_match_stats
 from ..aw26.service import (
-    FAIRS_KEEP_DAYS, build_slip, parse_when, price_slip, recent_fairs, settle_slip,
+    FAIRS_KEEP_DAYS, parse_when, price_slip, recent_fairs,
 )
 from ..database import get_db
 from ..models import AwFair, AwLeg, AwSlip, ValueLine
 from ..normalise import split_sides, team_similarity
-from ..schemas import AwFairsOut, AwResultsOut, AwSlipIngestOut, OpenLeaguesOut
-from ..providers.slip_ocr import ExtractedSlip, ExtractedSlipLeg
+from ..aw26.record import Refused, record_slip
+from ..schemas import (
+    AwFairsOut, AwResultsOut, AwSlipIngestOut, AwSlipLegIn, AwSlipRecordIn, OpenLeaguesOut,
+)
 from ..time_utils import utcnow
 from .aw26 import _sweep_events
 from .saves_ingest import require_ingest_key
@@ -79,61 +78,26 @@ def post_fairs(batch: FairsIn, db: Session = Depends(get_db)):
 # kept; a leg left without one is matched against the fairs table as usual.
 
 
-class SlipLegIn(BaseModel):
-    event: str = Field(min_length=1, max_length=120)
-    market: str | None = Field(default=None, max_length=120)
-    selection: str | None = Field(default=None, max_length=120)
-    odds: float | None = Field(default=None, gt=1, le=1000)
-    kickoff: str | None = None           # ISO 8601 UTC, or as printed (London)
-    fair_odds: float | None = Field(default=None, gt=1, le=1000)
+# The request shapes live in schemas.py (shared with POST /aw26/slips/record).
+SlipLegIn = AwSlipLegIn
 
 
-class SlipIn(BaseModel):
-    receipt: str | None = Field(default=None, max_length=80)
-    placed_at: str | None = None         # as printed (London), or ISO 8601
-    offer: str = "refund"
-    stake: float | None = Field(default=None, ge=0, lt=1_000_000)
+class SlipIn(AwSlipRecordIn):
     user: str = Field(default="ingest", max_length=80)
-    legs: list[SlipLegIn] = Field(min_length=1, max_length=40)
 
 
-@router.post("/slips/ingest", response_model=AwSlipIngestOut, dependencies=[Depends(require_ingest_key)])
+@router.post("/slips/ingest", response_model=AwSlipIngestOut,
+             dependencies=[Depends(require_ingest_key)])
 def ingest_slip(body: SlipIn, request: Request, db: Session = Depends(get_db)):
     """Create an AW 26 slip from an already-read bet (no photo, no server OCR).
 
     Priced and settled on the spot, the same as an upload: a later edit or
     fairs scrape re-prices it the usual way. A receipt already in is refused,
     so the same slip sent twice is not counted twice."""
-    if body.offer not in OFFERS:
-        raise HTTPException(status_code=400, detail=f"offer must be one of {', '.join(OFFERS)}")
-    if body.receipt and db.query(AwSlip).filter(AwSlip.receipt == body.receipt).first():
-        raise HTTPException(status_code=409, detail=f"Slip {body.receipt} is already in")
-
-    read = ExtractedSlip(
-        receipt=body.receipt,
-        placed_at_text=body.placed_at,
-        bet_type=None,
-        stake=body.stake,
-        potential_returns=None,
-        legs=[ExtractedSlipLeg(event=lg.event, market=lg.market, selection=lg.selection,
-                               odds=lg.odds, kickoff_text=lg.kickoff) for lg in body.legs],
-    )
-    slip = build_slip(read, offer=body.offer, user=body.user, image_path=None,
-                      events=_sweep_events(request))
-    # A fair looked up on BB at read time stands; the rest are matched below.
-    for leg, given in zip(slip.legs, body.legs):
-        if given.fair_odds is not None:
-            leg.fair_odds = given.fair_odds
-    marry_slip(db, slip)
-    price_slip(slip, recent_fairs(db))
-    settle_slip(slip)
-    db.add(slip)
     try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail=f"Slip {body.receipt} is already in")
-    db.refresh(slip)
+        slip = record_slip(db, body, body.user, _sweep_events(request))
+    except Refused as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc))
     return {"id": slip.id, "receipt": slip.receipt, "offer": slip.offer,
             "stake": slip.stake, "ev": slip.ev, "ev_note": slip.ev_note,
             "status": slip.status, "legs": len(slip.legs),

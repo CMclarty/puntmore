@@ -28,7 +28,8 @@ from ..config import settings
 from ..database import get_db
 from ..images import prepare_for_ocr
 from ..models import AwLeg, AwSlip
-from ..schemas import AwSlipOut, AwSlipsOut, DeletedOut, OpenModel
+from ..aw26.record import Refused, record_slip
+from ..schemas import AwSlipOut, AwSlipRecordIn, AwSlipsOut, DeletedOut, OpenModel
 from ..security import require_user
 from ..time_utils import utcnow
 from .upload import ALLOWED_MEDIA_TYPES, _read_capped
@@ -109,6 +110,23 @@ async def upload_slip(
         raise HTTPException(status_code=409, detail=f"Slip {read.receipt} is already in")
     db.refresh(slip)
     return slip
+
+
+@router.post("/slips/record", response_model=AwSlipOut)
+def record(
+    body: AwSlipRecordIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: str = Depends(require_user),
+):
+    """RECORD a bet already placed (by hand, or by an automated service) —
+    structured legs, no photo. Same pricing and settlement as an upload; the
+    slip is filed under the caller (a key acts as "api:<name>"). A receipt
+    already in is refused (409). Nothing here places a bet."""
+    try:
+        return record_slip(db, body, user, _sweep_events(request))
+    except Refused as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc))
 
 
 class LegEdit(BaseModel):

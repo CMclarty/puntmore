@@ -346,6 +346,25 @@ class AwLegOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AwSlipLegIn(BaseModel):
+    """One leg of a slip read off the server (desktop session, API client)."""
+    event: str = Field(min_length=1, max_length=120)
+    market: str | None = Field(default=None, max_length=120)
+    selection: str | None = Field(default=None, max_length=120)
+    odds: float | None = Field(default=None, gt=1, le=1000)
+    kickoff: str | None = None           # ISO 8601 UTC, or as printed (London)
+    fair_odds: float | None = Field(default=None, gt=1, le=1000)
+
+
+class AwSlipRecordIn(BaseModel):
+    """A placed bet to RECORD on the AW 26 ledger (aw26/record.py)."""
+    receipt: str | None = Field(default=None, max_length=80)
+    placed_at: str | None = None         # as printed (London), or ISO 8601
+    offer: str = "refund"                # refund | boost | other (aw26/offers.py)
+    stake: float | None = Field(default=None, ge=0, lt=1_000_000)
+    legs: list[AwSlipLegIn] = Field(min_length=1, max_length=40)
+
+
 class AwSlipOut(BaseModel):
     id: int
     placed_at: datetime

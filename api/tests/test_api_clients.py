@@ -160,3 +160,17 @@ def test_cli_prints_the_key_once_and_never_again(monkeypatch, capsys):
     assert apikeys.main(["create", "placer", "--tools", "aw26"]) == 2   # names are unique
     assert apikeys.main(["revoke", "placer"]) == 0
     assert TestClient(app).get("/aw26/slips", headers=bearer(key)).status_code == 401
+
+
+def test_a_client_records_a_placed_slip_under_its_own_name():
+    key = _client(tools="aw26")
+    api = TestClient(app)
+    body = {"receipt": "R-1", "offer": "refund", "stake": 50,
+            "legs": [{"event": "Arsenal v Chelsea", "market": "Total Corners",
+                      "selection": "Over 9.5", "odds": 1.9}]}
+    r = api.post("/aw26/slips/record", json=body, headers=bearer(key))
+    assert r.status_code == 200, r.text
+    slip = r.json()
+    assert slip["user"] == "api:bot" and slip["stake"] == 50 and len(slip["legs"]) == 1
+    assert api.post("/aw26/slips/record", json=body, headers=bearer(key)).status_code == 409
+    assert api.get("/aw26/slips", headers=bearer(key)).json()["slips"][0]["receipt"] == "R-1"
