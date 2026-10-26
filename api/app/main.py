@@ -44,6 +44,7 @@ from .routers import auth as auth_router
 from .routers import state as state_router
 from .routers import diagnostics as diagnostics_router
 from .routers import scraper as scraper_router
+from .routers import value as value_router
 from . import diagnostics
 
 logger = logging.getLogger("uvicorn.error")
@@ -323,6 +324,10 @@ app.include_router(aw26_ingest_router.router)
 # the scraper box reads its config and reports status with the ingest key.
 app.include_router(scraper_router.router, dependencies=[Depends(require_tool("scraper"))])
 app.include_router(scraper_router.worker_router)
+
+# The cross-tool value feed: `value` grant sees every source, a tool grant its
+# own rows (routers/value.py resolves that itself, through user_permissions).
+app.include_router(value_router.router)
 
 # /state self-guards with a static API key (machine consumers, no session).
 app.include_router(state_router.router)

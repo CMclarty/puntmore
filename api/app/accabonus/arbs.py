@@ -188,6 +188,7 @@ class ArbRow:
     pinnacle_draw: float | None = None
     fair_draw: float | None = None
     edge_draw: float | None = None
+    sport_key: str | None = None    # TheOddsApi's key, e.g. "soccer_epl"
 
 
 def _get_bm_h2h(event: dict, bm_key: str) -> dict[str, float] | None:
@@ -237,6 +238,7 @@ def compute_arbs(events: list[dict], min_edge: float) -> list[ArbRow]:
         has_draw = "Draw" in fair_by_outcome
         rows.append(ArbRow(
             event_id=event["id"],
+            sport_key=event.get("sport_key"),
             sport_title=event.get("sport_title", ""),
             home_team=home,
             away_team=away,

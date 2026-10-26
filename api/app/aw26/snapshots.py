@@ -47,7 +47,7 @@ def _kickoff(value) -> datetime | None:
 
 
 def _line(row) -> ValueLine:
-    from ..routers.cards import describe, market_name   # the Paddy page's names
+    from ..cards.feed import describe, market_name   # the Paddy page's names
     key = row.market_key
     team = None
     if key.startswith("team_"):

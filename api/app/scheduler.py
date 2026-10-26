@@ -191,7 +191,7 @@ def sweep_cards(cards_client, notifier=None) -> int:
     if cards_client is None:
         return 0
     try:
-        from .routers.cards import price_events      # one pricing entry point
+        from .cards.feed import price_events      # one pricing entry point
         events = cards_client.get_events()
         # Price down to 95% of fair ONCE (what the page shows): the AW 26
         # snapshot keeps every line a leg could have been taken on, while the
@@ -253,7 +253,7 @@ def sweep_cards(cards_client, notifier=None) -> int:
     # a value tool that alerts before anyone has checked it trains trust it has
     # not earned. The sweep still runs, and the rows are still on the screen.
     if fresh and settings.cards_discord_alerts:
-        from .routers.cards import describe
+        from .cards.feed import describe
         notify_rows(notifier, "paddy", ":triangular_flag_on_post: Paddy — {n} new/changed value bet(s):", [
             (r.edge, f"  {r.home_team} v {r.away_team} — {describe(r)} "
                      f"@ {r.paddy_odds}, fair {r.fair_odds:.2f}, +{r.edge:.1%}")
@@ -340,7 +340,7 @@ def sweep_accabonus(arbs_client, notifier=None) -> int:
     """Post 365 acca boost picks that are new or changed tier. Returns rows."""
     if arbs_client is None:
         return 0
-    from .routers.accabonus import build_feed
+    from .accabonus.feed import build_feed
     rows = build_feed(arbs_client, settings.accabonus_alert_min_edge)
     fresh, seen = [], set()
     for r in rows:

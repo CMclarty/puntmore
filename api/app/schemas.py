@@ -169,6 +169,14 @@ class AccaBonusFeedItem(BaseModel):
     pick: str
     odds: float
     value: float
+    # Added Oct 2026 for machine consumers (the value feed); the page ignores
+    # them. Additive only — nothing above changed.
+    event_id: Optional[str] = None
+    home: Optional[str] = None
+    away: Optional[str] = None
+    commence_time: Optional[str] = None
+    sport_key: Optional[str] = None
+    fair: Optional[float] = None      # de-vigged Pinnacle price of `pick`
 
 
 # Cards & corners feed (grouped by match)
@@ -200,6 +208,10 @@ class CardFeedFair(BaseModel):
 class CardFeedItem(BaseModel):
     event_id: str
     match: str
+    # The two sides, so a machine consumer never has to split `match`.
+    # Added Oct 2026, additive.
+    home: Optional[str] = None
+    away: Optional[str] = None
     commence_time: str
     sport_key: str = ""
     best_value: float
@@ -353,3 +365,42 @@ class AwSlipOut(BaseModel):
     legs: list[AwLegOut] = []
 
     model_config = {"from_attributes": True}
+
+
+# --- The cross-tool value feed (GET /api/value — app/value/service.py) --------
+class ValueSelection(BaseModel):
+    """ONE row shape for every tool's value: a selection a bookmaker is
+    offering above its fair price. Read-only — nothing here places a bet.
+
+    `edge` is odds / fair - 1 (0.05 = 5% over fair). `line` is null where the
+    market has none, and is always an x.5 where it has one (pushes are never
+    listed). `kickoff` and `seen_at` are UTC. `url` is null unless known.
+    """
+    source: str                      # paddy | 365 | scorers | coupon
+    bookmaker: str                   # paddypower | bet365 | williamhill
+    event_id: Optional[str] = None   # the source's own fixture id, when it has one
+    event: str                       # "Home v Away" as the source names it
+    home: Optional[str] = None
+    away: Optional[str] = None
+    kickoff: Optional[datetime] = None
+    sport: Optional[str] = None      # sport / league key, e.g. "soccer_epl"
+    market: str                      # corners | cards | goals | saves | team_corners | most_corners | h2h | first_goalscorer | <coupon type code>
+    selection: str                   # what to back, as the tool prints it
+    line: Optional[float] = None
+    side: Optional[str] = None       # over | under | home | away | draw | tie
+    odds: float                      # the bookmaker's price
+    fair: float                      # de-vigged fair price
+    edge: float
+    basis: Optional[str] = None      # how the fair was reached (ladder, hybrid, saves, devig, grid …)
+    url: Optional[str] = None
+    seen_at: datetime                # when this price/fair was read or computed
+
+
+class ValueFeedOut(BaseModel):
+    generated_at: datetime
+    # Sources this caller may see and that were asked for, in feed order.
+    sources: list[str]
+    # A source that FAILED (as opposed to having no value) is named here with
+    # the reason, so an empty list is never mistaken for "nothing on offer".
+    errors: dict[str, str] = Field(default_factory=dict)
+    selections: list[ValueSelection]

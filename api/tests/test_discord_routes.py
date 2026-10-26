@@ -64,7 +64,7 @@ def test_a_plain_notifier_still_gets_one_message():
 
 def test_acca_boost_alerts_once_per_pick_and_again_on_a_tier_change(monkeypatch):
     feed = [SimpleNamespace(match="A vs B", sport="EPL", pick="A", odds=2.1, value=0.03)]
-    import app.routers.accabonus as acc
+    import app.accabonus.feed as acc
     monkeypatch.setattr(acc, "build_feed", lambda client, min_edge: feed)
     monkeypatch.setattr(settings, "accabonus_discord_alerts", True)
     scheduler._acca_notified.clear()

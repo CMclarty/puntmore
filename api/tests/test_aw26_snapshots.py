@@ -119,7 +119,7 @@ def test_failed_write_does_not_break_the_sweep(monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("disk full")
 
-    monkeypatch.setattr("app.routers.cards.price_events", lambda events, edge: [row()])
+    monkeypatch.setattr("app.cards.feed.price_events", lambda events, edge: [row()])
     monkeypatch.setattr(snapshots, "snapshot_sweep", boom)
     monkeypatch.setattr(settings, "cards_discord_alerts", False)
     assert sched.sweep_cards(Client(), None) == 1
@@ -135,7 +135,7 @@ def test_sweep_writes_a_snapshot_from_its_own_rows(monkeypatch):
             Client.calls += 1
             return []
 
-    monkeypatch.setattr("app.routers.cards.price_events", lambda events, edge: [row(), row()])
+    monkeypatch.setattr("app.cards.feed.price_events", lambda events, edge: [row(), row()])
     monkeypatch.setattr(sched, "SessionLocal", Session)
     monkeypatch.setattr(settings, "cards_discord_alerts", False)
     assert sched.sweep_cards(Client(), None) == 2
