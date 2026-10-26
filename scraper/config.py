@@ -80,6 +80,7 @@ class Settings:
     targets: list[Target] = field(default_factory=list)
     from_server: bool = False           # targets come from Puntmore, re-fetched while running
     targets_source: str = "toml"        # server | cache | toml
+    capture_tab_mb: float = 8.0         # each tab's share of capture_mb (disk samples)
 
 
 def _target(t: dict) -> Target:
@@ -205,4 +206,5 @@ def load() -> Settings:
         targets=targets,
         from_server=from_server,
         targets_source=source,
+        capture_tab_mb=_clamp(float(os.environ.get("SCRAPER_CAPTURE_TAB_MB", 8)), hi=100.0),
     )

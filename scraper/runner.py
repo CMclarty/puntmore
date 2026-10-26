@@ -56,7 +56,7 @@ class Runner:
     def __init__(self, settings, ctx, guard, alerts, run_dir):
         self.s, self.ctx, self.guard, self.alerts = settings, ctx, guard, alerts
         self.run_dir = run_dir
-        self.budget = DiskBudget(settings.capture_mb)
+        self.budget = DiskBudget(settings.capture_mb, settings.capture_tab_mb)
         self.tabs: dict[str, Tab] = {}             # key -> Tab
         self.sites = {name: SiteState() for name in SITES}
         self.paused_said: dict[str, str] = {}
