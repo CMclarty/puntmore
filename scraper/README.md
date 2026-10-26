@@ -9,9 +9,11 @@ requests. Runs unattended in Docker and updates itself from GHCR.
 timings — and it reports its state back there. The server is the control
 plane; this is a worker. Any Linux box with Docker can run it.
 
-**It captures; it does not price yet.** The parsers (`parsers/`, one module
-each) are written only from `data/samples/` and `data/dumps/`. `pp_most` and
-`bb_saves` are both unwritten: see their docstrings for what the samples hold.
+The parsers (`parsers/`, one module each) are written only from what the real
+pages were seen to do. `bb_saves` DRIVES Bookie Bashing's Bet Builder (select
+the game, type each line, read "Total Odds" — see its docstring; needs the
+box's Chrome logged in over VNC). `pp_most` is unwritten: see its docstring
+for what the samples hold.
 
 ## What it will and won't do
 - Opens pages only on `paddypower.com` and `bookiebashing.net`, within fixed

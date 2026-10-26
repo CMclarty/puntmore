@@ -64,14 +64,17 @@ DEFAULT_MARKETS = [
     # key, label, site, tabs, parser, post
     ("most", "Most corners / cards", "paddypower", ["Corners", "Cards"], "pp_most",
      "/api/paddy/most-prices"),
-    # Its url is the Bookie Bashing saves page, filled in on the page: the box's
-    # targets.toml only ever had a placeholder, so there is nothing to seed.
+    # Bookie Bashing has no saves page: the fair is read by driving its Bet
+    # Builder (scraper/parsers/bb_saves.py), so that is the page.
     ("bb_saves", "Saves fair", "bookiebashing", [], "bb_saves", "/api/paddy/saves-fair"),
 ]
+BB_BUILDER_URL = "https://www.bookiebashing.net/tools/betbuilder/"
 DEFAULT_TIMINGS = {
     "paddypower": dict(every_min=None, stale_min=20.0, max_tabs=3, open_gap_min=4.0,
                        relist_min=60.0, tab_max_hours=8.0),
-    "bookiebashing": dict(every_min=10.0, stale_min=20.0, max_tabs=3, open_gap_min=4.0,
+    # No timed reload: the builder is driven in place and its driver keeps the
+    # page active, and every reload costs the builder's ~60 MB data pull.
+    "bookiebashing": dict(every_min=None, stale_min=20.0, max_tabs=3, open_gap_min=4.0,
                           relist_min=60.0, tab_max_hours=8.0),
 }
 
@@ -87,7 +90,14 @@ def ensure_seeded(db: Session) -> None:
     if db.query(ScraperMarket).first() is None:
         for key, label, site, tabs, parser, post in DEFAULT_MARKETS:
             db.add(ScraperMarket(key=key, label=label, site=site, tabs=json.dumps(tabs),
-                                 parser=parser, post=post, url=None, enabled=True))
+                                 parser=parser, post=post, enabled=True,
+                                 url=BB_BUILDER_URL if key == "bb_saves" else None))
+        changed = True
+    # Seeded before the builder was known to be the page (26 Oct 2026): fill it
+    # in once rather than leave the market off until someone pastes it.
+    bb = db.query(ScraperMarket).filter(ScraperMarket.key == "bb_saves").first()
+    if bb is not None and not bb.url:
+        bb.url = BB_BUILDER_URL
         changed = True
     have = {t.site for t in db.query(ScraperTiming).all()}
     for site, t in DEFAULT_TIMINGS.items():

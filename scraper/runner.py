@@ -444,7 +444,10 @@ class Runner:
                 self.parser_said[t.name] = f"parser not written ({t.parser}) - capturing only"
             return
         except Exception as exc:
+            # Shown as the target's detail on /scraper until a call succeeds -
+            # a driver that cannot bring its page up says so there, not only here.
             print(f"{t.name}: parser failed: {exc}", flush=True)
+            self.parser_said[t.name] = f"parser failed: {str(exc).splitlines()[0][:120]}"
             return
         self.parser_said.pop(t.name, None)
         out = self.s.data_dir / "latest" / f"{_safe(t.name)}.json"

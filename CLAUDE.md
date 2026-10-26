@@ -628,9 +628,14 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   `/api/paddy/saves-fair` (`SAVES_INGEST_KEY`, key-guarded like `/state`).
   The login stays in the scraper's browser profile, never on Render. Fair
   prices sit in a bounded TTLCache and are joined to Paddy's saves line by
-  team similarity and day. MATCH totals only; the reader
-  (`scraper/parsers/bb_saves.py`) is unwritten until a `dump` of the real page has been
-  read — do not guess its layout.
+  team similarity and day. MATCH totals only. The reader
+  (`scraper/parsers/bb_saves.py`, 26 Oct 2026) DRIVES Bookie Bashing's Bet
+  Builder — "BB Player/Team Stats" → "BB xSaves", both teams combined as
+  "Total Over Players", one typed line at a time, fair read off "Total Odds"
+  — because BB has no saves page. Only Over is read: the builder's "Under N.5"
+  means fewer than N, not the standard line. The builder lists a game only
+  when some bookmaker has posted a saves line for it (the Premier League is
+  often empty until a day or two before kickoff). Its docstring has the rest.
 - **The scraper (`scraper/`, Oct 2026) is a SEPARATE service** — its own
   Docker image (`.github/workflows/scraper-image.yml` → GHCR), on its own
   Linux server, updated by that server's `update.sh` cron. It is NOT part of
@@ -658,9 +663,10 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   off (Callum's decision, 26 Oct 2026 — `navigator.webdriver` false, no
   infobar); `python -m scraper selfcheck` prints what a site sees. Page loads are spaced per site and
   across sites (`sites.py load_gap_s`); jitter is drawn once per load. Parsers
-  (`scraper/parsers/`, one module each) are written only from captured
-  samples/dumps: `pp_most` and `bb_saves` are both unwritten (Oct 2026 — no
-  priced most market in the samples; no Bookie Bashing page set).
+  (`scraper/parsers/`, one module each) are written only from what the real
+  pages were seen to do: `bb_saves` drives the Bookie Bashing bet builder
+  (above); `pp_most` is unwritten (Oct 2026 — no priced most market in the
+  samples yet).
 - **Acca insurance** (`frontend/src/accaInsurance.js`, Oct 2026): the Acca Min
   tab value a 5-fold (every leg 1.20+) with the stake
   refunded as a bonus (`refund_value` 0.75, `refund_cap`) if exactly one leg

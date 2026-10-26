@@ -201,7 +201,9 @@ def test_config_change_closes_removed_tabs_and_opens_new_ones(tmp_path, site):
         assert json.loads((tmp_path / "config.json").read_text()) == Handler.config
         states = {t["name"]: t for t in Handler.reports[-1]["targets"]}
         assert states["pp"]["state"] == "retired" and states["bb"]["state"] == "running"
-        assert "parser not written" in states["bb"]["detail"]
+        # The fake "Saves" page is not the bet builder, so its driver fails -
+        # and that failure is the target's detail, where /scraper shows it.
+        assert "parser failed" in states["bb"]["detail"]
         assert {s["site"] for s in Handler.reports[-1]["sites"]} == set(SITES)
         assert Handler.reports[-1]["sites"][0]["loads_hour"] >= 1
 

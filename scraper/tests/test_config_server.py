@@ -124,6 +124,10 @@ def test_served_timings_below_the_floors_are_still_clamped(env, server, monkeypa
 def test_parsers_are_modules_and_unwritten_ones_say_so():
     from scraper.parsers import PARSERS
     assert set(PARSERS) == {"pp_most", "bb_saves"}
-    for fn in PARSERS.values():
-        with pytest.raises(NotImplementedError):
-            fn(None, None)
+    # pp_most is still unwritten and says so; bb_saves drives a page, so with
+    # no page it fails like any parser would (test_bb_saves.py drives it).
+    with pytest.raises(NotImplementedError):
+        PARSERS["pp_most"](None, None)
+    with pytest.raises(Exception) as exc:
+        PARSERS["bb_saves"](None, None)
+    assert not isinstance(exc.value, NotImplementedError)

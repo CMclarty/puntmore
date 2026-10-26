@@ -96,10 +96,15 @@ def test_page_routes_401_without_a_session(client):
 
 # --- config ------------------------------------------------------------------
 
-def test_seeded_config_is_epl_most_and_no_bb_until_its_page_is_set(client):
+def test_seeded_config_is_epl_most_and_the_bb_builder(client):
     cfg = client.get("/scraper/config", headers=H).json()
-    (t,) = cfg["targets"]
-    assert t["name"] == "pp-epl-most"
+    by = {t["name"]: t for t in cfg["targets"]}
+    assert set(by) == {"pp-epl-most", "bb-saves"}
+    t, bb = by["pp-epl-most"], by["bb-saves"]
+    # The Bookie Bashing bet builder is seeded as the saves page (its driver
+    # is scraper/parsers/bb_saves.py), and it is never reloaded on a timer.
+    assert bb["name"] == "bb-saves" and bb["url"].endswith("/tools/betbuilder/")
+    assert bb["every_min"] is None and "matches" not in bb
     assert t["site"] == "paddypower"
     assert t["url"] == "https://www.paddypower.com/football/english-premier-league"
     assert t["parser"] == "pp_most" and t["post"] == "/api/paddy/most-prices"
@@ -110,7 +115,6 @@ def test_seeded_config_is_epl_most_and_no_bb_until_its_page_is_set(client):
     client.put("/scraper/markets/bb_saves", json={"url": url})
     names = {t["name"]: t for t in client.get("/scraper/config", headers=H).json()["targets"]}
     assert names["bb-saves"]["url"] == url
-    assert names["bb-saves"]["every_min"] == 10 and "matches" not in names["bb-saves"]
 
 
 def test_config_is_what_the_scrapers_target_reader_reads_unchanged(client):
@@ -141,9 +145,13 @@ def test_config_is_what_the_scrapers_target_reader_reads_unchanged(client):
 def test_disabled_league_or_market_drops_its_targets(client):
     league = client.get("/scraper").json()["leagues"][0]
     client.put(f"/scraper/leagues/{league['id']}", json={"enabled": False})
-    assert client.get("/scraper/config", headers=H).json()["targets"] == []
+    names = [t["name"] for t in client.get("/scraper/config", headers=H).json()["targets"]]
+    assert names == ["bb-saves"]                 # a page target has no league
     client.put(f"/scraper/leagues/{league['id']}", json={"enabled": True})
     client.put("/scraper/markets/most", json={"enabled": False})
+    names = [t["name"] for t in client.get("/scraper/config", headers=H).json()["targets"]]
+    assert names == ["bb-saves"]
+    client.put("/scraper/markets/bb_saves", json={"enabled": False})
     assert client.get("/scraper/config", headers=H).json()["targets"] == []
 
 
@@ -186,7 +194,8 @@ def test_market_tabs_are_edited_and_trimmed(client):
     (most,) = [m for m in body.json()["markets"] if m["key"] == "most"]
     assert most["tabs"] == ["Corners", "Cards & Fouls"]
     cfg = client.get("/scraper/config", headers=H).json()
-    assert cfg["targets"][0]["matches"]["market_tabs"] == ["Corners", "Cards & Fouls"]
+    (pp,) = [t for t in cfg["targets"] if t["name"] == "pp-epl-most"]
+    assert pp["matches"]["market_tabs"] == ["Corners", "Cards & Fouls"]
 
 
 # --- status --------------------------------------------------------------------
