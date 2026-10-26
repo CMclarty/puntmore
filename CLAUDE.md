@@ -624,12 +624,26 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
 - **Goalkeeper SAVES are priced off Bookie Bashing, not Pinnacle**
   (`cards/saves.py`, Oct 2026). Pinnacle posts no saves ladder; Bookie Bashing
   publishes fair saves prices behind Callum's login, so they are read by
-  `local/bookiebashing_saves.py` ON HIS PC and POSTed to
+  the scraper (`local/scraper`, below) and POSTed to
   `/api/paddy/saves-fair` (`SAVES_INGEST_KEY`, key-guarded like `/state`).
-  The login never reaches the server. Fair prices sit in a bounded TTLCache
-  and are joined to Paddy's OddsPapi saves line by team similarity and day.
-  MATCH totals only; the page reader (`parse_page`) is unwritten until a
-  `dump` of the real page has been read — do not guess its layout.
+  The login stays in the scraper's browser profile, never on Render. Fair
+  prices sit in a bounded TTLCache and are joined to Paddy's saves line by
+  team similarity and day. MATCH totals only; the reader
+  (`parsers.bb_saves`) is unwritten until a `dump` of the real page has been
+  read — do not guess its layout.
+- **The scraper (`local/scraper`, Oct 2026) is a SEPARATE service** — its own
+  Docker image (`.github/workflows/scraper-image.yml` → GHCR), on its own
+  Linux server, updated by that server's `update.sh` cron. It is NOT part of
+  the Render deploy and the no-docker-compose rule is untouched (plain
+  `docker run`). One real Chrome on Xvfb keeps every target's page OPEN and
+  listens to what the page receives, so after the first load most targets
+  cost no requests. WHAT it reads is config (`targets.toml`, any mix of
+  Paddy Power and Bookie Bashing pages); HOW each site is treated is code
+  (`sites.py`: budgets, Paddy quiet hours 01-07, a Paddy block = every Paddy
+  page closed + 24 h cool-off needing `resume`). Config can only make it
+  slower. It detects challenges and logouts and never answers them — no
+  fingerprint spoofing, no solvers, no proxies; do not add any. Parsers
+  (`parsers.py`) are written only from captured samples/dumps.
 - **Acca insurance** (`frontend/src/accaInsurance.js`, Oct 2026): the Acca Min
   tab value a 5-fold (every leg 1.20+) with the stake
   refunded as a bonus (`refund_value` 0.75, `refund_cap`) if exactly one leg

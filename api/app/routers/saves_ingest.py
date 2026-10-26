@@ -1,5 +1,5 @@
 """POST /api/paddy/saves-fair — fair goalkeeper-saves prices from the local
-Bookie Bashing script (local/bookiebashing_saves.py).
+Bookie Bashing scraper (local/scraper, target parser `bb_saves`).
 
 Key-guarded rather than session-guarded, like /state: the caller is a script
 on Callum's PC, not a browser. It writes to a bounded, expiring in-memory store

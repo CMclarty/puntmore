@@ -1,0 +1,33 @@
+# Copy to /opt/puntmore-scraper/data/targets.toml and edit. Changes take
+# effect on the next restart (`docker restart puntmore-scraper`).
+#
+# Any mix of the two sites. Each site's budget, quiet hours and block
+# handling are fixed in code (sites.py), whatever is listed here.
+#
+#   name       unique; used for samples, dumps and `dump <name>`
+#   site       paddypower | bookiebashing
+#   url        the page
+#   every_min  reload on this interval (min 5). Leave out to reload only
+#              when the page has gone quiet for stale_min (default 20, min 10)
+#   parser     name in parsers.py (leave out to just capture)
+#   post       puntmore path the parsed rows are POSTed to
+#   [target.matches]  treat url as a listing: open its match links in
+#              kept-open tabs (max_tabs, at most 6), clicking market_tabs once
+
+[[target]]
+name = "bb-saves"
+site = "bookiebashing"
+url = "https://www.bookiebashing.net/REPLACE-with-the-saves-page"
+every_min = 10
+parser = "bb_saves"
+post = "/api/paddy/saves-fair"
+
+[[target]]
+name = "pp-epl"
+site = "paddypower"
+url = "https://www.paddypower.com/football/english-premier-league"
+parser = "pp_match"
+  [target.matches]
+  link_re = "-v-"
+  max_tabs = 3
+  market_tabs = ["Cards", "Corners", "Player"]

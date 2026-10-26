@@ -1,0 +1,50 @@
+# Tests the scraper and publishes its image. The server's update.sh pulls
+# :latest every 15 min and restarts onto it, so a green push to main that
+# touches local/scraper/ is a deploy of the scraper.
+name: scraper image
+
+on:
+  push:
+    branches: [main]
+    paths: ["local/scraper/**", ".github/workflows/scraper-image.yml"]
+  pull_request:
+    paths: ["local/scraper/**", ".github/workflows/scraper-image.yml"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r local/scraper/requirements.txt -r local/scraper/requirements-dev.txt
+      - run: python -m playwright install --with-deps chromium
+      - run: python -m pytest scraper/tests -q
+        working-directory: local
+
+  image:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/puntmore-scraper" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: local/scraper
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.name.outputs.image }}:latest
+            ${{ steps.name.outputs.image }}:${{ github.sha }}
