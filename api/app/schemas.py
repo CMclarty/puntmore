@@ -1,6 +1,6 @@
 from datetime import date, datetime
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import Any, Optional
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LegOut(BaseModel):
@@ -404,3 +404,164 @@ class ValueFeedOut(BaseModel):
     # the reason, so an empty list is never mistaken for "nothing on offer".
     errors: dict[str, str] = Field(default_factory=dict)
     selections: list[ValueSelection]
+
+
+# --- Typed responses for routes that used to return bare dicts (Oct 2026) ------
+#
+# Every route declares a response_model so /api/docs describes it. A model here
+# lists the fields the route returns today. The ones marked OPEN also allow
+# extra keys (`extra="allow"`): diagnostic and config payloads whose contents
+# are vendor- or report-shaped, where dropping an unlisted key would be a
+# behaviour change. Never remove a field from these — additive only.
+
+
+class OpenModel(BaseModel):
+    """OPEN: the listed fields are documented; any others pass through as-is."""
+    model_config = ConfigDict(extra="allow")
+
+
+class OkOut(BaseModel):
+    ok: bool
+
+
+class DeletedOut(BaseModel):
+    deleted: int
+
+
+class UploadOptionOut(BaseModel):
+    code: str
+    label: str
+    period_codes: list[str]
+    types: list[str]
+
+
+class DiagnosticsOut(OpenModel):
+    """A tool's "why does the screen look like this" report. OPEN."""
+    verdict: Optional[str] = None
+
+
+class IngestRejectOut(OpenModel):
+    match: str
+    reason: str
+
+
+class IngestOut(BaseModel):
+    stored: int
+    rejected: list[IngestRejectOut]
+
+
+class AwSlipsOut(BaseModel):
+    # The page's headline figures (aw26/service.summary) — today, total,
+    # targets, value_on_offer. Kept as a mapping: its keys are report-shaped.
+    summary: dict[str, Any]
+    slips: list[AwSlipOut]
+
+
+class AwFairsOut(BaseModel):
+    stored: int
+    priced: int
+    still_unpriced: int
+
+
+class AwSlipIngestOut(BaseModel):
+    id: int
+    receipt: Optional[str] = None
+    offer: str
+    stake: Optional[float] = None
+    ev: Optional[float] = None
+    ev_note: Optional[str] = None
+    status: str
+    legs: int
+    unpriced_legs: int
+
+
+class AwResultsOut(OpenModel):
+    matches: int
+    resolved: int
+    settled: int
+
+
+class OpenLeaguesOut(BaseModel):
+    events: list[str]
+    sport_keys: list[str]
+    unknown: list[str]
+
+
+class ScraperLeagueOut(OpenModel):
+    id: int
+    name: str
+    site: str
+    url: Optional[str] = None
+    enabled: bool
+
+
+class ScraperMarketOut(OpenModel):
+    key: str
+    label: str
+    site: str
+    tabs: list[str]
+    parser: Optional[str] = None
+    post: Optional[str] = None
+    url: Optional[str] = None
+    enabled: bool
+    page: bool
+
+
+class ScraperTimingOut(OpenModel):
+    site: str
+    every_min: Optional[float] = None
+    stale_min: Optional[float] = None
+    max_tabs: Optional[int] = None
+    open_gap_min: Optional[float] = None
+    relist_min: Optional[float] = None
+    tab_max_hours: Optional[float] = None
+    listings: Optional[bool] = None
+
+
+class ScraperStatusOut(OpenModel):
+    reported_at: Optional[str] = None
+    targets: list[dict[str, Any]]
+    sites: list[dict[str, Any]]
+
+
+class ScraperStateOut(BaseModel):
+    leagues: list[ScraperLeagueOut]
+    markets: list[ScraperMarketOut]
+    timings: list[ScraperTimingOut]
+    status: ScraperStatusOut
+
+
+class ScraperConfigOut(OpenModel):
+    """What the scraper box runs — config._target's shape. OPEN."""
+    targets: list[dict[str, Any]]
+    timings: dict[str, dict[str, Any]]
+
+
+class ScraperStatusAckOut(BaseModel):
+    targets: int
+    sites: int
+
+
+class ErrorsOut(OpenModel):
+    """The diagnostics ring buffer (app/diagnostics.snapshot). OPEN."""
+    boot_id: Optional[str] = None
+    count: Optional[int] = None
+    records: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ClearedOut(BaseModel):
+    cleared: int
+
+
+class ClientErrorAckOut(BaseModel):
+    id: str
+
+
+class HealthOut(BaseModel):
+    status: str
+
+
+class ReadyOut(OpenModel):
+    status: str
+    checks: dict[str, bool]
+    providers: dict[str, Any]

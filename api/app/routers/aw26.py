@@ -28,7 +28,7 @@ from ..config import settings
 from ..database import get_db
 from ..images import prepare_for_ocr
 from ..models import AwLeg, AwSlip
-from ..schemas import AwSlipOut
+from ..schemas import AwSlipOut, AwSlipsOut, DeletedOut, OpenModel
 from ..security import require_user
 from ..time_utils import utcnow
 from .upload import ALLOWED_MEDIA_TYPES, _read_capped
@@ -56,7 +56,7 @@ def _all(db) -> list[AwSlip]:
     return db.query(AwSlip).order_by(AwSlip.placed_at.desc(), AwSlip.id.desc()).all()
 
 
-@router.get("/slips")
+@router.get("/slips", response_model=AwSlipsOut)
 def list_slips(db: Session = Depends(get_db)):
     slips = _all(db)
     return {
@@ -184,7 +184,7 @@ def edit_slip(slip_id: int, body: SlipEdit, request: Request, db: Session = Depe
     return slip
 
 
-@router.delete("/slips/{slip_id}")
+@router.delete("/slips/{slip_id}", response_model=DeletedOut)
 def delete_slip(slip_id: int, db: Session = Depends(get_db)):
     """The row and its photo go together (the cleanup rule)."""
     slip = db.get(AwSlip, slip_id)
@@ -209,7 +209,7 @@ def slip_image(slip_id: int, db: Session = Depends(get_db)):
     return FileResponse(slip.image_path)
 
 
-@router.get("/results-check")
+@router.get("/results-check", response_model=OpenModel)
 def results_check(request: Request, fixture: str):
     """What OddsPapi's results endpoints return for one finished fixture — read
     ONCE before the settlement reader is written against them. Two billable

@@ -1,16 +1,20 @@
 import logging
+import os
 import secrets
 import time
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from .database import engine, SessionLocal
 from .models import Base, User
 from .seed import seed
+from .schemas import HealthOut, ReadyOut
 from .config import settings
 from .security import (
+    require_any_grant,
     require_tool,
     seed_users,
     ensure_schema,
@@ -249,7 +253,35 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="Puntmore API", lifespan=lifespan)
+# The API's contract version. Additive changes keep it; a breaking change
+# moves the path to /api/v2/... (docs/api.md, "Versioning"). The deploy's commit
+# is appended when Render provides it, so /api/docs names exactly what runs.
+API_VERSION = "1.0.0"
+_commit = os.environ.get("RENDER_GIT_COMMIT", "")[:8]
+
+API_DESCRIPTION = """Every Puntmore tool as a key-authenticated API.
+
+**Auth** — a browser session (log in on the site), or an API client key sent as
+`Authorization: Bearer <key>` (preferred) or `X-API-Key: <key>`. Keys are made
+with `python -m app.apikeys create <name> --tools ...` and carry the same
+per-tool grants as users. Each tag below is one tool; its routes need that
+tool's grant.
+
+**Value** — `GET /api/value` answers "what value is on offer right now, across
+every tool" in one row shape (`ValueSelection`).
+
+Read, record, report: nothing here places a bet. Full guide: `docs/api.md` in
+the repository.
+"""
+
+app = FastAPI(
+    title="Puntmore API",
+    version=API_VERSION + (f"+{_commit}" if _commit else ""),
+    description=API_DESCRIPTION,
+    lifespan=lifespan,
+    # Served below behind auth instead — the schema is never public.
+    openapi_url=None, docs_url=None, redoc_url=None,
+)
 
 # Session signing key. A fixed SECRET_KEY in prod keeps sessions alive across
 # restarts; a random one (dev default) resets them on every restart.
@@ -292,7 +324,8 @@ app.include_router(upload_router, dependencies=[Depends(require_tool("coupons"))
 # PLAN.md v5). Code is kept; the routers are only mounted when re-enabled via
 # the ENABLE_ACCABONUS / ENABLE_CARDS flags in .env.
 if settings.enable_accabonus:
-    app.include_router(accabonus.router, dependencies=[Depends(require_tool("accabonus"))])
+    app.include_router(accabonus.router, tags=["accabonus"],
+                       dependencies=[Depends(require_tool("accabonus"))])
 if settings.enable_cards:
     # The tool is "Paddy" now — corners, cards, goals and saves — so it lives
     # under /paddy. /cards stays as an alias for installed app shells and
@@ -301,12 +334,13 @@ if settings.enable_cards:
     # revoke access for existing accounts and break the Render config.)
     for prefix, listed in (("/paddy", True), ("/cards", False)):
         app.include_router(cards_router.router, prefix=prefix, include_in_schema=listed,
-                           dependencies=[Depends(require_tool("cards"))])
+                           tags=["paddy"], dependencies=[Depends(require_tool("cards"))])
         # The local Bookie Bashing script's way in: key-guarded, not session-guarded.
-        app.include_router(saves_ingest_router.router, prefix=prefix, include_in_schema=listed)
+        app.include_router(saves_ingest_router.router, prefix=prefix, include_in_schema=listed,
+                           tags=["paddy"])
 if settings.enable_goalscorers:
     app.include_router(
-        goalscorers_router.router,
+        goalscorers_router.router, tags=["goalscorers"],
         dependencies=[Depends(require_tool("goalscorers"))],
     )
 if settings.enable_pnl:
@@ -318,7 +352,7 @@ app.include_router(shop_router.router, dependencies=[Depends(require_tool("shop"
 # no flag: the grant alone gates it. Its fair prices arrive from the local Bookie
 # Bashing script through the key-guarded ingest, not a session.
 app.include_router(aw26_router.router, dependencies=[Depends(require_tool("aw26"))])
-app.include_router(aw26_ingest_router.router)
+app.include_router(aw26_ingest_router.router, tags=["aw26"])
 
 # The scraper's control plane: the page edits it under the `scraper` grant;
 # the scraper box reads its config and reports status with the ingest key.
@@ -330,10 +364,24 @@ app.include_router(scraper_router.worker_router)
 app.include_router(value_router.router)
 
 # /state self-guards with a static API key (machine consumers, no session).
-app.include_router(state_router.router)
+app.include_router(state_router.router, tags=["state"])
 
 # /diagnostics self-guards too (admin session OR the state key).
 app.include_router(diagnostics_router.router)
+
+
+# OpenAPI + Swagger UI, at /api/openapi.json and /api/docs under the asgi mount.
+# NEVER public: a session or an API client with any grant. The docs page fetches
+# the schema relative to itself, so it works under the /api mount unchanged.
+@app.get("/openapi.json", include_in_schema=False,
+         dependencies=[Depends(require_any_grant)])
+def openapi_schema() -> JSONResponse:
+    return JSONResponse(app.openapi())
+
+
+@app.get("/docs", include_in_schema=False, dependencies=[Depends(require_any_grant)])
+def api_docs() -> HTMLResponse:
+    return get_swagger_ui_html(openapi_url="openapi.json", title="Puntmore API")
 
 
 # Every request is timed, and anything that fails or drags is recorded. This is
@@ -389,7 +437,7 @@ async def observe_requests(request: Request, call_next):
     return response
 
 
-@app.get("/health", include_in_schema=False)
+@app.get("/health", include_in_schema=False, response_model=HealthOut, tags=["health"])
 def health():
     """Liveness probe.
 
@@ -404,7 +452,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/ready", include_in_schema=False)
+@app.get("/ready", include_in_schema=False, response_model=ReadyOut, tags=["health"])
 def ready():
     """Readiness probe — gates deploy promotion.
 

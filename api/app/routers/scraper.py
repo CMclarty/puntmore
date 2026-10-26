@@ -30,6 +30,7 @@ from ..database import get_db
 from ..models import (
     ScraperLeague, ScraperMarket, ScraperSiteStatus, ScraperTargetStatus, ScraperTiming,
 )
+from ..schemas import ScraperConfigOut, ScraperStateOut, ScraperStatusAckOut
 from ..time_utils import utcnow
 from .saves_ingest import require_ingest_key
 
@@ -195,7 +196,7 @@ def _state(db: Session) -> dict:
 
 # --- the scraper box (key) ---------------------------------------------------
 
-@worker_router.get("/config")
+@worker_router.get("/config", response_model=ScraperConfigOut)
 def get_config(db: Session = Depends(get_db)):
     ensure_seeded(db)
     return build_config(db)
@@ -234,7 +235,7 @@ def _from_epoch(ts: float | None) -> datetime | None:
     return datetime.fromtimestamp(ts, timezone.utc).replace(tzinfo=None)
 
 
-@worker_router.post("/status")
+@worker_router.post("/status", response_model=ScraperStatusAckOut)
 def post_status(body: StatusIn, db: Session = Depends(get_db)):
     """Replace the last report with this one, whole."""
     now = utcnow()
@@ -253,7 +254,7 @@ def post_status(body: StatusIn, db: Session = Depends(get_db)):
 
 # --- the page (session) -------------------------------------------------------
 
-@router.get("")
+@router.get("", response_model=ScraperStateOut)
 def get_scraper(db: Session = Depends(get_db)):
     return _state(db)
 
@@ -263,7 +264,7 @@ class LeagueIn(BaseModel):
     url: str | None = Field(default=None, max_length=2000)
 
 
-@router.put("/leagues/{league_id}")
+@router.put("/leagues/{league_id}", response_model=ScraperStateOut)
 def put_league(league_id: int, body: LeagueIn, db: Session = Depends(get_db)):
     ensure_seeded(db)
     lg = db.get(ScraperLeague, league_id)
@@ -283,7 +284,7 @@ class MarketIn(BaseModel):
     url: str | None = Field(default=None, max_length=2000)
 
 
-@router.put("/markets/{key}")
+@router.put("/markets/{key}", response_model=ScraperStateOut)
 def put_market(key: str, body: MarketIn, db: Session = Depends(get_db)):
     ensure_seeded(db)
     m = db.get(ScraperMarket, key)
@@ -319,7 +320,7 @@ class TimingIn(BaseModel):
     tab_max_hours: float | None = None
 
 
-@router.put("/timings/{site}")
+@router.put("/timings/{site}", response_model=ScraperStateOut)
 def put_timing(site: str, body: TimingIn, db: Session = Depends(get_db)):
     ensure_seeded(db)
     t = db.get(ScraperTiming, site)

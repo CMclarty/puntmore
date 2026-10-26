@@ -22,6 +22,7 @@ from ..aw26.service import (
 from ..database import get_db
 from ..models import AwFair, AwLeg, AwSlip, ValueLine
 from ..normalise import split_sides, team_similarity
+from ..schemas import AwFairsOut, AwResultsOut, AwSlipIngestOut, OpenLeaguesOut
 from ..providers.slip_ocr import ExtractedSlip, ExtractedSlipLeg
 from ..time_utils import utcnow
 from .aw26 import _sweep_events
@@ -43,7 +44,7 @@ class FairsIn(BaseModel):
     fairs: list[FairIn] = Field(max_length=5000)
 
 
-@router.post("/fairs", dependencies=[Depends(require_ingest_key)])
+@router.post("/fairs", response_model=AwFairsOut, dependencies=[Depends(require_ingest_key)])
 def post_fairs(batch: FairsIn, db: Session = Depends(get_db)):
     now = utcnow()
     for f in batch.fairs:
@@ -96,7 +97,7 @@ class SlipIn(BaseModel):
     legs: list[SlipLegIn] = Field(min_length=1, max_length=40)
 
 
-@router.post("/slips/ingest", dependencies=[Depends(require_ingest_key)])
+@router.post("/slips/ingest", response_model=AwSlipIngestOut, dependencies=[Depends(require_ingest_key)])
 def ingest_slip(body: SlipIn, request: Request, db: Session = Depends(get_db)):
     """Create an AW 26 slip from an already-read bet (no photo, no server OCR).
 
@@ -165,7 +166,7 @@ class ResultsIn(BaseModel):
     matches: list[MatchStatsIn] = Field(min_length=1, max_length=200)
 
 
-@router.post("/results", dependencies=[Depends(require_ingest_key)])
+@router.post("/results", response_model=AwResultsOut, dependencies=[Depends(require_ingest_key)])
 def post_results(batch: ResultsIn, db: Session = Depends(get_db)):
     stats = [MatchStats(**m.model_dump()) for m in batch.matches]
     return apply_match_stats(db, stats)
@@ -183,7 +184,7 @@ def post_results(batch: ResultsIn, db: Session = Depends(get_db)):
 OPEN_LEAGUES_LOOKBACK_DAYS = 14
 
 
-@router.get("/open-leagues", dependencies=[Depends(require_ingest_key)])
+@router.get("/open-leagues", response_model=OpenLeaguesOut, dependencies=[Depends(require_ingest_key)])
 def open_leagues(db: Session = Depends(get_db)):
     events = sorted({
         leg.event for leg in db.query(AwLeg).join(AwSlip)

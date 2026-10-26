@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from ..cards.most import PaddyMost, store as store_most
 from ..cards.saves import FairSaves, complete, store, _parse_time
+from ..schemas import IngestOut
 from ..security import require_key_grant
 
 router = APIRouter()
@@ -34,7 +35,7 @@ class SavesBatchIn(BaseModel):
     prices: list[FairSavesIn] = Field(max_length=2000)
 
 
-@router.post("/saves-fair", dependencies=[Depends(require_ingest_key)])
+@router.post("/saves-fair", response_model=IngestOut, dependencies=[Depends(require_ingest_key)])
 def post_saves_fair(batch: SavesBatchIn):
     """Store a batch; report what was kept and why anything was not."""
     kept, rejected = [], []
@@ -66,7 +67,7 @@ class MostBatchIn(BaseModel):
     prices: list[PaddyMostIn] = Field(max_length=2000)
 
 
-@router.post("/most-prices", dependencies=[Depends(require_ingest_key)])
+@router.post("/most-prices", response_model=IngestOut, dependencies=[Depends(require_ingest_key)])
 def post_most_prices(batch: MostBatchIn):
     """Paddy Power's own "team to have most corners / most cards" prices, read
     off the Paddy page by the local scraper — OddsPapi does not carry them, so

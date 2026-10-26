@@ -13,7 +13,7 @@ from ..coupon_periods import COUPON_PERIODS
 from ..coupon_types import COUPON_TYPES
 from ..schemas import (
     BundleOut, CouponOut, CouponTypeOut, CouponPeriodOut, LegOut,
-    LegEditRequest, TypePeriodOut,
+    LegEditRequest, TypePeriodOut, UploadOptionOut,
 )
 from ..config import settings
 from ..pricing.legs import price_legs
@@ -163,7 +163,7 @@ def _best_bundle_for_coupon(db: Session, coupon: Coupon) -> dict | None:
     return {k: v for k, v in found[0].items() if k != "legs"}
 
 
-@router.get("/upload-options")
+@router.get("/upload-options", response_model=list[UploadOptionOut])
 def list_upload_options():
     """What can be photographed: the two multi-market sheets, and the types
     printed on a sheet of their own. The upload form's one dropdown."""

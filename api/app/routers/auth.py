@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..models import User
+from ..schemas import OkOut
 from ..security import (
     KeyAuth,
     LoginThrottle,
@@ -66,7 +67,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     return _user_out(user)
 
 
-@router.post("/logout")
+@router.post("/logout", response_model=OkOut)
 def logout(request: Request):
     request.session.clear()
     return {"ok": True}

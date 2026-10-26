@@ -8,14 +8,14 @@ from ..accabonus.feed import (  # noqa: F401
     LAST_PULL, _fetch_events, _sport_keys, build_feed, eligible_keys,
 )
 from ..config import settings
-from ..schemas import AccaBonusFeedItem, ArbOut
+from ..schemas import AccaBonusFeedItem, ArbOut, DiagnosticsOut, OpenModel
 
 logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter()
 
 
-@router.get("/accabonus/eligible-keys")
+@router.get("/accabonus/eligible-keys", response_model=OpenModel)
 def get_eligible_keys(request: Request):
     """What this tool counts as boost-eligible, for checking against bet365."""
     client = request.app.state.arbs_client
@@ -53,7 +53,7 @@ def get_accabonus_feed(
     return build_feed(request.app.state.arbs_client, min_edge)
 
 
-@router.get("/accabonus/diagnostics")
+@router.get("/accabonus/diagnostics", response_model=DiagnosticsOut)
 def get_accabonus_diagnostics(request: Request):
     """Why the AccaBonus screen looks the way it does.
 
@@ -120,7 +120,7 @@ def get_accabonus_diagnostics(request: Request):
             "min_edge": settings.arb_min_edge}
 
 
-@router.get("/accabonus/probe-books")
+@router.get("/accabonus/probe-books", response_model=OpenModel)
 def probe_books(request: Request, sport: str = "soccer_epl", region: str = "uk"):
     """Which bookmakers this plan actually carries for one sport and region.
 

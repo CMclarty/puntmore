@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from .. import diagnostics
 from ..database import get_db
 from ..models import User
+from ..schemas import ClearedOut, ClientErrorAckOut, ErrorsOut
 from ..security import KeyAuth, api_key_auth, has_permission
 
 router = APIRouter(prefix="/diagnostics", tags=["diagnostics"])
@@ -47,7 +48,7 @@ def require_admin_or_key(
     raise HTTPException(status_code=403, detail="Admin session or X-API-Key required")
 
 
-@router.get("/errors")
+@router.get("/errors", response_model=ErrorsOut)
 def get_errors(_: None = Depends(require_admin_or_key)):
     """Recent failures, newest first, plus boot id and uptime.
 
@@ -58,7 +59,7 @@ def get_errors(_: None = Depends(require_admin_or_key)):
     return diagnostics.snapshot()
 
 
-@router.delete("/errors")
+@router.delete("/errors", response_model=ClearedOut)
 def clear_errors(_: None = Depends(require_admin_or_key)):
     """Drop the buffer, so the next reproduction starts from a clean slate."""
     return {"cleared": diagnostics.clear()}
@@ -80,7 +81,7 @@ class ClientError(BaseModel):
     detail: str | None = Field(default=None, max_length=4000)
 
 
-@router.post("/client", status_code=202)
+@router.post("/client", status_code=202, response_model=ClientErrorAckOut)
 def report_client_error(body: ClientError, request: Request):
     """Intake for frontend errors. Deliberately open to any LOGGED-IN user.
 

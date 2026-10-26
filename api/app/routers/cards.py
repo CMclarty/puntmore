@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Query, Request
 
 from ..config import settings
-from ..schemas import CardFeedItem
+from ..schemas import CardFeedItem, DiagnosticsOut, OpenModel
 # The feed lives in cards/feed.py; re-exported so existing imports keep working.
 from ..cards.feed import (  # noqa: F401
     build_feed, describe, diagnose, market_name, price_events,
@@ -20,7 +20,7 @@ def get_cards_feed(
     return build_feed(request.app.state.cards_client, min_edge)
 
 
-@router.get("/shadow")
+@router.get("/shadow", response_model=OpenModel)
 def shadow_report(days: int = Query(default=14, ge=1, le=30)):
     """How wrong the counts model is, MEASURED, by distance beyond Pinnacle's ladder.
 
@@ -36,7 +36,7 @@ def shadow_report(days: int = Query(default=14, ge=1, le=30)):
         db.close()
 
 
-@router.get("/oddspapi-check")
+@router.get("/oddspapi-check", response_model=OpenModel)
 def oddspapi_check(request: Request, book: str | None = None, tournament: int = 17,
                    find: str = "nations,qualif,world cup,euro"):
     """What OddsPapi's live catalogue and lists actually say — read ONCE after
@@ -134,7 +134,7 @@ def oddspapi_check(request: Request, book: str | None = None, tournament: int = 
     return out
 
 
-@router.get("/diagnostics")
+@router.get("/diagnostics", response_model=DiagnosticsOut)
 def get_cards_diagnostics(request: Request):
     """One request that says why the screen looks the way it does."""
     return diagnose(request.app.state.cards_client)
