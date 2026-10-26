@@ -19,9 +19,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from starlette.staticfiles import StaticFiles
 
+from .identity import render_index
 from .main import app as api_app
 
 logger = logging.getLogger("uvicorn.error")
@@ -74,7 +75,10 @@ if STATIC_DIR.is_dir():
         candidate = STATIC_DIR / full_path
         if full_path and candidate.is_file():
             return FileResponse(candidate)
-        return FileResponse(STATIC_DIR / "index.html")
+        # The shell's head carries THIS path's manifest, icon and title — iOS
+        # reads the manifest at load, before any script runs (identity.py).
+        html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        return HTMLResponse(render_index(html, "/" + full_path))
 else:
     logger.warning(
         "No static build at %s — serving the API only. In production the "

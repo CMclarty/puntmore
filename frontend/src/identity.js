@@ -1,6 +1,8 @@
-// Home-screen identity per tool: iOS/Android read the icon, title and
-// manifest present in the document at the moment "Add to Home Screen" is
-// used, so with one shared icon.svg every tool looked identical once pinned.
+// Home-screen identity per tool. The icon and title are read when "Add to
+// Home Screen" is tapped, but iOS reads the MANIFEST (start_url, id) at page
+// load, before this runs — so the server rewrites the shell's head for the
+// path it serves (api/app/identity.py mirrors this table; a test keeps them
+// in step) and this keeps it right across client-side navigation.
 // scope stays "/" for all of them — these are entry points into the same
 // standalone app, not separate scopes; only start_url/icon/name differ, so
 // navigating to another tool from an installed shortcut stays in-app.

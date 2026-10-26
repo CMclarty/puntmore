@@ -12,8 +12,10 @@
     <meta name="apple-mobile-web-app-title" content="Puntmore" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <!-- PNG: iOS ignores an SVG here and pins a screenshot instead. Swapped
-         per tool by components/PageIdentity.jsx. -->
+    <!-- PNG: iOS ignores an SVG here and pins a screenshot instead. The
+         manifest, icons and title are rewritten per tool as the shell is
+         SERVED (api/app/identity.py) — iOS reads the manifest at load, before
+         any script — and again in the page by components/PageIdentity.jsx. -->
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/puntmore-180.png" />
     <title>Puntmore</title>
   </head>
