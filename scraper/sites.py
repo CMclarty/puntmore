@@ -1,5 +1,8 @@
 """How each site is treated. Code, not config: these are the guarantees.
 
+Every site: page loads are spaced (load_gap_s x 1.0-1.8, and 20-45 s between
+any two loads of any site), so nothing opens in a burst.
+
 paddypower     Logged out. Budget 15 loads/h, 120/day across ALL its targets.
                No traffic 01:00-07:00 (pages are closed, not just left idle).
                A block (403/429/Cloudflare) closes every Paddy page and starts
@@ -24,15 +27,17 @@ class Site:
     needs_login: bool
     block_means_cooloff: bool   # True: stop the site and wait for `resume`
                                 # False: back off and retry on its own
+    load_gap_s: float = 90.0    # at least this (x1.0-1.8) between two of its page loads
     market_list: str | None = None   # URL regex: a market tab's markets arrived
 
 
 SITES = {
     "paddypower": Site(per_hour=15, per_day=120, quiet_hours=True,
                        needs_login=False, block_means_cooloff=True,
-                       market_list=_PP_MARKET_LIST),
+                       load_gap_s=90.0, market_list=_PP_MARKET_LIST),
     "bookiebashing": Site(per_hour=8, per_day=120, quiet_hours=False,
-                          needs_login=True, block_means_cooloff=False),
+                          needs_login=True, block_means_cooloff=False,
+                          load_gap_s=60.0),
 }
 
 BACKOFF_MIN = (15, 120)

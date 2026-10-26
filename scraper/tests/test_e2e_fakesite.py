@@ -148,14 +148,15 @@ def test_block_closes_site_and_cools_off(tmp_path, site):
     with sync_playwright() as p:
         r, ctx = _runner(tmp_path, [_pp(site)], p)
         t0 = time.time()
-        for off in (0, 1, 400):
+        for off in (0, 400, 800):                           # spurs is the 2nd match
             r.tick(t0 + off)
-        assert r.guard.cooloff_active("paddypower", t0 + 400)
+        assert r.guard.cooloff_active("paddypower", t0 + 800)
         assert not r.tabs                                   # every Paddy page closed
         assert "cooling off" in (tmp_path / "alerts.log").read_text()
-        n = r.guard.spent("paddypower", t0 + 400)[0]
-        r.tick(t0 + 800)
-        assert r.guard.spent("paddypower", t0 + 800)[0] == n  # no traffic while cooling off
+        assert list((tmp_path / "blocks").glob("*.png"))    # what it looked like
+        n = r.guard.spent("paddypower", t0 + 800)[0]
+        r.tick(t0 + 1200)
+        assert r.guard.spent("paddypower", t0 + 1200)[0] == n  # no traffic while cooling off
         ctx.close()
 
 
@@ -186,13 +187,13 @@ def test_config_change_closes_removed_tabs_and_opens_new_ones(tmp_path, site):
         r, ctx = _runner(tmp_path, [_pp(site)], p, server=site)
         t0 = time.time()
         r.tick(t0)
-        r.tick(t0 + 1)
+        r.tick(t0 + 200)                                     # loads are spaced
         assert any(k.startswith("pp:m:") for k in r.tabs) and "pp:list" in r.tabs
         first = Handler.reports[-1]["targets"]
         assert [(t["name"], t["state"]) for t in first] == [("pp", "running")]
 
         Handler.config = {"targets": [bb]}                   # edited on the page
-        r.tick(t0 + 60)                                      # not due yet
+        r.tick(t0 + 230)                                     # not due yet
         assert "pp:list" in r.tabs and "bb" not in r.tabs
         r.tick(t0 + CONFIG_EVERY_S + 5)
         assert not any(k.startswith("pp") for k in r.tabs)   # every pp tab closed

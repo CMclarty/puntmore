@@ -34,6 +34,11 @@ HEALTH_PING_S = 300
 CONFIG_EVERY_S = 300
 STATUS_EVERY_S = 60
 STATUS_PATH = "/api/scraper/status"
+# Jitter on timed reloads, drawn ONCE per load. (Drawing it afresh every 15 s
+# tick, as before, made a reload fire at the low end nearly every time.)
+RELOAD_JITTER = (0.75, 1.35)     # every_min
+RELIST_JITTER = (0.9, 1.3)       # a listing's relist_min
+ANY_LOAD_GAP_S = (20, 45)        # between any two page loads, whatever the site
 
 
 class Tab:
@@ -42,6 +47,7 @@ class Tab:
         self.opened = time.time()
         self.last_load = self.opened
         self.reloaded_stale = False        # reloaded once for going quiet
+        self.due_at: float | None = None   # next timed reload, drawn once per load
         self.next_parse = 0.0
         self.market_tabs: dict[str, str] = {}   # market tab name -> what the click did
 
@@ -62,7 +68,9 @@ class Runner:
         self.sites = {name: SiteState() for name in SITES}
         self.paused_said: dict[str, str] = {}
         self.served_said: dict[str, float] = {}       # site -> cool-off `since` already alerted
-        self.last_open: dict[str, float] = {}
+        self.next_open: dict[str, float] = {}         # target -> earliest next match-tab open
+        self.next_load_at: dict[str, float] = {}      # site -> earliest next page load
+        self.next_any_load = 0.0                      # ... of any site
         self.retired: dict[str, collections.deque] = {}
         self.parser_said: dict[str, str] = {}
         self.next_health = 0.0
@@ -182,12 +190,28 @@ class Runner:
         st.blocked_for, st.backoff, st.retry_at = None, BACKOFF_MIN[0], 0.0
 
     # --- loading ------------------------------------------------------------
+    def _may_load(self, site, now) -> bool:
+        """Spacing between page loads: one person opens one page, looks at
+        it, and only then opens the next. Nothing is opened in a burst - not
+        at startup, not when quiet hours end, not when several tabs go stale
+        together."""
+        return now >= self.next_load_at.get(site, 0.0) and now >= self.next_any_load
+
+    def _spaced(self, site, now):
+        lo = SITES[site].load_gap_s
+        self.next_load_at[site] = now + lo * random.uniform(1.0, 1.8)
+        self.next_any_load = now + random.uniform(*ANY_LOAD_GAP_S)
+
     def _load(self, target, key, url, now) -> Tab | None:
-        """Open (or reload) one tab, through the guard. None if not done."""
+        """Open (or reload) one tab, through the guard and the spacing. None
+        if not done."""
         site = target.site
+        if not self._may_load(site, now):
+            return None
         ok, _why = self.guard.can_load(site, now, quiet_applies=SITES[site].quiet_hours)
         if not ok or not host_allowed(url):
             return None
+        self._spaced(site, now)
         tab = self.tabs.get(key)
         try:
             if tab is None:
@@ -200,6 +224,7 @@ class Runner:
                 resp = tab.page.reload(wait_until="domcontentloaded", timeout=60_000)
             self.guard.record_load(site, url, now)
             tab.last_load = now
+            tab.due_at = None
         except Exception as exc:
             self.guard.record_load(site, url, now)     # a failed load still went out
             print(f"{key}: load failed: {exc.__class__.__name__}: {exc}", flush=True)
@@ -280,7 +305,7 @@ class Runner:
                 for key in [k for k, tab in self.tabs.items() if tab.target.name == name]:
                     self._close(key)
                 self.retired.pop(name, None)
-                self.last_open.pop(name, None)
+                self.next_open.pop(name, None)
                 self.parser_said.pop(name, None)
             if name not in new:
                 self.retired_targets[name] = t
@@ -299,7 +324,9 @@ class Runner:
         if tab is None:
             self._load(t, key, url, now)
             return
-        due = t.every_min and now - tab.last_load >= t.every_min * 60 * random.uniform(0.75, 1.35)
+        if t.every_min and tab.due_at is None:     # drawn once per load, not per tick
+            tab.due_at = tab.last_load + t.every_min * 60 * random.uniform(*RELOAD_JITTER)
+        due = t.every_min and now >= tab.due_at
         stale = tab.capture.quiet_for(now) >= t.stale_min * 60 and now - tab.last_load >= t.stale_min * 60
         if due or stale:
             self._load(t, key, url, now)
@@ -311,7 +338,9 @@ class Runner:
         if listing is None:
             self._load(t, list_key, t.url, now)
             return
-        if now - listing.last_load >= m.relist_min * 60 * random.uniform(0.9, 1.3):
+        if listing.due_at is None:
+            listing.due_at = listing.last_load + m.relist_min * 60 * random.uniform(*RELIST_JITTER)
+        if now >= listing.due_at:
             self._load(t, list_key, t.url, now)
             return
 
@@ -331,13 +360,12 @@ class Runner:
         open_urls = {tab.url for k, tab in self.tabs.items() if k.startswith(t.name + ":m:")}
         if len(open_urls) >= m.max_tabs:
             return
-        gap = m.open_gap_min * 60 * random.uniform(1.0, 1.6)
-        if now - self.last_open.get(t.name, 0) < gap:
+        if now < self.next_open.get(t.name, 0.0) or not self._may_load(t.site, now):
             return
         for url in match_links(listing.page, m.link_re, t.url):
             if url in open_urls or url in retired:
                 continue
-            self.last_open[t.name] = now
+            self.next_open[t.name] = now + m.open_gap_min * 60 * random.uniform(1.0, 1.6)
             tab = self._load(t, f"{t.name}:m:{url}", url, now)
             if tab:
                 self._open_market_tabs(t, tab, now)
@@ -380,8 +408,9 @@ class Runner:
                 browser.read_down(page)
             except Exception:
                 pass
-        print(f"{tab.url}: market tabs: "
-              + ", ".join(f"{n} {o}" for n, o in tab.market_tabs.items()), flush=True)
+        if tab.market_tabs:
+            print(f"{tab.url}: market tabs: "
+                  + ", ".join(f"{n} {o}" for n, o in tab.market_tabs.items()), flush=True)
 
     def _snapshot_once(self, t, tab, why):
         """Save the page as it is drawn (HTML + screenshot, no request) once
