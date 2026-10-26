@@ -63,6 +63,7 @@ localhost.
 
 ## Boundaries (agreed; keep them)
 - It detects challenges and logouts and **stops**. It never answers a check, never types a password, and never fakes a fingerprint. No proxies or IP rotation, no clicking through menus to look human, and no other ways to avoid detection. If Paddy blocks this server, the answer is to slow down or get the data another way, not to work around the block.
+- One agreed exception (Callum, 26 Oct 2026): Chrome is started as a person's Chrome, without Playwright's `--enable-automation` test flag and with AutomationControlled off. Nothing else about the browser is changed or overridden.
 - Per-site rules live in code (`sites.py`). Config can only make it slower.
 - Targets are direct page URLs in `targets.toml`.
 

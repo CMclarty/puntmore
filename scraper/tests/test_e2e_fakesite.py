@@ -291,8 +291,8 @@ def test_cooloff_alerts_once_when_served_and_once_when_running(tmp_path):
 def test_selfcheck_reports_what_a_site_sees(tmp_path):
     """One coherent UK Chrome, set the way Chrome sets itself: its own en-GB
     language list (not a bare override), London time, a real window. And it
-    says plainly that this is automated: webdriver and --enable-automation
-    are left as Playwright sets them."""
+    is a person's Chrome, not a test run: Playwright's --enable-automation is
+    not passed and navigator.webdriver is false (Callum's call, 26 Oct 2026)."""
     from playwright.sync_api import sync_playwright
     from scraper import browser
     with sync_playwright() as p:
@@ -305,6 +305,7 @@ def test_selfcheck_reports_what_a_site_sees(tmp_path):
     assert len(seen["languages"]) > 1                 # Chrome's own list
     assert seen["timezone"] == "Europe/London"
     assert seen["outer"] == [1600, 1000] and seen["inner"][1] < 1000
-    assert seen["webdriver"] is True and seen["enable_automation"] is True
+    assert seen["webdriver"] is False and seen["enable_automation"] is False
+    assert seen["automation_controlled_disabled"] is True
     lines = browser.selfcheck_lines(seen, "test")
-    assert any(line.split()[:2] == ["navigator.webdriver", "true"] for line in lines)
+    assert any(line.split()[:2] == ["navigator.webdriver", "false"] for line in lines)

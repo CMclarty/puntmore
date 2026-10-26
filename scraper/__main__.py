@@ -9,8 +9,8 @@
                    (HTML + screenshot) to data/dumps/ - no extra page load.
   check            Load the targets (server, cache or toml) and print them.
   selfcheck        What a site sees of this browser: navigator.webdriver,
-                   userAgent, language, timezone, window, and whether Chrome
-                   runs with --enable-automation. Asks the running service
+                   userAgent, language, timezone, window, and that Chrome
+                   runs without --enable-automation. Asks the running service
                    (it holds the profile); if none, opens the profile itself
                    on about:blank. No network.
 """

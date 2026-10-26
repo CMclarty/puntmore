@@ -1,12 +1,17 @@
 """One real Chrome, one persistent profile, shared by both sites.
 
-Nothing here hides automation or fakes a fingerprint: spoofed values that
-disagree with the real browser are what bot checks look for. The profile is a
-real, ordinary Chrome profile, and the pages are kept
-OPEN so the site's own scripts keep them fresh — which is what keeps the
-traffic down to roughly what one person with a few tabs open would make.
+Nothing here fakes a fingerprint: spoofed values that disagree with the real
+browser are what bot checks look for. The profile is a real, ordinary Chrome
+profile, and the pages are kept OPEN so the site's own scripts keep them
+fresh — which is what keeps the traffic down to roughly what one person with
+a few tabs open would make.
 
-Challenges are only ever DETECTED, never answered.
+The ONE departure from Playwright's defaults (Callum's call, 26 Oct 2026):
+Chrome is started without Playwright's `--enable-automation` test flag and
+with AutomationControlled off, so it is the same Chrome a person would open —
+no "controlled by automated test software" bar, `navigator.webdriver` false.
+Everything else is left as Chrome sets it. Challenges are only ever DETECTED,
+never answered.
 """
 import os
 import random
@@ -32,12 +37,16 @@ _KEEP_TABS_LIVE = [
 # an emulated one made the page as tall as the whole screen.
 _WINDOW = ["--window-size=1600,1000", "--window-position=0,0"]
 _ENV = {"LANGUAGE": "en_GB:en", "TZ": "Europe/London"}
+# A person's Chrome, not a test harness's (see the module docstring).
+_NOT_A_TEST_RUN = ["--disable-blink-features=AutomationControlled"]
+_PLAYWRIGHT_TEST_FLAGS = ["--enable-automation"]
 
 
 def launch(p, settings, headless=False):
     env = {**_ENV, **{k: v for k, v in os.environ.items() if k != "LANGUAGE"}}
-    kw = dict(headless=headless, no_viewport=True, args=_KEEP_TABS_LIVE + _WINDOW,
-              env=env)
+    kw = dict(headless=headless, no_viewport=True,
+              args=_KEEP_TABS_LIVE + _WINDOW + _NOT_A_TEST_RUN,
+              ignore_default_args=_PLAYWRIGHT_TEST_FLAGS, env=env)
     settings.profile_dir.mkdir(parents=True, exist_ok=True)
     if os.environ.get("SCRAPER_CHROME_PATH"):      # tests / unusual installs
         kw["executable_path"] = os.environ["SCRAPER_CHROME_PATH"]

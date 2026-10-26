@@ -652,9 +652,11 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   It detects challenges and logouts (also on an already-open page: 3+
   refusals in 10 min, Cloudflare, logout) and never answers them — no
   fingerprint spoofing, no solvers, no proxies, no user-agent or navigator
-  overrides; do not add any. Chrome is configured coherently, not disguised
-  (`python -m scraper selfcheck` prints what a site sees; Playwright's
-  `--enable-automation` is left on). Page loads are spaced per site and
+  overrides; do not add any. Chrome is configured coherently, as a person's
+  Chrome: the one departure from Playwright's defaults is that its
+  `--enable-automation` test flag is not passed and AutomationControlled is
+  off (Callum's decision, 26 Oct 2026 — `navigator.webdriver` false, no
+  infobar); `python -m scraper selfcheck` prints what a site sees. Page loads are spaced per site and
   across sites (`sites.py load_gap_s`); jitter is drawn once per load. Parsers
   (`scraper/parsers/`, one module each) are written only from captured
   samples/dumps: `pp_most` and `bb_saves` are both unwritten (Oct 2026 — no

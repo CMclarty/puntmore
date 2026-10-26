@@ -35,7 +35,9 @@ each) are written only from `data/samples/` and `data/dumps/`. `pp_most` and
 - It never answers a challenge, never types a password, and never fakes a
   fingerprint. Chrome is set up the ordinary way for one UK reader
   (en-GB from the environment, London time, a 1600x1000 window on a
-  1920x1080 screen); `selfcheck` shows exactly what a site sees.
+  1920x1080 screen) and started as a person's Chrome, not a test run
+  (Playwright's `--enable-automation` is not passed); `selfcheck` shows
+  exactly what a site sees.
 - **A datacentre IP is more likely to be challenged than a home one.** If Paddy
   challenges this server, the scraper stops and tells you. It does not work
   around the challenge.
