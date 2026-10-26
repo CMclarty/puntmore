@@ -73,6 +73,16 @@ const TOOLS = [
       </svg>
     ),
   },
+  {
+    tool: 'scraper', name: 'Scraper', to: '/scraper', sub: 'Control',
+    matches: (p) => p.startsWith('/scraper'),
+    icon: (
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="4" y1="6" x2="18" y2="6"/><line x1="4" y1="11" x2="18" y2="11"/><line x1="4" y1="16" x2="18" y2="16"/>
+        <circle cx="8" cy="6" r="1.6"/><circle cx="14" cy="11" r="1.6"/><circle cx="10" cy="16" r="1.6"/>
+      </svg>
+    ),
+  },
 ]
 
 /**

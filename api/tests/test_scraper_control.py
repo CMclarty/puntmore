@@ -153,7 +153,8 @@ def test_timings_are_clamped_to_the_scrapers_floors(client):
         "relist_min": 5, "tab_max_hours": 99}).json()
     (pp,) = [t for t in body["timings"] if t["site"] == "paddypower"]
     assert pp == {"site": "paddypower", "every_min": 5.0, "stale_min": 10.0, "max_tabs": 6,
-                  "open_gap_min": 2.0, "relist_min": 30.0, "tab_max_hours": 24.0}
+                  "open_gap_min": 2.0, "relist_min": 30.0, "tab_max_hours": 24.0,
+                  "listings": True}
     # every_min may be blanked (reload only when stale); the others may not.
     body = client.put("/scraper/timings/paddypower",
                       json={"every_min": None, "stale_min": None}).json()

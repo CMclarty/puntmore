@@ -22,6 +22,7 @@ const Aw26Page = lazy(() => import('./pages/Aw26Page'))
 const AccaBonusPage = lazy(() => import('./pages/AccaBonusPage'))
 const Three65Page = lazy(() => import('./pages/Three65Page'))
 const CardsPage = lazy(() => import('./pages/CardsPage'))
+const ScraperPage = lazy(() => import('./pages/ScraperPage'))
 
 // The path the app was FIRST loaded at, captured once before the router starts
 // navigating. A direct (hard) load of a focused route — e.g. saving /pnl to the
@@ -110,6 +111,7 @@ export default function App() {
           <Route path="/boost" element={<Navigate to="/virtuals" replace />} />
           <Route path="/shop" element={protectTool(<ShopPage />, 'shop')} />
           <Route path="/aw26" element={protectTool(<Aw26Page />, 'aw26')} />
+          <Route path="/scraper" element={protectTool(<ScraperPage />, 'scraper')} />
           {/* 365: the bet365 offers, a tab each. /accabonus and /tennis are
               the acca boost's old addresses. */}
           <Route path="/365" element={<Three65Page tools={user?.tools} />}>

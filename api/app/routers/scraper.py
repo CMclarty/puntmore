@@ -174,9 +174,10 @@ def _state(db: Session) -> dict:
                      "enabled": lg.enabled}
                     for lg in db.query(ScraperLeague).order_by(ScraperLeague.id).all()],
         "markets": [{"key": m.key, "label": m.label, "site": m.site, "tabs": m.tab_list,
-                     "parser": m.parser, "post": m.post, "url": m.url, "enabled": m.enabled}
+                     "parser": m.parser, "post": m.post, "url": m.url, "enabled": m.enabled,
+                     "page": _is_page_market(m)}
                     for m in db.query(ScraperMarket).order_by(ScraperMarket.key).all()],
-        "timings": [_timing_out(t)
+        "timings": [{**_timing_out(t), "listings": t.site in LINK_RE}
                     for t in db.query(ScraperTiming).order_by(ScraperTiming.site).all()],
         "status": {
             "reported_at": _iso(reported),

@@ -294,3 +294,21 @@ export async function editAwSlip(id, fields) {
   return res.json()
 }
 export const deleteAwSlip = (id) => del(`/aw26/slips/${id}`)
+
+// Scraper control (routers/scraper.py): leagues, markets and per-site timings
+// the scraper box reads, and its last status report. Every edit answers with
+// the whole state, so the page just re-renders from it.
+export const getScraper = () => get('/scraper')
+async function put(path, body) {
+  const res = await send(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }, 'PUT')
+  if (res.status === 401) { redirectToLogin(); throw new ApiError('Not authenticated', { status: 401, path }) }
+  if (!res.ok) throw await fail(res, path, 'PUT')
+  return res.json()
+}
+export const putScraperLeague = (id, fields) => put(`/scraper/leagues/${id}`, fields)
+export const putScraperMarket = (key, fields) => put(`/scraper/markets/${key}`, fields)
+export const putScraperTiming = (site, fields) => put(`/scraper/timings/${site}`, fields)
