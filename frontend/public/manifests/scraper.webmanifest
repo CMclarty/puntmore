@@ -1,0 +1,31 @@
+{
+  "name": "Puntmore — Scraper",
+  "short_name": "Scraper",
+  "description": "Betting tools — coupons, tennis arbs, cards & corners",
+  "display": "standalone",
+  "orientation": "portrait",
+  "start_url": "/scraper",
+  "scope": "/",
+  "theme_color": "#1A1A18",
+  "background_color": "#FCFBF8",
+  "icons": [
+    {
+      "src": "/icons/scraper.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/scraper-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/scraper-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
