@@ -1,13 +1,17 @@
-# puntmore scraper v0.1
+# puntmore scraper
 
 One real Chrome on a Linux server, keeping a few Paddy Power and Bookie Bashing
 pages **open** and listening to what they receive. After the first load the
 site's own scripts keep each page fresh, so most targets cost no further
 requests. Runs unattended in Docker and updates itself from GHCR.
 
-**v0.1 captures; it does not price yet.** The parsers (`parsers.py`) need
-real payloads, and collecting them is v0.1's first job. They're written from
-`data/samples/` and `data/dumps/` once the server has run.
+**What it reads is set on Puntmore's `/scraper` page** — leagues, markets,
+timings — and it reports its state back there. The server is the control
+plane; this is a worker. Any Linux box with Docker can run it.
+
+**It captures; it does not price yet.** The parsers (`parsers/`, one module
+each) are written only from `data/samples/` and `data/dumps/`. `pp_most` and
+`bb_saves` are both unwritten: see their docstrings for what the samples hold.
 
 ## What it will and won't do
 - Opens pages only on `paddypower.com` and `bookiebashing.net`, within fixed
@@ -33,7 +37,7 @@ sudo mkdir -p /opt/puntmore-scraper/data && cd /opt/puntmore-scraper
 # from this folder of the repo:
 #   deploy/run.sh, deploy/update.sh  -> /opt/puntmore-scraper/
 #   .env.example                     -> /opt/puntmore-scraper/.env           (fill in)
-#   targets.example.toml             -> /opt/puntmore-scraper/data/targets.toml (edit)
+#   targets.example.toml             -> /opt/puntmore-scraper/data/targets.toml (offline fallback only)
 chmod 600 .env
 # The image is private on GHCR: log in once with a PAT that has read:packages
 echo "$GHCR_PAT" | docker login ghcr.io -u cmclarty --password-stdin
@@ -59,11 +63,10 @@ next read finds it logged in, and you get a "clear again" alert.
 ## Day to day
 ```sh
 docker logs -f puntmore-scraper
-docker exec puntmore-scraper python -m scraper status          # budget, cool-offs, heartbeat
+docker exec puntmore-scraper python -m scraper status          # budget, cool-offs, each target, heartbeat
 docker exec puntmore-scraper python -m scraper dump bb-saves    # save the open page(s) to data/dumps/
 docker exec puntmore-scraper python -m scraper resume paddypower
-docker exec puntmore-scraper python -m scraper check            # validate targets.toml
-docker restart puntmore-scraper                                 # after editing targets.toml
+docker exec puntmore-scraper python -m scraper check            # the targets it would run, and from where
 ```
 
 Health: Docker's healthcheck fails if the loop hasn't ticked for 5 minutes.
@@ -71,16 +74,33 @@ Set `SCRAPER_HEALTHCHECK_URL` (e.g. healthchecks.io) for an alert when the
 whole server goes quiet.
 
 ## Targets
-See `targets.example.toml`. There are two kinds:
-- **page**: one URL kept open, e.g. the Bookie Bashing saves page. It is
-  reloaded every `every_min`, or only when it goes quiet for `stale_min`.
-- **matches**: a listing page, e.g. a Paddy competition, whose match links are
-  opened up to `max_tabs` at a time. Each match tab clicks `market_tabs` once,
-  then stays open. A tab that goes quiet is reloaded once, then retired.
+Set on Puntmore's `/scraper` page (`scraper` grant). The box fetches
+`GET /api/scraper/config` with `SAVES_INGEST_KEY` every 5 minutes and applies
+a change without a restart: a removed or changed target's tabs close, a new
+one opens on the next tick. It posts `POST /api/scraper/status` once a minute
+(also written to `data/status.json`, which `status` prints).
+
+Where the targets come from, first that works:
+1. `SCRAPER_TARGETS` set: that toml file, always.
+2. `PUNTMORE_URL` + `SAVES_INGEST_KEY` set: the server, cached to `data/config.json`.
+3. The cache, when the server is unreachable.
+4. `data/targets.toml` (see `targets.example.toml`).
+
+The page's leagues x markets become targets of two kinds:
+- **matches**: a league's listing page, e.g. a Paddy competition, whose match
+  links are opened up to `max_tabs` at a time. Each match tab clicks the
+  market's tabs once, then stays open. A tab that goes quiet is reloaded once,
+  then retired. Named `pp-<league>-<market>`.
+- **page**: one URL kept open, e.g. the Bookie Bashing saves page (set on the
+  page). It is reloaded every `every_min`, or only when it goes quiet for
+  `stale_min`.
+
+Timings on the page are clamped to the floors in `config._target`, and
+`sites.py` budgets stay the ceiling whatever the page says.
 
 ## Tests
 ```sh
 pip install -r scraper/requirements.txt -r scraper/requirements-dev.txt
 python -m playwright install chromium   # or SCRAPER_CHROME_PATH=/usr/bin/google-chrome
-python -m pytest scraper/tests -q      # from the repo root      # includes a real browser against a fake localhost site
+python -m pytest scraper/tests -q      # from the repo root; includes a real browser against a fake localhost site
 ```

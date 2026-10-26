@@ -1,5 +1,10 @@
 # Scraper handover (18 Oct 2026)
 
+> **Superseded in part (26 Oct 2026):** the scraper now lives at top-level
+> `scraper/`, its targets come from Puntmore's `/scraper` page, and the
+> parsers are `parsers/pp_most.py` and `parsers/bb_saves.py` (both still
+> unwritten). See `README.md`. The boundaries below still apply.
+
 **Repo:** https://github.com/CMclarty/puntmore. Private; you need to be added as a collaborator.
 **Branch:** [`scraper-v0.1`](https://github.com/CMclarty/puntmore/tree/scraper-v0.1). Not merged to `main`.
 **Code:** [`local/scraper/`](https://github.com/CMclarty/puntmore/tree/scraper-v0.1/local/scraper)

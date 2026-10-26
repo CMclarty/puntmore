@@ -624,26 +624,36 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
 - **Goalkeeper SAVES are priced off Bookie Bashing, not Pinnacle**
   (`cards/saves.py`, Oct 2026). Pinnacle posts no saves ladder; Bookie Bashing
   publishes fair saves prices behind Callum's login, so they are read by
-  the scraper (`local/scraper`, below) and POSTed to
+  the scraper (`scraper/`, below) and POSTed to
   `/api/paddy/saves-fair` (`SAVES_INGEST_KEY`, key-guarded like `/state`).
   The login stays in the scraper's browser profile, never on Render. Fair
   prices sit in a bounded TTLCache and are joined to Paddy's saves line by
   team similarity and day. MATCH totals only; the reader
-  (`parsers.bb_saves`) is unwritten until a `dump` of the real page has been
+  (`scraper/parsers/bb_saves.py`) is unwritten until a `dump` of the real page has been
   read — do not guess its layout.
-- **The scraper (`local/scraper`, Oct 2026) is a SEPARATE service** — its own
+- **The scraper (`scraper/`, Oct 2026) is a SEPARATE service** — its own
   Docker image (`.github/workflows/scraper-image.yml` → GHCR), on its own
   Linux server, updated by that server's `update.sh` cron. It is NOT part of
   the Render deploy and the no-docker-compose rule is untouched (plain
-  `docker run`). One real Chrome on Xvfb keeps every target's page OPEN and
-  listens to what the page receives, so after the first load most targets
-  cost no requests. WHAT it reads is config (`targets.toml`, any mix of
-  Paddy Power and Bookie Bashing pages); HOW each site is treated is code
+  `docker run`); nothing in it imports the API. One real Chrome on Xvfb keeps
+  every target's page OPEN and listens to what the page receives, so after
+  the first load most targets cost no requests. WHAT it reads is config, set
+  on Puntmore's **`/scraper` page** (`scraper` grant, `routers/scraper.py`):
+  leagues (competition listings), markets (in-page tabs, parser, ingest
+  path; a Bookie Bashing market is one page with its own url) and per-site
+  timings. The box GETs `/api/scraper/config` (key-guarded, the saves key)
+  every 5 min and applies a change without a restart; it POSTs
+  `/api/scraper/status` once a minute. The config is the SAME structure
+  `targets.toml` holds (`config._target` reads both); the toml is only the
+  offline fallback, after the cached `data/config.json`. Timings are clamped
+  server-side to the scraper's own floors. HOW each site is treated is code
   (`sites.py`: budgets, Paddy quiet hours 01-07, a Paddy block = every Paddy
-  page closed + 24 h cool-off needing `resume`). Config can only make it
-  slower. It detects challenges and logouts and never answers them — no
-  fingerprint spoofing, no solvers, no proxies; do not add any. Parsers
-  (`parsers.py`) are written only from captured samples/dumps.
+  page closed + 24 h cool-off needing `resume`) — no page edit can loosen it.
+  It detects challenges and logouts and never answers them — no fingerprint
+  spoofing, no solvers, no proxies; do not add any. Parsers
+  (`scraper/parsers/`, one module each) are written only from captured
+  samples/dumps: `pp_most` and `bb_saves` are both unwritten (Oct 2026 — no
+  priced most market in the samples; no Bookie Bashing page set).
 - **Acca insurance** (`frontend/src/accaInsurance.js`, Oct 2026): the Acca Min
   tab value a 5-fold (every leg 1.20+) with the stake
   refunded as a bonus (`refund_value` 0.75, `refund_cap`) if exactly one leg
