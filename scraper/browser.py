@@ -23,9 +23,21 @@ _KEEP_TABS_LIVE = [
 ]
 
 
+# One UK reader's ordinary Chrome window, set the way Chrome itself sets
+# things - not overridden page by page. Language: on Linux Chrome takes it
+# from the environment (it ignores --lang there), which gives its own
+# "en-GB,en-US;q=0.9,en;q=0.8"; Playwright's `locale` option would instead
+# override it to a bare "en-GB" that no real Chrome sends. Window: a real
+# window of a normal size on the (larger) screen, not an emulated viewport -
+# an emulated one made the page as tall as the whole screen.
+_WINDOW = ["--window-size=1600,1000", "--window-position=0,0"]
+_ENV = {"LANGUAGE": "en_GB:en", "TZ": "Europe/London"}
+
+
 def launch(p, settings, headless=False):
-    kw = dict(headless=headless, viewport={"width": 1400, "height": 1000},
-              args=_KEEP_TABS_LIVE)
+    env = {**_ENV, **{k: v for k, v in os.environ.items() if k != "LANGUAGE"}}
+    kw = dict(headless=headless, no_viewport=True, args=_KEEP_TABS_LIVE + _WINDOW,
+              env=env)
     settings.profile_dir.mkdir(parents=True, exist_ok=True)
     if os.environ.get("SCRAPER_CHROME_PATH"):      # tests / unusual installs
         kw["executable_path"] = os.environ["SCRAPER_CHROME_PATH"]
@@ -39,6 +51,65 @@ def launch(p, settings, headless=False):
         print(f"Chrome ({settings.channel}) would not start ({exc.__class__.__name__}); "
               "using bundled Chromium. `playwright install chrome` to fix.")
         return p.chromium.launch_persistent_context(str(settings.profile_dir), **kw)
+
+
+_SEEN = """() => ({
+  userAgent: navigator.userAgent,
+  brands: (navigator.userAgentData && navigator.userAgentData.brands || [])
+            .map(b => b.brand + ' ' + b.version),
+  webdriver: navigator.webdriver,
+  language: navigator.language,
+  languages: navigator.languages,
+  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  utcOffsetMin: -new Date().getTimezoneOffset(),
+  inner: [innerWidth, innerHeight], outer: [outerWidth, outerHeight],
+  screen: [screen.width, screen.height], dpr: devicePixelRatio,
+})"""
+
+
+def selfcheck(ctx) -> dict:
+    """What a site sees of this browser, read from about:blank and Chrome's own
+    chrome://version page (no network). Changes nothing."""
+    page = ctx.new_page()
+    try:
+        page.goto("about:blank")
+        seen = page.evaluate(_SEEN)
+        try:
+            page.goto("chrome://version")
+            seen["version"] = " ".join(page.locator("#version").inner_text().split())
+            if not seen["brands"]:          # only on a secure page; this one is
+                seen["brands"] = page.evaluate(_SEEN)["brands"]
+            cmd = page.locator("#command_line").inner_text()
+        except Exception:
+            seen["version"], cmd = None, ""
+        seen["enable_automation"] = "--enable-automation" in cmd
+        seen["automation_controlled_disabled"] = "AutomationControlled" in cmd
+        seen["command_line_read"] = bool(cmd)
+        return seen
+    finally:
+        page.close()
+
+
+def selfcheck_lines(seen: dict, source: str) -> list[str]:
+    yn = lambda b: "yes" if b else "no"
+    auto = ("PRESENT - Chrome shows its 'controlled by automated test software' bar"
+            if seen["enable_automation"] else "absent")
+    if not seen.get("command_line_read"):
+        auto = "unknown (chrome://version unreadable)"
+    return [
+        f"selfcheck - what a site sees ({source})",
+        f"  browser             {seen.get('version') or 'unknown'}",
+        f"  userAgent           {seen['userAgent']}",
+        f"  brands              {', '.join(seen['brands']) or '-'}",
+        f"  navigator.webdriver {str(seen['webdriver']).lower()}",
+        f"  language            {seen['language']}  (languages: {', '.join(seen['languages'])})",
+        f"  timezone            {seen['timezone']}  (UTC{seen['utcOffsetMin'] / 60 + 0.0:+g} now)",
+        f"  window              inner {seen['inner'][0]}x{seen['inner'][1]}, "
+        f"outer {seen['outer'][0]}x{seen['outer'][1]}, "
+        f"screen {seen['screen'][0]}x{seen['screen'][1]}, dpr {seen['dpr']:g}",
+        f"  --enable-automation {auto}",
+        f"  AutomationControlled disabled  {yn(seen['automation_controlled_disabled'])}",
+    ]
 
 
 def blocked(page, status: int | None = None) -> str | None:

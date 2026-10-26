@@ -8,7 +8,13 @@
   dump <target>    Ask the RUNNING service to save that target's open page(s)
                    (HTML + screenshot) to data/dumps/ - no extra page load.
   check            Load the targets (server, cache or toml) and print them.
+  selfcheck        What a site sees of this browser: navigator.webdriver,
+                   userAgent, language, timezone, window, and whether Chrome
+                   runs with --enable-automation. Asks the running service
+                   (it holds the profile); if none, opens the profile itself
+                   on about:blank. No network.
 """
+import os
 import signal
 import sys
 import time
@@ -101,6 +107,37 @@ def status(s):
           else "heartbeat      none")
 
 
+def selfcheck(s):
+    import json
+    from . import browser
+    hb = s.data_dir / "heartbeat"
+    running = hb.exists() and time.time() - int(hb.read_text()) < 120
+    if running:
+        out = s.data_dir / "selfcheck.json"
+        out.unlink(missing_ok=True)
+        req = s.data_dir / "requests"
+        req.mkdir(parents=True, exist_ok=True)
+        (req / "selfcheck").touch()
+        for _ in range(60):                     # the loop ticks every ~15 s
+            if out.exists():
+                break
+            time.sleep(1)
+        else:
+            sys.exit("the running service did not answer within 60 s")
+        seen, source = json.loads(out.read_text()), "the running service's browser"
+    else:
+        from playwright.sync_api import sync_playwright
+        headless = os.environ.get("SCRAPER_HEADLESS") == "1"
+        with sync_playwright() as p:
+            ctx = browser.launch(p, s, headless=headless)
+            try:
+                seen = browser.selfcheck(ctx)
+            finally:
+                ctx.close()
+        source = "a fresh launch of the profile" + (", headless" if headless else "")
+    print("\n".join(browser.selfcheck_lines(seen, source)))
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0] in ("-h", "--help"):
@@ -124,6 +161,8 @@ def main(argv=None):
         req.mkdir(parents=True, exist_ok=True)
         (req / f"dump-{rest[0]}").touch()
         print(f"asked the service to dump {rest[0]} - see data/dumps/ within ~15 s")
+    elif cmd == "selfcheck":
+        selfcheck(s)
     elif cmd == "check":
         print(f"targets from {s.targets_source}")
         for t in s.targets:

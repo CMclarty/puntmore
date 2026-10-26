@@ -489,7 +489,16 @@ class Runner:
 
     def _requests(self):
         """`python -m scraper dump <target>` drops a file; the running loop
-        answers it from the page it already has open - no extra load."""
+        answers it from the page it already has open - no extra load.
+        `selfcheck` likewise, as the running browser holds the profile."""
+        req = self.s.data_dir / "requests" / "selfcheck"
+        if req.exists():
+            req.unlink(missing_ok=True)
+            try:
+                seen = browser.selfcheck(self.ctx)
+                (self.s.data_dir / "selfcheck.json").write_text(json.dumps(seen, indent=1))
+            except Exception as exc:
+                print(f"selfcheck: {exc}", flush=True)
         for req in (self.s.data_dir / "requests").glob("dump-*"):
             name = req.name[len("dump-"):]
             req.unlink(missing_ok=True)

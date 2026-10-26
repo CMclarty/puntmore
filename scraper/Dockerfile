@@ -5,6 +5,7 @@ FROM mcr.microsoft.com/playwright/python:v1.55.0-noble
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     TZ=Europe/London \
+    LANGUAGE=en_GB:en \
     DISPLAY=:99 \
     SCRAPER_DATA_DIR=/data \
     SCRAPER_PROFILE_DIR=/data/profile
