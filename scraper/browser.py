@@ -31,21 +31,27 @@ _KEEP_TABS_LIVE = [
 # One UK reader's ordinary Chrome window, set the way Chrome itself sets
 # things - not overridden page by page. Language: on Linux Chrome takes it
 # from the environment (it ignores --lang there), which gives its own
-# "en-GB,en-US;q=0.9,en;q=0.8"; Playwright's `locale` option would instead
-# override it to a bare "en-GB" that no real Chrome sends. Window: a real
-# window of a normal size on the (larger) screen, not an emulated viewport -
-# an emulated one made the page as tall as the whole screen.
+# "en-GB,en-US;q=0.9,en;q=0.8" on a desktop with the locale installed. In
+# the Docker image (and CI) there is no en_GB locale and Chrome reads
+# "en-US@posix" whatever LANGUAGE/LANG say (measured 26 Oct 2026, locale-gen
+# included), so the language list is given to Chrome directly with
+# --accept-lang, as Chrome's own list: navigator.languages reads
+# ['en-GB', 'en-US', 'en'] and the header follows it. Playwright's `locale`
+# option would instead give a bare "en-GB" that no real Chrome sends. Window:
+# a real window of a normal size on the (larger) screen, not an emulated
+# viewport - an emulated one made the page as tall as the whole screen.
 _WINDOW = ["--window-size=1600,1000", "--window-position=0,0"]
-_ENV = {"LANGUAGE": "en_GB:en", "TZ": "Europe/London"}
+_LANGUAGE = ["--accept-lang=en-GB,en-US,en"]
+_ENV = {"LANGUAGE": "en_GB:en", "LANG": "en_GB.UTF-8", "TZ": "Europe/London"}
 # A person's Chrome, not a test harness's (see the module docstring).
 _NOT_A_TEST_RUN = ["--disable-blink-features=AutomationControlled"]
 _PLAYWRIGHT_TEST_FLAGS = ["--enable-automation"]
 
 
 def launch(p, settings, headless=False):
-    env = {**_ENV, **{k: v for k, v in os.environ.items() if k != "LANGUAGE"}}
+    env = {**os.environ, **_ENV}
     kw = dict(headless=headless, no_viewport=True,
-              args=_KEEP_TABS_LIVE + _WINDOW + _NOT_A_TEST_RUN,
+              args=_KEEP_TABS_LIVE + _WINDOW + _LANGUAGE + _NOT_A_TEST_RUN,
               ignore_default_args=_PLAYWRIGHT_TEST_FLAGS, env=env)
     settings.profile_dir.mkdir(parents=True, exist_ok=True)
     if os.environ.get("SCRAPER_CHROME_PATH"):      # tests / unusual installs
