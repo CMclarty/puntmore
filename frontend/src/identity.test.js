@@ -19,6 +19,11 @@ describe('identityFor', () => {
     expect(identityFor('/virtuals')).toMatchObject({ png: '/icons/boost-180.png', manifest: '/manifests/virtuals.webmanifest' })
   })
 
+  it('tells goalscorers apart from the rest of 365', () => {
+    expect(identityFor('/365/scorers').png).toBe('/icons/goalscorers-180.png')
+    expect(identityFor('/365/acca').png).toBe('/icons/accabonus-180.png')
+  })
+
   it('falls back to the Puntmore identity elsewhere', () => {
     expect(identityFor('/login')).toEqual({
       title: 'Puntmore', svg: '/icon.svg', png: '/icons/puntmore-180.png', manifest: '/manifest.webmanifest',

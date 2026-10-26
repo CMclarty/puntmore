@@ -49,14 +49,9 @@ ICONS = {
     # Upload: a tray with an arrow in.
     "upload": ("#3D6B99", nav('<polyline points="4,14 4,19 18,19 18,14"/><line x1="11" y1="3" x2="11" y2="14"/>'
                               '<polyline points="7,7 11,3 15,7"/>')),
-    # Dogs ledger: the P&L trend; the battle variants cross two trends.
+    # Dogs ledger: the P&L trend. (The battle pages and the virtuals ledger
+    # redirect into /pnl/dogs and /virtuals now, so they have no icon.)
     "pnl-dogs": ("#6B4E9E", nav('<polyline points="3,15 8,10 12,13 19,4"/><polyline points="14,4 19,4 19,9"/>')),
-    "pnl-dogs-battle": ("#4A3670", text("VS", size=220, y=336)),
-    # Virtuals ledger: the trend on a screen.
-    "pnl-virtuals": ("#2D8C87", nav('<rect x="2.5" y="3.5" width="17" height="12" rx="1.5"/>'
-                                    '<line x1="8" y1="19.5" x2="14" y2="19.5"/><line x1="11" y1="15.5" x2="11" y2="19.5"/>'
-                                    '<polyline points="5.5,12.5 9,9 12,11 16.5,6.5"/>')),
-    "pnl-virtuals-battle": ("#1F5F5B", text("VS", size=220, y=336)),
     # Virtuals boost: the double chevron.
     "boost": ("#B4532A", nav('<polyline points="5,12 11,6 17,12"/><polyline points="5,17 11,11 17,17"/>')),
     # Kelly: the calculator.
