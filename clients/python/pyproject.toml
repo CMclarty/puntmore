@@ -1,0 +1,13 @@
+[project]
+name = "puntmore-client"
+version = "1.0.0"
+description = "Thin typed client for the Puntmore API (read value, record slips)."
+requires-python = ">=3.10"
+dependencies = ["httpx>=0.27"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["puntmore"]
