@@ -61,6 +61,7 @@ class Runner:
         self.tabs: dict[str, Tab] = {}             # key -> Tab
         self.sites = {name: SiteState() for name in SITES}
         self.paused_said: dict[str, str] = {}
+        self.served_said: dict[str, float] = {}       # site -> cool-off `since` already alerted
         self.last_open: dict[str, float] = {}
         self.retired: dict[str, collections.deque] = {}
         self.parser_said: dict[str, str] = {}
@@ -100,19 +101,79 @@ class Runner:
             except Exception:
                 pass
 
-    def _on_blocked(self, site, reason, now):
+    def _on_blocked(self, site, reason, now, tab=None):
+        """A block or logout, from a load or seen on an open page. Paddy: every
+        page closes and a cool-off starts. Bookie Bashing: one alert, then a
+        back-off, with the tab left open to sort over VNC. The alert carries a
+        screenshot of the page, also kept in data/blocks/."""
         st = self.sites[site]
+        image = self._block_shot(site, tab) if tab else None
+        where = f" on {tab.page.url}" if tab else ""
         if SITES[site].block_means_cooloff:
             self.guard.start_cooloff(site, reason, now)
             self._close_site(site)
-            self.alerts.send(f"{site}: {reason} - every page closed, cooling off "
-                             f"{self.guard.cooloff_hours:g} h. Needs `resume` after that.")
+            self.alerts.send(f"{site}: {reason}{where} - every page closed, cooling off "
+                             f"{self.guard.cooloff_hours:g} h. Needs `resume` after that.", image)
             return
         if reason != st.blocked_for:
-            self.alerts.send(f"{site}: {reason} - needs you over VNC. Backing off.")
+            self.alerts.send(f"{site}: {reason}{where} - needs you over VNC. Backing off.", image)
         st.blocked_for = reason
         st.retry_at = now + st.backoff * 60 * random.uniform(0.9, 1.2)
         st.backoff = min(st.backoff * 2, BACKOFF_MIN[1])
+
+    def _block_shot(self, site, tab):
+        out = self.s.data_dir / "blocks"
+        try:
+            out.mkdir(parents=True, exist_ok=True)
+            for old in sorted(out.glob("*.png"))[:-49]:
+                old.unlink(missing_ok=True)
+            path = out / f"{datetime.now():%Y%m%d-%H%M%S}-{site}.png"
+            tab.page.screenshot(path=str(path))
+            return path
+        except Exception as exc:
+            print(f"{site}: block screenshot failed: {exc}", flush=True)
+            return None
+
+    def _check_open(self, now):
+        """A kept-open page makes no loads, so a block shows up on the page
+        itself: its own requests refused (3+ in 10 min), a Cloudflare page, or
+        a logout. Looks only at what is already in the browser - no request."""
+        for site, rules in SITES.items():
+            st = self.sites[site]
+            tabs = [tab for tab in self.tabs.values() if tab.target.site == site]
+            bad = False
+            for tab in tabs:
+                reason = None
+                if tab.capture.refused_within(600) >= 3:
+                    reason = "repeated 403/429 on an open page"
+                else:
+                    reason = browser.blocked(tab.page)
+                if reason is None and rules.needs_login and browser.logged_out(tab.page):
+                    reason = "logged out"
+                if reason is None:
+                    continue
+                bad = True
+                if not rules.block_means_cooloff and st.blocked_for == reason:
+                    break                       # already said; backing off
+                self._on_blocked(site, reason, now, tab)
+                break
+            # Sorted over VNC: the open page is fine again, so say so now
+            # rather than at the next reload.
+            if (tabs and not bad and not rules.block_means_cooloff
+                    and st.blocked_for in ("logged out", "Cloudflare check")):
+                self._on_clear(site)
+
+    def _cooloff_alerts(self, now, site, was, why):
+        """Once when a cool-off has served its hours and waits on `resume`,
+        once when the site is running again."""
+        if was and was.startswith("cooling off") and not (why or "").startswith("cooling off"):
+            self.alerts.send(f"{site}: cool-off over - running again.")
+        c = self.guard.cooloff(site)
+        if (c and not c["resumed"] and now - c["since"] >= self.guard.cooloff_hours * 3600
+                and self.served_said.get(site) != c["since"]):
+            self.served_said[site] = c["since"]
+            self.alerts.send(f"{site}: cool-off ({c['reason']}) has served its "
+                             f"{self.guard.cooloff_hours:g} h - waiting on `resume`.")
 
     def _on_clear(self, site):
         st = self.sites[site]
@@ -148,7 +209,7 @@ class Runner:
         if reason is None and SITES[site].needs_login and browser.logged_out(tab.page):
             reason = "logged out"
         if reason:
-            self._on_blocked(site, reason, now)
+            self._on_blocked(site, reason, now, tab)
             return None
         self._on_clear(site)
         self.last_load_at[target.name] = now
@@ -162,14 +223,17 @@ class Runner:
         self._refresh_config(now)
         for site in SITES:
             why = self._paused(site, now)
-            if why != self.paused_said.get(site):
+            was = self.paused_said.get(site)
+            if why != was:
                 print(f"{site}: {'paused - ' + why if why else 'running'}", flush=True)
+            self._cooloff_alerts(now, site, was, why)
             self.paused_said[site] = why
             # Cool-off and quiet hours mean NO traffic, so the pages close. A
             # back-off leaves them open: a logged-out tab is where you log in.
             if why and not why.startswith("backing off"):
                 self._close_site(site)
 
+        self._check_open(now)
         for t in self.targets:
             if self._paused(t.site, now):
                 continue

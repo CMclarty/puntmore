@@ -236,3 +236,52 @@ def test_market_tabs_are_clicked_and_their_markets_arrive(tmp_path, site):
         assert r.guard.spent("paddypower", t0 + 400)[0] == 2   # clicks are not page loads
         r.close_all()
         ctx.close()
+
+
+def test_open_page_refused_cools_off_with_a_screenshot(tmp_path, site):
+    """No load fails: the tab is already open when the site starts refusing
+    its price requests. The tick sees it on the open page and stops."""
+    from playwright.sync_api import sync_playwright
+    t = config.Target(name="pp", site="paddypower", url=site + "/football", stale_min=120,
+                      matches=config.Matches(max_tabs=1))
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [t], p)
+        t0 = time.time()
+        r.tick(t0)
+        r.tick(t0 + 400)
+        assert any(":m:" in k for k in r.tabs)
+        r.tick(t0 + 415)
+        assert not r.guard.cooloff_active("paddypower", t0 + 415)   # all well so far
+        Handler.blocked_path = "/api/prices"
+        ctx.pages[0].wait_for_timeout(4500)                       # it polls every second
+        r.tick(t0 + 430)
+        assert r.guard.cooloff_active("paddypower", t0 + 430)
+        assert not r.tabs
+        log = (tmp_path / "alerts.log").read_text()
+        assert "repeated 403/429 on an open page" in log and "cooling off" in log
+        assert list((tmp_path / "blocks").glob("*-paddypower.png"))
+        ctx.close()
+
+
+def test_cooloff_alerts_once_when_served_and_once_when_running(tmp_path):
+    s = config.Settings(data_dir=tmp_path, profile_dir=tmp_path / "profile", channel=None,
+                        alert_webhook=None, healthcheck_url=None, puntmore_url="http://x",
+                        ingest_key=None, capture_mb=1, targets=[])
+    guard = Guard(tmp_path / "g.sqlite3", {n: (r.per_hour, r.per_day) for n, r in SITES.items()})
+    guard.quiet = (0, 0)
+    r = Runner(s, None, guard, Alerts(tmp_path / "alerts.log", None), tmp_path / "samples")
+    t0 = time.time()
+    guard.start_cooloff("paddypower", "HTTP 429", t0)
+    log = lambda: (tmp_path / "alerts.log").read_text() if (tmp_path / "alerts.log").exists() else ""
+    r.tick(t0 + 60)
+    r.tick(t0 + 3600)
+    assert "waiting on `resume`" not in log()
+    served = t0 + 24 * 3600 + 5
+    r.tick(served)
+    r.tick(served + 60)
+    assert log().count("waiting on `resume`") == 1
+    assert "running again" not in log()
+    guard.resume("paddypower")
+    r.tick(served + 120)
+    r.tick(served + 180)
+    assert log().count("running again") == 1
