@@ -304,7 +304,10 @@ def test_selfcheck_reports_what_a_site_sees(tmp_path):
     assert seen["language"] == "en-GB" and seen["languages"][0] == "en-GB"
     assert len(seen["languages"]) > 1                 # Chrome's own list
     assert seen["timezone"] == "Europe/London"
-    assert seen["outer"] == [1600, 1000] and seen["inner"][1] < 1000
+    # A real 1600x1000 window, not the old emulated viewport. The inner height
+    # depends on the browser's own chrome (857 in Google Chrome, the full 1000
+    # in CI's bundled headless Chromium), so only the window itself is fixed.
+    assert seen["outer"] == [1600, 1000] and seen["inner"][1] <= 1000
     assert seen["webdriver"] is False and seen["enable_automation"] is False
     assert seen["automation_controlled_disabled"] is True
     lines = browser.selfcheck_lines(seen, "test")
