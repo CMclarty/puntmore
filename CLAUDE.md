@@ -750,14 +750,18 @@ the static `STATE_API_KEY` (`X-API-Key` header, constant-time compare; blank
 key = 503/disabled). It reads through the odds cache, so polling it never
 increases API call frequency. Keep it read-only — never add mutating
 operations behind the API key.
+The bet feed (`GET /api/value-bets`, `GET /api/results`, `FEED_API_KEY` /
+`feed` grant, `betfeed/service.py`) is the same pattern for the Daedalus
+coordinator: the 365 h2h rows plus results from the FlashScore ingest — see
+`docs/api.md` → "The bet feed".
 
 ### API clients — machine keys (`app/apikeys.py`, `security.py`, Oct 2026)
 ONE mechanism for machine callers. A key is sent as `Authorization: Bearer
 <key>` (preferred) or `X-API-Key`, and resolves in `security.api_key_auth` to
 a principal: an `ApiClient` row (looked up by the key's sha256 — the key itself
 is never stored, logged or echoed) or one of the static env keys, which are
-the grants `state` (`STATE_API_KEY`) and `ingest` (`SAVES_INGEST_KEY`) and keep
-working exactly as before. API clients resolve through `user_permissions`, so
+the grants `state` (`STATE_API_KEY`), `ingest` (`SAVES_INGEST_KEY`) and `feed`
+(`FEED_API_KEY`) and keep working exactly as before. API clients resolve through `user_permissions`, so
 every `require_tool` guard admits a client holding that grant with no
 per-router change; a client acts as `api:<name>` where a route records who did
 something. A key, when sent, IS the identity — a bad key is 401 even beside a
@@ -767,7 +771,7 @@ python -m app.apikeys create <name> --tools paddy,aw26   # prints the key ONCE
 python -m app.apikeys list                              # never shows keys
 python -m app.apikeys revoke <name>                     # disables at once
 ```
-Grants are the tool names plus `value`, `state`, `ingest` (or `*`); `paddy` =
+Grants are the tool names plus `value`, `state`, `ingest`, `feed` (or `*`); `paddy` =
 `cards`, `365` = `accabonus+goalscorers`. In production run it in Render's
 shell (`cd /app`), which has `DATABASE_URL`. Full API docs: `docs/api.md`.
 

@@ -425,6 +425,62 @@ class ValueFeedOut(BaseModel):
     selections: list[ValueSelection]
 
 
+# --- The bet feed: GET /api/value-bets + GET /api/results (Oct 2026) ----------
+#
+# A coordinator's contract (Daedalus, the 2-Up coordinator): bare JSON lists,
+# field names agreed with its DataSourceClient. Additive only, like the rest.
+
+
+class FeedValueBetOut(BaseModel):
+    """One bet365 selection priced above de-vigged Pinnacle."""
+    id: str                          # stable per fixture + market + side + line
+    fixture_id: str                  # the source's own fixture id
+    fixture: str                     # "Home v Away"
+    home: str
+    away: str
+    kickoff: datetime                # UTC
+    competition: Optional[str] = None      # "EPL"
+    competition_key: Optional[str] = None  # "soccer_epl"
+    sport: str                       # football | tennis | ...
+    bookmaker: str                   # bet365
+    market: str                      # h2h
+    selection: str                   # what to back, as printed ("Arsenal", "Draw")
+    side: Optional[str] = None       # home | away | draw
+    line: Optional[float] = None     # null for h2h
+    odds: float                      # the bookmaker's decimal price
+    fair_odds: float                 # de-vigged Pinnacle
+    value_pct: float                 # (odds / fair_odds - 1) * 100; 4.2 = +4.2%
+    seen_at: datetime                # when the price was read (UTC)
+
+
+class FeedSelectionResultOut(BaseModel):
+    id: str                          # the FeedValueBetOut.id it was served under
+    market: str
+    selection: str
+    side: Optional[str] = None
+    line: Optional[float] = None
+    outcome: Optional[str] = None    # win | lose | void; null = cannot be settled
+
+
+class FeedResultOut(BaseModel):
+    """A served fixture's final result. Only fixtures with a KNOWN result are
+    listed — a pending one never appears, so a consumer can store the first
+    row it sees per fixture_id."""
+    fixture_id: str
+    fixture: str
+    home: str
+    away: str
+    kickoff: datetime
+    competition: Optional[str] = None
+    competition_key: Optional[str] = None
+    sport: str
+    status: str                      # finished | void
+    home_score: Optional[int] = None
+    away_score: Optional[int] = None
+    result_at: datetime              # when Puntmore recorded it; `since` reads this
+    selections: list[FeedSelectionResultOut]
+
+
 # --- Typed responses for routes that used to return bare dicts (Oct 2026) ------
 #
 # Every route declares a response_model so /api/docs describes it. A model here

@@ -593,3 +593,57 @@ class ScraperSiteStatus(Base):
     cooloff_left_h = Column(Float, nullable=True)
     needs_resume = Column(Boolean, nullable=False, default=False)
     updated_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class FeedFixture(Base):
+    """A fixture the bet feed (GET /api/value-bets) has SERVED, kept for ever
+    so GET /api/results can answer for it once it is played — whether or not
+    anyone bet on it. Written by the feed on serve (betfeed/service.py), never
+    by a caller. `id` is the source's own fixture id (TheOddsApi's event id for
+    the 365 h2h feed). Times are naive UTC.
+
+    status: pending -> finished (scores recorded) | void (not played). Results
+    arrive through the existing FlashScore ingest (POST /api/aw26/results);
+    result_at is when they were recorded here, which is what `since` reads."""
+    __tablename__ = "feed_fixtures"
+
+    id = Column(String, primary_key=True)
+    sport = Column(String, nullable=False)               # football | tennis | ...
+    competition = Column(String, nullable=True)          # "EPL", as the source titles it
+    competition_key = Column(String, nullable=True)      # soccer_epl
+    home = Column(String, nullable=False)
+    away = Column(String, nullable=False)
+    kickoff = Column(DateTime, nullable=False, index=True)
+    first_served_at = Column(DateTime, nullable=False, default=utcnow)
+    status = Column(String, nullable=False, default="pending", server_default="pending")
+    home_score = Column(Integer, nullable=True)
+    away_score = Column(Integer, nullable=True)
+    result_at = Column(DateTime, nullable=True, index=True)
+
+    selections = relationship(
+        "FeedSelection", back_populates="fixture",
+        cascade="all, delete-orphan", order_by="FeedSelection.first_served_at",
+    )
+
+
+class FeedSelection(Base):
+    """One selection the bet feed served, under its fixture. `id` is stable for
+    the same fixture + market + side + line, so a poll that serves it again
+    finds the row rather than adding one. The prices are those it was FIRST
+    served at; the feed itself always carries the current ones."""
+    __tablename__ = "feed_selections"
+
+    id = Column(String, primary_key=True)
+    fixture_id = Column(String, ForeignKey("feed_fixtures.id", ondelete="CASCADE"),
+                        nullable=False, index=True)
+    bookmaker = Column(String, nullable=False)
+    market = Column(String, nullable=False)              # h2h
+    selection = Column(String, nullable=False)           # as the source prints it
+    side = Column(String, nullable=True)                 # home | away | draw
+    line = Column(Float, nullable=True)
+    odds = Column(Float, nullable=False)
+    fair_odds = Column(Float, nullable=False)
+    value_pct = Column(Float, nullable=False)
+    first_served_at = Column(DateTime, nullable=False, default=utcnow)
+
+    fixture = relationship("FeedFixture", back_populates="selections")

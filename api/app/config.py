@@ -202,6 +202,10 @@ class Settings(BaseSettings):
     # Key the local Bookie Bashing script sends (X-API-Key) with fair saves
     # prices to POST /api/paddy/saves-fair. Blank = endpoint disabled (503).
     saves_ingest_key: str = ""
+    # Static API key for the bet feed, GET /api/value-bets + /api/results (the
+    # Daedalus coordinator). Sent as X-API-Key (or Bearer). Blank = disabled
+    # (503) unless an API client holds the `feed` grant.
+    feed_api_key: str = ""
     # AW 26 value snapshots (aw26/snapshots.py): the Paddy sweep's rows are
     # written to value_snapshots at most this often. The sweep runs every 2
     # minutes; storing every tick would be ~7x the rows for no extra history.

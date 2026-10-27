@@ -97,24 +97,28 @@ def paddy_rows(cards_client, floor: float, now: datetime) -> list[ValueSelection
     return out
 
 
+def acca_row(item, now: datetime) -> ValueSelection | None:
+    """One 365 acca feed item (AccaBonusFeedItem) as a ValueSelection, or None
+    when it has no fair price. Shared with the bet feed (betfeed/service.py)."""
+    if item.fair is None:
+        return None
+    home, away = _sides(item.match, item.home, item.away)
+    side = ("home" if item.pick == home else "away" if item.pick == away
+            else "draw" if item.pick == "Draw" else None)
+    return ValueSelection(
+        source="365", bookmaker="bet365",
+        event_id=item.event_id, event=item.match, home=home, away=away,
+        kickoff=_utc(item.commence_time), sport=item.sport_key or item.sport,
+        market="h2h", selection=item.pick, side=side,
+        odds=item.odds, fair=item.fair, edge=item.value, basis="devig",
+        seen_at=now,
+    )
+
+
 def acca_rows(arbs_client, floor: float, now: datetime) -> list[ValueSelection]:
     from ..accabonus.feed import build_feed
-    out = []
-    for item in build_feed(arbs_client, floor):
-        if item.fair is None:
-            continue
-        home, away = _sides(item.match, item.home, item.away)
-        side = ("home" if item.pick == home else "away" if item.pick == away
-                else "draw" if item.pick == "Draw" else None)
-        out.append(ValueSelection(
-            source="365", bookmaker="bet365",
-            event_id=item.event_id, event=item.match, home=home, away=away,
-            kickoff=_utc(item.commence_time), sport=item.sport_key or item.sport,
-            market="h2h", selection=item.pick, side=side,
-            odds=item.odds, fair=item.fair, edge=item.value, basis="devig",
-            seen_at=now,
-        ))
-    return out
+    rows = (acca_row(item, now) for item in build_feed(arbs_client, floor))
+    return [r for r in rows if r is not None]
 
 
 def scorer_rows(db: Session, floor: float, now: datetime) -> list[ValueSelection]:
