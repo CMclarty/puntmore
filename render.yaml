@@ -15,7 +15,10 @@ services:
     name: puntmore
     runtime: docker
     region: frankfurt          # closest to UK — change if you are elsewhere
-    plan: starter              # free has no persistent disk; the DB needs one
+    # No `plan` here ON PURPOSE: the instance size is set in the Render
+    # dashboard. A plan in this file is re-applied on every push, which is how
+    # a hand upgrade was silently put back to starter (512 MB) on 25 Oct 2026.
+    # (Needs a paid plan: free has no persistent disk, and the DB needs one.)
     dockerfilePath: ./api/Dockerfile
     dockerContext: .           # repo root: the build needs api/ AND frontend/
     # /ready, NOT /health: /health has no dependencies and answers 200 on a
