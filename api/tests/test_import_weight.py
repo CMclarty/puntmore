@@ -21,7 +21,9 @@ def test_booting_the_api_does_not_import_the_ocr_sdks():
     assert out.stdout.strip() == "[]", out.stdout
 
 
-def test_the_diagnostics_snapshot_reports_resident_memory():
-    from app.diagnostics import snapshot
-    rss = snapshot()["process"]["rss_mb"]
-    assert rss is None or rss > 10
+def test_the_diagnostics_snapshot_reports_the_process():
+    from app.diagnostics import snapshot, trim_memory
+    ps = snapshot()["process"]
+    assert ps["rss_mb"] is None or ps["rss_mb"] > 10
+    assert ps["objects"] > 1000 and ps["py_blocks"] > 1000 and ps["threads"] >= 1
+    assert trim_memory() in (True, False)      # never raises, glibc or not

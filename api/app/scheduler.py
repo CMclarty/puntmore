@@ -9,6 +9,7 @@ from apscheduler.events import EVENT_JOB_ERROR
 
 from .cards import health, laddered
 from .config import settings
+from .diagnostics import trim_memory
 from .notifications.routes import notify_rows
 from .coupon_images import delete_coupon_image
 from .database import SessionLocal
@@ -391,7 +392,10 @@ def paddy_health(notifier=None) -> list[str]:
         from .diagnostics import rss_mb
         rss = rss_mb()
         if rss is not None:
-            lines.append(f"Server: {rss:.0f} MB resident")
+            from .diagnostics import process_stats
+            ps = process_stats()
+            lines.append(f"Server: {rss:.0f} MB resident · {ps['objects'] // 1000}k objects · "
+                         f"{ps['threads']} threads")
     except Exception:
         logger.exception("Paddy health report failed")
         return []
@@ -458,6 +462,18 @@ def start_scheduler(
                 "notifier": notifier,
             },
         )
+
+    # Hand freed heap back to the OS between sweeps (diagnostics.trim_memory):
+    # the 512 MB instance was climbing to its cap and restarting (Oct 2026).
+    scheduler.add_job(
+        trim_memory,
+        trigger="interval",
+        minutes=5,
+        id="memory_trim",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+    )
 
     if settings.enable_accabonus and arbs_client is not None:
         scheduler.add_job(

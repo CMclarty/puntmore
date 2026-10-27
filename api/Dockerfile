@@ -21,6 +21,13 @@ RUN npm run build
 FROM python:3.12-slim
 WORKDIR /app
 
+# glibc gives every thread that mallocs its own 64 MB arena (up to 8 per core)
+# and never hands fragmented pages back; with uvicorn's threadpool, APScheduler
+# and the vendor JSON churn that read as a resident size climbing to the 512 MB
+# cap and a restart (Oct 2026). Two arenas is the usual fix for a small
+# container; app.diagnostics.trim_memory releases what is freed on a timer.
+ENV MALLOC_ARENA_MAX=2
+
 # Pinned lockfile. Copied and installed before the source so the layer caches
 # across code-only changes.
 COPY api/requirements.txt .

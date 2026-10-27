@@ -153,12 +153,40 @@ def rss_mb() -> float | None:
         return None
 
 
+def trim_memory() -> bool:
+    """Hand freed heap back to the OS (glibc malloc_trim). After a sweep has
+    parsed and dropped megabytes of vendor JSON, glibc keeps the pages in its
+    arenas; on a 512 MB instance that reads as a climbing RSS. No-op where
+    there is no glibc. Returns whether anything was released."""
+    try:
+        import ctypes
+        return bool(ctypes.CDLL("libc.so.6").malloc_trim(0))
+    except (OSError, AttributeError):
+        return False
+
+
+def process_stats() -> dict:
+    """Resident size next to what Python itself holds. RSS climbing while the
+    object and block counts stay flat is the allocator (glibc arenas kept
+    fragmented by the threaded JSON churn), not a Python-level leak — the two
+    need different fixes, and this is how to tell them apart in production."""
+    import gc
+    import sys
+    import threading
+    return {
+        "rss_mb": rss_mb(),
+        "py_blocks": sys.getallocatedblocks(),
+        "objects": len(gc.get_objects()),
+        "threads": threading.active_count(),
+    }
+
+
 def snapshot() -> dict:
     """Everything a reader needs: the records plus the context to read them in."""
     with _lock:
         items = list(_records)
     return {
-        "process": {"rss_mb": rss_mb()},
+        "process": process_stats(),
         "boot_id": BOOT_ID,
         "booted_at": datetime.fromtimestamp(BOOT_TIME, timezone.utc).isoformat(
             timespec="seconds"
