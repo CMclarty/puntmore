@@ -525,11 +525,16 @@ def ready():
         "odds": "mock" if isinstance(odds_provider, MockOddsProvider) else "live",
         "odds_detail": odds,
     }
+    # The process's resident size, object and thread counts ride along: the
+    # instance was restarting at its memory cap (Oct 2026) and this is the one
+    # unauthenticated place the climb can be watched from outside.
+    from .diagnostics import process_stats
     return JSONResponse(
         status_code=200 if ok else 503,
         content={
             "status": "ready" if ok else "not ready",
             "checks": checks,
             "providers": providers,
+            "process": process_stats(),
         },
     )
