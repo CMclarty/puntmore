@@ -156,7 +156,7 @@ class Runner:
                     reason = "repeated 403/429 on an open page"
                 else:
                     reason = browser.blocked(tab.page)
-                if reason is None and rules.needs_login and browser.logged_out(tab.page):
+                if reason is None and rules.needs_login and browser.logged_out(tab.page, tab.url):
                     reason = "logged out"
                 if reason is None:
                     continue
@@ -231,7 +231,7 @@ class Runner:
             return None
 
         reason = browser.blocked(tab.page, resp.status if resp else None)
-        if reason is None and SITES[site].needs_login and browser.logged_out(tab.page):
+        if reason is None and SITES[site].needs_login and browser.logged_out(tab.page, url):
             reason = "logged out"
         if reason:
             self._on_blocked(site, reason, now, tab)
@@ -268,7 +268,10 @@ class Runner:
                 self._tick_page(t, t.name, t.url, now)
 
         for tab in list(self.tabs.values()):
-            self._parse(tab, now)
+            # A paused site's tab stays open (to log in over VNC) but is not
+            # driven: parsing a login page every minute is noise, not data.
+            if not self._paused(tab.target.site, now):
+                self._parse(tab, now)
         self._requests()
         self._heartbeat(now)
         self._report(now)
@@ -377,7 +380,7 @@ class Runner:
         mouse, then waits for the page's own network to bring the tab's
         markets in, then reads down them. What happened to each is kept on
         the tab for the status report: loaded | clicked, nothing new |
-        not found | not clicked (budget) | click failed. A click that
+        not offered | not clicked (budget) | click failed. A click that
         navigates counts as a load."""
         feed = re.compile(SITES[t.site].market_list or r"$^")
         page, cap = tab.page, tab.capture
@@ -387,7 +390,12 @@ class Runner:
                 continue
             found = browser.find_tab(page, name)
             if not found:
-                tab.market_tabs[name] = "not found"
+                # Paddy's event page only grows a Corners / Cards & Fouls tab
+                # as kickoff nears; days out it has Popular, Bet Builder,
+                # Goals, Other Markets. So this is the market not being up
+                # yet, not a locator miss - the page is kept once per run
+                # so a real miss can still be checked.
+                tab.market_tabs[name] = "not offered"
                 self._snapshot_once(t, tab, "market-tab-not-found")
                 continue
             loc, label = found

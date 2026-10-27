@@ -172,6 +172,10 @@ def _type_line(page, line: float):
 def _ensure_ready(page, state: dict, now: float):
     """Bring the builder up (Update Data -> Standard View) and onto BB xSaves."""
     standard = page.get_by_text("Standard View", exact=True).first
+    if page.get_by_text("Update Data", exact=True).count() == 0:
+        # Not the builder at all: logged out, Bookie Bashing sends the tool's
+        # url to its "How it works" page. Said at once, not after a timeout.
+        raise BuilderNotReady("not the bet builder page - logged out of Bookie Bashing?")
     if not standard.is_visible() or now - state.get("updated", 0) >= UPDATE_EVERY_S:
         # One click does not always bring it up (a data pull that failed shows
         # as a red count by the title); a second usually does.

@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getScraper, putScraperLeague, putScraperMarket, putScraperTiming } from '../api'
+import {
+  getScraper, putScraperLeague, putScraperMarket, putScraperTiming, postScraperLeague, deleteScraperLeague,
+} from '../api'
 import useAutoRefresh from '../hooks/useAutoRefresh'
 import styles from './ScraperPage.module.css'
 
@@ -69,8 +71,13 @@ export default function ScraperPage() {
             </label>
             <Field value={l.url} aria-label={`${l.name} url`}
               onSave={v => save(() => putScraperLeague(l.id, { url: v }))} />
+            <button type="button" className={styles.remove} aria-label={`Remove ${l.name}`}
+              onClick={() => save(() => deleteScraperLeague(l.id))}>×</button>
           </li>
         ))}
+        <li className={styles.row}>
+          <AddLeague onAdd={fields => save(() => postScraperLeague(fields))} />
+        </li>
       </ul>
 
       <ul className={styles.rows}>
@@ -147,6 +154,26 @@ export default function ScraperPage() {
         </tbody>
       </table>
     </div>
+  )
+}
+
+// A league to watch: its name and the Paddy competition listing url. Adds on
+// Enter or the button; the box picks it up on its next config poll.
+function AddLeague({ onAdd }) {
+  const [name, setName] = useState('')
+  const [url, setUrl] = useState('')
+  const ready = name.trim() && url.trim()
+  const submit = (e) => {
+    e.preventDefault()
+    if (!ready) return
+    onAdd({ name: name.trim(), url: url.trim() }).then(() => { setName(''); setUrl('') })
+  }
+  return (
+    <form className={styles.add} onSubmit={submit}>
+      <input value={name} onChange={e => setName(e.target.value)} placeholder="League" aria-label="New league name" />
+      <input value={url} onChange={e => setUrl(e.target.value)} placeholder="Paddy listing url" aria-label="New league url" />
+      <button type="submit" disabled={!ready}>Add</button>
+    </form>
   )
 }
 

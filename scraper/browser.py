@@ -142,11 +142,29 @@ def blocked(page, status: int | None = None) -> str | None:
     return None
 
 
-def logged_out(page) -> bool:
+# Where a site sends a logged-out request for a tool. Bookie Bashing's is its
+# "How it works" page, whose login form is a hidden modal (Oct 2026), so the
+# password check alone saw nothing and the saves driver failed on it every
+# minute. Only these paths count: a logged-IN tool may redirect too (the bet
+# builder lands on /tools/daily/#/calculator), and that is not a logout.
+_LOGIN_PATHS = ("/how-it-works", "wp-login.php", "/login")
+
+
+def logged_out(page, wanted_url: str | None = None) -> bool:
+    """A visible password field, or a page on one of the sites' login paths."""
     try:
-        return page.locator("input[type=password]:visible").count() > 0
+        if page.locator("input[type=password]:visible").count() > 0:
+            return True
+        if wanted_url and any(p in _path(page.url) for p in _LOGIN_PATHS):
+            return True
     except Exception:
         return False
+    return False
+
+
+def _path(url: str) -> str:
+    from urllib.parse import urlparse
+    return urlparse(url).path.rstrip("/") or "/"
 
 
 _MIN_COOKIES = ("Reject All", "Reject all", "Necessary only", "Only necessary",

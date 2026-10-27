@@ -82,6 +82,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, LOGIN)
         if path == "/bbpage":
             return self._send(200, PAGE)
+        if path == "/bbtool":                    # logged out: sent elsewhere, no form
+            self.send_response(302)
+            self.send_header("location", "/how-it-works")
+            self.end_headers()
+            return
+        if path == "/how-it-works":
+            return self._send(200, "<html><title>How It Works</title><body>Subscribe</body></html>")
         if path == "/api/scraper/config":
             return self._send(200, json.dumps(Handler.config), "application/json")
         self._send(404, "no")
@@ -175,6 +182,22 @@ def test_logged_out_alerts_once_and_keeps_tab(tmp_path, site):
         ctx.close()
 
 
+def test_a_redirect_away_from_the_tool_is_logged_out(tmp_path, site):
+    """Bookie Bashing's logged-out answer to a tool url is a redirect to its
+    "How it works" page, with no visible password field. That is logged out
+    too - and the parser is not driven against it."""
+    from playwright.sync_api import sync_playwright
+    bb = config.Target(name="bb", site="bookiebashing", url=site + "/bbtool", parser="bb_saves")
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [bb], p)
+        t0 = time.time()
+        r.tick(t0)
+        assert r.sites["bookiebashing"].blocked_for == "logged out"
+        r.tick(t0 + 61)
+        assert "parser" not in (r.parser_said.get("bb") or "")  # not driven while paused
+        ctx.close()
+
+
 def test_config_change_closes_removed_tabs_and_opens_new_ones(tmp_path, site):
     """A change on the page reaches the running scraper on its next config
     fetch: the removed target's tabs close, the new target opens - no restart -
@@ -230,11 +253,11 @@ def test_market_tabs_are_clicked_and_their_markets_arrive(tmp_path, site):
         r.tick(t0 + 400)
         tab = next(tab for k, tab in r.tabs.items() if ":m:" in k)
         assert tab.market_tabs == {"Corners": "loaded", "Cards": "loaded",
-                                   "Goalscorer": "not found"}
+                                   "Goalscorer": "not offered"}
         labels = {p[4] for p in tab.capture.pinned if "event-page" in p[2]}
         assert labels == {"tab:Corners", "tab:Cards & Fouls"}
         detail = r.status(t0 + 400)["targets"][0]["detail"]
-        assert "Corners loaded 1/1" in detail and "Goalscorer not found 1/1" in detail
+        assert "Corners loaded 1/1" in detail and "Goalscorer not offered 1/1" in detail
         assert (tmp_path / "samples" / "pp-market-tab-not-found" / "page.html").exists()
         assert r.guard.spent("paddypower", t0 + 400)[0] == 2   # clicks are not page loads
         r.close_all()

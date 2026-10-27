@@ -274,6 +274,39 @@ class LeagueIn(BaseModel):
     url: str | None = Field(default=None, max_length=2000)
 
 
+class NewLeagueIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    site: str = "paddypower"
+    url: str = Field(max_length=2000)
+
+
+@router.post("/leagues", response_model=ScraperStateOut, status_code=201)
+def post_league(body: NewLeagueIn, db: Session = Depends(get_db)):
+    """Add a competition listing to watch (the box picks it up on its next
+    config poll). The name is what the page shows; the target is named from
+    it (pp-<name>-<market>), so it must be unique."""
+    ensure_seeded(db)
+    if body.site not in LINK_RE:
+        raise HTTPException(422, f"no listing scraper for {body.site}")
+    name = " ".join(body.name.split())
+    if db.query(ScraperLeague).filter(ScraperLeague.name.ilike(name)).first():
+        raise HTTPException(409, f"a league called {name!r} already exists")
+    db.add(ScraperLeague(name=name, site=body.site, url=_check_url(body.site, body.url),
+                         enabled=True))
+    db.commit()
+    return _state(db)
+
+
+@router.delete("/leagues/{league_id}", response_model=ScraperStateOut)
+def delete_league(league_id: int, db: Session = Depends(get_db)):
+    lg = db.get(ScraperLeague, league_id)
+    if lg is None:
+        raise HTTPException(404, "no such league")
+    db.delete(lg)
+    db.commit()
+    return _state(db)
+
+
 @router.put("/leagues/{league_id}", response_model=ScraperStateOut)
 def put_league(league_id: int, body: LeagueIn, db: Session = Depends(get_db)):
     ensure_seeded(db)

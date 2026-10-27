@@ -310,5 +310,7 @@ async function put(path, body) {
   return res.json()
 }
 export const putScraperLeague = (id, fields) => put(`/scraper/leagues/${id}`, fields)
+export const postScraperLeague = (fields) => post('/scraper/leagues', fields)
+export const deleteScraperLeague = (id) => del(`/scraper/leagues/${id}`)
 export const putScraperMarket = (key, fields) => put(`/scraper/markets/${key}`, fields)
 export const putScraperTiming = (site, fields) => put(`/scraper/timings/${site}`, fields)

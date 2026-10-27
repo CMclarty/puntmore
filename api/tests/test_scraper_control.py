@@ -189,6 +189,23 @@ def test_urls_must_be_on_the_sites_own_host(client):
                       json={"url": "https://www.paddypower.com/x"}).status_code == 422
 
 
+def test_a_league_can_be_added_and_removed(client):
+    """Watching the EFL Cup is one row on the page; the box gets a new target
+    on its next poll, named from the league."""
+    r = client.post("/scraper/leagues", json={"name": "EFL Cup",
+                                              "url": "https://www.paddypower.com/football/english-league-cup"})
+    assert r.status_code == 201
+    (lg,) = [x for x in r.json()["leagues"] if x["name"] == "EFL Cup"]
+    assert lg["enabled"] and lg["site"] == "paddypower"
+    names = {t["name"] for t in client.get("/scraper/config", headers=H).json()["targets"]}
+    assert "pp-efl-cup-most" in names
+    # Same name again is a conflict; a url off the site is refused.
+    assert client.post("/scraper/leagues", json={"name": "efl cup", "url": lg["url"]}).status_code == 409
+    assert client.post("/scraper/leagues", json={"name": "X", "url": "https://example.com/x"}).status_code == 422
+    r = client.delete(f"/scraper/leagues/{lg['id']}")
+    assert r.status_code == 200 and not [x for x in r.json()["leagues"] if x["name"] == "EFL Cup"]
+
+
 def test_market_tabs_are_edited_and_trimmed(client):
     body = client.put("/scraper/markets/most", json={"tabs": [" Corners ", "", "Cards & Fouls"]})
     (most,) = [m for m in body.json()["markets"] if m["key"] == "most"]
