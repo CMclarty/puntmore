@@ -2,8 +2,6 @@ import base64
 import json
 import re
 
-import anthropic
-
 from .base import OCRProvider, ExtractedRow, ExtractedCoupon, OcrHint
 
 # Heading identity lives with the grid rules it belongs to. Re-exported here
@@ -481,6 +479,10 @@ def _strip_code_fence(text: str) -> str:
 
 class ClaudeOCRProvider(OCRProvider):
     def __init__(self, api_key: str):
+        # Imported here, not at the top: the SDK is ~900 modules and ~16 MB
+        # resident, and this module is imported by every boot (slip_ocr needs
+        # parse_odds) whether or not Claude is the OCR provider.
+        import anthropic
         self._client = anthropic.Anthropic(api_key=api_key)
 
     def extract(

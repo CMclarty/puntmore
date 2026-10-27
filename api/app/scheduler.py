@@ -386,6 +386,12 @@ def paddy_health(notifier=None) -> list[str]:
         finally:
             db.close()
         lines = health.report(saves=len(saves.STORE), most=len(most.STORE), snapshots=snapshots)
+        # The instance has 512 MB and has been restarted for memory before:
+        # the resident size belongs in the morning post, not only in diagnostics.
+        from .diagnostics import rss_mb
+        rss = rss_mb()
+        if rss is not None:
+            lines.append(f"Server: {rss:.0f} MB resident")
     except Exception:
         logger.exception("Paddy health report failed")
         return []

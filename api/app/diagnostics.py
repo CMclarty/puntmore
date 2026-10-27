@@ -143,11 +143,22 @@ def record_exception(exc: BaseException, *, method: str, path: str, user: str | 
     )
 
 
+def rss_mb() -> float | None:
+    """The process's resident memory in MB (Linux: /proc), or None elsewhere.
+    Render's starter instance has 512 MB; this is how we see what is used."""
+    try:
+        pages = int(open("/proc/self/statm").read().split()[1])
+        return round(pages * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024), 1)
+    except (OSError, ValueError, IndexError):
+        return None
+
+
 def snapshot() -> dict:
     """Everything a reader needs: the records plus the context to read them in."""
     with _lock:
         items = list(_records)
     return {
+        "process": {"rss_mb": rss_mb()},
         "boot_id": BOOT_ID,
         "booted_at": datetime.fromtimestamp(BOOT_TIME, timezone.utc).isoformat(
             timespec="seconds"

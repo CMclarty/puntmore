@@ -1,9 +1,6 @@
 import json
 import base64
 
-import google.genai as genai
-import google.genai.types as gtypes
-
 from .base import OCRProvider, ExtractedCoupon, OcrHint
 from .claude_ocr import (
     MAX_TOKENS,
@@ -39,11 +36,21 @@ def _hit_token_cap(response) -> bool:
 
 class GeminiOCRProvider(OCRProvider):
     def __init__(self, api_key: str):
+        # Imported here, not at the top: the SDK is ~49 MB resident and this
+        # module is imported by every boot, while Gemini is only the provider
+        # when GOOGLE_API_KEY is set (production uses Claude).
+        import google.genai as genai
         self._client = genai.Client(api_key=api_key)
+
+    @property
+    def _types(self):
+        import google.genai.types as gtypes
+        return gtypes
 
     def extract(
         self, image_bytes: bytes, media_type: str, hint: OcrHint | None = None
     ) -> ExtractedCoupon:
+        gtypes = self._types
         part = gtypes.Part.from_bytes(data=image_bytes, mime_type=media_type)
         # One contract across providers: a second prompt meant a second set of
         # bugs to find. Same output budget too — a whole-sheet read is the same
@@ -88,6 +95,7 @@ class GeminiOCRProvider(OCRProvider):
 
     def read_slip(self, image_bytes: bytes, media_type: str):
         """One terminal bet (AW 26) — the shared slip prompt (slip_ocr.py)."""
+        gtypes = self._types
         part = gtypes.Part.from_bytes(data=image_bytes, mime_type=media_type)
         response = self._client.models.generate_content(
             model=MODEL,
