@@ -24,7 +24,8 @@ Grants use one grammar: `*` (everything) or names joined by `+`. Tool grants:
 `coupons`, `accabonus` (365 acca), `cards` (Paddy), `goalscorers` (365
 scorers), `pnl`, `kelly`, `boost`, `shop`, `aw26`, `scraper`. Machine grants:
 `value` (every source on `/api/value`), `state` (`/api/state`), `ingest` (the
-scraper / Bookie Bashing write paths).
+scraper / Bookie Bashing write paths), `feed` (the bet feed: `/api/value-bets`,
+`/api/results`).
 
 - A key resolves through the same seam as a session (`security.user_permissions`),
   so every route that admits a user with grant X admits a key with grant X.
@@ -33,9 +34,10 @@ scraper / Bookie Bashing write paths).
 - Where a route records who did something (an AW 26 slip, a P&L bet, a shop
   visit), a key acts as `api:<name>` — its own ledger, never a person's.
 - `GET /api/auth/me` tells a key its name and grants.
-- The two static env keys keep working exactly as before:
-  `STATE_API_KEY` is the `state` grant and `SAVES_INGEST_KEY` the `ingest`
-  grant (same `X-API-Key` header; Bearer works too). Those routes stay
+- The static env keys keep working exactly as before:
+  `STATE_API_KEY` is the `state` grant, `SAVES_INGEST_KEY` the `ingest`
+  grant and `FEED_API_KEY` the `feed` grant (same `X-API-Key` header; Bearer
+  works too). Those routes stay
   key-only: a session does not open them. Unset static key and no client with
   the grant → `503`, as before.
 - Keys are stored only as a sha256. They are never logged or echoed; the CLI
@@ -124,6 +126,68 @@ lines are never listed (`pricing/counts/lines.is_half_line`). Ladder and
 bundle coupons are not listed — their value belongs to a combination, not a
 selection.
 
+## The bet feed — `/api/value-bets`, `/api/results`
+
+For a coordinator that builds bets from Puntmore's value and later needs to
+know how they landed (Daedalus, the 2-Up coordinator). KEY-ONLY like
+`/state`: `FEED_API_KEY` as `X-API-Key` (or Bearer), or an API client with
+the `feed` grant. Unset key and no such client → `503`; wrong key → `401`.
+Both return a **bare JSON list**. Code: `api/app/betfeed/service.py`,
+`api/app/routers/betfeed.py`.
+
+```
+GET /api/value-bets?sport=football&min_edge=
+GET /api/results?since=2026-10-27T08:00:00Z
+```
+
+**`/api/value-bets`** — bet365 selections priced above de-vigged Pinnacle,
+still to kick off, best value first. The rows are the 365 acca feed's
+(`accabonus/feed.py` via `value/service.py::acca_row` — h2h, one best side per
+event), so nothing is priced twice and it reads the 365 page's TheOddsApi
+cache. `sport` defaults to `football` (`tennis`, …, or `all`); `min_edge` as on
+`/api/value` (omitted: edge > 0). `503` when the 365 tool is off
+(`ENABLE_ACCABONUS`), there is no odds client, or the pull fails — never an
+empty list standing in for a failure.
+
+```json
+{"id": "e3f1…:h2h:home", "fixture_id": "e3f1…", "fixture": "Leeds v Spurs",
+ "home": "Leeds", "away": "Spurs", "kickoff": "2026-10-29T15:00:00Z",
+ "competition": "EPL", "competition_key": "soccer_epl", "sport": "football",
+ "bookmaker": "bet365", "market": "h2h", "selection": "Leeds", "side": "home",
+ "line": null, "odds": 2.6, "fair_odds": 2.395, "value_pct": 8.56,
+ "seen_at": "2026-10-27T18:40:07Z"}
+```
+
+`fixture_id` is the source's fixture id (TheOddsApi's event id). `id` is
+`<fixture_id>:<market>:<side>[:<line>]` — stable across polls and restarts.
+`value_pct` is `(odds / fair_odds - 1) × 100`. `side` is `home | away | draw`.
+
+**`/api/results`** — for every fixture `/api/value-bets` has ever served
+(bet on or not), its final result once known, oldest first. Serving a row
+records its fixture and selection (`feed_fixtures`, `feed_selections`;
+insert-if-absent, never pruned) — the feed's own bookkeeping, nothing a caller
+can write. A fixture appears only once its result is known, so the first row
+seen per `fixture_id` is final. `since` keeps results recorded strictly after
+it (`result_at`; UTC when no offset).
+
+```json
+{"fixture_id": "e3f1…", "fixture": "Leeds v Spurs", "home": "Leeds", "away": "Spurs",
+ "kickoff": "2026-10-29T15:00:00Z", "competition": "EPL",
+ "competition_key": "soccer_epl", "sport": "football", "status": "finished",
+ "home_score": 2, "away_score": 1, "result_at": "2026-10-29T19:02:11Z",
+ "selections": [{"id": "e3f1…:h2h:home", "market": "h2h", "selection": "Leeds",
+                 "side": "home", "line": null, "outcome": "win"}]}
+```
+
+`status` is `finished | void`; `outcome` is `win | lose | void`, or null when
+it cannot be settled with confidence (never guessed). Scores come from the
+FlashScore results ingest (`POST /api/aw26/results`,
+`local/flashscore_results.py`) — no vendor call of its own. A score settles a
+served football fixture when both team names match (`team_similarity` ≥ 0.80,
+as AW 26) and it kicked off 105 min – 5 days earlier. **A fixture in a league
+the scraper does not read stays pending and is never listed** (the scraper
+reads the leagues `/aw26/open-leagues` names, else its default eight).
+
 ## Endpoints by tool
 
 All paths are under `/api`. "Grant" is what a key (or user) needs.
@@ -134,6 +198,7 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 | — | `POST /auth/login`, `POST /auth/logout` | session (browsers) |
 | value (`value` or a tool) | `GET /value`, `GET /value/{source}` | `ValueFeedOut` |
 | state (`state`) | `GET /state` | whole-app snapshot |
+| bet feed (`feed`) | `GET /value-bets`, `GET /results` | bet365 value bets; their results |
 | coupons (`coupons`) | `GET /coupons/types`, `/coupons/types/{type}/selections`, `/coupons/types/{type}/bundles`, `/coupons/periods`, `/coupons/upload-options`, `/coupons`, `/coupons/{id}/legs` | tracker reads |
 | coupons (`coupons`) | `POST /coupons/{id}/refresh`, `PATCH /coupons/{id}/legs/{leg}`, `POST /upload`, `POST /upload/{id}/rescan` | re-price, correct, upload a photo |
 | 365 acca (`accabonus`) | `GET /accabonus/feed`, `/accabonus/arbs`, `/accabonus/diagnostics`, `/accabonus/eligible-keys`, `/accabonus/probe-books` (costs credits) | |
@@ -192,6 +257,7 @@ keeps its v1 behaviour until every caller has moved.
 | auth, grants, key resolution | `api/app/security.py` |
 | API clients table / CLI | `api/app/models.py::ApiClient`, `api/app/apikeys.py` |
 | value feed | `api/app/value/service.py`, `api/app/routers/value.py` |
+| bet feed | `api/app/betfeed/service.py`, `api/app/routers/betfeed.py` |
 | per-tool services | `api/app/cards/feed.py`, `api/app/accabonus/feed.py`, `api/app/coupons/service.py`, `api/app/pnl/service.py`, `api/app/shop/service.py`, `api/app/aw26/record.py` (+ the existing `aw26/`, `cards/`, `goalscorers/` packages) |
 | response models | `api/app/schemas.py` |
 | route walk test | `api/tests/test_openapi.py` |

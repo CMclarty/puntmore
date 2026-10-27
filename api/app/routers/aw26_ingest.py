@@ -5,6 +5,7 @@ Key-guarded like /paddy/saves-fair, and with the SAME key: both come from the
 one Bookie Bashing script machine, behind Callum's login, which never reaches
 the server. Every slip still waiting on a fair price is priced on arrival.
 """
+import logging
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -20,12 +21,15 @@ from ..database import get_db
 from ..models import AwFair, AwLeg, AwSlip, ValueLine
 from ..normalise import split_sides, team_similarity
 from ..aw26.record import Refused, record_slip
+from ..betfeed.service import record_scores
 from ..schemas import (
     AwFairsOut, AwResultsOut, AwSlipIngestOut, AwSlipLegIn, AwSlipRecordIn, OpenLeaguesOut,
 )
 from ..time_utils import utcnow
 from .aw26 import _sweep_events
 from .saves_ingest import require_ingest_key
+
+logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter(prefix="/aw26")
 
@@ -133,7 +137,16 @@ class ResultsIn(BaseModel):
 @router.post("/results", response_model=AwResultsOut, dependencies=[Depends(require_ingest_key)])
 def post_results(batch: ResultsIn, db: Session = Depends(get_db)):
     stats = [MatchStats(**m.model_dump()) for m in batch.matches]
-    return apply_match_stats(db, stats)
+    out = apply_match_stats(db, stats)
+    # The same scores settle the bet feed's served fixtures (GET /api/results).
+    # Its own commit, after AW 26's; a failure there never fails this ingest,
+    # and this route's response is unchanged.
+    try:
+        record_scores(db, stats)
+    except Exception as exc:
+        db.rollback()
+        logger.error("bet feed: recording results failed: %s", exc)
+    return out
 
 
 # --- which leagues the FlashScore scraper should read -------------------------

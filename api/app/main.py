@@ -49,6 +49,7 @@ from .routers import state as state_router
 from .routers import diagnostics as diagnostics_router
 from .routers import scraper as scraper_router
 from .routers import value as value_router
+from .routers import betfeed as betfeed_router
 from . import diagnostics
 
 logger = logging.getLogger("uvicorn.error")
@@ -365,6 +366,10 @@ app.include_router(value_router.router)
 
 # /state self-guards with a static API key (machine consumers, no session).
 app.include_router(state_router.router, tags=["state"])
+
+# The bet feed (/value-bets, /results) for a coordinator: key-only, `feed`
+# grant (FEED_API_KEY or an API client), self-guarded like /state.
+app.include_router(betfeed_router.router)
 
 # /diagnostics self-guards too (admin session OR the state key).
 app.include_router(diagnostics_router.router)

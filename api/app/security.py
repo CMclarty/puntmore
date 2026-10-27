@@ -27,9 +27,10 @@ ALL_TOOLS = ("coupons", "accabonus", "cards", "goalscorers", "pnl", "kelly", "bo
 
 # Grants that name no page — they exist for machine callers. `value` reads the
 # cross-tool value feed (GET /api/value); `state` is the whole-app snapshot
-# (GET /api/state); `ingest` is the scraper / Bookie Bashing write paths.
-# STATE_API_KEY and SAVES_INGEST_KEY are these last two, as static keys.
-MACHINE_GRANTS = ("value", "state", "ingest")
+# (GET /api/state); `ingest` is the scraper / Bookie Bashing write paths;
+# `feed` is the bet feed (GET /api/value-bets, /api/results). STATE_API_KEY,
+# SAVES_INGEST_KEY and FEED_API_KEY are the last three, as static keys.
+MACHINE_GRANTS = ("value", "state", "ingest", "feed")
 ALL_GRANTS = ALL_TOOLS + MACHINE_GRANTS
 
 
@@ -123,8 +124,8 @@ class LoginThrottle:
 # ONE mechanism for every machine caller. A key arrives as
 # `Authorization: Bearer <key>` (preferred) or `X-API-Key: <key>` and resolves
 # to a Principal: an ApiClient row (looked up by the key's sha256), or one of
-# the two static env keys, which are the grants `state` (STATE_API_KEY) and
-# `ingest` (SAVES_INGEST_KEY). A key is never logged or echoed anywhere.
+# the static env keys, which are the grants `state` (STATE_API_KEY),
+# `ingest` (SAVES_INGEST_KEY) and `feed` (FEED_API_KEY). A key is never logged or echoed anywhere.
 
 API_KEY_PREFIX = "pm_"
 # last_used_at is written at most this often per client, so a bot polling every
@@ -132,7 +133,8 @@ API_KEY_PREFIX = "pm_"
 LAST_USED_EVERY = timedelta(minutes=1)
 # The static env keys, as (setting, grant). Kept working exactly as before —
 # the scraper box and the PC scripts send them.
-STATIC_KEYS = (("state_api_key", "state"), ("saves_ingest_key", "ingest"))
+STATIC_KEYS = (("state_api_key", "state"), ("saves_ingest_key", "ingest"),
+               ("feed_api_key", "feed"))
 
 _bearer = HTTPBearer(
     auto_error=False, scheme_name="Bearer",
