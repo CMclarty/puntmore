@@ -412,3 +412,19 @@ class HillsTarget(Base):
     boost_pct = Column(Float, nullable=False)            # on winnings: 25 = +25%
     set_by = Column(String, nullable=False)
     set_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class HillsBet(Base):
+    """A boosted bet builder someone on the team has placed with William Hill
+    on a target match: what it was and how it went. Nothing is priced or kept
+    about fairs — it is a log of bets made."""
+    __tablename__ = "hills_bets"
+
+    id = Column(Integer, primary_key=True)
+    fixture_id = Column(String, nullable=False, index=True)
+    match = Column(String, nullable=False)                # "Arsenal vs Chelsea", as targeted
+    kickoff = Column(DateTime, nullable=False)
+    legs = Column(String, nullable=False)                 # free text: the builder's legs
+    result = Column(String, nullable=False, default="open")   # open | won | lost
+    placed_by = Column(String, nullable=False)
+    placed_at = Column(DateTime, nullable=False, default=utcnow)

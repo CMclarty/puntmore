@@ -243,13 +243,17 @@ export const getCardsFeed = (minEdge = -0.02) =>
 export const getHillsDiagnostics = () => get('/hills/diagnostics')
 export const getHillsFeed = (minEdge = -0.02) =>
   get(`/hills/feed?min_edge=${minEdge}`)
-// Hills' target match — one for the whole team — and BB Boost's builders on it.
+// Hills' target match — one for the whole team (BB Boost is priced by hand).
 export const getHillsFixtures = () => get('/hills/fixtures')
 export const getHillsTarget = () => get('/hills/target')
 export const setHillsTarget = (fixtureId, boostPct) =>
   put('/hills/target', { fixture_id: fixtureId, boost_pct: boostPct })
 export const clearHillsTarget = () => del('/hills/target')
-export const getHillsBuilder = (minFair) => get(`/hills/builder?min_fair=${minFair}`)
+// BB Boost's log: the builders the team has placed on the target (no prices kept).
+export const getHillsBets = () => get('/hills/bets')
+export const logHillsBet = (legs) => post('/hills/bets', { legs })
+export const settleHillsBet = (id, result) => patch(`/hills/bets/${id}`, { result })
+export const removeHillsBet = (id) => del(`/hills/bets/${id}`)
 
 // First-goalscorer value (bet365 vs de-vigged Pinnacle). Rows are produced by
 // the scheduler near kickoff and stored, so this just reads the current set.
@@ -294,6 +298,17 @@ async function put(path, body) {
   }, 'PUT')
   if (res.status === 401) { redirectToLogin(); throw new ApiError('Not authenticated', { status: 401, path }) }
   if (!res.ok) throw await fail(res, path, 'PUT')
+  return res.json()
+}
+
+async function patch(path, body) {
+  const res = await send(path, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }, 'PATCH')
+  if (res.status === 401) { redirectToLogin(); throw new ApiError('Not authenticated', { status: 401, path }) }
+  if (!res.ok) throw await fail(res, path, 'PATCH')
   return res.json()
 }
 export const putScraperLeague = (id, fields) => put(`/scraper/leagues/${id}`, fields)

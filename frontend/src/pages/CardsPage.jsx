@@ -186,7 +186,7 @@ const BOOKS = {
     markets: MARKETS.filter(m => !FAIR_ONLY.includes(m)) },
 }
 
-export default function CardsPage({ book = 'paddy' }) {
+export default function CardsPage({ book = 'paddy', username }) {
   const cfg = BOOKS[book]
   const [offer, setOffer] = useState(() => {
     try {
@@ -273,8 +273,8 @@ export default function CardsPage({ book = 'paddy' }) {
       ))}
     </div>
   )
-  // BB Boost is its own screen: the target match and its builders, not this list.
-  if (offer === 'bb') return <div className={f.page}><HillsBuilder />{offerSwitch}</div>
+  // BB Boost is its own screen: the target match, its wheels and the bet log.
+  if (offer === 'bb') return <div className={f.page}><HillsBuilder username={username} />{offerSwitch}</div>
 
   // Refund / Boost: the acca of the top 5 by score, one per match (asked for:
   // "a number to see at a glance if it's worth betting").

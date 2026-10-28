@@ -1,4 +1,5 @@
-/* BB Boost: the target match, two wheels, the result line, then the builders. */
+/* BB Boost: the target match, two wheels (WH price, fair), the result line,
+   then the team's log of builders placed. */
 .wrap { display: flex; flex-direction: column; flex: 1; }
 .intro { padding: 14px 12px 4px; font-size: 13px; color: var(--muted); }
 
@@ -41,17 +42,26 @@
 .bad { border-color: var(--red); color: var(--ink); }
 .bad b { color: var(--red); }
 
-.list { display: flex; flex-direction: column; padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
-.row {
-  display: grid; grid-template-columns: 1fr 52px 52px; gap: 8px; align-items: center;
-  padding: 8px 12px; border: none; border-bottom: 1px solid var(--line);
-  background: none; font: inherit; text-align: left; color: var(--ink);
+.logForm { display: flex; gap: 6px; padding: 4px 12px 8px; }
+.logInput {
+  flex: 1; min-width: 0; padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--paper); color: var(--ink); font: inherit; font-size: 14px;
 }
-.row > :nth-child(n+2) { text-align: right; }
-.rowOn { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
-.colHead { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
-.legs { display: flex; flex-direction: column; gap: 1px; font-size: 13px; }
-.num { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.logForm .primary { margin-left: 0; }
+.logHead {
+  padding: 6px 12px; border-bottom: 1px solid var(--line);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint);
+}
+.list { display: flex; flex-direction: column; padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+.bet {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center;
+  padding: 8px 12px; border-bottom: 1px solid var(--line);
+}
+.betLegs { font-size: 14px; color: var(--ink); }
+.betMeta { font-size: 11px; color: var(--muted); }
+.betResult { grid-column: 1 / -1; display: flex; align-items: center; gap: 5px; }
+.won { box-shadow: inset 3px 0 0 var(--green); }
+.lost { box-shadow: inset 3px 0 0 var(--red); }
 
 .empty { padding: 24px 12px; font-size: 13px; color: var(--muted); }
 .error { padding: 8px 12px; font-size: 12px; color: var(--red); }

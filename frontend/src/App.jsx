@@ -136,7 +136,7 @@ export default function App() {
               still open /cards. */}
           <Route path="/cards" element={<Navigate to="/paddy" replace />} />
           {/* Hills: the Paddy page priced against William Hill. */}
-          <Route path="/hills" element={protectTool(<CardsPage book="hills" />, 'hills')} />
+          <Route path="/hills" element={protectTool(<CardsPage book="hills" username={user?.username} />, 'hills')} />
         </Routes>
         </Suspense>
       </main>

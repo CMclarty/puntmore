@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { getHillsFixtures, getHillsTarget, setHillsTarget, clearHillsTarget, getHillsBuilder } from '../api'
+import {
+  getHillsFixtures, getHillsTarget, setHillsTarget, clearHillsTarget,
+  getHillsBets, logHillsBet, settleHillsBet, removeHillsBet,
+} from '../api'
 import OddsWheel, { LADDER } from '../components/OddsWheel'
 import useAutoRefresh from '../hooks/useAutoRefresh'
 import s from './HillsBuilder.module.css'
@@ -8,30 +11,31 @@ import s from './HillsBuilder.module.css'
  * BB Boost — Hills' third offer: William Hill's boosted bet builder on the
  * team's ONE target match (25% on winnings, 50% on some cup finals).
  *
- *   Target   picked from this weekend's Premier League games and the cup /
- *            Champions League finals; one for the whole team, so it is shown
- *            with who set it and anyone can change it.
- *   Fair ≥   a wheel: only builders whose fair price is at least this.
- *   Builders every 2–4 leg combination, one leg per stat, with its fair price
- *            and the product of William Hill's singles, best singles/fair first.
- *   Price    a wheel: the builder price the William Hill app quotes for the
- *            tapped combination (no feed carries builder prices). The boost
- *            is applied to its winnings and valued against the fair price.
+ *   Target    picked from this weekend's Premier League games and the cup /
+ *             Champions League finals; one for the whole team, so it is shown
+ *             with who set it and anyone can change it.
+ *   WH price  a wheel: the builder price the William Hill app quotes.
+ *   Fair      a wheel: the fair price for the same builder, from wherever it
+ *             is found. Builders are priced by hand on purpose — their legs are
+ *             correlated, so multiplying single prices gets them wrong, and no
+ *             feed carries builder prices. An on-the-spot check: never saved.
+ *   Log       the builders the team has placed on the target: legs as typed,
+ *             who and when, and a result set by hand. Anyone opening the page
+ *             sees what has been backed already. No prices or fairs are kept.
  *
- * The fair price treats different stats as independent — a guide, not a
- * quote (api/app/hills/builder.py).
+ * The boost is paid on winnings: a price P pays 1 + (P - 1) * (1 + boost),
+ * and its EV is that over the fair price, less 1.
  */
 
-// Fair-price floor: the prices a builder is usually wanted at.
-const FAIR_FLOORS = [1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 30, 40, 50]
-const FAIR_LADDER = FAIR_FLOORS.map(d => ({ label: d.toFixed(1), dec: d }))
-const DEFAULT_FLOOR = 3
-// William Hill quotes builders fractionally and often long: the board ladder
-// carried on past 25/1.
+// Builders are quoted fractionally and often long: the board ladder carried
+// on past 25/1. Both wheels use it.
 const PRICE_LADDER = [
   ...LADDER,
   ...[28, 33, 40, 50, 66, 80, 100, 125, 150, 200].map(n => ({ n, d: 1, label: `${n}/1`, dec: n + 1 })),
 ]
+const SEAT = 7          // 6/1, where a builder price usually is
+const RESULTS = [['open', 'Open'], ['won', 'Won'], ['lost', 'Lost']]
+const placedAt = iso => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 const boosted = (price, pct) => 1 + (price - 1) * (1 + pct / 100)
 const signed = v => `${v >= 0 ? '+' : '−'}${Math.abs(v * 100).toFixed(1)}%`
@@ -40,7 +44,6 @@ function kickoff(iso) {
   return d.toLocaleDateString([], { weekday: 'short' }) + ' '
     + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
-const comboKey = c => c.legs.map(l => l.pick).join(' + ')
 
 function TargetPicker({ current, onSet, onCancel }) {
   const [fixtures, setFixtures] = useState(null)
@@ -79,20 +82,20 @@ function TargetPicker({ current, onSet, onCancel }) {
   )
 }
 
-export default function HillsBuilder() {
+export default function HillsBuilder({ username }) {
   const [tgt, setTgt] = useState(undefined)            // undefined = loading, null = none
   const [picking, setPicking] = useState(false)
-  const [floor, setFloor] = useState(DEFAULT_FLOOR)
-  const [result, setResult] = useState(null)          // {fixtureId, body} of the last fetch
   const [error, setError] = useState(null)
-  const [chosen, setChosen] = useState(null)           // comboKey of the tapped builder
   const [price, setPrice] = useState(null)             // William Hill's quoted builder price
+  const [fair, setFair] = useState(null)               // the fair price for the same builder
+  const [bets, setBets] = useState([])
+  const [legs, setLegs] = useState('')
 
   // The target is the team's: re-read it on every refresh so a change made on
   // another phone lands here too.
   const live = useRef(true)
-  const loadTarget = useCallback(() => getHillsTarget()
-    .then(d => live.current && setTgt(d.target))
+  const loadTarget = useCallback(() => Promise.all([getHillsTarget(), getHillsBets()])
+    .then(([t, b]) => { if (live.current) { setTgt(t.target); setBets(b.bets); setError(null) } })
     .catch(e => live.current && setError(e.message)), [])
   useEffect(() => {
     live.current = true
@@ -101,31 +104,20 @@ export default function HillsBuilder() {
   }, [loadTarget])
   useAutoRefresh(loadTarget)
 
-  const fixtureId = tgt?.fixture_id
-  useEffect(() => {
-    if (!fixtureId) return
-    let on = true
-    getHillsBuilder(floor)
-      .then(body => { if (on) { setResult({ fixtureId, body }); setError(null) } })
-      .catch(e => on && setError(e.message))
-    return () => { on = false }
-  }, [fixtureId, floor])
-  // Only the current target's builders: a fetch for an old target never shows.
-  const data = result && result.fixtureId === fixtureId ? result.body : null
-
-  const combos = data?.combos || []
-  const sel = combos.find(c => comboKey(c) === chosen) || null
-  const pickCombo = c => {
-    const k = comboKey(c)
-    setChosen(k === chosen ? null : k)
-    setPrice(null)
-  }
   const pct = tgt?.boost_pct ?? 25
-  const paid = sel && price != null ? boosted(price, pct) : null
-  const ev = paid != null ? paid / sel.fair - 1 : null
+  const paid = price != null ? boosted(price, pct) : null
+  const ev = paid != null && fair != null ? paid / fair - 1 : null
 
   const done = () => { setPicking(false); loadTarget() }
-  const clear = () => clearHillsTarget().then(() => { setChosen(null); loadTarget() })
+  const clear = () => clearHillsTarget().then(loadTarget)
+  const fail = e => setError(e.message)
+  const log = e => {
+    e.preventDefault()
+    if (!legs.trim()) return
+    logHillsBet(legs).then(() => { setLegs(''); loadTarget() }).catch(fail)
+  }
+  const settle = (id, result) => settleHillsBet(id, result).then(loadTarget).catch(fail)
+  const remove = id => removeHillsBet(id).then(loadTarget).catch(fail)
 
   if (tgt === undefined) return <p className={s.empty}>{error ?? 'Loading…'}</p>
   if (!tgt || picking) {
@@ -152,39 +144,46 @@ export default function HillsBuilder() {
       </div>
 
       <div className={s.wheels}>
-        <OddsWheel id="bb-floor" label="Fair ≥" ladder={FAIR_LADDER} decimalOnly
-          value={floor} seat={DEFAULT_FLOOR} onChange={setFloor} />
         <OddsWheel id="bb-price" label="WH price" ladder={PRICE_LADDER}
-          value={price} seat={sel ? sel.singles : 6} onChange={setPrice} />
+          value={price} seat={SEAT} onChange={setPrice} />
+        <OddsWheel id="bb-fair" label="Fair" ladder={PRICE_LADDER}
+          value={fair} seat={price ?? SEAT} onChange={setFair} />
       </div>
 
       <div className={`${s.result} ${ev == null ? '' : ev >= 0 ? s.good : s.bad}`}>
-        {!sel ? 'Tap a builder, then spin its William Hill price.'
-          : paid == null ? `Fair ${sel.fair.toFixed(2)} — spin the price William Hill quotes.`
-          : <>Pays {paid.toFixed(2)} boosted · fair {sel.fair.toFixed(2)} · <b>EV {signed(ev)}</b></>}
+        {paid == null ? 'Spin the builder price William Hill quotes.'
+          : ev == null ? <>Pays <b>{paid.toFixed(2)}</b> boosted — spin its fair price.</>
+          : <>Pays <b>{paid.toFixed(2)}</b> boosted · fair {fair.toFixed(2)} · <b>EV {signed(ev)}</b></>}
       </div>
-
       {error && <p className={s.error}>{error}</p>}
-      {data && combos.length === 0 && (
-        <p className={s.empty}>{data.legs === 0
-          ? 'William Hill has no priced lines on this match yet.'
-          : `No builders at fair ${floor.toFixed(1)} or longer.`}</p>
-      )}
+
+      <form className={s.logForm} onSubmit={log}>
+        <input className={s.logInput} value={legs} onChange={e => setLegs(e.target.value)}
+          maxLength={300} placeholder="Legs, e.g. O9.5 corners + Saka anytime" aria-label="Builder legs" />
+        <button type="submit" className={s.primary} disabled={!legs.trim()}>Log bet</button>
+      </form>
+
+      <div className={s.logHead}>
+        {bets.length ? `${bets.length} builder${bets.length === 1 ? '' : 's'} logged on this match`
+          : 'No builders logged on this match yet.'}
+      </div>
       <div className={s.list}>
-        {combos.length > 0 && (
-          <div className={`${s.row} ${s.colHead}`}><span>Builder</span><span>Singles</span><span>Fair</span></div>
-        )}
-        {combos.map(c => {
-          const k = comboKey(c)
-          return (
-            <button key={k} type="button" className={`${s.row} ${k === chosen ? s.rowOn : ''}`}
-              aria-pressed={k === chosen} onClick={() => pickCombo(c)}>
-              <span className={s.legs}>{c.legs.map(l => <span key={l.pick}>{l.pick}</span>)}</span>
-              <span className={s.num}>{c.singles.toFixed(2)}</span>
-              <span className={s.num}>{c.fair.toFixed(2)}</span>
-            </button>
-          )
-        })}
+        {bets.map(b => (
+          <div key={b.id} className={`${s.bet} ${s[b.result] || ''}`}>
+            <span className={s.betLegs}>{b.legs}</span>
+            <span className={s.betMeta}>{b.placed_by} · {placedAt(b.placed_at)}</span>
+            <span className={s.betResult} role="group" aria-label="Result">
+              {RESULTS.map(([k, label]) => (
+                <button key={k} type="button" className={`${s.chip} ${b.result === k ? s.chipOn : ''}`}
+                  aria-pressed={b.result === k} onClick={() => settle(b.id, k)}>{label}</button>
+              ))}
+              {b.placed_by === username && (
+                <button type="button" className={s.link} aria-label="Remove bet"
+                  onClick={() => remove(b.id)}>Remove</button>
+              )}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   )

@@ -1,6 +1,5 @@
-"""Hills' target match (one per team) and BB Boost's builder combinations."""
+"""Hills' target match: one per team, picked from the boosted fixtures."""
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
-from app.hills import builder, target
+from app.hills import target
 from app.main import app
 
 client = TestClient(app)
@@ -121,63 +120,40 @@ def test_a_target_that_has_kicked_off_is_over():
     db.close()
 
 
-# --- BB Boost ---------------------------------------------------------------------
+# --- BB Boost's bet log -------------------------------------------------------------
 
-def _row(market_key, side, line, odds, fair):
-    return SimpleNamespace(market_key=market_key, side=side, line=line, paddy_odds=odds,
-                           fair_odds=fair, edge=odds / fair - 1,
-                           home_team="Arsenal", away_team="Chelsea")
-
-
-ROWS = [
-    _row("alternate_totals_corners", "Over", 9.5, 1.90, 1.80),
-    _row("alternate_totals_corners", "Over", 10.5, 2.50, 2.40),
-    _row("team_corners_home", "Over", 4.5, 1.80, 1.85),
-    _row("alternate_totals_cards", "Over", 3.5, 1.70, 1.75),
-    _row("alternate_totals_goals", "Over", 2.5, 2.00, 1.95),
-]
-
-
-def test_builders_take_one_leg_per_stat():
-    got = builder.combos(ROWS, min_fair=1.0)
-    for c in got:
-        stats = [builder.FAMILY[leg["market"]] for leg in c["legs"]]
-        assert len(stats) == len(set(stats))               # never two corners lines
-        assert 2 <= len(c["legs"]) <= 3
-    # 3 corners legs x 1 cards x 1 goals: 3+3+1 doubles, 3 trebles.
-    assert len(got) == 10
-
-
-def test_fair_floor_and_order():
-    got = builder.combos(ROWS, min_fair=6.0)
-    assert got and all(c["fair"] >= 6.0 for c in got)
-    ratio = [c["singles"] / c["fair"] for c in got]
-    assert ratio == sorted(ratio, reverse=True)
-    top = got[0]
-    assert top["fair"] == round(1.80 * 1.75 * 1.95, 2)    # O9.5 corners, cards, goals
-    assert top["singles"] == round(1.90 * 1.70 * 2.00, 2)
-
-
-def test_builder_endpoint_needs_a_target():
-    assert client.get("/hills/builder").json() == {"target": None, "legs": 0, "combos": []}
-
-
-def test_builder_prices_the_target_events_william_hill_lines():
+def test_the_team_sees_every_builder_logged_on_the_target():
+    from app.security import require_user
     sat = _next(5)
-
-    def market(key, over, under):
-        return {"key": key, "outcomes": [{"name": "Over", "point": 3.5, "price": over},
-                                         {"name": "Under", "point": 3.5, "price": under}]}
-    event = {"id": "a", "home_team": "Arsenal", "away_team": "Chelsea",
-             "commence_time": sat.isoformat(), "sport_key": "soccer_epl", "bookmakers": [
-                 {"key": "pinnacle", "markets": [market("alternate_totals_corners", 1.95, 1.85),
-                                                 market("alternate_totals_cards", 1.90, 1.90)]},
-                 {"key": "williamhill", "markets": [market("alternate_totals_corners", 2.10, 1.70),
-                                                    market("alternate_totals_cards", 2.00, 1.75)]},
-             ]}
-    app.state.hills_client = Source([_fx("a", 17, sat)], [event])
+    app.state.hills_client = Source([_fx("a", 17, sat), _fx("b", 17, sat, home="Leeds")])
+    assert client.post("/hills/bets", json={"legs": "O9.5 corners"}).status_code == 409   # no target
     client.put("/hills/target", json={"fixture_id": "a"})
-    body = client.get("/hills/builder?min_fair=1.0").json()
-    assert body["target"]["fixture_id"] == "a" and body["legs"] >= 2
-    assert body["combos"] and all(len(c["legs"]) == 2 for c in body["combos"])
-    assert {leg["market"] for leg in body["combos"][0]["legs"]} == {"corners", "cards"}
+    for i, who in enumerate(("cal", "chris", "cal")):
+        app.dependency_overrides[require_user] = lambda who=who: who
+        client.post("/hills/bets", json={"legs": f"builder {i}"})
+    app.dependency_overrides[require_user] = lambda: "testuser"
+    got = client.get("/hills/bets").json()["bets"]
+    assert [b["legs"] for b in got] == ["builder 2", "builder 1", "builder 0"]   # newest first
+    assert {b["placed_by"] for b in got} == {"cal", "chris"}
+    assert all(b["result"] == "open" and b["match"] == "Arsenal vs Chelsea" for b in got)
+    assert set(got[0]) == {"id", "fixture_id", "match", "kickoff", "legs", "result",
+                           "placed_by", "placed_at"}                      # no prices, no fairs
+    # A new target starts its own list; the old one is still there by id.
+    client.put("/hills/target", json={"fixture_id": "b"})
+    assert client.get("/hills/bets").json()["bets"] == []
+    assert len(client.get("/hills/bets?fixture_id=a").json()["bets"]) == 3
+
+
+def test_results_are_set_by_hand_and_only_the_placer_removes_a_bet():
+    from app.security import require_user
+    app.state.hills_client = Source([_fx("a", 17, _next(5))])
+    client.put("/hills/target", json={"fixture_id": "a"})
+    bet = client.post("/hills/bets", json={"legs": "BTTS + O2.5"}).json()["bet"]
+    assert client.patch(f"/hills/bets/{bet['id']}", json={"result": "won"}).json()["bet"]["result"] == "won"
+    assert client.patch(f"/hills/bets/{bet['id']}", json={"result": "void"}).status_code == 422
+    assert client.post("/hills/bets", json={"legs": "  "}).status_code == 422
+    app.dependency_overrides[require_user] = lambda: "someone-else"
+    assert client.delete(f"/hills/bets/{bet['id']}").status_code == 403
+    app.dependency_overrides[require_user] = lambda: "testuser"
+    assert client.delete(f"/hills/bets/{bet['id']}").status_code == 200
+    assert client.get("/hills/bets").json()["bets"] == []

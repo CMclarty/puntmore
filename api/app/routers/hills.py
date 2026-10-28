@@ -4,17 +4,20 @@
   GET    /hills/target     the team's target match, or null
   PUT    /hills/target     set it: {fixture_id, boost_pct}
   DELETE /hills/target     clear it
-  GET    /hills/builder    BB Boost: the target's builders at or above min_fair
+  GET    /hills/bets       BB Boost's log: the target's bets (or ?fixture_id=)
+  POST   /hills/bets       log one on the target: {legs}
+  PATCH  /hills/bets/{id}  settle it: {result: open | won | lost}
+  DELETE /hills/bets/{id}  remove one (its placer only)
 
 Router-gated by require_tool("hills") in main.py. The target is one row for
 the whole team (models.HillsTarget), not per user.
 """
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..hills import builder, target
+from ..hills import bets, target
 from ..schemas import OpenModel
 from ..security import require_user
 
@@ -68,13 +71,47 @@ def delete_target(db: Session = Depends(get_db)):
     return {"target": None}
 
 
-@router.get("/builder", response_model=OpenModel)
-def get_builder(request: Request, db: Session = Depends(get_db),
-                min_fair: float = Query(default=2.0, ge=1.0, le=1000.0)):
+@router.get("/bets", response_model=OpenModel)
+def get_bets(db: Session = Depends(get_db), fixture_id: str | None = None):
+    """The bets on `fixture_id`, else on the live target, else the latest."""
+    row = target.current(db)
+    fid = fixture_id or (row.fixture_id if row else None)
+    return {"bets": bets.for_fixture(db, fid) if fid else bets.recent(db)}
+
+
+class BetIn(BaseModel):
+    legs: str
+
+
+@router.post("/bets", response_model=OpenModel)
+def post_bet(body: BetIn, db: Session = Depends(get_db), user: str = Depends(require_user)):
     row = target.current(db)
     if row is None:
-        return {"target": None, "legs": 0, "combos": []}
-    src = _source(request)
-    legs = builder.legs_for(src.get_events() if src else [], row.fixture_id)
-    return {"target": target.as_dict(row), "legs": len(legs),
-            "combos": builder.combos(legs, min_fair)}
+        raise HTTPException(409, "no target match: pick one first")
+    if not body.legs.strip():
+        raise HTTPException(422, "say what the builder's legs are")
+    return {"bet": bets.add(db, row, body.legs, user)}
+
+
+class ResultIn(BaseModel):
+    result: str
+
+
+@router.patch("/bets/{bet_id}", response_model=OpenModel)
+def patch_bet(bet_id: int, body: ResultIn, db: Session = Depends(get_db)):
+    if body.result not in bets.RESULTS:
+        raise HTTPException(422, f"result must be one of {list(bets.RESULTS)}")
+    out = bets.settle(db, bet_id, body.result)
+    if out is None:
+        raise HTTPException(404, "no such bet")
+    return {"bet": out}
+
+
+@router.delete("/bets/{bet_id}", response_model=OpenModel)
+def delete_bet(bet_id: int, db: Session = Depends(get_db), user: str = Depends(require_user)):
+    done = bets.remove(db, bet_id, user)
+    if done is None:
+        raise HTTPException(404, "no such bet")
+    if done is False:
+        raise HTTPException(403, "only the person who logged a bet can remove it")
+    return {"ok": True}
