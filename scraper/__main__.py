@@ -17,6 +17,7 @@
 import os
 import signal
 import sys
+import threading
 import time
 from datetime import datetime
 
@@ -24,6 +25,28 @@ from . import config
 from .alerts import Alerts
 from .guard import Guard
 from .sites import SITES
+
+# A tick that has not come back in this long is stuck: a Playwright call on a
+# page whose renderer died (it froze on 27 Oct 2026 when the container ran out
+# of memory, and sat there for 33 h). The service then exits, and Docker's
+# restart policy brings it back up on a fresh Chrome. Ticks normally take
+# seconds; the image's healthcheck already calls 5 min stale.
+WATCHDOG_S = 600
+
+
+def watchdog(last_tick: list, limit_s: float = WATCHDOG_S, every_s: float = 30,
+             exit=os._exit):
+    """Exit the process when last_tick[0] is older than limit_s. os._exit, not
+    sys.exit: the stuck call holds the main thread, so nothing else would run."""
+    def loop():
+        while True:
+            time.sleep(every_s)
+            stuck = time.monotonic() - last_tick[0]
+            if stuck > limit_s:
+                print(f"watchdog: no tick for {int(stuck)} s - exiting so the "
+                      "container restarts", flush=True)
+                exit(1)
+    threading.Thread(target=loop, name="watchdog", daemon=True).start()
 
 
 def _guard(s):
@@ -59,7 +82,10 @@ def run(s):
         runner = Runner(s, ctx, guard, alerts, run_dir)
         print(f"running {len(s.targets)} target(s) from {s.targets_source}: "
               + ", ".join(f"{t.name} ({t.site})" for t in s.targets), flush=True)
+        last_tick = [time.monotonic()]
+        watchdog(last_tick)
         while not stop:
+            last_tick[0] = time.monotonic()
             try:
                 runner.tick()
             except Exception as exc:              # one bad tick never ends the service

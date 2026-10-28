@@ -14,8 +14,11 @@ rm -f /data/profile/SingletonLock /data/profile/SingletonSocket /data/profile/Si
 # ordinary desktop. `selfcheck` in a fresh container (no service running)
 # needs the display too, but not VNC.
 if [ "$1" = "run" ] || [ "$1" = "selfcheck" ]; then
-  if ! [ -e /tmp/.X11-unix/X99 ]; then
-    rm -f /tmp/.X99-lock
+  # Not "is there a socket": a restarted container keeps its /tmp, so the
+  # last Xvfb's socket and lock are still there with no Xvfb behind them,
+  # and Chrome then has no display (seen 28 Oct 2026).
+  if ! pgrep -x Xvfb >/dev/null; then
+    rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
     mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
     $AS_PW Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
     sleep 1
