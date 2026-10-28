@@ -7,7 +7,7 @@
   GET    /hills/bets       BB Boost's log: the target's bets (or ?fixture_id=)
   POST   /hills/bets       log one on the target: {legs}
   PATCH  /hills/bets/{id}  settle it: {result: open | won | lost}
-  DELETE /hills/bets/{id}  remove one (its placer only)
+  DELETE /hills/bets/{id}  remove one (anyone; the page asks first)
 
 Router-gated by require_tool("hills") in main.py. The target is one row for
 the whole team (models.HillsTarget), not per user.
@@ -108,10 +108,7 @@ def patch_bet(bet_id: int, body: ResultIn, db: Session = Depends(get_db)):
 
 
 @router.delete("/bets/{bet_id}", response_model=OpenModel)
-def delete_bet(bet_id: int, db: Session = Depends(get_db), user: str = Depends(require_user)):
-    done = bets.remove(db, bet_id, user)
-    if done is None:
+def delete_bet(bet_id: int, db: Session = Depends(get_db)):
+    if not bets.remove(db, bet_id):
         raise HTTPException(404, "no such bet")
-    if done is False:
-        raise HTTPException(403, "only the person who logged a bet can remove it")
     return {"ok": True}

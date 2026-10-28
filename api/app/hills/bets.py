@@ -47,12 +47,11 @@ def settle(db: Session, bet_id: int, result: str) -> dict | None:
     return _out(bet)
 
 
-def remove(db: Session, bet_id: int, user: str) -> bool | None:
-    """None: no such bet. False: someone else's (only its placer removes it)."""
+def remove(db: Session, bet_id: int) -> bool:
+    """Anyone on the team may remove a bet (the page asks first). False when
+    there is no such bet."""
     bet = db.get(HillsBet, bet_id)
     if bet is None:
-        return None
-    if bet.placed_by != user:
         return False
     db.delete(bet)
     db.commit()

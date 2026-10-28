@@ -144,7 +144,7 @@ def test_the_team_sees_every_builder_logged_on_the_target():
     assert len(client.get("/hills/bets?fixture_id=a").json()["bets"]) == 3
 
 
-def test_results_are_set_by_hand_and_only_the_placer_removes_a_bet():
+def test_results_are_set_by_hand_and_anyone_removes_a_bet():
     from app.security import require_user
     app.state.hills_client = Source([_fx("a", 17, _next(5))])
     client.put("/hills/target", json={"fixture_id": "a"})
@@ -153,7 +153,7 @@ def test_results_are_set_by_hand_and_only_the_placer_removes_a_bet():
     assert client.patch(f"/hills/bets/{bet['id']}", json={"result": "void"}).status_code == 422
     assert client.post("/hills/bets", json={"legs": "  "}).status_code == 422
     app.dependency_overrides[require_user] = lambda: "someone-else"
-    assert client.delete(f"/hills/bets/{bet['id']}").status_code == 403
-    app.dependency_overrides[require_user] = lambda: "testuser"
     assert client.delete(f"/hills/bets/{bet['id']}").status_code == 200
+    app.dependency_overrides[require_user] = lambda: "testuser"
     assert client.get("/hills/bets").json()["bets"] == []
+    assert client.delete(f"/hills/bets/{bet['id']}").status_code == 404

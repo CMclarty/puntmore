@@ -22,6 +22,8 @@ import s from './HillsBuilder.module.css'
  *   Log       the builders the team has placed on the target: legs as typed,
  *             who and when, and a result set by hand. Anyone opening the page
  *             sees what has been backed already. No prices or fairs are kept.
+ *             Anyone can remove a bet: the first tap arms a warning, the
+ *             second removes it.
  *
  * The boost is paid on winnings: a price P pays 1 + (P - 1) * (1 + boost),
  * and its EV is that over the fair price, less 1.
@@ -82,7 +84,7 @@ function TargetPicker({ current, onSet, onCancel }) {
   )
 }
 
-export default function HillsBuilder({ username }) {
+export default function HillsBuilder() {
   const [tgt, setTgt] = useState(undefined)            // undefined = loading, null = none
   const [picking, setPicking] = useState(false)
   const [error, setError] = useState(null)
@@ -90,6 +92,7 @@ export default function HillsBuilder({ username }) {
   const [fair, setFair] = useState(null)               // the fair price for the same builder
   const [bets, setBets] = useState([])
   const [legs, setLegs] = useState('')
+  const [arming, setArming] = useState(null)           // id of the bet whose Remove shows the warning
 
   // The target is the team's: re-read it on every refresh so a change made on
   // another phone lands here too.
@@ -117,7 +120,17 @@ export default function HillsBuilder({ username }) {
     logHillsBet(legs).then(() => { setLegs(''); loadTarget() }).catch(fail)
   }
   const settle = (id, result) => settleHillsBet(id, result).then(loadTarget).catch(fail)
-  const remove = id => removeHillsBet(id).then(loadTarget).catch(fail)
+  // Two taps: the first arms a warning (disarmed after a few seconds), the second removes.
+  const remove = id => {
+    if (arming !== id) { setArming(id); return }
+    setArming(null)
+    removeHillsBet(id).then(loadTarget).catch(fail)
+  }
+  useEffect(() => {
+    if (arming == null) return
+    const t = setTimeout(() => setArming(null), 4000)
+    return () => clearTimeout(t)
+  }, [arming])
 
   if (tgt === undefined) return <p className={s.empty}>{error ?? 'Loading…'}</p>
   if (!tgt || picking) {
@@ -177,10 +190,11 @@ export default function HillsBuilder({ username }) {
                 <button key={k} type="button" className={`${s.chip} ${b.result === k ? s.chipOn : ''}`}
                   aria-pressed={b.result === k} onClick={() => settle(b.id, k)}>{label}</button>
               ))}
-              {b.placed_by === username && (
-                <button type="button" className={s.link} aria-label="Remove bet"
-                  onClick={() => remove(b.id)}>Remove</button>
-              )}
+              <button type="button" className={arming === b.id ? s.warn : s.link}
+                aria-label={arming === b.id ? 'Tap again to remove this bet' : 'Remove bet'}
+                onClick={() => remove(b.id)}>
+                {arming === b.id ? '⚠ Tap again to remove' : 'Remove'}
+              </button>
             </span>
           </div>
         ))}
