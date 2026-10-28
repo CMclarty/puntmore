@@ -5,6 +5,7 @@ import MarketIcon from '../components/MarketIcon'
 import useAutoRefresh from '../hooks/useAutoRefresh'
 import { DEFAULTS as ACCA_DEFAULTS, evaluate, legScore, trueProb } from '../accaInsurance'
 import { boostEval, boostLegScore } from '../accaBoost'
+import HillsBuilder from './HillsBuilder'
 
 /**
  * Paddy — Paddy Power's corners, cards, goals and saves against fair prices.
@@ -22,8 +23,10 @@ import { boostEval, boostLegScore } from '../accaBoost'
  * the list is the tool, the picking is Callum's.
  *
  * Hills (`book="hills"`) is the same page against William Hill: its own feed
- * (/hills), its own remembered filters, the Value offer only (Refund and Boost
- * are Paddy's offers) and no "most" rows (those are read off Paddy's terminal).
+ * (/hills), its own remembered filters and no "most" rows (those are read off
+ * Paddy's terminal). Its offers are Value · BB Boost · Boost: BB Boost (in
+ * Refund's place) is William Hill's boosted bet builder on the team's target
+ * match (HillsBuilder.jsx); Value and Boost are Paddy's, over every match.
  */
 
 // One fetch serves all three offers: down to 95% of fair (min_edge -0.05),
@@ -179,7 +182,7 @@ const BOOKS = {
   paddy: { feed: getCardsFeed, why: getCardsDiagnostics, offerKey: 'paddy.tab',
     filterKey: 'paddy.filters', offers: OFFERS, markets: MARKETS },
   hills: { feed: getHillsFeed, why: getHillsDiagnostics, offerKey: 'hills.tab',
-    filterKey: 'hills.filters', offers: OFFERS.filter(([k]) => k === 'value'),
+    filterKey: 'hills.filters', offers: [['value', 'Value'], ['bb', 'BB Boost'], ['boost', 'Boost']],
     markets: MARKETS.filter(m => !FAIR_ONLY.includes(m)) },
 }
 
@@ -262,6 +265,16 @@ export default function CardsPage({ book = 'paddy' }) {
     : (x, y) => y.s - x.s)
 
   const applied = summary(fl, offer)
+  const offerSwitch = cfg.offers.length > 1 && (
+    <div className={f.offerSwitch} role="group" aria-label="Offer">
+      {cfg.offers.map(([k, label]) => (
+        <button key={k} type="button" className={`${f.offerBtn} ${offer === k ? f.offerOn : ''}`}
+          aria-pressed={offer === k} onClick={() => setOffer(k)}>{label}</button>
+      ))}
+    </div>
+  )
+  // BB Boost is its own screen: the target match and its builders, not this list.
+  if (offer === 'bb') return <div className={f.page}><HillsBuilder />{offerSwitch}</div>
 
   // Refund / Boost: the acca of the top 5 by score, one per match (asked for:
   // "a number to see at a glance if it's worth betting").
@@ -352,14 +365,7 @@ export default function CardsPage({ book = 'paddy' }) {
         </div>
       )}
 
-      {cfg.offers.length > 1 && (
-        <div className={f.offerSwitch} role="group" aria-label="Offer">
-          {cfg.offers.map(([k, label]) => (
-            <button key={k} type="button" className={`${f.offerBtn} ${offer === k ? f.offerOn : ''}`}
-              aria-pressed={offer === k} onClick={() => setOffer(k)}>{label}</button>
-          ))}
-        </div>
-      )}
+      {offerSwitch}
     </div>
   )
 }

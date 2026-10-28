@@ -243,6 +243,13 @@ export const getCardsFeed = (minEdge = -0.02) =>
 export const getHillsDiagnostics = () => get('/hills/diagnostics')
 export const getHillsFeed = (minEdge = -0.02) =>
   get(`/hills/feed?min_edge=${minEdge}`)
+// Hills' target match — one for the whole team — and BB Boost's builders on it.
+export const getHillsFixtures = () => get('/hills/fixtures')
+export const getHillsTarget = () => get('/hills/target')
+export const setHillsTarget = (fixtureId, boostPct) =>
+  put('/hills/target', { fixture_id: fixtureId, boost_pct: boostPct })
+export const clearHillsTarget = () => del('/hills/target')
+export const getHillsBuilder = (minFair) => get(`/hills/builder?min_fair=${minFair}`)
 
 // First-goalscorer value (bet365 vs de-vigged Pinnacle). Rows are produced by
 // the scheduler near kickoff and stored, so this just reads the current set.

@@ -40,6 +40,7 @@ from .routers import accabonus
 from .routers import cards as cards_router
 from .routers import saves_ingest as saves_ingest_router
 from .routers import goalscorers as goalscorers_router
+from .routers import hills as hills_router
 from .routers import pnl as pnl_router
 from .routers import shop as shop_router
 from .routers import auth as auth_router
@@ -121,7 +122,9 @@ async def lifespan(app: FastAPI):
         # (one budget, one rate limit, Pinnacle's chunks cached once). It sweeps
         # only when its page asks, so an unused grant costs no requests.
         from .cards.oddspapi import WILLIAM_HILL
-        app.state.hills_client = OddsPapiPaddySource(oddspapi_client, book=WILLIAM_HILL)
+        from .hills.target import EXTRA_TOURNAMENTS
+        app.state.hills_client = OddsPapiPaddySource(oddspapi_client, book=WILLIAM_HILL,
+                                                     extra_tournaments=EXTRA_TOURNAMENTS)
 
     # Coupon odds provider (behind the OddsProvider seam).
     #
@@ -347,6 +350,8 @@ if settings.enable_cards:
 # Bookie Bashing's saves fairs arrive through Paddy's and are shared.
 app.include_router(cards_router.make_router("hills_client"), prefix="/hills",
                    tags=["hills"], dependencies=[Depends(require_tool("hills"))])
+# Its target match and BB Boost (routers/hills.py), same grant.
+app.include_router(hills_router.router, dependencies=[Depends(require_tool("hills"))])
 if settings.enable_goalscorers:
     app.include_router(
         goalscorers_router.router, tags=["goalscorers"],

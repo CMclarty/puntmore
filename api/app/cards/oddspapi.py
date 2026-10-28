@@ -842,12 +842,39 @@ def coverage(fixtures, index: dict[str, dict], bookmaker: str) -> dict:
     return {"bookmaker": bookmaker, "fixtures_with_prices": n, "market_types": report}
 
 
+def listed_fixtures(fixtures, names, *, now=None, window_hours=None) -> list[dict]:
+    """Every named fixture still to kick off inside the window, from the merged
+    boards: {id, home, away, start, tournament_id, round}. `round` is whatever
+    round/stage name OddsPapi sends, or None — its field name is unverified, so
+    several spellings are tried."""
+    now = now or datetime.now(timezone.utc)
+    window = timedelta(hours=window_hours if window_hours is not None
+                       else settings.oddspapi_window_hours)
+    out = []
+    for fx in _as_list(fixtures):
+        start = _parse_start(_first(fx, "startTime", "start_time", "commence_time"))
+        if start is None or not (timedelta(0) < start - now <= window):
+            continue
+        home = _first(fx, "participant1Name") or names.get(str(fx.get("participant1Id")))
+        away = _first(fx, "participant2Name") or names.get(str(fx.get("participant2Id")))
+        if not home or not away:
+            continue
+        out.append({
+            "id": str(_first(fx, "fixtureId", "id")), "home": home, "away": away,
+            "start": start, "tournament_id": fx.get("tournamentId"),
+            "round": _first(fx, "roundName", "round", "stageName", "stage", "seasonRound"),
+        })
+    out.sort(key=lambda f: f["start"])
+    return out
+
+
 class OddsPapiPaddySource:
     """The cards tool's Paddy Power side from OddsPapi — and, with
     `oddspapi_fair_book` set (default "pinnacle"), its fair side too. Same interface as
     the sweep expects: `get_events()` and `last_sweep`."""
 
-    def __init__(self, client: OddsPapiClient, book: str = PADDY_POWER):
+    def __init__(self, client: OddsPapiClient, book: str = PADDY_POWER,
+                 extra_tournaments: tuple[int, ...] = ()):
         self._sweep_lock = threading.Lock()
         self._client = client
         # Whose prices are valued: Paddy Power for the Paddy tool, William Hill
@@ -856,7 +883,13 @@ class OddsPapiPaddySource:
         # on the same client re-uses them rather than paying for them twice.
         self.book = book
         self.label = BOOK_LABELS.get(book, book)
+        # Competitions swept for this book on top of the shared list (Hills
+        # adds the domestic cups, whose finals carry its boost).
+        self.extra_tournaments = tuple(extra_tournaments)
         self.last_sweep: dict = {}
+        # Every fixture the last sweep's boards listed, priced or not, inside
+        # the window: what a match picker chooses from (no extra requests).
+        self.fixtures: list[dict] = []
 
     def get_events(self) -> list[dict]:
         # One sweep at a time: a page load arriving mid-sweep waits and then
@@ -880,6 +913,7 @@ class OddsPapiPaddySource:
             if unresolved:
                 logger.warning("cards (oddspapi): competition(s) not found by name: %s",
                                ", ".join(unresolved))
+        ids = list(ids) + [t for t in self.extra_tournaments if t not in ids]
         per = max(1, settings.oddspapi_tournaments_per_request)
         errors = []
         try:
@@ -923,6 +957,7 @@ class OddsPapiPaddySource:
                     errors.append(f"{book} {chunk}: {exc}")
                     logger.error("cards (oddspapi): %s odds for %s failed: %s", book, chunk, exc)
         fixtures = merge_books(*per_book.values())
+        self.fixtures = listed_fixtures(fixtures, names)
         events, counts = to_events(fixtures, markets, names, fair_book=fair_book,
                                    book=priced_book)
         self.last_sweep = {

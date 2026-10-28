@@ -395,3 +395,20 @@ class ScraperSiteStatus(Base):
     cooloff_left_h = Column(Float, nullable=True)
     needs_resume = Column(Boolean, nullable=False, default=False)
     updated_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class HillsTarget(Base):
+    """Hills' target match: the ONE fixture William Hill has boosted bet
+    builders on, set by anyone on the team and seen by everyone. A single row
+    (id 1); cleared, or simply ignored once it has kicked off."""
+    __tablename__ = "hills_target"
+
+    id = Column(Integer, primary_key=True)
+    fixture_id = Column(String, nullable=False)          # OddsPapi fixture id
+    home = Column(String, nullable=False)
+    away = Column(String, nullable=False)
+    kickoff = Column(DateTime, nullable=False)           # UTC, naive like the rest
+    competition = Column(String, nullable=False)
+    boost_pct = Column(Float, nullable=False)            # on winnings: 25 = +25%
+    set_by = Column(String, nullable=False)
+    set_at = Column(DateTime, nullable=False, default=utcnow)
