@@ -424,7 +424,12 @@ class HillsBet(Base):
     fixture_id = Column(String, nullable=False, index=True)
     match = Column(String, nullable=False)                # "Arsenal vs Chelsea", as targeted
     kickoff = Column(DateTime, nullable=False)
-    legs = Column(String, nullable=False)                 # free text: the builder's legs
+    legs = Column(String, nullable=False)                 # the builder as read: leg labels + note
+    # The legs picked off William Hill's lines, by OddsPapi id, each with its
+    # result once settled: [{market_id, outcome_id, label, result}] as JSON.
+    legs_json = Column(Text, nullable=False, default="[]")
+    note = Column(String, nullable=True)                  # a leg not on the list (settled by hand)
     result = Column(String, nullable=False, default="open")   # open | won | lost
+    settled_by = Column(String, nullable=True)            # "oddspapi" or the user who set it
     placed_by = Column(String, nullable=False)
     placed_at = Column(DateTime, nullable=False, default=utcnow)

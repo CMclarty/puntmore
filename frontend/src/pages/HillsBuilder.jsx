@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   getHillsFixtures, getHillsTarget, setHillsTarget, clearHillsTarget,
-  getHillsBets, logHillsBet, settleHillsBet, removeHillsBet,
+  getHillsLegs, getHillsBets, logHillsBet, settleHillsBet, removeHillsBet,
 } from '../api'
 import OddsWheel, { LADDER } from '../components/OddsWheel'
 import useAutoRefresh from '../hooks/useAutoRefresh'
@@ -19,9 +19,12 @@ import s from './HillsBuilder.module.css'
  *             is found. Builders are priced by hand on purpose — their legs are
  *             correlated, so multiplying single prices gets them wrong, and no
  *             feed carries builder prices. An on-the-spot check: never saved.
- *   Log       the builders the team has placed on the target: legs as typed,
- *             who and when, and a result set by hand. Anyone opening the page
- *             sees what has been backed already. No prices or fairs are kept.
+ *   Log       the builders the team has placed on the target: legs picked off
+ *             William Hill's lines on the match (plus a note for anything not
+ *             listed), who and when. Anyone opening the page sees what has been
+ *             backed already. Picked legs settle themselves from OddsPapi after
+ *             the match (api/app/hills/settle.py); a result can also be set by
+ *             hand. No prices or fairs are kept.
  *             Anyone can remove a bet: the first tap arms a warning, the
  *             second removes it.
  *
@@ -37,6 +40,8 @@ const PRICE_LADDER = [
 ]
 const SEAT = 7          // 6/1, where a builder price usually is
 const RESULTS = [['open', 'Open'], ['won', 'Won'], ['lost', 'Lost']]
+const legKey = l => `${l.market_id}:${l.outcome_id}`
+const MARK = { won: '✓', lost: '✗', void: '–' }
 const placedAt = iso => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 const boosted = (price, pct) => 1 + (price - 1) * (1 + pct / 100)
@@ -91,14 +96,19 @@ export default function HillsBuilder() {
   const [price, setPrice] = useState(null)             // William Hill's quoted builder price
   const [fair, setFair] = useState(null)               // the fair price for the same builder
   const [bets, setBets] = useState([])
-  const [legs, setLegs] = useState('')
+  const [offered, setOffered] = useState([])          // William Hill's lines on the target
+  const [picked, setPicked] = useState(() => new Set())   // legKey of each picked leg
+  const [note, setNote] = useState('')
   const [arming, setArming] = useState(null)           // id of the bet whose Remove shows the warning
 
   // The target is the team's: re-read it on every refresh so a change made on
   // another phone lands here too.
   const live = useRef(true)
-  const loadTarget = useCallback(() => Promise.all([getHillsTarget(), getHillsBets()])
-    .then(([t, b]) => { if (live.current) { setTgt(t.target); setBets(b.bets); setError(null) } })
+  const loadTarget = useCallback(() => Promise.all([getHillsTarget(), getHillsBets(), getHillsLegs()])
+    .then(([t, b, l]) => {
+      if (!live.current) return
+      setTgt(t.target); setBets(b.bets); setOffered(l.legs); setError(null)
+    })
     .catch(e => live.current && setError(e.message)), [])
   useEffect(() => {
     live.current = true
@@ -114,10 +124,14 @@ export default function HillsBuilder() {
   const done = () => { setPicking(false); loadTarget() }
   const clear = () => clearHillsTarget().then(loadTarget)
   const fail = e => setError(e.message)
+  const toggleLeg = k => setPicked(p => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n })
+  const canLog = picked.size > 0 || note.trim() !== ''
   const log = e => {
     e.preventDefault()
-    if (!legs.trim()) return
-    logHillsBet(legs).then(() => { setLegs(''); loadTarget() }).catch(fail)
+    if (!canLog) return
+    const legs = offered.filter(l => picked.has(legKey(l)))
+      .map(({ market_id, outcome_id }) => ({ market_id, outcome_id }))
+    logHillsBet(legs, note).then(() => { setPicked(new Set()); setNote(''); loadTarget() }).catch(fail)
   }
   const settle = (id, result) => settleHillsBet(id, result).then(loadTarget).catch(fail)
   // Two taps: the first arms a warning (disarmed after a few seconds), the second removes.
@@ -170,10 +184,21 @@ export default function HillsBuilder() {
       </div>
       {error && <p className={s.error}>{error}</p>}
 
-      <form className={s.logForm} onSubmit={log}>
-        <input className={s.logInput} value={legs} onChange={e => setLegs(e.target.value)}
-          maxLength={300} placeholder="Legs, e.g. O9.5 corners + Saka anytime" aria-label="Builder legs" />
-        <button type="submit" className={s.primary} disabled={!legs.trim()}>Log bet</button>
+      <form className={s.logPanel} onSubmit={log}>
+        <div className={s.legPicker} role="group" aria-label="Builder legs">
+          {offered.length === 0 && <span className={s.hint}>William Hill has no lines on this match yet — note the legs below.</span>}
+          {offered.map(l => (
+            <button key={legKey(l)} type="button"
+              className={`${s.chip} ${picked.has(legKey(l)) ? s.chipOn : ''}`}
+              aria-pressed={picked.has(legKey(l))} onClick={() => toggleLeg(legKey(l))}>{l.label}</button>
+          ))}
+        </div>
+        <div className={s.logForm}>
+          <input className={s.logInput} value={note} onChange={e => setNote(e.target.value)}
+            maxLength={300} placeholder="Other legs, e.g. Saka anytime (settled by hand)"
+            aria-label="Other legs" />
+          <button type="submit" className={s.primary} disabled={!canLog}>Log bet</button>
+        </div>
       </form>
 
       <div className={s.logHead}>
@@ -183,8 +208,18 @@ export default function HillsBuilder() {
       <div className={s.list}>
         {bets.map(b => (
           <div key={b.id} className={`${s.bet} ${s[b.result] || ''}`}>
-            <span className={s.betLegs}>{b.legs}</span>
-            <span className={s.betMeta}>{b.placed_by} · {placedAt(b.placed_at)}</span>
+            <span className={s.betLegs}>
+              {b.legs.map(l => (
+                <span key={l.label} className={l.result ? s[`leg_${l.result}`] : undefined}>
+                  {l.result && <b>{MARK[l.result]} </b>}{l.label}
+                </span>
+              ))}
+              {b.note && <span className={s.betNote}>{b.note}</span>}
+            </span>
+            <span className={s.betMeta}>
+              {b.placed_by} · {placedAt(b.placed_at)}
+              {b.settled_by === 'oddspapi' && <span className={s.auto}> · auto</span>}
+            </span>
             <span className={s.betResult} role="group" aria-label="Result">
               {RESULTS.map(([k, label]) => (
                 <button key={k} type="button" className={`${s.chip} ${b.result === k ? s.chipOn : ''}`}

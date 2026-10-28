@@ -890,6 +890,12 @@ class OddsPapiPaddySource:
         # Every fixture the last sweep's boards listed, priced or not, inside
         # the window: what a match picker chooses from (no extra requests).
         self.fixtures: list[dict] = []
+        # The last sweep's raw boards by fixture id, and what each market id
+        # is: Hills' bet log picks legs off them by OddsPapi's own market and
+        # outcome ids, which /settlements answers in (hills/legs.py).
+        self.boards: dict[str, dict] = {}
+        self.market_index: dict[str, tuple] = {}
+        self.priced_book = book          # the slug the plan granted, once a sweep resolves it
 
     def get_events(self) -> list[dict]:
         # One sweep at a time: a page load arriving mid-sweep waits and then
@@ -958,6 +964,9 @@ class OddsPapiPaddySource:
                     logger.error("cards (oddspapi): %s odds for %s failed: %s", book, chunk, exc)
         fixtures = merge_books(*per_book.values())
         self.fixtures = listed_fixtures(fixtures, names)
+        self.boards = {str(_first(fx, "fixtureId", "id")): fx for fx in fixtures}
+        self.market_index = markets
+        self.priced_book = priced_book
         events, counts = to_events(fixtures, markets, names, fair_book=fair_book,
                                    book=priced_book)
         self.last_sweep = {

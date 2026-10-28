@@ -250,8 +250,10 @@ export const setHillsTarget = (fixtureId, boostPct) =>
   put('/hills/target', { fixture_id: fixtureId, boost_pct: boostPct })
 export const clearHillsTarget = () => del('/hills/target')
 // BB Boost's log: the builders the team has placed on the target (no prices kept).
+export const getHillsLegs = () => get('/hills/legs')
 export const getHillsBets = () => get('/hills/bets')
-export const logHillsBet = (legs) => post('/hills/bets', { legs })
+// legs: [{market_id, outcome_id}] off getHillsLegs; note: a leg not on the list.
+export const logHillsBet = (legs, note) => post('/hills/bets', { legs, note })
 export const settleHillsBet = (id, result) => patch(`/hills/bets/${id}`, { result })
 export const removeHillsBet = (id) => del(`/hills/bets/${id}`)
 
