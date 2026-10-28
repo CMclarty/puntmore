@@ -239,6 +239,10 @@ export const getAccaBonusFeed = (minEdge = -0.02) =>
 export const getCardsDiagnostics = () => get('/paddy/diagnostics')
 export const getCardsFeed = (minEdge = -0.02) =>
   get(`/paddy/feed?min_edge=${minEdge}`)
+// Hills: the same feed priced against William Hill.
+export const getHillsDiagnostics = () => get('/hills/diagnostics')
+export const getHillsFeed = (minEdge = -0.02) =>
+  get(`/hills/feed?min_edge=${minEdge}`)
 
 // First-goalscorer value (bet365 vs de-vigged Pinnacle). Rows are produced by
 // the scheduler near kickoff and stored, so this just reads the current set.

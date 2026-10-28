@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { getCardsFeed, getCardsDiagnostics } from '../api'
+import { getCardsFeed, getCardsDiagnostics, getHillsFeed, getHillsDiagnostics } from '../api'
 import f from './CardsPage.module.css'
 import MarketIcon from '../components/MarketIcon'
 import useAutoRefresh from '../hooks/useAutoRefresh'
@@ -20,6 +20,10 @@ import { boostEval, boostLegScore } from '../accaBoost'
  * Paddy odds, the value %, and the fair odds (the one the value % is measured
  * against, so odds ÷ fair − 1 is the value shown). No acca is built or recommended —
  * the list is the tool, the picking is Callum's.
+ *
+ * Hills (`book="hills"`) is the same page against William Hill: its own feed
+ * (/hills), its own remembered filters, the Value offer only (Refund and Boost
+ * are Paddy's offers) and no "most" rows (those are read off Paddy's terminal).
  */
 
 // One fetch serves all three offers: down to 95% of fair (min_edge -0.05),
@@ -30,7 +34,6 @@ const FETCH_MIN_EDGE = -0.05
 const STRONG = 0.04
 const ACCA_FLOOR = ACCA_DEFAULTS.minOdds
 const OFFERS = [['value', 'Value'], ['refund', 'Refund'], ['boost', 'Boost']]
-const OFFER_KEY = 'paddy.tab'
 // Boost's suggested stake: a tenth of full Kelly on a £50k bankroll (Callum).
 const BOOST_BANKROLL = 50_000
 const BOOST_KELLY = 0.10
@@ -54,18 +57,17 @@ const PER_MATCH = [[false, 'All legs'], [true, '1 per match']]   // Refund / Boo
 // Free-bet EV rate: a free bet's stake isn't returned, so you keep (odds-1)/odds
 // of a win — higher odds retain more. Scaled by the value edge. Value offer only.
 const freeBetScore = b => (b.odds == null ? -Infinity : (1 + b.value) * (b.odds - 1) / b.odds)
-const FILTER_KEY = 'paddy.filters'
 const NO_FILTERS = { markets: DEFAULT_MARKETS, within: null, maxOdds: null, minValue: 0, sort: 'best', onePerMatch: false }
 // A saved filter must never hold a value its option list no longer offers (the
 // retired "< 3h" kick-off, the old league filter …): summary() looks the value
 // up by option and would throw, taking the whole page down.
-function loadFilters() {
+function loadFilters(cfg) {
   try {
-    const v = JSON.parse(localStorage.getItem(FILTER_KEY))
+    const v = JSON.parse(localStorage.getItem(cfg.filterKey))
     if (!v || !Array.isArray(v.markets)) return NO_FILTERS
     const oneOf = (x, opts, dflt) => (opts.includes(x) ? x : dflt)
     return {
-      markets: v.markets.filter(m => MARKETS.includes(m)),
+      markets: v.markets.filter(m => cfg.markets.includes(m)),
       within: oneOf(v.within, WITHIN.map(([w]) => w), null),
       maxOdds: oneOf(v.maxOdds, MAX_ODDS, null),
       minValue: oneOf(v.minValue, MIN_VALUE, 0),
@@ -171,11 +173,25 @@ function Selection({ lead, others, expanded, onToggle }) {
   )
 }
 
-export default function CardsPage() {
+// Per book: where its feed comes from, where its choices are remembered, and
+// which offers and markets it has.
+const BOOKS = {
+  paddy: { feed: getCardsFeed, why: getCardsDiagnostics, offerKey: 'paddy.tab',
+    filterKey: 'paddy.filters', offers: OFFERS, markets: MARKETS },
+  hills: { feed: getHillsFeed, why: getHillsDiagnostics, offerKey: 'hills.tab',
+    filterKey: 'hills.filters', offers: OFFERS.filter(([k]) => k === 'value'),
+    markets: MARKETS.filter(m => !FAIR_ONLY.includes(m)) },
+}
+
+export default function CardsPage({ book = 'paddy' }) {
+  const cfg = BOOKS[book]
   const [offer, setOffer] = useState(() => {
-    try { return localStorage.getItem(OFFER_KEY) || 'value' } catch { return 'value' }
+    try {
+      const saved = localStorage.getItem(cfg.offerKey)
+      return cfg.offers.some(([k]) => k === saved) ? saved : 'value'
+    } catch { return 'value' }
   })
-  const [fl, setFl] = useState(loadFilters)
+  const [fl, setFl] = useState(() => loadFilters(cfg))
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState(null)
   const [error, setError] = useState(null)
@@ -185,11 +201,11 @@ export default function CardsPage() {
   const toggle = k => setExpanded(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
 
   useEffect(() => {
-    try { localStorage.setItem(OFFER_KEY, offer) } catch { /* private mode */ }
-  }, [offer])
+    try { localStorage.setItem(cfg.offerKey, offer) } catch { /* private mode */ }
+  }, [offer, cfg])
   useEffect(() => {
-    try { localStorage.setItem(FILTER_KEY, JSON.stringify(fl)) } catch { /* private mode */ }
-  }, [fl])
+    try { localStorage.setItem(cfg.filterKey, JSON.stringify(fl)) } catch { /* private mode */ }
+  }, [fl, cfg])
   const setF = patch => setFl(v => ({ ...v, ...patch }))
 
   // Load, then refresh in place (useAutoRefresh). A failed refresh hides the
@@ -198,17 +214,17 @@ export default function CardsPage() {
   const seq = useRef(0)   // refreshes overlap (interval + focus): only the latest may land
   const load = useCallback(() => {
     const id = ++seq.current
-    return getCardsFeed(FETCH_MIN_EDGE)
+    return cfg.feed(FETCH_MIN_EDGE)
       .then(async data => {
         if (!live.current || id !== seq.current) return
         setItems(data)
         setError(null)
         setNow(Date.now())
         if (data.length) { setWhy(null); return }
-        try { setWhy((await getCardsDiagnostics()).verdict) } catch { /* plain empty state */ }
+        try { setWhy((await cfg.why()).verdict) } catch { /* plain empty state */ }
       })
       .catch(err => live.current && id === seq.current && setError(err.message))
-  }, [])
+  }, [cfg])
   useEffect(() => {
     live.current = true
     load()
@@ -287,7 +303,7 @@ export default function CardsPage() {
       {open && (
         <div className={f.panel}>
           <div className={f.group} role="group" aria-label="Market">
-            <Chips icons options={MARKETS.map(m => [m, marketLabel(m)])} isOn={m => fl.markets.includes(m)}
+            <Chips icons options={cfg.markets.map(m => [m, marketLabel(m)])} isOn={m => fl.markets.includes(m)}
               onPick={m => setF({ markets: fl.markets.includes(m) ? fl.markets.filter(x => x !== m) : [...fl.markets, m] })} />
           </div>
           <div className={f.group}><span className={f.label}>Kick-off</span>
@@ -336,12 +352,14 @@ export default function CardsPage() {
         </div>
       )}
 
-      <div className={f.offerSwitch} role="group" aria-label="Offer">
-        {OFFERS.map(([k, label]) => (
-          <button key={k} type="button" className={`${f.offerBtn} ${offer === k ? f.offerOn : ''}`}
-            aria-pressed={offer === k} onClick={() => setOffer(k)}>{label}</button>
-        ))}
-      </div>
+      {cfg.offers.length > 1 && (
+        <div className={f.offerSwitch} role="group" aria-label="Offer">
+          {cfg.offers.map(([k, label]) => (
+            <button key={k} type="button" className={`${f.offerBtn} ${offer === k ? f.offerOn : ''}`}
+              aria-pressed={offer === k} onClick={() => setOffer(k)}>{label}</button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -24,6 +24,7 @@ IDENTITIES = [
     (lambda p: p == "/365/scorers", "Puntmore — Goalscorers", "goalscorers", None),
     (lambda p: p.startswith("/365") or p == "/accabonus", "Puntmore — 365", "accabonus", None),
     (lambda p: p.startswith("/paddy") or p == "/cards", "Puntmore — Paddy", "paddy", None),
+    (lambda p: p.startswith("/hills"), "Puntmore — Hills", "hills", None),
     (lambda p: p == "/scraper", "Puntmore — Scraper", "scraper", None),
 ]
 DEFAULT = ("Puntmore", "puntmore", None)

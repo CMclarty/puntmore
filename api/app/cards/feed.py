@@ -7,21 +7,24 @@ implementation. Same behaviour as before the move.
 from ..schemas import CardFeedItem, CardFeedBet, CardFeedFair
 from .laddered import compute_laddered_value
 from .most import most_fairs, most_value
+from .oddspapi import BOOK_LABELS, PADDY_POWER
 from .saves import saves_value
 
 
-def price_events(events, min_edge):
-    """Value rows from joined events: every line Paddy Power quotes, priced off
-    Pinnacle's fitted ladder (or the team split, or Pinnacle's own rung where
-    nothing fits — cards/laddered.py). One entry point so the router, the feed
-    and the scheduler cannot diverge."""
-    rows = compute_laddered_value(events, min_edge)
+def price_events(events, min_edge, book=PADDY_POWER):
+    """Value rows from joined events: every line `book` (Paddy Power, or
+    William Hill for Hills) quotes, priced off Pinnacle's fitted ladder (or the
+    team split, or Pinnacle's own rung where nothing fits — cards/laddered.py).
+    One entry point so the router, the feed and the scheduler cannot diverge."""
+    rows = compute_laddered_value(events, min_edge, book)
     # Saves are priced off Bookie Bashing's fair figure, not Pinnacle — a
     # separate path, joined here so every consumer sees them.
-    rows += saves_value(events, min_edge)
+    rows += saves_value(events, min_edge, book=book)
     # "Most corners / cards": Paddy's price comes from the desktop scraper, the
-    # fair from the team split (cards/most.py).
-    rows += most_value(events, min_edge)
+    # fair from the team split (cards/most.py). Paddy's only: the scraper
+    # reads paddypower.com, so its prices must never sit on another book.
+    if book == PADDY_POWER:
+        rows += most_value(events, min_edge)
     rows.sort(key=lambda r: r.edge, reverse=True)
     return rows
 
@@ -59,8 +62,9 @@ def build_feed(client, min_edge: float) -> list[CardFeedItem]:
     if client is None:
         return []
 
+    book = getattr(client, "book", PADDY_POWER)
     events = client.get_events()
-    bets = price_events(events, min_edge)
+    bets = price_events(events, min_edge, book)
 
     groups: dict[str, dict] = {}
 
@@ -90,8 +94,9 @@ def build_feed(client, min_edge: float) -> list[CardFeedItem]:
     # Team to have most corners / cards (cards/most.py): where Paddy's price has
     # arrived from the desktop scraper the three-way is already in `bets`;
     # otherwise it rides along as a FAIR-only row, read against the terminal.
+    # Paddy's only, like the priced rows: they are read against Paddy's terminal.
     priced = {(b.event_id, b.market_key) for b in bets if b.market_key.startswith("most_")}
-    for fair in most_fairs(events):
+    for fair in (most_fairs(events) if book == PADDY_POWER else []):
         if (fair.event_id, fair.market_key) in priced:
             continue
         kind = fair.market_key.split("_", 1)[1]
@@ -138,13 +143,15 @@ def diagnose(client) -> dict:
     from . import laddered
 
     sweep = dict(getattr(client, "last_sweep", {}) or {})
-    # The fair side comes from OddsPapi on the same fixture id as Paddy's.
+    # The fair side comes from OddsPapi on the same fixture id as the book's.
     oddspapi_fair = str(sweep.get("fair_source", "")).startswith("oddspapi")
-    priced = dict(getattr(laddered, "LAST_RUN", {}) or {})
+    book = getattr(client, "book", PADDY_POWER)
+    name = BOOK_LABELS.get(book, book)
+    priced = dict(laddered.LAST_RUNS.get(book) or {})
 
     if client is None:
         verdict = (
-            "No cards client — ODDSPAPI_API_KEY is not set, so Paddy Power's "
+            "No cards client — ODDSPAPI_API_KEY is not set, so the bookmaker's "
             "prices are never fetched."
         )
     elif not sweep:
@@ -160,14 +167,17 @@ def diagnose(client) -> dict:
         ).strip()
     elif sweep.get("carried_paddy_prices", 0) == 0:
         verdict = (
-            f"{sweep.get('called')} fixture(s) called and NONE carried Paddy Power "
-            f"corners/cards prices. Paddy Power is not posting these markets on "
+            f"{sweep.get('called')} fixture(s) called and NONE carried {name} "
+            f"corners/cards prices. {name} is not posting these markets on "
             f"these fixtures yet."
+            + ("" if book == PADDY_POWER else
+               f" If that never changes, check the OddsPapi plan covers {book}: "
+               f"/oddspapi-check?book={book}.")
         )
     elif oddspapi_fair and sweep.get("carried_pinnacle_prices", 0) == 0:
-        errs = [e for e in sweep.get("errors") or [] if not e.startswith("paddypower")]
+        errs = [e for e in sweep.get("errors") or [] if not e.startswith(book)]
         verdict = (
-            f"Paddy Power priced {sweep.get('carried_paddy_prices')} fixture(s), but "
+            f"{name} priced {sweep.get('carried_paddy_prices')} fixture(s), but "
             f"Pinnacle ({sweep.get('fair_source', '').split(':', 1)[-1]}) came back "
             + (f"with an error: {errs[0][:240]}" if errs else
                "with no corners/cards/goals lines on any of them — nothing to price against.")
@@ -177,7 +187,7 @@ def diagnose(client) -> dict:
         # TheOddsApi path, or OddsPapi with the fair book unset.
         verdict = (
             "No Pinnacle side to price against. Set ODDSPAPI_FAIR_BOOK — the fair "
-            "side comes from OddsPapi on the same fixture id as Paddy Power's."
+            f"side comes from OddsPapi on the same fixture id as {name}'s."
         )
     else:
         verdict = None          # fair side fine — fall through to the pricing checks
@@ -190,14 +200,16 @@ def diagnose(client) -> dict:
     elif verdict is None and priced.get("rows", 0) == 0:
         verdict = (
             f"WORKING: {priced.get('ladders_fitted')} ladder(s) fitted and "
-            f"{priced.get('priceable_paddy_lines', 0)} Paddy Power line(s) priced, "
+            f"{priced.get('priceable_paddy_lines', 0)} {name} line(s) priced, "
             f"but none cleared the value guards. That is the tool doing its job — "
             f"most lines hold no edge."
         )
     elif verdict is None:
         verdict = f"{priced.get('rows')} value row(s) found."
 
-    from ..scheduler import LAST_CARDS_ERROR
+    # The scheduler's sweep is Paddy's; another book's page sweeps on load.
+    from ..scheduler import LAST_CARDS_ERROR as _last
+    LAST_CARDS_ERROR = _last if book == PADDY_POWER else {}
     if LAST_CARDS_ERROR:
         verdict = f"The last sweep FAILED before pricing: {LAST_CARDS_ERROR['error']}"
     return {

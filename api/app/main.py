@@ -102,6 +102,7 @@ async def lifespan(app: FastAPI):
         odds_client = None
         app.state.arbs_client = None
     app.state.cards_client = None
+    app.state.hills_client = None
     # Paddy Power's corners/cards come from OddsPapi when it is configured:
     # TheOddsApi does not carry them (cards/oddspapi.py). Pinnacle's side comes
     # from OddsPapi too (`oddspapi_fair_book`).
@@ -116,6 +117,11 @@ async def lifespan(app: FastAPI):
         logger.info("Cards: Paddy Power side from OddsPapi, fair side from %s",
                     f"OddsPapi {settings.oddspapi_fair_book}"
                     if settings.oddspapi_fair_book else "none (set ODDSPAPI_FAIR_BOOK)")
+        # Hills: the same pipeline against William Hill, on the SAME client
+        # (one budget, one rate limit, Pinnacle's chunks cached once). It sweeps
+        # only when its page asks, so an unused grant costs no requests.
+        from .cards.oddspapi import WILLIAM_HILL
+        app.state.hills_client = OddsPapiPaddySource(oddspapi_client, book=WILLIAM_HILL)
 
     # Coupon odds provider (behind the OddsProvider seam).
     #
@@ -336,6 +342,11 @@ if settings.enable_cards:
         # The local Bookie Bashing script's way in: key-guarded, not session-guarded.
         app.include_router(saves_ingest_router.router, prefix=prefix, include_in_schema=listed,
                            tags=["paddy"])
+# Hills — the Paddy tool against William Hill. Same router, its own client
+# (app.state.hills_client); no flag: the grant gates it. No saves ingest:
+# Bookie Bashing's saves fairs arrive through Paddy's and are shared.
+app.include_router(cards_router.make_router("hills_client"), prefix="/hills",
+                   tags=["hills"], dependencies=[Depends(require_tool("hills"))])
 if settings.enable_goalscorers:
     app.include_router(
         goalscorers_router.router, tags=["goalscorers"],

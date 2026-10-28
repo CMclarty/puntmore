@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from ..config import settings
 from ..schemas import CardFeedItem, DiagnosticsOut, OpenModel
@@ -7,20 +7,24 @@ from ..cards.feed import (  # noqa: F401
     build_feed, describe, diagnose, market_name, price_events,
 )
 
-router = APIRouter()
+# One set of endpoints, mounted once per priced book: Paddy (/paddy, /cards,
+# app.state.cards_client) and Hills (/hills, app.state.hills_client). Each
+# router's own dependency names the app.state attribute its endpoints read
+# (a router dependency survives include_router; a route attribute would not).
+def _client(request: Request):
+    return getattr(request.app.state, getattr(request.state, "cards_client_attr", "cards_client"),
+                   None)
 
 
-@router.get("/feed", response_model=list[CardFeedItem])
 def get_cards_feed(
     request: Request,
     min_edge: float = Query(default=None, ge=-0.50, le=0.50),
 ):
     if min_edge is None:
         min_edge = settings.cards_min_edge
-    return build_feed(request.app.state.cards_client, min_edge)
+    return build_feed(_client(request), min_edge)
 
 
-@router.get("/shadow", response_model=OpenModel)
 def shadow_report(days: int = Query(default=14, ge=1, le=30)):
     """How wrong the counts model is, MEASURED, by distance beyond Pinnacle's ladder.
 
@@ -36,7 +40,6 @@ def shadow_report(days: int = Query(default=14, ge=1, le=30)):
         db.close()
 
 
-@router.get("/oddspapi-check", response_model=OpenModel)
 def oddspapi_check(request: Request, book: str | None = None, tournament: int = 17,
                    find: str = "nations,qualif,world cup,euro"):
     """What OddsPapi's live catalogue and lists actually say — read ONCE after
@@ -54,7 +57,7 @@ def oddspapi_check(request: Request, book: str | None = None, tournament: int = 
         fixture_lines, match_total_markets, participant_names,
         resolve_tournaments, tournament_names,
     )
-    cards = request.app.state.cards_client
+    cards = _client(request)
     if not isinstance(cards, OddsPapiPaddySource):
         return {"error": "OddsPapi is not configured — set ODDSPAPI_API_KEY."}
     client = cards._client
@@ -134,7 +137,25 @@ def oddspapi_check(request: Request, book: str | None = None, tournament: int = 
     return out
 
 
-@router.get("/diagnostics", response_model=DiagnosticsOut)
 def get_cards_diagnostics(request: Request):
     """One request that says why the screen looks the way it does."""
-    return diagnose(request.app.state.cards_client)
+    return diagnose(_client(request))
+
+
+def make_router(client_attr: str = "cards_client") -> APIRouter:
+    """The tool's endpoints, reading the source at app.state.<client_attr>."""
+    def select(request: Request) -> None:
+        request.state.cards_client_attr = client_attr
+
+    r = APIRouter(dependencies=[Depends(select)])
+    for path, endpoint, model in (
+        ("/feed", get_cards_feed, list[CardFeedItem]),
+        ("/shadow", shadow_report, OpenModel),
+        ("/oddspapi-check", oddspapi_check, OpenModel),
+        ("/diagnostics", get_cards_diagnostics, DiagnosticsOut),
+    ):
+        r.add_api_route(path, endpoint, methods=["GET"], response_model=model)
+    return r
+
+
+router = make_router()

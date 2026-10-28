@@ -93,14 +93,16 @@ def _fair_for(event: dict, entries: list[FairSaves]) -> dict[float, FairSaves]:
     return {line: e for line, (_, e) in best.items()}
 
 
-def saves_value(events: list[dict], min_edge: float, entries=None) -> list[CardValueRow]:
-    """Value rows for every saves line Paddy prices that has a fair price."""
+def saves_value(events: list[dict], min_edge: float, entries=None,
+                book: str = "paddypower") -> list[CardValueRow]:
+    """Value rows for every saves line `book` prices that has a fair price.
+    The fair is Bookie Bashing's, whoever the bookmaker is."""
     entries = STORE.values() if entries is None else entries
     if not entries:
         return []
     rows = []
     for event in events:
-        paddy = _get_bookmaker(event, "paddypower")
+        paddy = _get_bookmaker(event, book)
         if paddy is None:
             continue
         outcomes = _get_market(paddy, SAVES)

@@ -61,7 +61,7 @@ ACCA_EVENT = {
 def world(monkeypatch):
     Base.metadata.create_all(bind=engine)
     app.dependency_overrides[get_db] = _db
-    monkeypatch.setattr("app.cards.feed.price_events", lambda events, edge: [
+    monkeypatch.setattr("app.cards.feed.price_events", lambda events, edge, book="paddypower": [
         _paddy_row(9.5, 0.08), _paddy_row(10.0, 0.20), _paddy_row(4.5, -0.01, "Under"),
     ])
     monkeypatch.setattr("app.accabonus.feed._fetch_events", lambda client: [ACCA_EVENT])

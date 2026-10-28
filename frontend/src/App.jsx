@@ -125,6 +125,8 @@ export default function App() {
           {/* Renamed from Cards (Oct 2026): installed shells and bookmarks
               still open /cards. */}
           <Route path="/cards" element={<Navigate to="/paddy" replace />} />
+          {/* Hills: the Paddy page priced against William Hill. */}
+          <Route path="/hills" element={protectTool(<CardsPage book="hills" />, 'hills')} />
         </Routes>
         </Suspense>
       </main>

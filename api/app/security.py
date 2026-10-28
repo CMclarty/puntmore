@@ -23,7 +23,7 @@ from .time_utils import utcnow
 # Every tool the suite knows about. "*" in a permission string means all of
 # these plus any added later (so an admin never needs their entry edited when a
 # tool ships). Keep in sync with the routers mounted in main.py.
-ALL_TOOLS = ("coupons", "accabonus", "cards", "goalscorers", "pnl", "kelly", "boost", "shop", "scraper")
+ALL_TOOLS = ("coupons", "accabonus", "cards", "hills", "goalscorers", "pnl", "kelly", "boost", "shop", "scraper")
 
 # Grants that name no page — they exist for machine callers. `value` reads the
 # cross-tool value feed (GET /api/value); `state` is the whole-app snapshot
@@ -277,6 +277,9 @@ def enabled_tools() -> list[str]:
     tools.append("shop")
     # The scraper's control page: its own rows, no vendor quota — grant-gated.
     tools.append("scraper")
+    # Hills (the Paddy tool against William Hill): no flag of its own — the
+    # grant alone gates it, and its source exists whenever OddsPapi does.
+    tools.append("hills")
     return tools
 
 

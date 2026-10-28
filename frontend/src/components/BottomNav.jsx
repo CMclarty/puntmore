@@ -65,6 +65,15 @@ const TOOLS = [
     ),
   },
   {
+    tool: 'hills', name: 'Hills', to: '/hills', sub: 'Props', muted: true,
+    matches: (p) => p.startsWith('/hills'),
+    icon: (
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="2,17 8,8 12,13 15,9 20,17"/><line x1="2" y1="17" x2="20" y2="17"/>
+      </svg>
+    ),
+  },
+  {
     tool: 'scraper', name: 'Scraper', to: '/scraper', sub: 'Control',
     matches: (p) => p.startsWith('/scraper'),
     icon: (

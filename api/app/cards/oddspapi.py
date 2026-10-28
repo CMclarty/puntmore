@@ -54,6 +54,9 @@ logger = logging.getLogger("uvicorn.error")
 BASE_URL = "https://api.oddspapi.io/v4"
 SOCCER = 10
 PADDY_POWER = "paddypower"
+WILLIAM_HILL = "williamhill"
+# How each priced book is named on screens and in diagnostics.
+BOOK_LABELS = {PADDY_POWER: "Paddy Power", WILLIAM_HILL: "William Hill"}
 CORNERS = "alternate_totals_corners"
 CARDS = "alternate_totals_cards"
 # A SINGLE team's corners/cards — OddsPapi "Team 1/2" (full time). Team 1 is the
@@ -428,8 +431,10 @@ def merge_books(*fixture_lists) -> list[dict]:
 
 
 def to_events(fixtures, markets, names, *, now=None, window_hours=None,
-              fair_book: str | None = None) -> tuple[list[dict], dict]:
-    """OddsPapi fixtures -> TheOddsApi-shaped events carrying Paddy's corners/cards.
+              fair_book: str | None = None,
+              book: str = PADDY_POWER) -> tuple[list[dict], dict]:
+    """OddsPapi fixtures -> TheOddsApi-shaped events carrying `book`'s corners/cards
+    (Paddy Power unless told otherwise; the counts keep their "paddy" names).
 
     Returns (events, counts). Only fixtures still to kick off inside the window
     are kept, and only ones where Paddy prices at least one corners/cards line.
@@ -448,7 +453,7 @@ def to_events(fixtures, markets, names, *, now=None, window_hours=None,
         if start is None or not (timedelta(0) < start - now <= window):
             continue
         counts["fixtures_in_window"] += 1
-        by_key = _book_markets(fx, PADDY_POWER, markets)
+        by_key = _book_markets(fx, book, markets)
         if not by_key:
             continue
         home = _first(fx, "participant1Name") or names.get(str(fx.get("participant1Id")))
@@ -459,7 +464,8 @@ def to_events(fixtures, markets, names, *, now=None, window_hours=None,
             continue
         counts["carried_paddy_prices"] += 1
         books = [{
-            "key": PADDY_POWER,
+            # The plain slug, whatever variant the plan grants ("x+30").
+            "key": book.split("+")[0],
             "markets": [{"key": k, "outcomes": v} for k, v in by_key.items()],
         }]
         if fair_book:
@@ -841,9 +847,15 @@ class OddsPapiPaddySource:
     `oddspapi_fair_book` set (default "pinnacle"), its fair side too. Same interface as
     the sweep expects: `get_events()` and `last_sweep`."""
 
-    def __init__(self, client: OddsPapiClient):
+    def __init__(self, client: OddsPapiClient, book: str = PADDY_POWER):
         self._sweep_lock = threading.Lock()
         self._client = client
+        # Whose prices are valued: Paddy Power for the Paddy tool, William Hill
+        # for Hills. Pinnacle's side is the same requests either way, and the
+        # client's cache is keyed per (tournaments, book), so a second source
+        # on the same client re-uses them rather than paying for them twice.
+        self.book = book
+        self.label = BOOK_LABELS.get(book, book)
         self.last_sweep: dict = {}
 
     def get_events(self) -> list[dict]:
@@ -895,8 +907,13 @@ class OddsPapiPaddySource:
         fair_book = (settings.oddspapi_fair_book or "").strip() or None
         if fair_book:
             fair_book = self._client.resolve_book(fair_book)
+        # Paddy's slug is asked for as it always was; any other book is
+        # resolved against the plan first, as the fair book is (a plain slug
+        # the plan only grants as a variant is refused, and billed).
+        priced_book = (self.book if self.book == PADDY_POWER
+                       else self._client.resolve_book(self.book))
         per_book: dict[str, list] = {}
-        for book in [PADDY_POWER] + ([fair_book] if fair_book else []):
+        for book in [priced_book] + ([fair_book] if fair_book else []):
             got = per_book.setdefault(book, [])
             for i in range(0, len(ids), per):
                 chunk = ids[i:i + per]
@@ -906,9 +923,11 @@ class OddsPapiPaddySource:
                     errors.append(f"{book} {chunk}: {exc}")
                     logger.error("cards (oddspapi): %s odds for %s failed: %s", book, chunk, exc)
         fixtures = merge_books(*per_book.values())
-        events, counts = to_events(fixtures, markets, names, fair_book=fair_book)
+        events, counts = to_events(fixtures, markets, names, fair_book=fair_book,
+                                   book=priced_book)
         self.last_sweep = {
             "source": "oddspapi",
+            "book": self.book,
             "fair_source": f"oddspapi:{fair_book}" if fair_book else "bettingiscool",
             "window_hours": settings.oddspapi_window_hours,
             "tournaments": len(ids),
@@ -923,9 +942,9 @@ class OddsPapiPaddySource:
             "request_budget": settings.oddspapi_daily_request_budget,
         }
         log = logger.info if not errors else logger.warning
-        log("cards sweep (oddspapi): %d fixture(s) in window, %d carried Paddy "
+        log("cards sweep (oddspapi): %d fixture(s) in window, %d carried %s "
             "corners/cards, %d of those with %s's, %d request(s) today",
-            counts["fixtures_in_window"], counts["carried_paddy_prices"],
+            counts["fixtures_in_window"], counts["carried_paddy_prices"], self.label,
             counts["carried_pinnacle_prices"], fair_book or "no fair book",
             self._client.requests_today)
         return events

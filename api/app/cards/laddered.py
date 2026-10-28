@@ -52,8 +52,10 @@ from .value import CardValueRow, _get_bookmaker, _get_market, _market_label
 
 logger = logging.getLogger("uvicorn.error")
 
-# Counts from the most recent call, for /cards/diagnostics.
+# Counts from the most recent call, for /cards/diagnostics — one dict per
+# priced book. LAST_RUN is Paddy's, the same object, kept for existing readers.
 LAST_RUN: dict = {}
+LAST_RUNS: dict[str, dict] = {"paddypower": LAST_RUN}
 
 # Fits and line prices, keyed by the exact Pinnacle ladder they came from.
 # A fit is ~40 optimiser runs (the uncertainty band refits it several ways),
@@ -350,13 +352,14 @@ def _price_paddy_lines(event: dict, market_key: str, sport_key: str, config: Mod
     return priceable
 
 
-def compute_laddered_value(events: list[dict], min_edge: float) -> list[CardValueRow]:
+def compute_laddered_value(events: list[dict], min_edge: float,
+                           book: str = "paddypower") -> list[CardValueRow]:
     with _PRICING_LOCK:
-        return _compute_laddered_value(events, min_edge)
+        return _compute_laddered_value(events, min_edge, book)
 
 
 def _compute_laddered_value(
-    events: list[dict], min_edge: float,
+    events: list[dict], min_edge: float, book: str = "paddypower",
 ) -> list[CardValueRow]:
     """Value rows for every line Paddy Power quotes, priced off Pinnacle's ladder.
 
@@ -382,7 +385,9 @@ def _compute_laddered_value(
 
     for event in events:
         pin = _get_bookmaker(event, "pinnacle")
-        paddy = _get_bookmaker(event, "paddypower")
+        # `book` is whose prices are being valued (Paddy Power, William Hill);
+        # the fits are keyed on Pinnacle's ladder alone, so books share them.
+        paddy = _get_bookmaker(event, book)
         if pin is None or paddy is None:
             continue
         both_books += 1
@@ -526,7 +531,7 @@ def _compute_laddered_value(
                 min_edge, priced_off_ladder, rows, "ladder",
             )
 
-    LAST_RUN.update({
+    LAST_RUNS.setdefault(book, {}).update({
         "events": len(events), "with_both_books": both_books,
         "ladders_fitted": fitted, "ladders_refused": refused,
         "priceable_paddy_lines": priceable_lines, "rows": len(rows),

@@ -27,6 +27,7 @@ const IDENTITIES = [
   { match: (p) => p === '/365/scorers', title: 'Puntmore — Goalscorers', icon: 'goalscorers' },
   { match: (p) => p.startsWith('/365') || p === '/accabonus', title: 'Puntmore — 365', icon: 'accabonus' },
   { match: (p) => p.startsWith('/paddy') || p === '/cards', title: 'Puntmore — Paddy', icon: 'paddy' },
+  { match: (p) => p.startsWith('/hills'), title: 'Puntmore — Hills', icon: 'hills' },
   { match: (p) => p === '/scraper', title: 'Puntmore — Scraper', icon: 'scraper' },
 ]
 

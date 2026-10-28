@@ -67,6 +67,8 @@ ICONS = {
                                    '<path d="M256 186V106M322 234l76-24M297 312l48 64M215 312l-48 64M190 234l-76-24"/>')),
     # Paddy: the steps (a line ladder).
     "paddy": ("#556270", nav('<polyline points="4,4 4,18 18,18"/><polyline points="4,4 10,4 10,10 16,10 16,18"/>')),
+    # Hills (the Paddy tool against William Hill): two hills.
+    "hills": ("#1F3A5F", nav('<polyline points="2,17 8,8 12,13 15,9 20,17"/><line x1="2" y1="17" x2="20" y2="17"/>')),
     # Shop visits: the bag.
     "shop": ("#2F7D55", big('<path d="M136 196h240l-20 176H156z"/><path d="M204 196v-44a52 52 0 0 1 104 0v44"/>')),
     # Scraper control: the sliders.
