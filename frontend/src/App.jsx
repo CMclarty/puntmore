@@ -5,6 +5,7 @@ import BottomNav, { landingFor } from './components/BottomNav'
 import PageIdentity from './components/PageIdentity'
 import TrackerPage from './pages/TrackerPage'
 import LoginPage from './pages/LoginPage'
+import { SHALGO, SITE, SITE_NAME, otherSiteUrl, siteTools, toolSite } from './site'
 import styles from './App.module.css'
 
 // The tracker and login are the entry points, so they stay in the main bundle.
@@ -37,14 +38,20 @@ const IS_FOCUSED = FOCUSED_ROOTS.some(r => ENTRY_PATH === r || ENTRY_PATH.starts
 // ODDS_API_KEY is set / the cards client is rebuilt (docs/provider-verification).
 // tracker below. Re-import and restore the routes to bring them back.
 
+// Each site shows only its own tools (site.js): Shalgo's four there, the rest
+// on Puntmore. The grant itself is unchanged and shared by both.
+const forSite = u => u && { ...u, tools: siteTools(u.tools) }
+
 export default function App() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [bootError, setBootError] = useState(null)
 
+  const adopt = u => setUser(forSite(u))
+
   useEffect(() => {
     getMe()
-      .then(u => { setUser(u); setBootError(null) })
+      .then(u => { setUser(forSite(u)); setBootError(null) })
       .catch(e => {
         // A 401 is not an error — getMe returns null for it and we fall through
         // to the login route. Anything reaching here is the API being reachable
@@ -75,9 +82,12 @@ export default function App() {
       <main className={`${styles.main} ${IS_FOCUSED ? styles.focused : ''}`}>
         <Suspense fallback={<div className={styles.boot}>Loading…</div>}>
         <Routes>
-          <Route path="/login" element={<LoginRoute user={user} onLogin={setUser} />} />
-          {/* The tracker opens on its landing page; /t/<code> is one coupon. */}
-          <Route path="/" element={protectTool(<TrackerPage />, 'coupons')} />
+          <Route path="/login" element={<LoginRoute user={user} onLogin={adopt} />} />
+          {/* The tracker opens on its landing page; /t/<code> is one coupon.
+              Shalgo has no tracker: its "/" lands on the first tool granted. */}
+          <Route path="/" element={SITE === SHALGO
+            ? <ShalgoHome user={user} onLogout={handleLogout} />
+            : protectTool(<TrackerPage />, 'coupons')} />
           <Route path="/t/:code" element={protectTool(<TrackerPage />, 'coupons')} />
           {/* One ISSUE of a type — the midweek GG Bonus while the weekend one
               is also up. Without this every issue of a type shared one page
@@ -147,6 +157,10 @@ export default function App() {
  */
 function Protected({ user, tool, onLogout, children }) {
   const location = useLocation()
+  // The other site's tool: go there, same path (it has its own login).
+  if ([].concat(tool).every(t => toolSite(t) !== SITE)) {
+    return <OtherSite path={location.pathname + location.search} />
+  }
   if (!user) {
     // In the URL rather than router state: state is lost on a reload, and a
     // phone reloads a backgrounded page whenever it feels like it. The API
@@ -158,6 +172,18 @@ function Protected({ user, tool, onLogout, children }) {
   // One tool, or any of several (a page two grants can reach).
   if (![].concat(tool).some(t => user.tools?.includes(t))) return <NoAccess onLogout={onLogout} />
   return children
+}
+
+function OtherSite({ path }) {
+  useEffect(() => { window.location.replace(otherSiteUrl(path)) }, [path])
+  return <div className={styles.boot}>Opening…</div>
+}
+
+// Shalgo's "/": the first of its tools the account has.
+function ShalgoHome({ user, onLogout }) {
+  if (!user) return <Navigate to="/login" replace />
+  if (!user.tools?.length) return <NoAccess onLogout={onLogout} />
+  return <Navigate to={landingFor(user.tools)} replace />
 }
 
 /**
@@ -192,7 +218,7 @@ function returnTo(from) {
 function BootError({ detail }) {
   return (
     <div className={styles.noAccess}>
-      <p>Couldn’t reach Puntmore. If a deploy is in progress this clears on its own in a minute.</p>
+      <p>Couldn’t reach {SITE_NAME}. If a deploy is in progress this clears on its own in a minute.</p>
       <p className={styles.bootDetail}>{detail}</p>
       <button type="button" onClick={() => window.location.reload()}>Retry</button>
     </div>

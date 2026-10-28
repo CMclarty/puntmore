@@ -10,8 +10,14 @@ So the SPA fallback (asgi.py) rewrites the shell's head for the path being
 served: manifest, apple-touch-icon, favicon and title. PageIdentity still runs
 in the page for client-side navigation. The table below MIRRORS
 frontend/src/identity.js (tests/test_identity.py checks they agree).
+
+Two sites share the shell (app/site.py): Paddy, Hills, AW 26 and the scraper
+carry Shalgo's name, and a path with no tool of its own (/login, a Shalgo
+landing) takes the identity of the site whose host served it.
 """
 import re
+
+from .site import PUNTMORE, SHALGO
 
 # (path matcher, title, icon name, manifest name or None when it is the icon's)
 IDENTITIES = [
@@ -23,22 +29,25 @@ IDENTITIES = [
     (lambda p: p == "/shop", "Puntmore — Shop Visits", "shop", None),
     (lambda p: p == "/365/scorers", "Puntmore — Goalscorers", "goalscorers", None),
     (lambda p: p.startswith("/365") or p == "/accabonus", "Puntmore — 365", "accabonus", None),
-    (lambda p: p.startswith("/paddy") or p == "/cards", "Puntmore — Paddy", "paddy", None),
-    (lambda p: p.startswith("/hills"), "Puntmore — Hills", "hills", None),
-    (lambda p: p == "/scraper", "Puntmore — Scraper", "scraper", None),
+    (lambda p: p.startswith("/paddy") or p == "/cards", "Shalgo — Paddy", "paddy", None),
+    (lambda p: p.startswith("/hills"), "Shalgo — Hills", "hills", None),
+    (lambda p: p == "/scraper", "Shalgo — Scraper", "scraper", None),
 ]
 DEFAULT = ("Puntmore", "puntmore", None)
+DEFAULTS = {PUNTMORE: DEFAULT, SHALGO: ("Shalgo", "shalgo", None)}
 
 
-def identity_for(path: str) -> dict:
-    """title, svg, png and manifest paths for a page path — the same answer
-    frontend/src/identity.js gives."""
+def identity_for(path: str, site: str = PUNTMORE) -> dict:
+    """title, svg, png and manifest paths for a page path on `site` — the
+    same answer frontend/src/identity.js gives."""
     path = "/" + path.strip("/") if path.strip("/") else "/"
-    for match, title, icon, manifest in IDENTITIES:
+    # Shalgo's "/" is no page of its own (it lands on a tool): its default.
+    rows = [] if site == SHALGO and path == "/" else IDENTITIES
+    for match, title, icon, manifest in rows:
         if match(path):
             break
     else:
-        title, icon, manifest = DEFAULT
+        title, icon, manifest = DEFAULTS[site]
     manifest = manifest or icon
     return {
         "title": title,
@@ -57,9 +66,9 @@ _TAGS = (
 )
 
 
-def render_index(html: str, path: str) -> str:
-    """The shell with its head pointed at the identity for `path`."""
-    ident = identity_for(path)
+def render_index(html: str, path: str, site: str = PUNTMORE) -> str:
+    """The shell with its head pointed at the identity for `path` on `site`."""
+    ident = identity_for(path, site)
     for pattern, key in _TAGS:
         html = pattern.sub(lambda m, v=ident[key]: m.group(1) + v + m.group(2), html, count=1)
     return html

@@ -42,6 +42,8 @@ def text(s, size=280, y=340):
 # name -> (background, glyph)
 ICONS = {
     "puntmore": ("#2F7D55", text("P")),
+    # Shalgo: the props side's own app (Paddy, Hills, AW 26, Scraper).
+    "shalgo": ("#2D2A5F", text("S")),
     # Coupon tracker: the ticket.
     "coupons": ("#2F7D55", nav('<rect x="4" y="2" width="14" height="18" rx="2"/>'
                                '<line x1="7" y1="7" x2="15" y2="7"/><line x1="7" y1="11" x2="15" y2="11"/>'

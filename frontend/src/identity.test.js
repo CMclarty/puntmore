@@ -4,7 +4,7 @@ import { identityFor } from './identity'
 describe('identityFor', () => {
   it('gives each tool its own PNG home-screen icon, SVG favicon and manifest', () => {
     expect(identityFor('/paddy')).toEqual({
-      title: 'Puntmore — Paddy', svg: '/icons/paddy.svg', png: '/icons/paddy-180.png',
+      title: 'Shalgo — Paddy', svg: '/icons/paddy.svg', png: '/icons/paddy-180.png',
       manifest: '/manifests/paddy.webmanifest',
     })
   })
@@ -22,6 +22,15 @@ describe('identityFor', () => {
   it('tells goalscorers apart from the rest of 365', () => {
     expect(identityFor('/365/scorers').png).toBe('/icons/goalscorers-180.png')
     expect(identityFor('/365/acca').png).toBe('/icons/accabonus-180.png')
+  })
+
+  it('gives Shalgo its own default, landing included', () => {
+    expect(identityFor('/login', 'shalgo')).toEqual({
+      title: 'Shalgo', svg: '/icons/shalgo.svg', png: '/icons/shalgo-180.png',
+      manifest: '/manifests/shalgo.webmanifest',
+    })
+    expect(identityFor('/', 'shalgo').title).toBe('Shalgo')
+    expect(identityFor('/hills', 'shalgo').title).toBe('Shalgo — Hills')
   })
 
   it('falls back to the Puntmore identity elsewhere', () => {

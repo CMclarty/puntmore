@@ -1,8 +1,8 @@
 {
   "id": "/scraper",
-  "name": "Puntmore — Scraper",
+  "name": "Shalgo — Scraper",
   "short_name": "Scraper",
-  "description": "Betting tools — coupons, tennis arbs, cards & corners",
+  "description": "Shalgo — props tools",
   "display": "standalone",
   "orientation": "portrait",
   "start_url": "/scraper",

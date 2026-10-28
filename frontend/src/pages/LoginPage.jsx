@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { SITE_NAME } from '../site'
 import { login } from '../api'
 import styles from './LoginPage.module.css'
 
@@ -25,7 +26,7 @@ export default function LoginPage({ onLogin }) {
     <div className={styles.page}>
       <form className={styles.form} onSubmit={handleSubmit}>
         <div className={styles.lockup}>
-          <span className={styles.wordmark}>puntmore</span>
+          <span className={styles.wordmark}>{SITE_NAME.toLowerCase()}</span>
           <span className={styles.tagline}>your betting edge</span>
         </div>
 

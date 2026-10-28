@@ -18,11 +18,12 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from starlette.staticfiles import StaticFiles
 
 from .identity import render_index
+from .site import site_for
 from .main import app as api_app
 
 logger = logging.getLogger("uvicorn.error")
@@ -65,7 +66,7 @@ if STATIC_DIR.is_dir():
     )
 
     @root.get("/{full_path:path}", include_in_schema=False)
-    def spa(full_path: str):
+    def spa(full_path: str, request: Request):
         """Serve the SPA shell for any non-API, non-asset path.
 
         The tracker uses client-side routing, so a hard refresh on /upload must
@@ -78,7 +79,9 @@ if STATIC_DIR.is_dir():
         # The shell's head carries THIS path's manifest, icon and title — iOS
         # reads the manifest at load, before any script runs (identity.py).
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-        return HTMLResponse(render_index(html, "/" + full_path))
+        # Puntmore or Shalgo by the host asked for (site.py): same shell, its own name.
+        return HTMLResponse(render_index(html, "/" + full_path,
+                                         site_for(request.headers.get("host"))))
 else:
     logger.warning(
         "No static build at %s — serving the API only. In production the "

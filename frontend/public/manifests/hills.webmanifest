@@ -1,8 +1,8 @@
 {
   "id": "/hills",
-  "name": "Puntmore — Hills",
+  "name": "Shalgo — Hills",
   "short_name": "Hills",
-  "description": "Betting tools — coupons, tennis arbs, cards & corners",
+  "description": "Shalgo — props tools",
   "display": "standalone",
   "orientation": "portrait",
   "start_url": "/hills",

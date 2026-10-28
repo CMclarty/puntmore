@@ -1,0 +1,32 @@
+{
+  "id": "/",
+  "name": "Shalgo",
+  "short_name": "Shalgo",
+  "description": "Shalgo — props tools: Paddy, Hills, AW 26",
+  "display": "standalone",
+  "orientation": "portrait",
+  "start_url": "/",
+  "scope": "/",
+  "theme_color": "#1A1A18",
+  "background_color": "#FCFBF8",
+  "icons": [
+    {
+      "src": "/icons/shalgo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/shalgo-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/shalgo-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
