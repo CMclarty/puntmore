@@ -168,7 +168,8 @@ def _path(url: str) -> str:
 
 
 _MIN_COOKIES = ("Reject All", "Reject all", "Necessary only", "Only necessary",
-                "Accept necessary", "Necessary cookies only")
+                "Accept necessary", "Necessary cookies only",
+                "Allow Necessary Only")   # Paddy's OneTrust banner (Oct 2026)
 
 
 def dismiss_consent(page):
@@ -246,6 +247,17 @@ def find_tab(page, name):
             except Exception:
                 continue
     return None
+
+
+def visible_tabs(page) -> list[str]:
+    """The names on the page's tab bars, as drawn - for a log line when a
+    tab was not found. Reads the DOM: costs no request."""
+    try:
+        names = (page.locator(":is([role=tab], [data-testid=tab])").all_inner_texts()
+                 or page.locator(_TAB_BAR).locator(":is(a, button)").all_inner_texts())
+    except Exception:
+        return []
+    return list(dict.fromkeys(" ".join(n.split()) for n in names if n.strip()))[:20]
 
 
 def wait_for_feed(page, capture, since: float, feed, timeout_s: float = 12.0) -> bool:

@@ -411,6 +411,7 @@ class Runner:
         navigates counts as a load."""
         feed = re.compile(SITES[t.site].market_list or r"$^")
         page, cap = tab.page, tab.capture
+        browser.dismiss_consent(page)       # a banner drawn after the load's own try
         for name in t.matches.market_tabs:
             if not self.guard.can_load(t.site, now)[0]:
                 tab.market_tabs[name] = "not clicked (budget)"
@@ -423,6 +424,8 @@ class Runner:
                 # yet, not a locator miss - the page is kept once per run
                 # so a real miss can still be checked.
                 tab.market_tabs[name] = "not offered"
+                print(f"{tab.url}: no {name!r} tab; tabs drawn: "
+                      f"{', '.join(browser.visible_tabs(page)) or 'none found'}", flush=True)
                 self._snapshot_once(t, tab, "market-tab-not-found")
                 continue
             loc, label = found
