@@ -4,7 +4,7 @@
     pm = Puntmore("https://puntmore.com", key)
     for row in pm.value(min_edge=0.03).selections: ...
 
-Read, record, report. Nothing here places a bet. The routes are the ones in
+Read and report. Nothing here places a bet. The routes are the ones in
 /api/docs; anything without a helper is reachable with `.get()` / `.post()`.
 """
 from __future__ import annotations
@@ -48,11 +48,6 @@ def _answer(resp: httpx.Response) -> Any:
     return resp.json()
 
 
-def _slip_body(legs, offer, stake, receipt, placed_at) -> dict:
-    return _params(legs=list(legs), offer=offer, stake=stake,
-                   receipt=receipt, placed_at=placed_at)
-
-
 # --- sync ------------------------------------------------------------------------
 
 
@@ -65,27 +60,6 @@ class _Paddy:
         return self._pm.get("/paddy/feed", min_edge=min_edge)
 
 
-class _Aw26:
-    def __init__(self, pm: "Puntmore"):
-        self._pm = pm
-
-    def slips(self) -> dict:
-        """GET /api/aw26/slips — {"summary": {...}, "slips": [...]}."""
-        return self._pm.get("/aw26/slips")
-
-    def record(self, legs: list[dict], *, offer: str = "refund",
-               stake: float | None = None, receipt: str | None = None,
-               placed_at: str | None = None) -> dict:
-        """POST /api/aw26/slips/record — RECORD a bet already placed.
-
-        legs: [{"event": "A v B", "market": ..., "selection": ..., "odds": 1.9,
-        "kickoff": ISO, "fair_odds": optional}]. A receipt already recorded
-        is refused with 409. Recording only; it places nothing.
-        """
-        return self._pm.post("/aw26/slips/record",
-                             _slip_body(legs, offer, stake, receipt, placed_at))
-
-
 class Puntmore:
     """Synchronous client. `key` is an API client key (python -m app.apikeys)."""
 
@@ -96,7 +70,6 @@ class Puntmore:
             headers={"Authorization": f"Bearer {key}"},
         )
         self.paddy = _Paddy(self)
-        self.aw26 = _Aw26(self)
 
     def get(self, path: str, **params) -> Any:
         return _answer(self._http.get(path, params=_params(**params)))
@@ -142,20 +115,6 @@ class _AsyncPaddy:
         return await self._pm.get("/paddy/feed", min_edge=min_edge)
 
 
-class _AsyncAw26:
-    def __init__(self, pm: "AsyncPuntmore"):
-        self._pm = pm
-
-    async def slips(self) -> dict:
-        return await self._pm.get("/aw26/slips")
-
-    async def record(self, legs: list[dict], *, offer: str = "refund",
-                     stake: float | None = None, receipt: str | None = None,
-                     placed_at: str | None = None) -> dict:
-        return await self._pm.post("/aw26/slips/record",
-                                   _slip_body(legs, offer, stake, receipt, placed_at))
-
-
 class AsyncPuntmore:
     """The same surface as `Puntmore`, on httpx.AsyncClient."""
 
@@ -166,7 +125,6 @@ class AsyncPuntmore:
             headers={"Authorization": f"Bearer {key}"},
         )
         self.paddy = _AsyncPaddy(self)
-        self.aw26 = _AsyncAw26(self)
 
     async def get(self, path: str, **params) -> Any:
         return _answer(await self._http.get(path, params=_params(**params)))

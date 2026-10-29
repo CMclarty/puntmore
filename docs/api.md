@@ -3,9 +3,8 @@
 Every Puntmore tool is reachable by a machine through one key-authenticated
 API: the same routes the site uses, under `/api`, each tool behind its own
 grant. A bet-placing service can ask one question — what value is on offer
-right now, across every tool — at `GET /api/value`, and record what it placed
-on the AW 26 ledger. **Nothing in this API places a bet**, and nothing
-automates a bookmaker account: read, record, report.
+right now, across every tool — at `GET /api/value`. **Nothing in this API places a bet**, and nothing
+automates a bookmaker account: read and report.
 
 The live, typed reference is **`/api/docs`** (Swagger UI) and
 **`/api/openapi.json`**, behind auth like everything else. This page is the
@@ -22,7 +21,7 @@ Two ways in, one permission model:
 
 Grants use one grammar: `*` (everything) or names joined by `+`. Tool grants:
 `coupons`, `accabonus` (365 acca), `cards` (Paddy), `goalscorers` (365
-scorers), `pnl`, `kelly`, `boost`, `shop`, `aw26`, `scraper`. Machine grants:
+scorers), `pnl`, `kelly`, `boost`, `shop`, `scraper`. Machine grants:
 `value` (every source on `/api/value`), `state` (`/api/state`), `ingest` (the
 scraper / Bookie Bashing write paths).
 
@@ -30,7 +29,7 @@ scraper / Bookie Bashing write paths).
   so every route that admits a user with grant X admits a key with grant X.
 - When a key is sent it IS the identity: a bad or revoked key is `401` even
   next to a valid session cookie. A valid key without the grant is `403`.
-- Where a route records who did something (an AW 26 slip, a P&L bet, a shop
+- Where a route records who did something (a P&L bet, a shop
   visit), a key acts as `api:<name>` — its own ledger, never a person's.
 - `GET /api/auth/me` tells a key its name and grants.
 - The two static env keys keep working exactly as before:
@@ -44,7 +43,7 @@ scraper / Bookie Bashing write paths).
 ## Keys — the CLI
 
 ```
-python -m app.apikeys create <name> --tools paddy,aw26   # prints the key ONCE
+python -m app.apikeys create <name> --tools paddy,value  # prints the key ONCE
 python -m app.apikeys list                              # names, grants, last used — never keys
 python -m app.apikeys revoke <name>                     # disables at once; row kept
 ```
@@ -55,7 +54,7 @@ work too (`paddy` = `cards`, `365` = `accabonus+goalscorers`, `scorers` =
 new client, switch the caller over, revoke the old one.
 
 **In production** run it in the Render service's **Shell** tab:
-`cd /app && python -m app.apikeys create bet-placer --tools value,aw26`. The
+`cd /app && python -m app.apikeys create bet-placer --tools value`. The
 shell has the service's env (`DATABASE_URL` → the `/data` disk), so the key
 lands in the live database. Copy the printed key into the caller's own secret
 store; it cannot be shown again. There is no env-var way to create an API
@@ -140,10 +139,6 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 | 365 scorers (`goalscorers`) | `GET /goalscorers/feed` | |
 | Paddy (`cards`) | `GET /paddy/feed`, `/paddy/diagnostics`, `/paddy/shadow`, `/paddy/oddspapi-check` | |
 | Paddy ingest (`ingest`) | `POST /paddy/saves-fair`, `POST /paddy/most-prices` | scraper writes |
-| AW 26 (`aw26`) | `GET /aw26/slips`, `/aw26/snapshots`, `/aw26/slips/{id}/image`, `/aw26/results-check` | ledger reads |
-| AW 26 (`aw26`) | `POST /aw26/slips/record` | **record a placed bet** (structured legs) |
-| AW 26 (`aw26`) | `POST /aw26/slips` (photo), `PATCH /aw26/slips/{id}`, `DELETE /aw26/slips/{id}` | upload, correct, delete |
-| AW 26 ingest (`ingest`) | `POST /aw26/fairs`, `/aw26/slips/ingest`, `/aw26/results`, `GET /aw26/open-leagues` | desktop scripts |
 | P&L (`pnl`) | `GET/POST /pnl/{dogs\|virtuals}/bets`, `GET /pnl/{c}/bets.csv`, `DELETE /pnl/{c}/bets/{id}` | per-caller ledger |
 | shop (`shop`) | `GET /shop`, `POST /shop/visits`, `DELETE /shop/visits[/{id}]` | per-caller route |
 | scraper (`scraper`) | `GET /scraper`, `PUT /scraper/leagues/{id}`, `/scraper/markets/{key}`, `/scraper/timings/{site}` | control page |
@@ -154,24 +149,13 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 `kelly` and `boost` are client-side calculators with no routes. The legacy
 aliases (`/cards/*`, `/tennis/*`) still answer and are hidden from the schema.
 
-`POST /aw26/slips/record` body (`AwSlipRecordIn`):
-
-```json
-{"receipt": "R-123", "placed_at": "2026-10-26T14:02:00Z", "offer": "refund",
- "stake": 50, "legs": [{"event": "Arsenal v Chelsea", "market": "Total Corners",
- "selection": "Over 9.5", "odds": 1.9, "kickoff": "2026-10-26T15:00:00Z",
- "fair_odds": 1.75}]}
-```
-
-`offer` is `refund` | `boost` | `other`. It is priced and settled exactly like
-a photographed slip; `fair_odds` per leg is optional (missing ones are
-matched against the day's Bookie Bashing fairs). A receipt already on the
-ledger is `409`, so a retried record never double-counts.
+The AW 26 routes (`/aw26/*`) were removed when AW 26 was retired on 29 Oct
+2026 (`docs/retired.md`).
 
 ## Python client
 
 `clients/python/puntmore` — `Puntmore(url, key)` / `AsyncPuntmore`, with
-`.value()`, `.paddy.feed()`, `.aw26.slips()`, `.aw26.record(...)`, `.state()`,
+`.value()`, `.paddy.feed()`, `.state()`,
 `.whoami()` and `.get()` / `.post()` for the rest. See its README for a
 bet-placer's polling loop.
 
@@ -192,6 +176,6 @@ keeps its v1 behaviour until every caller has moved.
 | auth, grants, key resolution | `api/app/security.py` |
 | API clients table / CLI | `api/app/models.py::ApiClient`, `api/app/apikeys.py` |
 | value feed | `api/app/value/service.py`, `api/app/routers/value.py` |
-| per-tool services | `api/app/cards/feed.py`, `api/app/accabonus/feed.py`, `api/app/coupons/service.py`, `api/app/pnl/service.py`, `api/app/shop/service.py`, `api/app/aw26/record.py` (+ the existing `aw26/`, `cards/`, `goalscorers/` packages) |
+| per-tool services | `api/app/cards/feed.py`, `api/app/accabonus/feed.py`, `api/app/coupons/service.py`, `api/app/pnl/service.py`, `api/app/shop/service.py` (+ the existing `cards/`, `goalscorers/` packages) |
 | response models | `api/app/schemas.py` |
 | route walk test | `api/tests/test_openapi.py` |

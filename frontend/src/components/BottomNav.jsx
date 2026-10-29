@@ -56,15 +56,6 @@ const TOOLS = [
     ),
   },
   {
-    tool: 'aw26', name: 'AW 26', to: '/aw26', sub: 'Slips',
-    matches: (p) => p.startsWith('/aw26'),
-    icon: (
-      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="4,4 4,18 18,18"/><polyline points="7,14 10,10 13,12 17,7"/>
-      </svg>
-    ),
-  },
-  {
     tool: 'cards', name: 'Paddy', to: '/paddy', sub: 'Props', muted: true,
     matches: (p) => p.startsWith('/paddy') || p.startsWith('/cards'),
     icon: (

@@ -1,7 +1,7 @@
 # puntmore — Python client for the Puntmore API
 
-A thin typed client (httpx) for the routes in `/api/docs`. It reads value and
-records slips. **It places nothing**: placing a bet is outside this API.
+A thin typed client (httpx) for the routes in `/api/docs`. It reads value.
+**It places nothing**: placing a bet is outside this API.
 
 ```
 pip install ./clients/python        # or: PYTHONPATH=clients/python
@@ -12,10 +12,10 @@ pip install ./clients/python        # or: PYTHONPATH=clients/python
 A key is made on the server, once, and printed once:
 
 ```
-python -m app.apikeys create bet-placer --tools value,aw26
+python -m app.apikeys create bet-placer --tools value
 ```
 
-`value` reads every source on `/api/value`; `aw26` lets it record slips. Give
+`value` reads every source on `/api/value`. Give
 a key only the grants it needs. See `docs/api.md`.
 
 ## Surface
@@ -33,8 +33,6 @@ feed = pm.value(min_edge=0.03,                   # ValueFeed
 feed.selections                                  # list[ValueSelection], best edge first
 feed.errors                                      # {source: reason} for a source that FAILED
 pm.paddy.feed(min_edge=None)                     # the Paddy page's feed (cards grant)
-pm.aw26.slips()                                  # {"summary": ..., "slips": [...]}
-pm.aw26.record(legs, offer="refund", stake=50, receipt="...", placed_at=None)
 pm.state()                                       # whole-app snapshot (state grant)
 pm.get("/coupons/types"); pm.post(path, json)    # anything else in /api/docs
 ```
@@ -46,14 +44,11 @@ x.5 when present). A non-2xx answer raises `PuntmoreError(status, detail)`.
 
 ## A bet-placer's loop
 
-Poll the feed, decide, and — after the bet is placed by whatever does the
-placing — record the slip on the AW 26 ledger. Recording is idempotent on
-`receipt`: a second record of the same receipt is a 409, so a retry after a
-timeout can never count a bet twice.
+Poll the feed and decide; placing is done elsewhere.
 
 ```python
 import time
-from puntmore import Puntmore, PuntmoreError
+from puntmore import Puntmore
 
 pm = Puntmore("https://puntmore.com", KEY)
 seen = set()
@@ -69,17 +64,7 @@ while True:
         seen.add(k)
         if not decide(row):                           # your rules: stake, limits, exposure
             continue
-        receipt = place_elsewhere(row)                # NOT part of this API
-        try:
-            pm.aw26.record(
-                [{"event": row.event, "market": row.market, "selection": row.selection,
-                  "odds": row.odds, "kickoff": row.kickoff.isoformat() if row.kickoff else None,
-                  "fair_odds": row.fair}],
-                offer="other", stake=STAKE, receipt=receipt,
-            )
-        except PuntmoreError as exc:
-            if exc.status != 409:                     # 409 = already recorded
-                raise
+        place_elsewhere(row)                          # NOT part of this API
     time.sleep(120)                                   # the feeds refresh every 2 min
 ```
 

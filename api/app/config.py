@@ -202,10 +202,6 @@ class Settings(BaseSettings):
     # Key the local Bookie Bashing script sends (X-API-Key) with fair saves
     # prices to POST /api/paddy/saves-fair. Blank = endpoint disabled (503).
     saves_ingest_key: str = ""
-    # AW 26 value snapshots (aw26/snapshots.py): the Paddy sweep's rows are
-    # written to value_snapshots at most this often. The sweep runs every 2
-    # minutes; storing every tick would be ~7x the rows for no extra history.
-    aw26_snapshot_minutes: int = 15
     # Session cookie signing key. If blank, a random key is generated at startup
     # (sessions reset on restart — fine for dev; set a fixed value in prod).
     secret_key: str = ""

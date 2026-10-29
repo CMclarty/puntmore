@@ -44,7 +44,7 @@ def real_auth():
     Base.metadata.drop_all(bind=engine)
 
 
-def _client(name="bot", tools="shop,aw26"):
+def _client(name="bot", tools="shop,scraper"):
     db = Session()
     try:
         _, key = apikeys.create(db, name, tools)
@@ -63,7 +63,7 @@ def test_key_is_stored_only_as_its_hash():
     row = db.query(ApiClient).one()
     assert row.key_hash == hashlib.sha256(key.encode()).hexdigest()
     assert key not in (row.key_hash, row.name, row.permissions)
-    assert row.permissions == "aw26+shop"
+    assert row.permissions == "scraper+shop"
     db.close()
 
 
@@ -72,13 +72,13 @@ def test_bearer_and_x_api_key_both_admit_a_granted_client():
     api = TestClient(app)
     assert api.get("/shop", headers=bearer(key)).status_code == 200
     assert api.get("/shop", headers={"X-API-Key": key}).status_code == 200
-    assert api.get("/aw26/slips", headers=bearer(key)).status_code == 200
+    assert api.get("/scraper", headers=bearer(key)).status_code == 200
 
 
 def test_a_client_is_held_to_its_grant():
     key = _client(tools="shop")
     api = TestClient(app)
-    assert api.get("/aw26/slips", headers=bearer(key)).status_code == 403
+    assert api.get("/scraper", headers=bearer(key)).status_code == 403
     assert api.get("/pnl/dogs/bets", headers=bearer(key)).status_code == 403
 
 
@@ -99,7 +99,7 @@ def test_a_client_acts_under_its_own_name():
     assert api.post("/shop/visits", headers=bearer(key)).status_code == 200
     me = api.get("/auth/me", headers=bearer(key)).json()
     assert me["username"] == "api:bot"
-    assert "shop" in me["tools"] and "aw26" in me["tools"]
+    assert "shop" in me["tools"] and "scraper" in me["tools"]
 
 
 def test_last_used_is_recorded():
@@ -113,9 +113,9 @@ def test_last_used_is_recorded():
 def test_static_ingest_key_still_works_and_is_the_ingest_grant(monkeypatch):
     monkeypatch.setattr(settings, "saves_ingest_key", "static-ingest")
     api = TestClient(app)
-    assert api.get("/aw26/open-leagues", headers={"X-API-Key": "static-ingest"}).status_code == 200
-    assert api.get("/aw26/open-leagues", headers=bearer("static-ingest")).status_code == 200
-    assert api.get("/aw26/open-leagues", headers={"X-API-Key": "wrong"}).status_code == 401
+    assert api.get("/scraper/config", headers={"X-API-Key": "static-ingest"}).status_code == 200
+    assert api.get("/scraper/config", headers=bearer("static-ingest")).status_code == 200
+    assert api.get("/scraper/config", headers={"X-API-Key": "wrong"}).status_code == 401
     # The static key is ONLY the ingest grant: it reaches no tool.
     assert api.get("/shop", headers={"X-API-Key": "static-ingest"}).status_code == 403
 
@@ -125,10 +125,10 @@ def test_a_client_can_hold_the_ingest_grant(monkeypatch):
     ingest = _client("scraper-box", tools="ingest")
     other = _client("reader", tools="shop")
     api = TestClient(app)
-    assert api.get("/aw26/open-leagues", headers=bearer(ingest)).status_code == 200
-    assert api.get("/aw26/open-leagues", headers=bearer(other)).status_code == 403
+    assert api.get("/scraper/config", headers=bearer(ingest)).status_code == 200
+    assert api.get("/scraper/config", headers=bearer(other)).status_code == 403
     # No static key configured and no client admitted: the old 503 stands.
-    assert api.get("/aw26/open-leagues", headers={"X-API-Key": "x"}).status_code == 503
+    assert api.get("/scraper/config", headers={"X-API-Key": "x"}).status_code == 503
 
 
 def test_a_client_can_hold_the_state_grant(monkeypatch):
@@ -138,11 +138,11 @@ def test_a_client_can_hold_the_state_grant(monkeypatch):
 
 
 def test_parse_tools_aliases_and_refusals():
-    assert apikeys.parse_tools("paddy,aw26") == "aw26+cards"
+    assert apikeys.parse_tools("paddy,shop") == "cards+shop"
     assert apikeys.parse_tools("365") == "accabonus+goalscorers"
     assert apikeys.parse_tools("*") == "*"
     assert apikeys.parse_tools("value+coupons") == "coupons+value"
-    for bad in ("", "nonsense", "*,aw26"):
+    for bad in ("", "nonsense", "*,shop"):
         with pytest.raises(ValueError):
             apikeys.parse_tools(bad)
 
@@ -150,27 +150,14 @@ def test_parse_tools_aliases_and_refusals():
 def test_cli_prints_the_key_once_and_never_again(monkeypatch, capsys):
     monkeypatch.setattr(apikeys, "SessionLocal", Session)
     monkeypatch.setattr(apikeys, "engine", engine)
-    assert apikeys.main(["create", "placer", "--tools", "value,aw26"]) == 0
+    assert apikeys.main(["create", "placer", "--tools", "value,shop"]) == 0
     out = capsys.readouterr().out
     key = out.strip().splitlines()[-1]
     assert key.startswith("pm_") and out.count(key) == 1
     assert apikeys.main(["list"]) == 0
     listed = capsys.readouterr().out
     assert "placer" in listed and key not in listed
-    assert apikeys.main(["create", "placer", "--tools", "aw26"]) == 2   # names are unique
+    assert apikeys.main(["create", "placer", "--tools", "shop"]) == 2   # names are unique
     assert apikeys.main(["revoke", "placer"]) == 0
-    assert TestClient(app).get("/aw26/slips", headers=bearer(key)).status_code == 401
+    assert TestClient(app).get("/shop", headers=bearer(key)).status_code == 401
 
-
-def test_a_client_records_a_placed_slip_under_its_own_name():
-    key = _client(tools="aw26")
-    api = TestClient(app)
-    body = {"receipt": "R-1", "offer": "refund", "stake": 50,
-            "legs": [{"event": "Arsenal v Chelsea", "market": "Total Corners",
-                      "selection": "Over 9.5", "odds": 1.9}]}
-    r = api.post("/aw26/slips/record", json=body, headers=bearer(key))
-    assert r.status_code == 200, r.text
-    slip = r.json()
-    assert slip["user"] == "api:bot" and slip["stake"] == 50 and len(slip["legs"]) == 1
-    assert api.post("/aw26/slips/record", json=body, headers=bearer(key)).status_code == 409
-    assert api.get("/aw26/slips", headers=bearer(key)).json()["slips"][0]["receipt"] == "R-1"

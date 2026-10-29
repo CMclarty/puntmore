@@ -8,7 +8,6 @@ from app.security import require_user, user_permissions
 # Routes whose body is not JSON (a file, a CSV) or that are the docs themselves.
 NO_MODEL = {
     ("GET", "/pnl/{category}/bets.csv"),
-    ("GET", "/aw26/slips/{slip_id}/image"),
     ("GET", "/openapi.json"),
     ("GET", "/docs"),
 }

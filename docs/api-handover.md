@@ -1,5 +1,8 @@
 # Puntmore as an API — handover (26 Oct 2026)
 
+> Historical (Oct 2026). AW 26 has since been retired (`docs/retired.md`); its
+> routes, package and client methods below no longer exist on main.
+
 For the agent doing this build. Verified against the repo on 26 Oct 2026;
 nothing here is a guess. Worktree `/home/callum/bettingtools-api`, branch
 `api-modular` off `main` (d405531). **Every push to `main` is a production

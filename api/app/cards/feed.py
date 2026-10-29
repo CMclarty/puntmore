@@ -1,7 +1,7 @@
 """The Paddy (cards & corners) value feed — importable without FastAPI.
 
 Moved out of routers/cards.py (Oct 2026) so the router, /state, the scheduler,
-the AW 26 snapshots and the cross-tool value feed (app/value/) all call one
+and the cross-tool value feed (app/value/) all call one
 implementation. Same behaviour as before the move.
 """
 from ..schemas import CardFeedItem, CardFeedBet, CardFeedFair

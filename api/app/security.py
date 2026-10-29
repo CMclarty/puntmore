@@ -23,7 +23,7 @@ from .time_utils import utcnow
 # Every tool the suite knows about. "*" in a permission string means all of
 # these plus any added later (so an admin never needs their entry edited when a
 # tool ships). Keep in sync with the routers mounted in main.py.
-ALL_TOOLS = ("coupons", "accabonus", "cards", "goalscorers", "pnl", "kelly", "boost", "shop", "aw26", "scraper")
+ALL_TOOLS = ("coupons", "accabonus", "cards", "goalscorers", "pnl", "kelly", "boost", "shop", "scraper")
 
 # Grants that name no page — they exist for machine callers. `value` reads the
 # cross-tool value feed (GET /api/value); `state` is the whole-app snapshot
@@ -164,7 +164,7 @@ class Principal:
     @property
     def username(self) -> str:
         """The name a client acts under where a route records who did it (a
-        P&L bet, an AW 26 slip). Prefixed so it can never be a real user's."""
+        P&L bet, a shop row). Prefixed so it can never be a real user's."""
         return f"api:{self.name}"
 
 
@@ -275,9 +275,6 @@ def enabled_tools() -> list[str]:
     # and no vendor API — there is no quota or feed to switch off, so it is
     # always surfaced and gated by the per-user grant alone.
     tools.append("shop")
-    # AW 26: its own rows and a key-guarded ingest, no vendor quota — always
-    # surfaced, grant-gated like the shop tracker.
-    tools.append("aw26")
     # The scraper's control page: its own rows, no vendor quota — grant-gated.
     tools.append("scraper")
     return tools

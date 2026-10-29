@@ -23,7 +23,6 @@ const IDENTITIES = [
   { match: (p) => p === '/pnl/dogs', title: 'P&L — Dogs', icon: 'pnl-dogs' },
   { match: (p) => p === '/virtuals', title: 'Puntmore — Virtuals', icon: 'boost', manifest: 'virtuals' },
   { match: (p) => p === '/kelly', title: 'Puntmore — Kelly', icon: 'kelly' },
-  { match: (p) => p === '/aw26', title: 'Puntmore — AW 26', icon: 'aw26' },
   { match: (p) => p === '/shop', title: 'Puntmore — Shop Visits', icon: 'shop' },
   { match: (p) => p === '/365/scorers', title: 'Puntmore — Goalscorers', icon: 'goalscorers' },
   { match: (p) => p.startsWith('/365') || p === '/accabonus', title: 'Puntmore — 365', icon: 'accabonus' },

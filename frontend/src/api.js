@@ -271,30 +271,6 @@ async function del(path) {
   if (!res.ok && res.status !== 204) throw await fail(res, path, 'DELETE')
 }
 
-// AW 26 — the acca project's slips
-export const getAwSlips = () => get('/aw26/slips')
-export async function uploadAwSlip(offer, file) {
-  const form = new FormData()
-  form.append('offer', offer)
-  form.append('file', file)
-  const res = await send('/aw26/slips', { method: 'POST', body: form }, 'POST')
-  if (res.status === 401) { redirectToLogin(); throw new ApiError('Not authenticated', { status: 401, path: '/aw26/slips' }) }
-  if (!res.ok) throw await fail(res, '/aw26/slips', 'POST')
-  return res.json()
-}
-export async function editAwSlip(id, fields) {
-  const path = `/aw26/slips/${id}`
-  const res = await send(path, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(fields),
-  }, 'PATCH')
-  if (res.status === 401) { redirectToLogin(); throw new ApiError('Not authenticated', { status: 401, path }) }
-  if (!res.ok) throw await fail(res, path, 'PATCH')
-  return res.json()
-}
-export const deleteAwSlip = (id) => del(`/aw26/slips/${id}`)
-
 // Scraper control (routers/scraper.py): leagues, markets and per-site timings
 // the scraper box reads, and its last status report. Every edit answers with
 // the whole state, so the page just re-renders from it.

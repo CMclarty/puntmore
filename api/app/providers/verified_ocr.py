@@ -98,11 +98,6 @@ class VerifiedOCRProvider(OCRProvider):
         self.inner = inner
         self._workers = max(1, workers)
 
-    def read_slip(self, image_bytes: bytes, media_type: str):
-        # A slip is one bet of a few lines, not a grid: there is no row to slip,
-        # so it is read once. Every field is shown and editable on the page.
-        return self.inner.read_slip(image_bytes, media_type)
-
     def extract(
         self, image_bytes: bytes, media_type: str, hint: OcrHint | None = None
     ) -> ExtractedCoupon:

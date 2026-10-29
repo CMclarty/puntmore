@@ -42,8 +42,6 @@ from .routers import saves_ingest as saves_ingest_router
 from .routers import goalscorers as goalscorers_router
 from .routers import pnl as pnl_router
 from .routers import shop as shop_router
-from .routers import aw26 as aw26_router
-from .routers import aw26_ingest as aw26_ingest_router
 from .routers import auth as auth_router
 from .routers import state as state_router
 from .routers import diagnostics as diagnostics_router
@@ -348,12 +346,6 @@ if settings.enable_pnl:
 # The shop tracker reads and writes only its own rows and calls no vendor API,
 # so there is no flag to gate it on — access is per-user via the grant alone.
 app.include_router(shop_router.router, dependencies=[Depends(require_tool("shop"))])
-# AW 26 — the acca project's slips. No vendor API of its own and no quota, so
-# no flag: the grant alone gates it. Its fair prices arrive from the local Bookie
-# Bashing script through the key-guarded ingest, not a session.
-app.include_router(aw26_router.router, dependencies=[Depends(require_tool("aw26"))])
-app.include_router(aw26_ingest_router.router, tags=["aw26"])
-
 # The scraper's control plane: the page edits it under the `scraper` grant;
 # the scraper box reads its config and reports status with the ingest key.
 app.include_router(scraper_router.router, dependencies=[Depends(require_tool("scraper"))])

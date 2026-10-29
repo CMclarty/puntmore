@@ -194,9 +194,8 @@ def sweep_cards(cards_client, notifier=None) -> int:
     try:
         from .cards.feed import price_events      # one pricing entry point
         events = cards_client.get_events()
-        # Price down to 95% of fair ONCE (what the page shows): the AW 26
-        # snapshot keeps every line a leg could have been taken on, while the
-        # alerts and their dedupe see only the lines at or above the floor.
+        # Price down to 95% of fair ONCE (what the page shows); the alerts and
+        # their dedupe see only the lines at or above the floor.
         priced = price_events(events, -0.05)
         rows = [r for r in priced if r.edge >= settings.cards_min_edge]
     except Exception as exc:
@@ -209,14 +208,6 @@ def sweep_cards(cards_client, notifier=None) -> int:
         return 0
     LAST_CARDS_ERROR.clear()
     health.record(laddered.LAST_RUN, len(rows))
-
-    # AW 26: keep what was on offer (throttled, aw26/snapshots.py). Reuses the
-    # priced rows — no vendor call — and is never allowed to break the sweep.
-    try:
-        from .aw26 import snapshots
-        snapshots.snapshot_sweep(priced, SessionLocal)
-    except Exception:
-        logger.exception("AW 26 value snapshot failed")
 
     # Measure the counts model against the ladders just fitted (a few per
     # tick). Never allowed to break the sweep.
@@ -362,31 +353,13 @@ def sweep_accabonus(arbs_client, notifier=None) -> int:
     return len(rows)
 
 
-def aw26_daily(notifier=None):
-    from .aw26.service import run_daily
-    db = SessionLocal()
-    try:
-        message = run_daily(db, notifier)
-        logger.info("aw26 daily: %s", message.replace("\n", " | "))
-    finally:
-        db.close()
-    paddy_health(notifier)
-
-
 def paddy_health(notifier=None) -> list[str]:
     """The Paddy lines under the morning post (cards/health.py): the day's
-    sweeps, the team split's disagreements, whether the scraper fed anything
-    and whether snapshots landed. Never allowed to break the daily job."""
+    sweeps, the team split's disagreements and whether the scraper fed
+    anything. Never allowed to break the daily job."""
     try:
         from .cards import most, saves
-        from .models import ValueSnapshot
-        db = SessionLocal()
-        try:
-            snapshots = (db.query(ValueSnapshot)
-                         .filter(ValueSnapshot.at >= utcnow() - timedelta(days=1)).count())
-        finally:
-            db.close()
-        lines = health.report(saves=len(saves.STORE), most=len(most.STORE), snapshots=snapshots)
+        lines = health.report(saves=len(saves.STORE), most=len(most.STORE))
         # The instance has 512 MB and has been restarted for memory before:
         # the resident size belongs in the morning post, not only in diagnostics.
         from .diagnostics import rss_mb
@@ -500,15 +473,16 @@ def start_scheduler(
             kwargs={"scheduler": scheduler, "client": odds_client, "notifier": notifier},
         )
 
-    # AW 26: settle and post the day just gone, each morning (London). 08:47
-    # rather than on the hour — scheduled work bunches at :00.
+    # The Paddy health post, each morning (London). 08:47 rather than on the
+    # hour — scheduled work bunches at :00. (It rode on AW 26's daily job,
+    # and kept its time and Discord route when AW 26 was retired.)
     scheduler.add_job(
-        aw26_daily,
+        paddy_health,
         trigger="cron",
         hour=8,
         minute=47,
         timezone="Europe/London",
-        id="aw26_daily",
+        id="paddy_health",
         replace_existing=True,
         coalesce=True,
         max_instances=1,

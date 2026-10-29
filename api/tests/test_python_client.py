@@ -67,14 +67,14 @@ def key(monkeypatch):
                   value=0.2, kickoff=utcnow() + timedelta(hours=5), side="home", rank=0)]
     db.add(c)
     db.commit()
-    _, k = apikeys.create(db, "placer", "value,aw26,cards,state")
+    _, k = apikeys.create(db, "placer", "value,cards,state")
     db.close()
     yield k
     app.dependency_overrides.pop(get_db, None)
     Base.metadata.drop_all(bind=engine)
 
 
-def test_sync_client_reads_value_and_records_a_slip(key):
+def test_sync_client_reads_value(key):
     with Puntmore("http://test", key, transport=_SyncASGI(root)) as pm:
         assert pm.whoami()["username"] == "api:placer"
         feed = pm.value(min_edge=0.05)
@@ -87,14 +87,6 @@ def test_sync_client_reads_value_and_records_a_slip(key):
         assert pm.paddy.feed() == []
         assert set(pm.state()) >= {"coupons", "cards", "accabonus"}
 
-        slip = pm.aw26.record([{"event": "Hull v Stoke", "market": "Team to score",
-                                "selection": "Hull 2+", "odds": 3.0}],
-                              stake=50, receipt="BP-1")
-        assert slip["user"] == "api:placer"
-        assert pm.aw26.slips()["slips"][0]["receipt"] == "BP-1"
-        with pytest.raises(PuntmoreError) as err:
-            pm.aw26.record([{"event": "Hull v Stoke", "odds": 3.0}], receipt="BP-1")
-        assert err.value.status == 409
 
 
 def test_async_client_over_asgi_transport(key):

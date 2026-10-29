@@ -4,8 +4,8 @@
 the morning post can answer the questions that otherwise need someone to open
 /paddy/diagnostics: is the sweep running, is the team split throwing fixtures
 away (`split_disagreement` — a systematic count means the handicap sign
-convention is wrong), is the desktop scraper feeding saves and "most" prices,
-and did the AW 26 snapshots land.
+convention is wrong), and is the desktop scraper feeding saves and "most"
+prices.
 
 `record` is called once per sweep; `report` builds the lines and starts the
 next day. Both are cheap and never raise into the sweep.
@@ -43,9 +43,9 @@ def record(last_run: dict | None, rows: int, *, error: bool = False) -> None:
             _DAY["by_market"][market] = _DAY["by_market"].get(market, 0) + tally.get("rows", 0)
 
 
-def report(*, saves: int = 0, most: int = 0, snapshots: int = 0) -> list[str]:
+def report(*, saves: int = 0, most: int = 0) -> list[str]:
     """The day's lines, then start the next day. `saves` and `most` are the
-    scraper stores' sizes; `snapshots` the AW 26 snapshots written today."""
+    scraper stores' sizes."""
     global _DAY
     with _LOCK:
         d, _DAY = _DAY, _fresh()
@@ -65,5 +65,4 @@ def report(*, saves: int = 0, most: int = 0, snapshots: int = 0) -> list[str]:
     lines.append(split)
     lines.append(f"Scraper: saves {saves} · most {most}"
                  + ("" if saves or most else " ⚠ nothing posted"))
-    lines.append(f"Snapshots: {snapshots}" + ("" if snapshots or d["sweeps"] == 0 else " ⚠ none written"))
     return lines

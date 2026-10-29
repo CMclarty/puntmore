@@ -40,7 +40,7 @@ def test_server_table_mirrors_the_frontends():
     js_icons = set(re.findall(r"icon: '([\w-]+)'", JS))
     py_icons = {icon for _, _, icon, _ in identity.IDENTITIES} | {identity.DEFAULT[1]}
     assert js_icons == py_icons
-    for path in ("/", "/t/abc", "/upload", "/pnl/dogs", "/virtuals", "/kelly", "/aw26", "/shop",
+    for path in ("/", "/t/abc", "/upload", "/pnl/dogs", "/virtuals", "/kelly", "/shop",
                  "/365/scorers", "/365/acca", "/accabonus", "/paddy", "/paddy/acca", "/cards",
                  "/scraper", "/login", "/nope"):
         ident = identity_for(path)

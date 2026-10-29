@@ -65,8 +65,6 @@ ICONS = {
     "goalscorers": ("#B0522D", big('<circle cx="256" cy="256" r="150"/>'
                                    '<path d="M256 186l66 48-25 78h-82l-25-78z" fill="' + INK + '"/>'
                                    '<path d="M256 186V106M322 234l76-24M297 312l48 64M215 312l-48 64M190 234l-76-24"/>')),
-    # AW 26: the chart.
-    "aw26": ("#1A1A18", big('<path d="M136 376V136"/><path d="M136 376h240"/><path d="M176 320l64-72 52 40 84-112"/>')),
     # Paddy: the steps (a line ladder).
     "paddy": ("#556270", nav('<polyline points="4,4 4,18 18,18"/><polyline points="4,4 10,4 10,10 16,10 16,18"/>')),
     # Shop visits: the bag.

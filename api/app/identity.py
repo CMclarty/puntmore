@@ -20,7 +20,6 @@ IDENTITIES = [
     (lambda p: p == "/pnl/dogs", "P&L — Dogs", "pnl-dogs", None),
     (lambda p: p == "/virtuals", "Puntmore — Virtuals", "boost", "virtuals"),
     (lambda p: p == "/kelly", "Puntmore — Kelly", "kelly", None),
-    (lambda p: p == "/aw26", "Puntmore — AW 26", "aw26", None),
     (lambda p: p == "/shop", "Puntmore — Shop Visits", "shop", None),
     (lambda p: p == "/365/scorers", "Puntmore — Goalscorers", "goalscorers", None),
     (lambda p: p.startswith("/365") or p == "/accabonus", "Puntmore — 365", "accabonus", None),

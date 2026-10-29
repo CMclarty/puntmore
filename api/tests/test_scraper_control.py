@@ -70,7 +70,7 @@ def test_worker_routes_503_when_no_key_is_configured(client, monkeypatch):
 
 
 def test_page_routes_need_the_scraper_grant(client):
-    app.dependency_overrides[user_permissions] = lambda: "coupons+aw26"
+    app.dependency_overrides[user_permissions] = lambda: "coupons+shop"
     try:
         assert client.get("/scraper").status_code == 403
         assert client.put("/scraper/timings/paddypower", json={"stale_min": 30}).status_code == 403

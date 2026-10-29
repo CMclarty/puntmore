@@ -363,7 +363,7 @@ bet on either skin produces an identical payload (same test, run twice with
 different wrappers); and there is exactly one implementation of the entry pad
 in the tree.
 
-### 9. AW 26 — the acca project dashboard  — BUILT, two readers waiting on real pages (Oct 2026)
+### 9. AW 26 — the acca project dashboard  — RETIRED 29 Oct 2026 (docs/retired.md; code on archive/aw26)
 Callum's brief: a new tool, **AW 26**, tracking every slip the acca project
 places — selections, stake, EV and volume — against two running targets,
 **£1,000 EV a day** and **£100,000 total profit**, with results checked daily

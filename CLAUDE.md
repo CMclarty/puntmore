@@ -47,23 +47,8 @@ A boosted bet stores the model's EV in pounds (`bets.ev`), which is virtuals'
 EV line — it has no Betfair SP. `/boost` and `/pnl/virtuals` redirect there;
 an account granted `boost` without `pnl` gets the old calculator
 (`BoostPage`) at the same address. The nav calls the dogs ledger "Dogs".
-**AW 26** (Oct 2026) is the acca project's slip ledger, `/aw26` (`aw26`
-grant; `*` includes it): photos of the Paddy terminal, one per bet, read by
-the OCR seam (`read_slip`, `providers/slip_ocr.py` — transcribe only) and
-saved at once with inline edit. ONE pot for the team. Offers: Paddy refund
-(5-fold, 1.20+ legs, refund worth 0.75 of stake, NO cap — Callum), acca boost
-(`BOOST_TIERS`, the Paddy page's terms) and "other". The offer maths is
-`aw26/offers.py`, pinned to the same worked cases as `accaInsurance.js` /
-`accaBoost.js` — change both or neither. Fairs come from Bookie Bashing's
-Group Tracker via `local/bookiebashing_tracker.py` → key-guarded
-`POST /api/aw26/fairs` (the saves key). A slip's EV is fixed once EVERY leg
-has a fair, never from the legs that did, and a later scrape never moves it;
-an edit re-prices (it is a correction). Targets: £1,000 EV/day, £100,000
-profit. 08:47 London: settle open slips from their legs' results and post to
-the `aw26` Discord route. Results are recorded on the page until OddsPapi's
-results endpoints are read (`/api/aw26/results-check?fixture=`) — the
-settlement reader is written from that output, not guessed, and the Group
-Tracker reader (`parse_page`) waits on a `dump` the same way.
+**AW 26** (the acca project's slip ledger) was retired on 29 Oct 2026 — see
+`docs/retired.md`; its code is on the `archive/aw26` branch.
 
 ## Odds sources
 - **Coupon tracker** → `BettingIsCoolProvider` (`providers/bettingiscool.py`).
@@ -763,7 +748,7 @@ per-router change; a client acts as `api:<name>` where a route records who did
 something. A key, when sent, IS the identity — a bad key is 401 even beside a
 session cookie. The key-only routes (/state, ingest) use `require_key_grant`.
 ```
-python -m app.apikeys create <name> --tools paddy,aw26   # prints the key ONCE
+python -m app.apikeys create <name> --tools paddy,value  # prints the key ONCE
 python -m app.apikeys list                              # never shows keys
 python -m app.apikeys revoke <name>                     # disables at once
 ```
@@ -779,8 +764,8 @@ any key, never public. Changes are ADDITIVE ONLY — a breaking change goes to
 `ValueSelection` shape, built from each tool's own feed builder (never a
 second pricing path). Tool logic lives in services (`cards/feed.py`,
 `accabonus/feed.py`, `coupons/service.py`, `pnl/service.py`,
-`shop/service.py`, `aw26/record.py`); routers stay thin. The Python client is
-`clients/python/puntmore`. Nothing in the API places a bet — read, record,
+`shop/service.py`); routers stay thin. The Python client is
+`clients/python/puntmore`. Nothing in the API places a bet — read and
 report — and no bookmaker-account automation is ever added here.
 
 ## UI rules — these are TOOLS, build only what is asked

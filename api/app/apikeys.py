@@ -1,6 +1,6 @@
 """API client keys — create, list, revoke.
 
-    python -m app.apikeys create <name> --tools paddy,aw26   # prints the key ONCE
+    python -m app.apikeys create <name> --tools paddy,value   # prints the key ONCE
     python -m app.apikeys list
     python -m app.apikeys revoke <name>
 
@@ -30,7 +30,7 @@ ALIASES = {
 
 
 def parse_tools(raw: str) -> str:
-    """"paddy,aw26" → "aw26+cards". Raises ValueError on an unknown name."""
+    """"paddy,value" → "cards+value". Raises ValueError on an unknown name."""
     names = [t.strip().lower() for t in raw.replace("+", ",").split(",") if t.strip()]
     if not names:
         raise ValueError("--tools is empty")
@@ -90,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("create", help="create a client and print its key once")
     c.add_argument("name")
-    c.add_argument("--tools", required=True, help='e.g. "paddy,aw26", "value", or "*"')
+    c.add_argument("--tools", required=True, help='e.g. "paddy,value", "value", or "*"')
     sub.add_parser("list", help="list clients (never their keys)")
     r = sub.add_parser("revoke", help="disable a client's key")
     r.add_argument("name")
