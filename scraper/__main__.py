@@ -36,8 +36,9 @@ WATCHDOG_S = 600
 # The whole service is restarted (a clean exit; Docker brings it back) about
 # this often. Swapping pages (runner.RECYCLE_H) frees the Python side, but the
 # Playwright driver still grew ~300 MB an hour on 29 Oct with Paddy's match
-# pages open, toward the container's 3 GB. Only a new driver frees that.
-RESTART_H = (2.5, 3.5)
+# pages open, toward the container's 3 GB. Only a new driver frees that. At
+# 2.5-3.5 h the Bookie Bashing renderer still crashed once (2 h 47 min in).
+RESTART_H = (1.5, 2.0)
 
 
 def watchdog(last_tick: list, limit_s: float = WATCHDOG_S, every_s: float = 30,
