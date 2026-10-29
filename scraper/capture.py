@@ -73,6 +73,12 @@ class Capture:
         self._mark = (0.0, None)                        # (ts, label)
         self._kept_html = False
         outdir.mkdir(parents=True, exist_ok=True)
+        self.attach(page)
+
+    def attach(self, page):
+        """Listen to `page` - the tab's first page, or the fresh one that
+        replaces it (runner.RECYCLE_H). The ring, pins and disk record carry
+        over: they are the tab's, not the page's."""
         page.on("response", self._on_response)
         page.on("websocket", self._on_ws)
 

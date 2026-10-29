@@ -102,3 +102,24 @@ def test_timed_reloads_are_jittered_around_the_interval(tmp_path):
     gaps = [b - a for a, b in zip(ts, ts[1:])]
     assert min(gaps) >= 0.75 * 600 - 15 and max(gaps) <= 1.35 * 600 + 15
     assert 9 * 60 < sum(gaps) / len(gaps) < 11.5 * 60
+
+
+def test_a_kept_open_tab_gets_a_fresh_page_every_couple_of_hours(tmp_path):
+    """A tab nothing reloads still has its page swapped for a fresh one about
+    every RECYCLE_H (Playwright frees a page's requests only on close), and
+    the old page is closed - not reloaded in place."""
+    random.seed(3)
+    bb = config.Target(name="bb", site="bookiebashing", url="https://www.bookiebashing.net/s",
+                       stale_min=10_000)
+    r = _runner(tmp_path, [bb])
+    t0 = time.time()
+    pages = []
+    for i in range(10 * 60 * 4):                        # 10 hours
+        r.tick(t0 + 15 * i)
+        page = r.tabs["bb"].page
+        if not pages or pages[-1] is not page:
+            pages.append(page)
+    assert 4 <= len(pages) <= 7                         # first page + one about every 2 h
+    assert r.ctx.n == len(pages)                        # each a new page, none reloaded
+    ts = [t for _, t in _loads(r)]
+    assert min(b - a for a, b in zip(ts, ts[1:])) >= 0.85 * 2 * 3600 - 15

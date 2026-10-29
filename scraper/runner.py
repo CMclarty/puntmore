@@ -5,6 +5,12 @@ load most targets cost NOTHING per tick — the capture just listens. A page is
 reloaded only when its target asks for it (`every_min`) or it has gone quiet
 for `stale_min`. Every load goes through the guard first.
 
+Every load of an open tab is a fresh page (the old one closed), and a tab is
+given one every RECYCLE_H anyway. Playwright holds every request and response
+a page has seen until that page closes - a reload frees none of it - so a tab
+kept open for hours filled the container's memory cap and hung the scraper
+(27-28 Oct 2026).
+
 Target kinds:
   page     one URL, one tab (e.g. Bookie Bashing's saves page)
   matches  a listing page (kept open) whose match links are opened, a few at
@@ -39,6 +45,8 @@ STATUS_PATH = "/api/scraper/status"
 RELOAD_JITTER = (0.75, 1.35)     # every_min
 RELIST_JITTER = (0.9, 1.3)       # a listing's relist_min
 ANY_LOAD_GAP_S = (20, 45)        # between any two page loads, whatever the site
+RECYCLE_H = 2.0                  # a tab's page is swapped for a fresh one this often
+RECYCLE_JITTER = (0.85, 1.2)
 
 
 class Tab:
@@ -46,10 +54,18 @@ class Tab:
         self.target, self.url, self.page, self.capture = target, url, page, capture
         self.opened = time.time()
         self.last_load = self.opened
+        self.fresh_page(page, self.opened)
         self.reloaded_stale = False        # reloaded once for going quiet
         self.due_at: float | None = None   # next timed reload, drawn once per load
         self.next_parse = 0.0
         self.market_tabs: dict[str, str] = {}   # market tab name -> what the click did
+
+    def fresh_page(self, page, now):
+        self.page = page
+        self.recycle_at = now + RECYCLE_H * 3600 * random.uniform(*RECYCLE_JITTER)
+
+    def worn(self, now) -> bool:
+        return now >= self.recycle_at
 
 
 class SiteState:
@@ -221,7 +237,15 @@ class Runner:
                 self.tabs[key] = tab
                 resp = page.goto(url, wait_until="domcontentloaded", timeout=60_000)
             else:
-                resp = tab.page.reload(wait_until="domcontentloaded", timeout=60_000)
+                old = tab.page
+                page = self.ctx.new_page()
+                tab.capture.attach(page)
+                tab.fresh_page(page, now)
+                try:
+                    old.close()
+                except Exception:
+                    pass
+                resp = page.goto(url, wait_until="domcontentloaded", timeout=60_000)
             self.guard.record_load(site, url, now)
             tab.last_load = now
             tab.due_at = None
@@ -331,7 +355,7 @@ class Runner:
             tab.due_at = tab.last_load + t.every_min * 60 * random.uniform(*RELOAD_JITTER)
         due = t.every_min and now >= tab.due_at
         stale = tab.capture.quiet_for(now) >= t.stale_min * 60 and now - tab.last_load >= t.stale_min * 60
-        if due or stale:
+        if due or stale or tab.worn(now):
             self._load(t, key, url, now)
 
     def _tick_matches(self, t, now):
@@ -343,7 +367,7 @@ class Runner:
             return
         if listing.due_at is None:
             listing.due_at = listing.last_load + m.relist_min * 60 * random.uniform(*RELIST_JITTER)
-        if now >= listing.due_at:
+        if now >= listing.due_at or listing.worn(now):
             self._load(t, list_key, t.url, now)
             return
 
@@ -359,6 +383,9 @@ class Runner:
             elif quiet and now - tab.last_load >= t.stale_min * 60:
                 if self._load(t, key, tab.url, now):
                     tab.reloaded_stale = True
+            elif tab.worn(now):
+                if self._load(t, key, tab.url, now):
+                    self._open_market_tabs(t, tab, now)
 
         open_urls = {tab.url for k, tab in self.tabs.items() if k.startswith(t.name + ":m:")}
         if len(open_urls) >= m.max_tabs:
