@@ -109,6 +109,9 @@ _TEAM_ALIASES: dict[str, str] = {
     # Welsh: "The" survives form-stripping, so both spellings are pinned.
     "the new saints": "new saints",
     "tns": "new saints",
+    # English: Paddy's page prints the nickname (Oct 2026), the boards the name.
+    "wolves": "wolverhampton wanderers",
+    "wolverhampton": "wolverhampton wanderers",
 }
 
 _PUNCT_RE = re.compile(r"['\-.()\[\]]")

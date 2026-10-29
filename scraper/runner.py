@@ -47,6 +47,10 @@ RELIST_JITTER = (0.9, 1.3)       # a listing's relist_min
 ANY_LOAD_GAP_S = (20, 45)        # between any two page loads, whatever the site
 RECYCLE_H = 2.0                  # a tab's page is swapped for a fresh one this often
 RECYCLE_JITTER = (0.85, 1.2)
+# A match page polls only the prices of the market tab on screen, so its
+# market tabs are clicked again this often (in-page clicks, not loads).
+CLICK_EVERY_S = 10 * 60
+CLICK_JITTER = (0.8, 1.4)
 
 
 class Tab:
@@ -59,6 +63,8 @@ class Tab:
         self.due_at: float | None = None   # next timed reload, drawn once per load
         self.next_parse = 0.0
         self.market_tabs: dict[str, str] = {}   # market tab name -> what the click did
+        self.next_clicks: float | None = None   # next market-tab round; None = never clicked
+        self.tabs_said = ""
 
     def fresh_page(self, page, now):
         self.page = page
@@ -386,6 +392,8 @@ class Runner:
             elif tab.worn(now):
                 if self._load(t, key, tab.url, now):
                     self._open_market_tabs(t, tab, now)
+            elif tab.next_clicks is not None and now >= tab.next_clicks:
+                self._open_market_tabs(t, tab, now)
 
         open_urls = {tab.url for k, tab in self.tabs.items() if k.startswith(t.name + ":m:")}
         if len(open_urls) >= m.max_tabs:
@@ -402,8 +410,9 @@ class Runner:
             break
 
     def _open_market_tabs(self, t, tab, now):
-        """Click the in-page market tabs once, so the page fetches (and then
-        keeps refreshing) the markets we want. Each click goes through the
+        """Click the in-page market tabs, so the page fetches the markets we
+        want - on arrival, then every CLICK_EVERY_S, since the page keeps
+        refreshing only the tab on screen. Each click goes through the
         mouse, then waits for the page's own network to bring the tab's
         markets in, then reads down them. What happened to each is kept on
         the tab for the status report: loaded | clicked, nothing new |
@@ -423,9 +432,10 @@ class Runner:
                 # Goals, Other Markets. So this is the market not being up
                 # yet, not a locator miss - the page is kept once per run
                 # so a real miss can still be checked.
+                if tab.market_tabs.get(name) != "not offered":    # once, not every round
+                    print(f"{tab.url}: no {name!r} tab; tabs drawn: "
+                          f"{', '.join(browser.visible_tabs(page)) or 'none found'}", flush=True)
                 tab.market_tabs[name] = "not offered"
-                print(f"{tab.url}: no {name!r} tab; tabs drawn: "
-                      f"{', '.join(browser.visible_tabs(page)) or 'none found'}", flush=True)
                 self._snapshot_once(t, tab, "market-tab-not-found")
                 continue
             loc, label = found
@@ -446,9 +456,11 @@ class Runner:
                 browser.read_down(page)
             except Exception:
                 pass
-        if tab.market_tabs:
-            print(f"{tab.url}: market tabs: "
-                  + ", ".join(f"{n} {o}" for n, o in tab.market_tabs.items()), flush=True)
+        tab.next_clicks = now + CLICK_EVERY_S * random.uniform(*CLICK_JITTER)
+        said = ", ".join(f"{n} {o}" for n, o in tab.market_tabs.items())
+        if said and said != tab.tabs_said:
+            print(f"{tab.url}: market tabs: {said}", flush=True)
+            tab.tabs_said = said
 
     def _snapshot_once(self, t, tab, why):
         """Save the page as it is drawn (HTML + screenshot, no request) once

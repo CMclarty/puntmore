@@ -140,6 +140,7 @@ def test_alias_canonicalises_both_directions():
     assert normalise_team("Red Star Belgrade") == normalise_team("Crvena Zvezda")
     assert normalise_team("Sangju") == normalise_team("Gimcheon Sangmu")
     assert normalise_team("MP Mikkeli") == normalise_team("Mikkelin Palloilijat")
+    assert normalise_team("Wolves") == normalise_team("Wolverhampton Wanderers")
 
 
 def test_per_side_rescues_a_one_sided_name_difference():

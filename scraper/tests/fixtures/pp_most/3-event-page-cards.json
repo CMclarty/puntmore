@@ -1,0 +1,259 @@
+{
+ "attachments": {
+  "events": {
+   "36206188": {
+    "eventId": 36206188,
+    "competitionId": 10932509,
+    "eventTypeId": 1,
+    "name": "Chelsea v Man Utd",
+    "openDate": "2026-10-31T12:30:00.000Z",
+    "countryCode": "GB",
+    "onTvChannels": [
+     "TNT Sports 1"
+    ],
+    "videoAvailable": false
+   }
+  },
+  "markets": {
+   "927.409615731": {
+    "marketId": "927.409615731",
+    "eventTypeId": 1,
+    "competitionId": 10932509,
+    "eventId": 36206188,
+    "marketName": "Match Odds",
+    "marketTime": "2026-10-31T12:30:00.000Z",
+    "marketType": "MATCH_ODDS",
+    "bspMarket": false,
+    "sgmMarket": true,
+    "inPlay": false,
+    "numberOfRunners": 3,
+    "numberOfActiveRunners": 3,
+    "numberOfWinners": 1,
+    "sortPriority": 1,
+    "bettingType": "ODDS",
+    "marketStatus": "OPEN",
+    "runners": [
+     {
+      "selectionId": 55190,
+      "handicap": 0,
+      "runnerName": "Chelsea",
+      "sortPriority": 1,
+      "result": {
+       "type": "HOME"
+      },
+      "runnerStatus": "ACTIVE",
+      "winRunnerOdds": {
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 1.833333333333333
+        },
+        "fractionalOdds": {
+         "numerator": 5,
+         "denominator": 6
+        }
+       }
+      },
+      "previousWinRunnerOdds": [
+       {
+        "trueOdds": {
+         "decimalOdds": {
+          "decimalOdds": 1.8
+         },
+         "fractionalOdds": {
+          "numerator": 4,
+          "denominator": 5
+         }
+        }
+       }
+      ]
+     },
+     {
+      "selectionId": 58805,
+      "handicap": 0,
+      "runnerName": "The Draw",
+      "sortPriority": 2,
+      "result": {
+       "type": "DRAW"
+      },
+      "runnerStatus": "ACTIVE",
+      "winRunnerOdds": {
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 3.8
+        },
+        "fractionalOdds": {
+         "numerator": 14,
+         "denominator": 5
+        }
+       }
+      },
+      "previousWinRunnerOdds": [
+       {
+        "trueOdds": {
+         "decimalOdds": {
+          "decimalOdds": 4
+         },
+         "fractionalOdds": {
+          "numerator": 3,
+          "denominator": 1
+         }
+        }
+       }
+      ]
+     },
+     {
+      "selectionId": 48351,
+      "handicap": 0,
+      "runnerName": "Man Utd",
+      "sortPriority": 3,
+      "result": {
+       "type": "AWAY"
+      },
+      "runnerStatus": "ACTIVE",
+      "winRunnerOdds": {
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 3.8
+        },
+        "fractionalOdds": {
+         "numerator": 14,
+         "denominator": 5
+        }
+       }
+      },
+      "previousWinRunnerOdds": [
+       {
+        "trueOdds": {
+         "decimalOdds": {
+          "decimalOdds": 4
+         },
+         "fractionalOdds": {
+          "numerator": 3,
+          "denominator": 1
+         }
+        }
+       }
+      ]
+     }
+    ],
+    "canTurnInPlay": true,
+    "hasCashout": true,
+    "eachwayAvailable": false,
+    "legTypes": [
+     "SIMPLE_SELECTION",
+     "WINCAST"
+    ]
+   },
+   "927.412364069": {
+    "marketId": "927.412364069",
+    "eventTypeId": 1,
+    "competitionId": 10932509,
+    "eventId": 36206188,
+    "marketName": "Team To Receive The Most Cards",
+    "marketTime": "2026-10-31T12:30:00.000Z",
+    "marketType": "TEAM_TO_RECEIVE_THE_MOST_CARDS",
+    "bspMarket": false,
+    "sgmMarket": true,
+    "inPlay": false,
+    "numberOfRunners": 3,
+    "numberOfActiveRunners": 3,
+    "numberOfWinners": 1,
+    "sortPriority": -1520,
+    "bettingType": "ODDS",
+    "marketStatus": "OPEN",
+    "runners": [
+     {
+      "selectionId": 55190,
+      "handicap": 0,
+      "runnerName": "Chelsea",
+      "sortPriority": 1,
+      "result": {},
+      "runnerStatus": "ACTIVE",
+      "winRunnerOdds": {
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 2.4
+        },
+        "fractionalOdds": {
+         "numerator": 7,
+         "denominator": 5
+        }
+       }
+      },
+      "previousWinRunnerOdds": [
+       {
+        "trueOdds": {
+         "decimalOdds": {
+          "decimalOdds": 2.3
+         },
+         "fractionalOdds": {
+          "numerator": 13,
+          "denominator": 10
+         }
+        }
+       }
+      ]
+     },
+     {
+      "selectionId": 48351,
+      "handicap": 0,
+      "runnerName": "Man Utd",
+      "sortPriority": 2,
+      "result": {},
+      "runnerStatus": "ACTIVE",
+      "winRunnerOdds": {
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 2.1
+        },
+        "fractionalOdds": {
+         "numerator": 11,
+         "denominator": 10
+        }
+       }
+      },
+      "previousWinRunnerOdds": [
+       {
+        "trueOdds": {
+         "decimalOdds": {
+          "decimalOdds": 2.2
+         },
+         "fractionalOdds": {
+          "numerator": 6,
+          "denominator": 5
+         }
+        }
+       }
+      ]
+     },
+     {
+      "selectionId": 143789,
+      "handicap": 0,
+      "runnerName": "Tie",
+      "sortPriority": 3,
+      "result": {},
+      "runnerStatus": "ACTIVE",
+      "winRunnerOdds": {
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 4.333333333333333
+        },
+        "fractionalOdds": {
+         "numerator": 10,
+         "denominator": 3
+        }
+       }
+      },
+      "previousWinRunnerOdds": []
+     }
+    ],
+    "canTurnInPlay": true,
+    "hasCashout": true,
+    "eachwayAvailable": false,
+    "legTypes": [
+     "SIMPLE_SELECTION"
+    ]
+   }
+  }
+ }
+}
