@@ -20,7 +20,7 @@ import { PUNTMORE, SHALGO, SITE } from './site'
 // "wrong page half the time". Only routes that render a page are listed; a
 // route that redirects (battles, /pnl/virtuals, /boost) takes its target's.
 //
-// Two sites share the shell (site.js): Paddy, Hills, AW 26 and the scraper
+// Two sites share the shell (site.js): Paddy, Hills and the scraper
 // carry Shalgo's name, and a path with no tool of its own (/login, Shalgo's
 // landing "/") takes the identity of the site it is on.
 const IDENTITIES = [

@@ -11,7 +11,7 @@ served: manifest, apple-touch-icon, favicon and title. PageIdentity still runs
 in the page for client-side navigation. The table below MIRRORS
 frontend/src/identity.js (tests/test_identity.py checks they agree).
 
-Two sites share the shell (app/site.py): Paddy, Hills, AW 26 and the scraper
+Two sites share the shell (app/site.py): Paddy, Hills and the scraper
 carry Shalgo's name, and a path with no tool of its own (/login, a Shalgo
 landing) takes the identity of the site whose host served it.
 """
