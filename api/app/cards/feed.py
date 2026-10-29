@@ -165,6 +165,18 @@ def diagnose(client) -> dict:
             + (f"Next listed kickoff: {nxt}. " if nxt else
                "No upcoming fixture is listed in any covered competition. ")
         ).strip()
+    elif sweep.get("carried_paddy_prices", 0) == 0 and any(
+            e.startswith(book) and "FIXTURE_NOT_FOUND" in e for e in sweep.get("errors") or []):
+        # OddsPapi answers "no fixtures" for the book across whole competitions:
+        # it has no odds of any kind for it, not even the match result. Their
+        # feed is empty, which is not the book declining to post the markets.
+        verdict = (
+            f"OddsPapi has no {name} odds at all on these competitions, not even "
+            f"match result, though it lists {sweep.get('called')} fixture(s) "
+            f"from other books. That's OddsPapi's {name} feed being empty, not "
+            f"{name} skipping corners/cards. Raise it with OddsPapi (the plan "
+            f"does include {book})."
+        )
     elif sweep.get("carried_paddy_prices", 0) == 0:
         verdict = (
             f"{sweep.get('called')} fixture(s) called and NONE carried {name} "

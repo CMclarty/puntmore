@@ -164,6 +164,21 @@ def test_diagnostics_name_william_hill():
     assert "William Hill" in verdict and "Paddy" not in verdict
 
 
+def test_an_empty_oddspapi_book_is_blamed_on_oddspapi_not_the_book():
+    """29 Oct: OddsPapi answered FIXTURE_NOT_FOUND for williamhill on every
+    competition (no match result either), and the verdict said WH was not
+    posting corners/cards."""
+    src = StubSource([], op.WILLIAM_HILL)
+    src.last_sweep = {"source": "oddspapi", "fixtures_in_window": 108, "called": 108,
+                      "carried_paddy_prices": 0,
+                      "errors": ['williamhill [17]: OddsPapi /odds-by-tournaments: HTTP 404: '
+                                 '{"error":{"message":"No fixtures found for the specified '
+                                 'tournament IDs and bookmaker.","code":"FIXTURE_NOT_FOUND"}}']}
+    verdict = feed.diagnose(src)["verdict"]
+    assert "OddsPapi has no William Hill odds" in verdict
+    assert "not posting" not in verdict
+
+
 # --- routes -------------------------------------------------------------------
 
 def test_the_hills_feed_reads_the_hills_client_and_paddys_its_own():
