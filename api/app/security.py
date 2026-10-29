@@ -246,6 +246,22 @@ def parse_permissions(perms: str) -> set[str]:
     return {t.strip() for t in perms.split("+") if t.strip()}
 
 
+# Tools only these LOGINS ever see, whatever their grant says ("*" included):
+# the scraper's control page is Callum's own (Oct 2026). API clients keep their
+# grants — this is about who signs in, not what the scraper box's key may read.
+OWNER_ONLY = {"scraper": ("cmclarty",)}
+
+
+def login_permissions(username: str, perms: str) -> str:
+    """A signed-in user's grant with the owner-only tools they don't own
+    taken out. "*" becomes the explicit list, less those tools."""
+    hidden = {t for t, owners in OWNER_ONLY.items() if username not in owners}
+    granted = parse_permissions(perms)
+    if not hidden & granted:
+        return perms
+    return "+".join(t for t in ALL_TOOLS if t in granted - hidden)
+
+
 def has_permission(perms: str, tool: str) -> bool:
     """True if the permission string grants access to `tool` ("*" grants all)."""
     if (perms or "").strip() == "*":
@@ -315,7 +331,7 @@ def user_permissions(
     if user is None:
         # Session names a user that no longer exists (deleted between requests).
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return user.permissions or ""
+    return login_permissions(user.username, user.permissions or "")
 
 
 def require_tool(tool: str):

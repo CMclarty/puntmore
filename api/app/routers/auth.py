@@ -11,6 +11,7 @@ from ..security import (
     LoginThrottle,
     api_key_auth,
     granted_tools,
+    login_permissions,
     require_user,
     verify_login,
 )
@@ -35,7 +36,8 @@ class UserOut(BaseModel):
 
 def _user_out(user: User) -> UserOut:
     perms = user.permissions or "*"
-    return UserOut(username=user.username, permissions=perms, tools=granted_tools(perms))
+    return UserOut(username=user.username, permissions=perms,
+                   tools=granted_tools(login_permissions(user.username, perms)))
 
 
 @router.post("/login", response_model=UserOut)

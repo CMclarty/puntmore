@@ -202,11 +202,11 @@ def test_login_success_then_me():
     resp = client.post("/auth/login", json={"username": "alice", "password": "secret"})
     assert resp.status_code == 200
     # alice was seeded with the "*" grant; both tool flags are on in tests, so
-    # she resolves to every tool.
+    # she resolves to every tool but the scraper, which is its owner's login alone.
     expected = {
         "username": "alice",
         "permissions": "*",
-        "tools": ["coupons", "accabonus", "cards", "goalscorers", "pnl", "kelly", "boost", "shop", "scraper", "hills"],
+        "tools": ["coupons", "accabonus", "cards", "goalscorers", "pnl", "kelly", "boost", "shop", "hills"],
     }
     assert resp.json() == expected
     # session cookie now set on the client → /auth/me works
@@ -366,3 +366,20 @@ def test_weak_seed_passwords_flags_the_obvious_ones():
     assert weak_seed_passwords("dave:cqR7-vv2N!ktPz") == []       # fine
     # Reports usernames only — this gets logged, so it must never leak secrets.
     assert "admin" not in str(weak_seed_passwords("x:admin"))
+
+
+def test_the_scraper_page_is_its_owners_login_alone():
+    from app.security import login_permissions
+    assert "scraper" in granted_tools(login_permissions("cmclarty", "*"))
+    assert "scraper" not in granted_tools(login_permissions("alice", "*"))
+    assert login_permissions("alice", "scraper+coupons") == "coupons"   # an explicit grant too
+    assert login_permissions("alice", "coupons+pnl") == "coupons+pnl"  # untouched otherwise
+
+
+def test_scraper_routes_refuse_a_star_login_that_is_not_its_owner():
+    _seed_user()
+    client = TestClient(app)
+    _use_real_auth()
+    client.post("/auth/login", json={"username": "alice", "password": "secret"})
+    assert client.get("/scraper").status_code == 403
+    assert client.get("/shop").status_code == 200        # the rest of "*" still works
