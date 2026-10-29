@@ -97,3 +97,13 @@ def test_payloads_after_a_mark_are_pinned_and_labelled(tmp_path):
     rows = [json.loads(line) for line in (tmp_path / "a" / "index.jsonl").read_text().splitlines()]
     assert {"mark": "tab:Corners"}.items() <= rows[1].items()
     assert rows[2]["after"] == "tab:Corners"
+
+
+def test_the_ring_is_capped_by_bytes_too(tmp_path):
+    from scraper import capture as cap_mod
+    cap = Capture(_Page(), tmp_path, DiskBudget(1))
+    big = "x" * (cap_mod.RING_BYTES // 4 + 1)
+    for _ in range(10):
+        cap._keep("http", "https://www.paddypower.com/p", big)
+    assert len(cap.recent) == 3
+    assert sum(len(r[3]) for r in cap.recent) <= cap_mod.RING_BYTES

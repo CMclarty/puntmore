@@ -45,7 +45,7 @@ STATUS_PATH = "/api/scraper/status"
 RELOAD_JITTER = (0.75, 1.35)     # every_min
 RELIST_JITTER = (0.9, 1.3)       # a listing's relist_min
 ANY_LOAD_GAP_S = (20, 45)        # between any two page loads, whatever the site
-RECYCLE_H = 2.0                  # a tab's page is swapped for a fresh one this often
+RECYCLE_H = 0.5                  # a tab's page is swapped for a fresh one this often
 RECYCLE_JITTER = (0.85, 1.2)
 # A match page polls only the prices of the market tab on screen, so its
 # market tabs are clicked again this often (in-page clicks, not loads).
@@ -68,10 +68,14 @@ class Tab:
 
     def fresh_page(self, page, now):
         self.page = page
+        self.crashed = False
         self.recycle_at = now + RECYCLE_H * 3600 * random.uniform(*RECYCLE_JITTER)
+        page.on("crash", lambda _p: setattr(self, "crashed", True))
 
     def worn(self, now) -> bool:
-        return now >= self.recycle_at
+        """Due a fresh page: its time is up, or its renderer died (a crashed
+        page fails every parse until it is replaced)."""
+        return self.crashed or now >= self.recycle_at
 
 
 class SiteState:

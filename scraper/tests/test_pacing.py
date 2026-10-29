@@ -3,7 +3,7 @@ would do - no burst at startup, loads spaced, timed reloads jittered."""
 import random
 import time
 
-from scraper import config
+from scraper import config, runner
 from scraper.alerts import Alerts
 from scraper.guard import Guard
 from scraper.runner import Runner
@@ -104,7 +104,7 @@ def test_timed_reloads_are_jittered_around_the_interval(tmp_path):
     assert 9 * 60 < sum(gaps) / len(gaps) < 11.5 * 60
 
 
-def test_a_kept_open_tab_gets_a_fresh_page_every_couple_of_hours(tmp_path):
+def test_a_kept_open_tab_gets_a_fresh_page_every_so_often(tmp_path):
     """A tab nothing reloads still has its page swapped for a fresh one about
     every RECYCLE_H (Playwright frees a page's requests only on close), and
     the old page is closed - not reloaded in place."""
@@ -114,12 +114,27 @@ def test_a_kept_open_tab_gets_a_fresh_page_every_couple_of_hours(tmp_path):
     r = _runner(tmp_path, [bb])
     t0 = time.time()
     pages = []
-    for i in range(10 * 60 * 4):                        # 10 hours
+    hours = 5 * runner.RECYCLE_H
+    for i in range(int(hours * 3600 / 15)):
         r.tick(t0 + 15 * i)
         page = r.tabs["bb"].page
         if not pages or pages[-1] is not page:
             pages.append(page)
-    assert 4 <= len(pages) <= 7                         # first page + one about every 2 h
+    assert 4 <= len(pages) <= 7                         # first page + one about every RECYCLE_H
     assert r.ctx.n == len(pages)                        # each a new page, none reloaded
     ts = [t for _, t in _loads(r)]
-    assert min(b - a for a, b in zip(ts, ts[1:])) >= 0.85 * 2 * 3600 - 15
+    assert min(b - a for a, b in zip(ts, ts[1:])) >= 0.85 * runner.RECYCLE_H * 3600 - 15
+
+
+def test_a_crashed_page_is_replaced_on_the_next_tick(tmp_path):
+    bb = config.Target(name="bb", site="bookiebashing", url="https://www.bookiebashing.net/s",
+                       stale_min=10_000)
+    r = _runner(tmp_path, [bb])
+    t0 = time.time()
+    r.tick(t0)
+    first = r.tabs["bb"].page
+    r.tabs["bb"].crashed = True                         # what page.on("crash") sets
+    for i in range(1, 8):                               # past the load spacing
+        r.tick(t0 + 15 * i)
+    assert r.tabs["bb"].page is not first
+    assert not r.tabs["bb"].crashed

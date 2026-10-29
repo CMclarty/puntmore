@@ -4,7 +4,7 @@ The page's own scripts fetch and push prices; this listens. Every JSON/text
 response and websocket frame goes to:
 
   recent   a short in-memory ring, always on, whatever the disk does. This is
-           what parsers read.
+           what parsers read. Capped by count and by bytes (RING_BYTES).
   pinned   the payloads that arrived just after `mark()` (a market-tab
            click), kept apart so the market list a click brought in is still
            there after the ring has rolled over.
@@ -38,6 +38,8 @@ _TEXTUAL = re.compile(r"json|text/plain|javascript|graphql", re.I)
 _MIN_BYTES = 200          # skip beacons and empty acks
 _MAX_FILE = 2 * 1024 * 1024
 PIN_WINDOW_S = 20         # how long after mark() a payload is pinned
+RING_BYTES = 12 * 1024 * 1024   # the ring and the pins are capped by size as well
+PIN_BYTES = 6 * 1024 * 1024     # as count: Paddy's price polls are ~300 KB each
 
 
 class DiskBudget:
@@ -118,12 +120,20 @@ class Capture:
         """What arrived at or after `ts` (from the ring)."""
         return [r for r in self.recent if r[0] >= ts]
 
+    @staticmethod
+    def _push(ring, row, cap):
+        if len(ring) == ring.maxlen:
+            ring.popleft()
+        ring.append(row)
+        while len(ring) > 1 and sum(len(r[3]) for r in ring) > cap:
+            ring.popleft()
+
     def _keep(self, kind, url, text):
         now = time.time()
         self.last_activity = now
-        self.recent.append((now, kind, url, text))
+        self._push(self.recent, (now, kind, url, text), RING_BYTES)
         if self._mark[1] and now - self._mark[0] <= PIN_WINDOW_S:
-            self.pinned.append((now, kind, url, text, self._mark[1]))
+            self._push(self.pinned, (now, kind, url, text, self._mark[1]), PIN_BYTES)
         self._write(kind, url, text.encode("utf-8", "replace")[:_MAX_FILE], now)
 
     def _on_response(self, resp):
