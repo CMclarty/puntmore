@@ -15,6 +15,7 @@
                    on about:blank. No network.
 """
 import os
+import random
 import signal
 import sys
 import threading
@@ -32,6 +33,11 @@ from .sites import SITES
 # restart policy brings it back up on a fresh Chrome. Ticks normally take
 # seconds; the image's healthcheck already calls 5 min stale.
 WATCHDOG_S = 600
+# The whole service is restarted (a clean exit; Docker brings it back) about
+# this often. Swapping pages (runner.RECYCLE_H) frees the Python side, but the
+# Playwright driver still grew ~300 MB an hour on 29 Oct with Paddy's match
+# pages open, toward the container's 3 GB. Only a new driver frees that.
+RESTART_H = (2.5, 3.5)
 
 
 def watchdog(last_tick: list, limit_s: float = WATCHDOG_S, every_s: float = 30,
@@ -84,8 +90,13 @@ def run(s):
               + ", ".join(f"{t.name} ({t.site})" for t in s.targets), flush=True)
         last_tick = [time.monotonic()]
         watchdog(last_tick)
+        restart_at = time.monotonic() + random.uniform(*RESTART_H) * 3600
         while not stop:
             last_tick[0] = time.monotonic()
+            if last_tick[0] >= restart_at:
+                print("scheduled restart - exiting so the container starts afresh",
+                      flush=True)
+                break
             try:
                 runner.tick()
             except Exception as exc:              # one bad tick never ends the service
