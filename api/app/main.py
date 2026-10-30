@@ -17,6 +17,7 @@ from .security import (
     require_any_grant,
     require_tool,
     seed_users,
+    seed_coded_users,
     ensure_schema,
     weak_seed_passwords,
     MIN_PASSWORD_LENGTH,
@@ -76,6 +77,13 @@ async def lifespan(app: FastAPI):
         for username, old, new in regranted:
             logger.info(
                 "Regranted %s from AUTH_USERS: %r -> %r", username, old, new
+            )
+        created, regranted = seed_coded_users(db)
+        if created:
+            logger.info("Seeded %d user(s) from app/users.py", created)
+        for username, old, new in regranted:
+            logger.info(
+                "Regranted %s from app/users.py: %r -> %r", username, old, new
             )
         # Login is reachable from the public internet, so a guessable password
         # is the whole attack. Warn every startup until it is fixed — seeding

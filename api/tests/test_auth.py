@@ -15,6 +15,7 @@ from app.security import (
     verify_password,
     parse_auth_users,
     seed_users,
+    seed_coded_users,
     has_permission,
     granted_tools,
 )
@@ -128,6 +129,30 @@ def test_seed_users_never_modifies_an_existing_password():
         assert verify_password("original", after)
     finally:
         db.close()
+
+
+def test_coded_users_log_in_with_the_password_behind_their_hash():
+    db = TestSession()
+    try:
+        users = [("gina", hash_password("a-long-test-password"), "cards+hills")]
+        assert seed_coded_users(db, users) == (1, [])
+        row = db.query(User).filter(User.username == "gina").first()
+        assert verify_password("a-long-test-password", row.password_hash)
+        assert row.permissions == "cards+hills"
+        assert seed_coded_users(db, users) == (0, [])
+        created, changed = seed_coded_users(db, [("gina", hash_password("other"), "*")])
+        assert changed == [("gina", "cards+hills", "*")]
+        assert verify_password("a-long-test-password",            # password kept
+                               db.query(User).filter(User.username == "gina").first().password_hash)
+    finally:
+        db.close()
+
+
+def test_the_coded_user_list_holds_hashes_not_passwords():
+    from app.users import USERS
+    for username, password_hash, permissions in USERS:
+        assert password_hash.startswith("$2") and len(password_hash) == 60, username
+        assert permissions
 
 
 def test_seed_users_reconciles_permissions_of_existing_users():

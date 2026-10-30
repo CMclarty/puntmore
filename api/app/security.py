@@ -460,6 +460,27 @@ def seed_users(db: Session, raw: str) -> tuple[int, list[tuple[str, str, str]]]:
     return created, changed
 
 
+def seed_coded_users(db: Session, users=None) -> tuple[int, list[tuple[str, str, str]]]:
+    """seed_users for the accounts in app/users.py, whose passwords come as
+    bcrypt hashes. Run after the AUTH_USERS seeding, so where a user is in
+    both, the grant in code wins."""
+    if users is None:
+        from .users import USERS as users
+    created = 0
+    changed: list[tuple[str, str, str]] = []
+    for username, password_hash, permissions in users:
+        existing = db.query(User).filter(User.username == username).first()
+        if existing is None:
+            db.add(User(username=username, password_hash=password_hash,
+                        permissions=permissions))
+            created += 1
+        elif existing.permissions != permissions:
+            changed.append((username, existing.permissions, permissions))
+            existing.permissions = permissions
+    db.commit()
+    return created, changed
+
+
 def ensure_schema() -> None:
     """Idempotent SQLite migrations. Safe to run on every startup."""
     from .models import Base  # local import avoids circular at module level
