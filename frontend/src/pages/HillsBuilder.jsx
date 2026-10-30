@@ -5,6 +5,7 @@ import {
 } from '../api'
 import OddsWheel, { LADDER } from '../components/OddsWheel'
 import useAutoRefresh from '../hooks/useAutoRefresh'
+import { shortTeams } from '../teams'
 import s from './HillsBuilder.module.css'
 
 /**
@@ -72,7 +73,7 @@ function TargetPicker({ current, onSet, onCancel }) {
           : fixtures.length ? 'Pick the boosted match' : 'No boosted fixtures in the next 7 days'}</option>
         {(fixtures || []).map(fx => (
           <option key={fx.fixture_id} value={fx.fixture_id}>
-            {fx.home} v {fx.away} · {kickoff(fx.kickoff)}{fx.competition === 'Premier League' ? '' : ` · ${fx.competition}`}
+            {shortTeams(fx.home)} v {shortTeams(fx.away)} · {kickoff(fx.kickoff)}{fx.competition === 'Premier League' ? '' : ` · ${fx.competition}`}
           </option>
         ))}
       </select>
@@ -160,7 +161,7 @@ export default function HillsBuilder() {
   return (
     <div className={s.wrap}>
       <div className={s.target}>
-        <span className={s.targetMatch}>{tgt.match}</span>
+        <span className={s.targetMatch}>{shortTeams(tgt.match)}</span>
         <span className={s.targetMeta}>
           {kickoff(tgt.kickoff)} · {tgt.competition} · <b>+{pct}%</b> · set by {tgt.set_by}
         </span>
@@ -190,7 +191,7 @@ export default function HillsBuilder() {
           {offered.map(l => (
             <button key={legKey(l)} type="button"
               className={`${s.chip} ${picked.has(legKey(l)) ? s.chipOn : ''}`}
-              aria-pressed={picked.has(legKey(l))} onClick={() => toggleLeg(legKey(l))}>{l.label}</button>
+              aria-pressed={picked.has(legKey(l))} onClick={() => toggleLeg(legKey(l))}>{shortTeams(l.label)}</button>
           ))}
         </div>
         <div className={s.logForm}>
@@ -211,7 +212,7 @@ export default function HillsBuilder() {
             <span className={s.betLegs}>
               {b.legs.map(l => (
                 <span key={l.label} className={l.result ? s[`leg_${l.result}`] : undefined}>
-                  {l.result && <b>{MARK[l.result]} </b>}{l.label}
+                  {l.result && <b>{MARK[l.result]} </b>}{shortTeams(l.label)}
                 </span>
               ))}
               {b.note && <span className={s.betNote}>{b.note}</span>}

@@ -3,6 +3,7 @@ import { getCardsFeed, getCardsDiagnostics, getHillsFeed, getHillsDiagnostics } 
 import f from './CardsPage.module.css'
 import MarketIcon from '../components/MarketIcon'
 import useAutoRefresh from '../hooks/useAutoRefresh'
+import { shortTeams } from '../teams'
 import { DEFAULTS as ACCA_DEFAULTS, evaluate, legScore, trueProb } from '../accaInsurance'
 import { boostEval, boostLegScore } from '../accaBoost'
 import HillsBuilder from './HillsBuilder'
@@ -240,12 +241,12 @@ export default function CardsPage({ book = 'paddy' }) {
     .filter(item => inWindow(item.commence_time, fl.within, now))
     .flatMap(item => [
       ...item.bets.map(b => ({
-        ...b, match: item.match, matchId: item.event_id, commence_time: item.commence_time,
+        ...b, pick: shortTeams(b.pick), match: shortTeams(item.match), matchId: item.event_id, commence_time: item.commence_time,
       })),
       // Fair-only rows (most corners / cards): no Paddy price, no value.
       ...(item.fairs || []).map(fr => ({
-        ...fr, odds: null, value: null, line: 0, side: '',
-        match: item.match, matchId: item.event_id, commence_time: item.commence_time,
+        ...fr, pick: shortTeams(fr.pick), odds: null, value: null, line: 0, side: '',
+        match: shortTeams(item.match), matchId: item.event_id, commence_time: item.commence_time,
       })),
     ])
     .filter(b => (!b.market || fl.markets.includes(b.market))
