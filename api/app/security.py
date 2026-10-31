@@ -12,7 +12,7 @@ from datetime import timedelta
 import bcrypt
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import inspect, text
+from sqlalchemy import func, inspect, text
 from sqlalchemy.orm import Session
 
 from .config import settings
@@ -469,7 +469,10 @@ def seed_coded_users(db: Session, users=None) -> tuple[int, list[tuple[str, str,
     created = 0
     changed: list[tuple[str, str, str]] = []
     for username, password_hash, permissions in users:
-        existing = db.query(User).filter(User.username == username).first()
+        # Matched ignoring case so a respelt name renames the user, not doubles it.
+        existing = db.query(User).filter(func.lower(User.username) == username.lower()).first()
+        if existing is not None and existing.username != username:
+            existing.username = username
         if existing is None:
             db.add(User(username=username, password_hash=password_hash,
                         permissions=permissions))

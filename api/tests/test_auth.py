@@ -148,6 +148,31 @@ def test_coded_users_log_in_with_the_password_behind_their_hash():
         db.close()
 
 
+def test_a_respelt_coded_user_is_renamed_not_doubled():
+    db = TestSession()
+    try:
+        seed_coded_users(db, [("filo", hash_password("a-long-test-password"), "*")])
+        seed_coded_users(db, [("Filo", hash_password("other"), "cards+hills")])
+        rows = db.query(User).all()
+        assert [(r.username, r.permissions) for r in rows] == [("Filo", "cards+hills")]
+        assert verify_password("a-long-test-password", rows[0].password_hash)
+    finally:
+        db.close()
+
+
+def test_a_shalgo_only_account_signs_in_on_shalgo_only():
+    db = TestSession()
+    try:
+        seed_coded_users(db, [("gina", hash_password("a-long-test-password"), "cards+hills")])
+    finally:
+        db.close()
+    body = {"username": "gina", "password": "a-long-test-password"}
+    assert TestClient(app).post("/auth/login", json=body).status_code == 403
+    shalgo = TestClient(app, base_url="http://shalgo.puntmore.com")
+    r = shalgo.post("/auth/login", json=body)
+    assert r.status_code == 200 and r.json()["tools"]
+
+
 def test_the_coded_user_list_holds_hashes_not_passwords():
     from app.users import USERS
     for username, password_hash, permissions in USERS:
