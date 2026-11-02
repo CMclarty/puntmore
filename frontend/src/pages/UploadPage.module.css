@@ -127,6 +127,62 @@
   padding: 0 24px;
 }
 
+/* The read's live steps on the waiting screen. */
+.steps {
+  list-style: none;
+  margin: 8px 0 4px;
+  padding: 0;
+  width: min(320px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.stepMark {
+  width: 14px;
+  flex-shrink: 0;
+  text-align: center;
+  font-weight: 700;
+}
+
+.stepLabel { flex: 1; }
+.stepNote { color: var(--muted); }
+.stepSlow { color: var(--amber); font-weight: 600; }
+.stepTime { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+.done .stepMark { color: var(--green); }
+.failed, .failed .stepMark { color: var(--red); }
+.todo, .skipped { color: var(--faint); }
+
+.spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.readError {
+  font-size: 13px;
+  color: var(--red);
+  text-align: center;
+  padding: 0 24px;
+  max-width: 420px;
+  overflow-wrap: anywhere;
+}
+
 /* Previous uploads list */
 .prevList {
   flex: 1;

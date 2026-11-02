@@ -155,6 +155,25 @@ class UploadInitResponse(BaseModel):
     legs: list[LegOut]
 
 
+class UploadStep(BaseModel):
+    key: str
+    label: str
+    state: str                    # todo | running | done | failed | skipped
+    seconds: float | None = None
+    note: str | None = None
+
+
+class UploadStatusOut(BaseModel):
+    """A coupon read as the upload's waiting screen draws it (upload_progress)."""
+    coupon_id: int
+    status: str                   # the coupon's: processing | confirmed | failed
+    legs: int
+    steps: list[UploadStep]
+    error: str | None = None      # why it failed, in words
+    stalled: bool = False         # "processing", but nothing is reading it
+    elapsed: float | None = None
+
+
 class LegEditRequest(BaseModel):
     """Inline correction. Omitted fields keep their current value."""
     match_name: Optional[str] = None

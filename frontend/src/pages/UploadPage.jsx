@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getCoupons, getCouponLegs, uploadCoupon, getUploadOptions, getCouponPeriods } from '../api'
+import { getCoupons, uploadCoupon, getUploadOptions, getCouponPeriods, getUploadStatus } from '../api'
 import styles from './UploadPage.module.css'
 
 
@@ -10,12 +10,46 @@ function fmtDate(d) {
   return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+// A step running this long is past anything a normal read takes: say so.
+const SLOW_SECONDS = { read: 120, verify: 150, price: 60 }
+const MARK = { done: '✓', failed: '✕', running: '', todo: '', skipped: '–' }
+
+/** The read's steps, live: what is done, what is running and for how long. */
+function ReadSteps({ progress }) {
+  const steps = progress?.steps ?? [{ key: 'saved', label: 'Uploading photo', state: 'running' }]
+  return (
+    <ol className={styles.steps}>
+      {steps.map(s => {
+        const slow = s.state === 'running' && s.seconds > (SLOW_SECONDS[s.key] ?? 60)
+        return (
+          <li key={s.key} className={`${styles.step} ${styles[s.state] ?? ''}`}>
+            <span className={styles.stepMark} aria-hidden="true">
+              {s.state === 'running' ? <span className={styles.spinner} /> : MARK[s.state]}
+            </span>
+            <span className={styles.stepLabel}>
+              {s.label}
+              {s.note && <span className={styles.stepNote}> · {s.note}</span>}
+              {slow && <span className={styles.stepSlow}> · slower than usual</span>}
+            </span>
+            {s.seconds != null && s.state !== 'skipped' &&
+              <span className={styles.stepTime}>{Math.round(s.seconds)}s</span>}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
 export default function UploadPage() {
   const navigate = useNavigate()
   // OCR auto-confirms — rows save and price on upload, so there is no review
   // phase. Corrections happen inline on the tracker afterwards.
-  const [phase, setPhase] = useState('form') // form | loading | done
+  const [phase, setPhase] = useState('form') // form | loading | failed | done
   const [error, setError] = useState(null)
+  // The read's live steps (GET /upload/{id}/status) and whether the last poll
+  // reached the server — shown, so a dead read can never just spin.
+  const [progress, setProgress] = useState(null)
+  const [offline, setOffline] = useState(false)
 
   // Form state
   // Types come from the API so this form and the tracker cannot drift.
@@ -55,49 +89,54 @@ export default function UploadPage() {
   async function handleProcess() {
     if (!file) return
     setError(null)
+    setProgress(null)
+    setOffline(false)
     setPhase('loading')
+    let result
     try {
       // Returns as soon as the coupon is SAVED; reading it takes about a minute
       // and happens server-side, so nothing here holds the connection open.
-      const result = await uploadCoupon(typeCode, period, file)
-      const legs = await waitForCoupon(result.coupon_id)
-      setSavedCount(legs.length)
-      setPhase('done')
-      getCoupons().then(setPrevCoupons).catch(() => {})
-      setTimeout(() => navigate('/'), 1200)
+      result = await uploadCoupon(typeCode, period, file)
     } catch (e) {
       setError(e.message)
       setPhase('form')
-      // The coupon may well have saved even if the wait failed — the read runs
-      // server-side. Refresh the list so a successful upload is visible rather
-      // than being re-uploaded as a duplicate.
+      // It may have saved even so; refresh the list rather than invite a duplicate.
       getCoupons().then(setPrevCoupons).catch(() => {})
+      return
+    }
+    const end = await waitForCoupon(result.coupon_id)
+    getCoupons().then(setPrevCoupons).catch(() => {})
+    if (end.status === 'confirmed') {
+      setSavedCount(end.legs)
+      setPhase('done')
+      setTimeout(() => navigate('/'), 1200)
+    } else {
+      setPhase('failed')
     }
   }
 
   /**
-   * Poll a freshly-uploaded coupon until the server has finished reading it.
+   * Poll a freshly-uploaded coupon's read until it ends, drawing each step.
    *
-   * The upload response carries no legs — OCR runs after it. "processing" means
-   * still reading; "failed" means the read did not survive. Polling rather than
-   * one long request is what makes this work on a phone: each call is short, so
-   * a dropped connection costs one retry instead of the whole upload.
+   * The upload response carries no legs — the read runs after it. Each poll is
+   * short, so a dropped connection costs one retry, and is SAID (offline) rather
+   * than swallowed. It ends on confirmed, failed, or stalled (nothing is
+   * reading it any more), never on a timer: a slow read is shown as slow.
    */
-  async function waitForCoupon(couponId, { tries = 90, gapMs = 2000 } = {}) {
-    for (let i = 0; i < tries; i++) {
+  async function waitForCoupon(couponId, gapMs = 1500) {
+    for (;;) {
       await new Promise(r => setTimeout(r, gapMs))
-      let coupons
+      let s
       try {
-        coupons = await getCoupons()
+        s = await getUploadStatus(couponId)
       } catch {
-        continue   // a blip mid-read is not a failure; keep waiting
+        setOffline(true)
+        continue
       }
-      const c = Array.isArray(coupons) && coupons.find(x => x.id === couponId)
-      if (!c) continue
-      if (c.status === 'failed') throw new Error('Could not read that coupon. Try a clearer photo.')
-      if (c.status !== 'processing') return await getCouponLegs(couponId)
+      setOffline(false)
+      setProgress(s)
+      if (s.status !== 'processing' || s.stalled) return s
     }
-    throw new Error('Still reading — check Previous uploads in a moment.')
   }
 
   function handleDrop(e) {
@@ -107,15 +146,26 @@ export default function UploadPage() {
     if (f) setFile(f)
   }
 
-  if (phase === 'loading') {
+  if (phase === 'loading' || phase === 'failed') {
+    const failed = phase === 'failed'
     return (
       <div className={styles.page}>
         <div className={styles.statusScreen}>
-          <p className={styles.loadingMsg}>Reading coupon…</p>
-          <p className={styles.loadingSub}>
-            Saved. Reading the coupon takes about a minute — this keeps working
-            if you leave the page.
-          </p>
+          <p className={styles.loadingMsg}>{failed ? 'Coupon not saved' : 'Reading coupon…'}</p>
+          <ReadSteps progress={progress} />
+          {failed
+            ? <>
+                <p className={styles.readError}>{progress?.error ?? 'The read failed.'}</p>
+                <button className={styles.btnPrimary} style={{ maxWidth: 260 }}
+                  onClick={() => { setPhase('form'); setProgress(null) }}>
+                  TRY AGAIN
+                </button>
+              </>
+            : <p className={styles.loadingSub}>
+                {offline
+                  ? 'Lost touch with the server, retrying… The read carries on regardless.'
+                  : 'Takes about a minute. It keeps going if you leave this page.'}
+              </p>}
         </div>
       </div>
     )

@@ -13,9 +13,9 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db, SessionLocal
 from ..models import Coupon, Leg
-from ..schemas import UploadInitResponse
+from ..schemas import UploadInitResponse, UploadStatusOut
 from ..config import settings
-from .. import coupon_types, coupon_periods, normalise
+from .. import coupon_types, coupon_periods, normalise, upload_progress
 from ..coupon_grid import (
     audit as audit_grid,
     consensus_blocks,
@@ -510,6 +510,7 @@ async def upload_coupon(
     db.add(coupon)
     db.commit()
     db.refresh(coupon)
+    upload_progress.start(coupon.id)
 
     # Reading a coupon takes ~a minute: a dense sheet is 78 fixtures and the OCR
     # emits thousands of tokens of JSON for it. Holding the HTTP request open for
@@ -607,22 +608,45 @@ def _process_upload(
     exit leaves the coupon in a terminal status, because a row stuck on
     "processing" is indistinguishable in the UI from one still being read.
     """
+    # Each step is reported to upload_progress as it starts, and every exit
+    # says how it ended, so the waiting screen never spins on a dead read.
+    with upload_progress.reading(coupon_id):
+        _read_and_price(
+            coupon_id=coupon_id, type_code=type_code, period=period,
+            reference=reference, media_type=media_type, ocr=ocr,
+            odds_provider=odds_provider, notifier=notifier, user_name=user_name,
+            session_factory=session_factory, sheet_code=sheet_code,
+        )
+
+
+def _failure(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {exc}"[:300]
+
+
+def _read_and_price(
+    *, coupon_id, type_code, period, reference, media_type,
+    ocr, odds_provider, notifier, user_name, session_factory, sheet_code,
+) -> None:
     db = (session_factory or SessionLocal)()
     try:
         coupon = db.get(Coupon, coupon_id)
         if coupon is None:
+            upload_progress.finish(coupon_id, "The coupon was deleted before it was read")
             return
         ctype = coupon_types.get(type_code)
+        upload_progress.step(coupon_id, "read")
         try:
             with open(coupon.image_path, "rb") as f:
                 image_bytes = f.read()
             extracted = ocr.extract(image_bytes, media_type, _hint_for(ctype))
-        except Exception:
+        except Exception as exc:
             # Log the cause: a bare 502 hid a plain AttributeError for a day.
             logger.exception("OCR extraction failed (%s)", type(ocr).__name__)
             coupon.status = "failed"
             db.commit()
+            upload_progress.finish(coupon_id, f"Reading the photo failed — {_failure(exc)}")
             return
+        upload_progress.step(coupon_id, "check")
 
         # Does the sheet say it is the coupon that was selected? Checked BEFORE
         # anything is built from it: a wrong-type upload produces a coupon that
@@ -639,6 +663,7 @@ def _process_upload(
                 "title_mismatch": wrong_sheet,
             })
             db.commit()
+            upload_progress.finish(coupon_id, f"Wrong sheet for this coupon type — {wrong_sheet}")
             return
 
         # A bundle sheet is not a rectangle — see audit_bundles. Running the
@@ -674,10 +699,14 @@ def _process_upload(
                     ),
                 })
                 db.commit()
+                upload_progress.finish(
+                    coupon_id, f"None of the {sheet.label} markets were read off this photo "
+                               f"— is it the right sheet?")
                 return
             if found[0] != coupon.type_code:
                 coupon.type_code = found[0]
                 ctype = coupon_types.get(found[0])
+        upload_progress.step(coupon_id, "build")
         legs = _build_legs(coupon.id, extracted, ctype, reference)
         db.add_all(legs)
         db.flush()
@@ -695,6 +724,7 @@ def _process_upload(
         if not user_name:
             coupon.name = _coupon_name(ctype, period, coupon)
 
+        upload_progress.step(coupon_id, "price", f"{len(legs)} selections")
         price_legs(legs, odds_provider)
         coupon.status = "confirmed"
         # Only now, with rows read and priced, does this upload replace the
@@ -723,7 +753,8 @@ def _process_upload(
                 f"{len(legs)} selections saved and priced."
                 f"{replaced_note}{sibling_note}"
             )
-    except Exception:
+        upload_progress.finish(coupon_id)
+    except Exception as exc:
         logger.exception("Coupon %s failed after upload", coupon_id)
         try:
             coupon = db.get(Coupon, coupon_id)
@@ -732,8 +763,50 @@ def _process_upload(
                 db.commit()
         except Exception:
             logger.exception("Could not mark coupon %s failed", coupon_id)
+        upload_progress.finish(coupon_id, _failure(exc))
     finally:
         db.close()
+
+
+@router.get("/{coupon_id}/status", response_model=UploadStatusOut)
+def upload_status(
+    coupon_id: int,
+    db: Session = Depends(get_db),
+    user: str = Depends(require_user),
+):
+    """Where a coupon's read has got to, for the upload's waiting screen.
+
+    The live steps come from upload_progress. A coupon still "processing" that
+    nothing here is reading is a dead read (the server restarted mid-read), and
+    is reported as stalled rather than left to spin.
+    """
+    coupon = db.get(Coupon, coupon_id)
+    if coupon is None:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+    live = upload_progress.snapshot(coupon_id)
+    error = live["error"] if live else None
+    if error is None and coupon.status == "failed":
+        # The reason outlived the progress entry only where the audit kept it.
+        try:
+            error = json.loads(coupon.scan_audit or "{}").get("summary")
+        except ValueError:
+            error = None
+        error = error or "The read failed. The reason was not kept; upload it again."
+    stalled = coupon.status == "processing" and (live is None or live["finished"])
+    if stalled:
+        error = ("Nothing is reading this coupon any more. The server restarted "
+                 "while it was being read. Upload the photo again.")
+    if live:
+        steps = live["steps"]
+    else:
+        # Nothing live to draw: every step done, or none known.
+        state = "done" if coupon.status == "confirmed" else "todo"
+        steps = [{"key": k, "label": l, "state": state} for k, l in upload_progress.STEPS]
+    return UploadStatusOut(
+        coupon_id=coupon_id, status=coupon.status, legs=coupon.leg_count,
+        steps=steps, error=error, stalled=stalled,
+        elapsed=live["elapsed"] if live else None,
+    )
 
 
 @router.post("/{coupon_id}/rescan", response_model=UploadInitResponse)

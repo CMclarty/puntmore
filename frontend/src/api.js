@@ -215,6 +215,8 @@ export async function uploadCoupon(typeCode, period, file, name = null) {
 }
 
 export const rescanCoupon = (couponId) => post(`/upload/${couponId}/rescan`, {})
+// Where a coupon's read has got to, step by step — the upload's waiting screen.
+export const getUploadStatus = (couponId) => get(`/upload/${couponId}/status`)
 
 export async function editLeg(couponId, legId, fields) {
   const path = `/coupons/${couponId}/legs/${legId}`

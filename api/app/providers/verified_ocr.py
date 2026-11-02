@@ -55,6 +55,7 @@ import logging
 
 from .base import ExtractedCoupon, ExtractedRow, OCRProvider, OcrHint
 from ..coupon_grid import normalise_board_label
+from .. import upload_progress
 from ..images import strips
 from ..normalise import normalise_match
 
@@ -108,12 +109,21 @@ class VerifiedOCRProvider(OCRProvider):
         headings = print_order_headings(whole.rows)
         strip_hint = replace(hint, strip=True, headings=headings)
         pieces = strips(image_bytes, media_type)
+        # The upload's waiting screen shows the strips coming in. The coupon
+        # is taken here, on the reading thread: the pool's threads don't see it.
+        coupon_id = upload_progress.current()
+        upload_progress.step(coupon_id, "verify", f"0 of {len(pieces)} strip reads")
+        done = []
+
+        def read(piece):
+            got = self.inner.extract(piece[0], piece[1], strip_hint)
+            done.append(1)
+            upload_progress.note(coupon_id, f"{len(done)} of {len(pieces)} strip reads")
+            return got
+
         try:
             with ThreadPoolExecutor(max_workers=self._workers) as pool:
-                reads = list(pool.map(
-                    lambda piece: self.inner.extract(piece[0], piece[1], strip_hint),
-                    pieces,
-                ))
+                reads = list(pool.map(read, pieces))
         except Exception as exc:
             raise OCRUnverified(
                 f"strip read failed ({type(exc).__name__}: {exc}) — the coupon "
