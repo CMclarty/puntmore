@@ -144,6 +144,74 @@ class Settings(BaseSettings):
     # Key the local Bookie Bashing script sends (X-API-Key) with fair saves
     # prices to POST /api/paddy/saves-fair. Blank = endpoint disabled (503).
     saves_ingest_key: str = ""
+    # --- 2-Up engine (app/twoup/, docs/2up-engine-spec.md) -------------------
+    # Part of the 365 tool, behind the `accabonus` grant. Prices bet365's 2 Goals
+    # Ahead Early Payout off OddsPapi (bet365 + Pinnacle 1X2), decides stakes per
+    # client and queues bet lists in its ledger. It NEVER places a bet and never
+    # connects to the Hub: the Hub endpoint sends what the ledger has queued.
+    # Mounts /api/2up and runs the decision job. Off = neither.
+    enable_twoup: bool = True
+    # Global kill switch: no bet lists are produced or handed out for ANY
+    # client while true. Per-client switches live in the ledger (POST
+    # /api/2up/clients/{id}/kill). An .env change, no code change.
+    twoup_kill_switch: bool = False
+    # Clients and their sub-client accounts, created on startup if missing and
+    # NEVER modified once they exist (bankroll, flags and balances are the
+    # ledger's): "client_id[:owner]=acc1+acc2;other=acc3". Every client
+    # created here starts in DRY-RUN with the kill switch off.
+    twoup_clients: str = ""
+    # Qualifying competitions (ids or names, as `oddspapi_tournament_ids`).
+    # bet365's early payout runs on the major leagues and the European club
+    # cups. The default is the first ten entries of the shared list ON
+    # PURPOSE: chunked 5 a request they are the same two chunks the coupon
+    # tracker and the Paddy tool already fetch from Pinnacle, so Pinnacle costs
+    # nothing extra and bet365 adds 2 requests per refresh (tiered, cached by
+    # the client like every other OddsPapi call).
+    twoup_tournament_ids: str = "17,18,24,8,23,35,34,238,7,679"
+    # How long one priced feed is reused by the decision job and GET /2up/feed.
+    # The OddsPapi client's own tiered cache decides what is actually billed.
+    twoup_feed_ttl: int = 300
+    # Which fixtures are candidates: kicking off within this many hours and at
+    # least this many minutes from now (a bet must have time to be placed).
+    twoup_horizon_hours: float = 24.0
+    twoup_min_lead_minutes: int = 15
+    # Edge floor, in PROBABILITY units: P(win) + P(rescue) - 1/price. 0.005 =
+    # half a percentage point of payout probability over the price's.
+    twoup_min_edge: float = 0.005
+    # bet365 price band considered. Very short prices tie up stake for pennies;
+    # long ones go two up too rarely for the rescue to matter.
+    twoup_min_price: float = 1.25
+    twoup_max_price: float = 8.0
+    # Where the rescue-rate table lives. Blank = app/twoup/rescue_table.json.
+    twoup_rescue_table_path: str = ""
+    # Fractional Kelly on the client's POOLED bankroll, then a hard ceiling on
+    # any one selection's total stake as a fraction of that bankroll.
+    twoup_kelly_fraction: float = 0.25
+    twoup_max_selection_fraction: float = 0.02
+    # Account preservation (spec, "Account-preservation rules"). Bets are
+    # produced only inside this local window, and each bet's not_before /
+    # not_after is clipped to it.
+    twoup_window_start: str = "07:30"
+    twoup_window_end: str = "22:00"
+    twoup_timezone: str = "Europe/London"
+    # Hard max bets per account per London day — every bet recorded counts,
+    # failed ones included (a refused slip is still activity on the account).
+    twoup_max_bets_per_account_day: int = 20
+    # Dynamic stake ceiling per bet: never above the hard cap, never above
+    # this fraction of the account's own balance. No floor.
+    twoup_stake_hard_cap: float = 200.0
+    twoup_stake_balance_fraction: float = 0.10
+    # Stake growth: a stake may not exceed the mean of the account's trailing
+    # stakes by more than this fraction, whatever the account has won. Until
+    # the account has `twoup_growth_min_history` stakes, the initial cap holds.
+    twoup_stake_growth_cap: float = 0.25
+    twoup_trailing_stakes: int = 20
+    twoup_growth_min_history: int = 5
+    twoup_initial_stake_cap: float = 10.0
+    # The decision job's cadence, in minutes. It reads the cached feed, so a
+    # tighter cadence costs CPU, not OddsPapi requests.
+    twoup_decision_minutes: int = 10
+
     # Session cookie signing key. If blank, a random key is generated at startup
     # (sessions reset on restart — fine for dev; set a fixed value in prod).
     secret_key: str = ""

@@ -37,16 +37,29 @@ SOURCES: tuple[Source, ...] = (
     Source("paddy", "cards", "paddypower"),
     Source("scorers", "goalscorers", "bet365"),
     Source("coupon", "coupons", "williamhill"),
+    # The 2-Up engine (app/twoup/): part of the 365 tool, so the 365 grant,
+    # but switched by its own flag (ENABLE_TWOUP), not ENABLE_ACCABONUS.
+    Source("2up", "accabonus", "bet365"),
 )
 BY_NAME = {s.name: s for s in SOURCES}
+
+
+def source_enabled(src: Source, on: list[str] | None = None) -> bool:
+    """Is this source served on this deploy? A tool's enable flag, except
+    2-Up, which has its own."""
+    if src.name == "2up":
+        from ..config import settings
+        return settings.enable_twoup
+    return src.tool in (on if on is not None else enabled_tools())
 
 
 def visible_sources(perms: str) -> list[Source]:
     """Sources this caller may read: all of them with the `value` grant (or
     "*"), otherwise those whose tool it holds — and only enabled tools."""
-    on = set(enabled_tools())
+    on = list(enabled_tools())
     everything = has_permission(perms, "value")
-    return [s for s in SOURCES if s.tool in on and (everything or has_permission(perms, s.tool))]
+    return [s for s in SOURCES
+            if source_enabled(s, on) and (everything or has_permission(perms, s.tool))]
 
 
 def _utc(value) -> datetime | None:
@@ -130,6 +143,11 @@ def coupon_rows(db: Session, floor: float, now: datetime) -> list[ValueSelection
     return out
 
 
+def twoup_rows(twoup_feed, floor: float, now: datetime) -> list[ValueSelection]:
+    from ..twoup.feed import value_rows
+    return value_rows(twoup_feed, floor, now)
+
+
 # --- the feed -----------------------------------------------------------------
 
 def collect(
@@ -137,6 +155,7 @@ def collect(
     *,
     db: Session,
     cards_client=None,
+    twoup_feed=None,
     min_edge: float | None = None,
     kickoff_within_hours: float | None = None,
     bookmaker: str | None = None,
@@ -154,6 +173,7 @@ def collect(
         "paddy": lambda: paddy_rows(cards_client, floor, now),
         "scorers": lambda: scorer_rows(db, floor, now),
         "coupon": lambda: coupon_rows(db, floor, now),
+        "2up": lambda: twoup_rows(twoup_feed, floor, now),
     }
     rows: list[ValueSelection] = []
     errors: dict[str, str] = {}

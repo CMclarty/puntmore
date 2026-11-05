@@ -347,8 +347,22 @@ def paddy_health(notifier=None) -> list[str]:
     return lines
 
 
+def run_twoup(feed) -> dict:
+    """The 2-Up decision pass (app/twoup/decision.py): inside the betting
+    window, price the feed once (through its cache) and queue each client's
+    bet lists in the ledger. Nothing here sends or places anything — the Hub
+    endpoint sends what `ledger.pending_bet_lists` returns."""
+    from .twoup.decision import run_all
+    db = SessionLocal()
+    try:
+        return run_all(db, feed)
+    finally:
+        db.close()
+
+
 def start_scheduler(
     odds_provider, notifier=None, odds_client=None, cards_client=None,
+    twoup_feed=None,
 ) -> BackgroundScheduler:
     """Create, configure, and start the background scheduler."""
     scheduler = BackgroundScheduler()
@@ -417,6 +431,22 @@ def start_scheduler(
         coalesce=True,
         max_instances=1,
     )
+
+    # 2-Up decision: every few minutes; outside the betting window the pass
+    # returns before touching the feed, so it costs nothing overnight. The
+    # feed's own TTL and the OddsPapi client's tiered cache bound the
+    # requests, whatever the cadence. No feed (no OddsPapi key) = no job.
+    if settings.enable_twoup and twoup_feed is not None:
+        scheduler.add_job(
+            run_twoup,
+            trigger="interval",
+            minutes=max(1, settings.twoup_decision_minutes),
+            id="twoup_decision",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+            kwargs={"feed": twoup_feed},
+        )
 
     # First-goalscorer pipeline: rebuild the watchlist daily, and once now so a
     # restart re-populates today's per-fixture scans instead of waiting a day.

@@ -113,6 +113,51 @@ Both live behind their seams. Core logic never calls a vendor API directly.
 - Bet lists it emits go to the Hub over `hub/PROTOCOL.md`; nothing in `api/`
   places a bet.
 
+### The 2-Up engine (`app/twoup/`, Nov 2026)
+Router `routers/twoup.py` at `/api/2up/*` (feed, `ledger/{client_id}`,
+`clients/{id}/kill|resume`, diagnostics), behind the `accabonus` grant and its
+own flag `ENABLE_TWOUP`. Settings are `twoup_*` in `config.py`, each with a
+default and a reason.
+- `model.py` — pure: Pinnacle 1X2 de-vigged with `devigd_multi` (power),
+  rescue rate from `rescue_table.json` by fair-P(win) bucket, edge =
+  P(win) + P(two up, fails to win) − 1/bet365 price, fractional Kelly,
+  1-2-5 stake rounding, account-preservation limits. `Candidate` lives here.
+- `feed.py` — OddsPapi only, through the SHARED `OddsPapiClient` (budget,
+  spacing, quota guard, tiered cache unchanged). Both books via
+  `resolve_book`. The default competition list chunks into the same Pinnacle
+  requests the coupon tracker makes, so bet365 is the only new spend. One log
+  line per pass; `status()` feeds `/api/ready` → `providers.twoup_detail`
+  (`degraded`, `cannot_price`) so a deploy that cannot price 2-Up never looks
+  healthy. Also a `ValueSelection` source (`source="2up"`, `bookmaker="bet365"`,
+  `edge` = EV per pound there, `basis="2up"`).
+- `ledger.py` — `twoup_*` tables. The Hub endpoint calls `record_bet_list`,
+  `apply_report`, `open_exposure`, `pending_bet_lists`, `mark_sent`: keep
+  their names and signatures. Everything is scoped by `client_id`.
+- `decision.py` — per client per day; singles only (multiples are a noted
+  follow-up). `extra_candidates` is the Bet Finder seam (returns []).
+- `scheduler.run_twoup` — every `twoup_decision_minutes`, and a no-op outside
+  the betting window (no feed read, no request).
+
+Invariants — do not relax:
+- **Dry-run is ON for every new client.** Its bets are recorded and never
+  returned by `pending_bet_lists`. Turning it off is a deliberate ledger edit.
+- **Kill switch** (global `TWOUP_KILL_SWITCH`, or per client): nothing is
+  decided and nothing is handed out while it is on.
+- **Idempotent on bet_id.** `bet_id` is a hash of (client, account, event,
+  selection, London day); a replayed bet or report changes nothing. A
+  `price_changed` bet is re-decided under a NEW id (`-r1`, …) at the lower of
+  the feed and reported prices. **A failed bet is never resent** and its
+  selection is not re-bet that day.
+- **`owner` candidates reach the owner client only** — refused in the
+  decision, in `record_bet_list` and again in `pending_bet_lists`.
+- Account preservation per account: 07:30–22:00 London, ≤ 20 bets a day
+  (every recorded bet counts, failed included), one bet per event, stake ≤
+  min(hard cap, 10% of balance, trailing-stake mean × 1.25 — or £10 until 5
+  stakes of history). The growth cap reads STAKES, never results.
+- The rescue table is tuned BY HAND (`tools/twoup_backtest.py` over a CSV
+  you exported from Bookie Bashing's tracker; `--merge` writes a new table).
+  Nothing here or on the Hub ever fetches the tracker.
+
 ## Hard rules (do not violate)
 - The provider seams MUST stay behind their interfaces (see Provider guide
   below). Never call external APIs directly from core logic.

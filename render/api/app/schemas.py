@@ -312,7 +312,7 @@ class ValueSelection(BaseModel):
     market has none, and is always an x.5 where it has one (pushes are never
     listed). `kickoff` and `seen_at` are UTC. `url` is null unless known.
     """
-    source: str                      # paddy | 365 | scorers | coupon
+    source: str                      # paddy | 365 | scorers | coupon | 2up
     bookmaker: str                   # paddypower | bet365 | williamhill
     event_id: Optional[str] = None   # the source's own fixture id, when it has one
     event: str                       # "Home v Away" as the source names it
@@ -464,3 +464,107 @@ class ReadyOut(OpenModel):
     status: str
     checks: dict[str, bool]
     providers: dict[str, Any]
+
+
+# --- 2-Up engine (/api/2up, app/twoup/) ---------------------------------------
+
+class TwoUpCandidateOut(BaseModel):
+    """One side of one fixture priced for bet365's 2-up early payout.
+    `edge` is in probability units (p_win + rescue - 1/price), what the
+    decision ranks by; `ev` is the expected return per pound."""
+    event_id: str
+    event: str
+    home: str
+    away: str
+    kickoff: datetime
+    competition: str = ""
+    selection: str
+    side: str
+    market: str
+    price: float
+    p_win: float
+    rescue: float
+    fair_price: Optional[float] = None
+    edge: float
+    ev: float
+    value: bool                      # passes the price band and the edge floor
+    source_scope: str
+
+
+class TwoUpFeedOut(BaseModel):
+    generated_at: datetime
+    available: bool                  # False: no OddsPapi client on this deploy
+    status: dict[str, Any]
+    candidates: list[TwoUpCandidateOut]
+
+
+class TwoUpClientOut(BaseModel):
+    client_id: str
+    name: Optional[str] = None
+    bankroll: float
+    pooled_bankroll: float
+    kill_switch: bool
+    dry_run: bool
+    is_owner: bool
+
+
+class TwoUpAccountOut(BaseModel):
+    account_id: str
+    balance: float
+    balance_at: Optional[datetime] = None
+    enabled: bool
+    open_exposure: float
+    bets_today: int
+
+
+class TwoUpBetOut(BaseModel):
+    bet_id: str
+    account_id: str
+    legs: list[dict[str, Any]]
+    stake: float
+    expected_price: float
+    bet_type: str
+    source_scope: str
+    not_before: Optional[datetime] = None
+    not_after: Optional[datetime] = None
+    day: date
+    edge: Optional[float] = None
+    status: str
+    dry_run: bool
+    hub_dry_run: Optional[bool] = None
+    actual_price: Optional[float] = None
+    new_price: Optional[float] = None
+    fail_reason: Optional[str] = None
+    outcome: Optional[str] = None
+    return_amount: Optional[float] = None
+    created_at: datetime
+    sent_at: Optional[datetime] = None
+    placed_at: Optional[datetime] = None
+    settled_at: Optional[datetime] = None
+
+
+class TwoUpBalanceOut(BaseModel):
+    account_id: str
+    balance: float
+    ts: datetime
+
+
+class TwoUpLedgerOut(BaseModel):
+    client: TwoUpClientOut
+    accounts: list[TwoUpAccountOut]
+    open_exposure: float
+    staked: float                    # settled bets
+    returned: float
+    pnl: float
+    bets: list[TwoUpBetOut]
+    balances: list[TwoUpBalanceOut]
+
+
+class TwoUpDiagnosticsOut(OpenModel):
+    feed: dict[str, Any]
+    rescue_table: dict[str, Any]
+    last_decision: dict[str, Any]
+    in_window: bool
+    global_kill_switch: bool
+    clients: list[TwoUpClientOut]
+    settings: dict[str, Any]

@@ -65,13 +65,15 @@ above are the only env-configured ones.
 
 ```
 GET /api/value?min_edge=&kickoff_within_hours=&bookmaker=
-GET /api/value/{source}            # paddy | 365 | scorers | coupon
+GET /api/value/{source}            # paddy | 365 | scorers | coupon | 2up
 ```
 
 Grant `value` (or `*`) sees every source; a tool grant sees that tool's
 source only (`cards` → paddy, `accabonus` → 365, `goalscorers` → scorers,
-`coupons` → coupon); none of them → `403`. A source whose tool is switched
-off on the server (`ENABLE_*`) is not listed.
+`coupons` → coupon, `accabonus` → 2up); none of them → `403`. A source whose
+tool is switched off on the server (`ENABLE_*`; 2up has `ENABLE_TWOUP`) is not
+listed. On `2up` rows `fair` is the 2-up-adjusted fair price
+1 / (P(win) + P(rescue)), so `edge` keeps its meaning (odds / fair − 1).
 
 | Param | Meaning |
 |---|---|
@@ -97,7 +99,7 @@ empty list is never ambiguous. Selections are sorted by edge, best first.
 
 | Field | |
 |---|---|
-| `source` | `paddy` \| `365` \| `scorers` \| `coupon` |
+| `source` | `paddy` \| `365` \| `scorers` \| `coupon` \| `2up` |
 | `bookmaker` | `paddypower` \| `bet365` \| `williamhill` |
 | `event_id` | the source's own fixture id, or null |
 | `event`, `home`, `away` | the fixture as the source names it |
@@ -137,6 +139,7 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 | coupons (`coupons`) | `POST /coupons/{id}/refresh`, `PATCH /coupons/{id}/legs/{leg}`, `POST /upload`, `POST /upload/{id}/rescan` | re-price, correct, upload a photo |
 | 365 acca (`accabonus`) | `GET /accabonus/feed`, `/accabonus/arbs`, `/accabonus/diagnostics`, `/accabonus/eligible-keys`, `/accabonus/probe-books` (costs credits) | |
 | 365 scorers (`goalscorers`) | `GET /goalscorers/feed` | |
+| 365 2-Up (`accabonus`) | `GET /2up/feed`, `/2up/ledger/{client_id}`, `/2up/diagnostics`; `POST /2up/clients/{client_id}/kill`, `/resume` | priced candidates, a client's bets/balances/exposure, the kill switch |
 | Paddy (`cards`) | `GET /paddy/feed`, `/paddy/diagnostics`, `/paddy/shadow`, `/paddy/oddspapi-check` | |
 | Paddy ingest (`ingest`) | `POST /paddy/saves-fair`, `POST /paddy/most-prices` | scraper writes |
 | P&L (`pnl`) | `GET/POST /pnl/{dogs\|virtuals}/bets`, `GET /pnl/{c}/bets.csv`, `DELETE /pnl/{c}/bets/{id}` | per-caller ledger |

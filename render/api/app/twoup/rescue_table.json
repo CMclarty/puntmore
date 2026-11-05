@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "key": "fair_win_probability",
+  "measure": "P(the selection goes two goals up AND does not win), per match, unconditional",
+  "default": 0.012,
+  "notes": "INITIAL values (5 Nov 2026), not yet measured. Shaped from the published base rate (~1.8% of matches see a two-goal lead not converted, ~5-7% of two-goal leads) split by how often a side of that strength goes two up. Tuned by hand against Bookie Bashing's 2-up tracker with render/api/tools/twoup_backtest.py --merge; BB bans automated access, so that comparison is always user-triggered. 'default' applies to a probability outside every bucket.",
+  "buckets": [
+    {"lo": 0.00, "hi": 0.20, "rescue": 0.006, "n": 0, "source": "initial"},
+    {"lo": 0.20, "hi": 0.30, "rescue": 0.009, "n": 0, "source": "initial"},
+    {"lo": 0.30, "hi": 0.40, "rescue": 0.012, "n": 0, "source": "initial"},
+    {"lo": 0.40, "hi": 0.50, "rescue": 0.015, "n": 0, "source": "initial"},
+    {"lo": 0.50, "hi": 0.60, "rescue": 0.018, "n": 0, "source": "initial"},
+    {"lo": 0.60, "hi": 0.70, "rescue": 0.020, "n": 0, "source": "initial"},
+    {"lo": 0.70, "hi": 0.80, "rescue": 0.021, "n": 0, "source": "initial"},
+    {"lo": 0.80, "hi": 1.00, "rescue": 0.018, "n": 0, "source": "initial"}
+  ]
+}
