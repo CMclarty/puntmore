@@ -20,8 +20,8 @@ import { PUNTMORE, SHALGO, SITE } from './site'
 // "wrong page half the time". Only routes that render a page are listed; a
 // route that redirects (battles, /pnl/virtuals, /boost) takes its target's.
 //
-// Two sites share the shell (site.js): Paddy, Hills and the scraper
-// carry Shalgo's name, and a path with no tool of its own (/login, Shalgo's
+// Two sites share the shell (site.js): Paddy and Hills carry Shalgo's
+// name, and a path with no tool of its own (/login, Shalgo's
 // landing "/") takes the identity of the site it is on.
 const IDENTITIES = [
   { match: (p) => p === '/' || p.startsWith('/t/'), title: 'Puntmore — Coupon', icon: 'coupons' },
@@ -34,7 +34,6 @@ const IDENTITIES = [
   { match: (p) => p.startsWith('/365') || p === '/accabonus', title: 'Puntmore — 365', icon: 'accabonus' },
   { match: (p) => p.startsWith('/paddy') || p === '/cards', title: 'Shalgo — Paddy', icon: 'paddy' },
   { match: (p) => p.startsWith('/hills'), title: 'Shalgo — Hills', icon: 'hills' },
-  { match: (p) => p === '/scraper', title: 'Shalgo — Scraper', icon: 'scraper' },
 ]
 
 const DEFAULTS = {

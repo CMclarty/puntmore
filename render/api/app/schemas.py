@@ -424,61 +424,6 @@ class IngestOut(BaseModel):
     rejected: list[IngestRejectOut]
 
 
-class ScraperLeagueOut(OpenModel):
-    id: int
-    name: str
-    site: str
-    url: Optional[str] = None
-    enabled: bool
-
-
-class ScraperMarketOut(OpenModel):
-    key: str
-    label: str
-    site: str
-    tabs: list[str]
-    parser: Optional[str] = None
-    post: Optional[str] = None
-    url: Optional[str] = None
-    enabled: bool
-    page: bool
-
-
-class ScraperTimingOut(OpenModel):
-    site: str
-    every_min: Optional[float] = None
-    stale_min: Optional[float] = None
-    max_tabs: Optional[int] = None
-    open_gap_min: Optional[float] = None
-    relist_min: Optional[float] = None
-    tab_max_hours: Optional[float] = None
-    listings: Optional[bool] = None
-
-
-class ScraperStatusOut(OpenModel):
-    reported_at: Optional[str] = None
-    targets: list[dict[str, Any]]
-    sites: list[dict[str, Any]]
-
-
-class ScraperStateOut(BaseModel):
-    leagues: list[ScraperLeagueOut]
-    markets: list[ScraperMarketOut]
-    timings: list[ScraperTimingOut]
-    status: ScraperStatusOut
-
-
-class ScraperConfigOut(OpenModel):
-    """What the scraper box runs — config._target's shape. OPEN."""
-    targets: list[dict[str, Any]]
-    timings: dict[str, dict[str, Any]]
-
-
-class ScraperStatusAckOut(BaseModel):
-    targets: int
-    sites: int
-
-
 class ErrorsOut(OpenModel):
     """The diagnostics ring buffer (app/diagnostics.snapshot). OPEN."""
     boot_id: Optional[str] = None

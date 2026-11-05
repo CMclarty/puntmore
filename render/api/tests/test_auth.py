@@ -252,7 +252,7 @@ def test_login_success_then_me():
     resp = client.post("/auth/login", json={"username": "alice", "password": "secret"})
     assert resp.status_code == 200
     # alice was seeded with the "*" grant; both tool flags are on in tests, so
-    # she resolves to every tool but the scraper, which is its owner's login alone.
+    # she resolves to every tool.
     expected = {
         "username": "alice",
         "permissions": "*",
@@ -351,7 +351,7 @@ def test_has_permission_wildcard_and_explicit():
 
 def test_granted_tools_intersects_grant_with_enabled(monkeypatch):
     # Both flags on in the test env, so "*" yields every tool in nav order.
-    assert granted_tools("*") == ["coupons", "accabonus", "cards", "goalscorers", "pnl", "kelly", "boost", "shop", "scraper", "hills"]
+    assert granted_tools("*") == ["coupons", "accabonus", "cards", "goalscorers", "pnl", "kelly", "boost", "shop", "hills"]
     assert granted_tools("coupons") == ["coupons"]
     # A grant for a disabled tool yields nothing for it.
     from app import security
@@ -418,18 +418,3 @@ def test_weak_seed_passwords_flags_the_obvious_ones():
     assert "admin" not in str(weak_seed_passwords("x:admin"))
 
 
-def test_the_scraper_page_is_its_owners_login_alone():
-    from app.security import login_permissions
-    assert "scraper" in granted_tools(login_permissions("cmclarty", "*"))
-    assert "scraper" not in granted_tools(login_permissions("alice", "*"))
-    assert login_permissions("alice", "scraper+coupons") == "coupons"   # an explicit grant too
-    assert login_permissions("alice", "coupons+pnl") == "coupons+pnl"  # untouched otherwise
-
-
-def test_scraper_routes_refuse_a_star_login_that_is_not_its_owner():
-    _seed_user()
-    client = TestClient(app)
-    _use_real_auth()
-    client.post("/auth/login", json={"username": "alice", "password": "secret"})
-    assert client.get("/scraper").status_code == 403
-    assert client.get("/shop").status_code == 200        # the rest of "*" still works

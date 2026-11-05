@@ -43,7 +43,7 @@ def test_server_table_mirrors_the_frontends():
     assert js_icons == py_icons
     for path in ("/", "/t/abc", "/upload", "/pnl/dogs", "/virtuals", "/kelly", "/shop",
                  "/365/scorers", "/365/acca", "/accabonus", "/paddy", "/paddy/acca", "/cards",
-                 "/scraper", "/login", "/nope"):
+                 "/login", "/nope"):
         ident = identity_for(path)
         # Every file the server names exists in the built public set.
         for key in ("svg", "png", "manifest"):

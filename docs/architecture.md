@@ -66,7 +66,7 @@ flowchart LR
 | Private engine | Multi-bookmaker staking that consumes 2-Up as one source | Render · me | to build, to spec separately |
 | Hermes | Owner of the Hub: chief of staff and four specialists | Hub | live (delegation plugin pending) |
 | Local model | llama-server, Qwen3.5-122B, two slots; Hermes' brain, never in the pricing path | Hub, inside Hermes | live |
-| Worker | `scraper/`: Paddy Power and Bookie Bashing pages in one real Chrome | Hub | live (parsers partly written) |
+| Worker | `scraper/`: Paddy Power and Bookie Bashing pages in one real Chrome; what it reads is `targets.toml` on the Hub, nothing on Render | Hub | live (parsers partly written) |
 | Bet Finder sources | `hub/`: tipster and scrape sources sending tips to Render | Hub | scaffold, folding into the Worker |
 | Placement bot | Bet in, placed / price_changed / failed out, on the phones | Hub | placeholder (dry-run adapter only; contract in `hub/puntmore_hub/placement/README.md`) |
 | Render link | `hub/`: outbound WebSocket, durable outbox, client engine | Hub | scaffold, 53 tests; waits on the Hub endpoint |

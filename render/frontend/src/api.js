@@ -290,10 +290,6 @@ async function del(path) {
   if (!res.ok && res.status !== 204) throw await fail(res, path, 'DELETE')
 }
 
-// Scraper control (routers/scraper.py): leagues, markets and per-site timings
-// the scraper box reads, and its last status report. Every edit answers with
-// the whole state, so the page just re-renders from it.
-export const getScraper = () => get('/scraper')
 async function put(path, body) {
   const res = await send(path, {
     method: 'PUT',
@@ -315,8 +311,3 @@ async function patch(path, body) {
   if (!res.ok) throw await fail(res, path, 'PATCH')
   return res.json()
 }
-export const putScraperLeague = (id, fields) => put(`/scraper/leagues/${id}`, fields)
-export const postScraperLeague = (fields) => post('/scraper/leagues', fields)
-export const deleteScraperLeague = (id) => del(`/scraper/leagues/${id}`)
-export const putScraperMarket = (key, fields) => put(`/scraper/markets/${key}`, fields)
-export const putScraperTiming = (site, fields) => put(`/scraper/timings/${site}`, fields)

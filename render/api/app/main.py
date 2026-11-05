@@ -47,7 +47,6 @@ from .routers import shop as shop_router
 from .routers import auth as auth_router
 from .routers import state as state_router
 from .routers import diagnostics as diagnostics_router
-from .routers import scraper as scraper_router
 from .routers import value as value_router
 from .routers import hub_ws as hub_ws_router
 from .routers import twoup as twoup_router
@@ -70,7 +69,6 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed(db)
-        scraper_router.ensure_seeded(db)
         # 2-Up clients named in TWOUP_CLIENTS that do not exist yet (dry-run
         # on, kill switch off). Existing rows are never touched.
         from .twoup.ledger import ensure_clients
@@ -400,10 +398,6 @@ if settings.enable_twoup:
     # The Bet Finder's operator routes: same tool, same grant.
     app.include_router(betfinder_router.router,
                        dependencies=[Depends(require_tool("accabonus"))])
-# The scraper's control plane: the page edits it under the `scraper` grant;
-# the scraper box reads its config and reports status with the ingest key.
-app.include_router(scraper_router.router, dependencies=[Depends(require_tool("scraper"))])
-app.include_router(scraper_router.worker_router)
 
 # The cross-tool value feed: `value` grant sees every source, a tool grant its
 # own rows (routers/value.py resolves that itself, through user_permissions).

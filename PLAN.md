@@ -491,8 +491,12 @@ and `/state`. AccaBonus is not live (`enable_accabonus` False).
       sends `pending_bet_lists`, Bet Finder candidates
       (`decision.extra_candidates`), and the first real rescue-table tune.
 - [x] **Bet Finder orchestrator** (branch `betfinder`, Nov 2026): `render/api/app/betfinder/` fills `decision.extra_candidates` from `hub_tips` — Match Result tips matched and priced off the 2-Up feed, everything else quarantined, owner-only, sources as data with hand-set trust, per-source strike rate / ROI off the ledger (`render/api/AGENTS.md`, "Bet Finder"); IMAP is a seam only.
-- [ ] **Remove the `/scraper` control page** and its routes; the worker reads
-      `targets.toml` on the Hub, edited by Hermes.
+- [x] **Remove the `/scraper` control page** and its routes; the worker reads
+      `targets.toml` on the Hub, edited by Hermes. Done 5 Nov 2026: the page,
+      its nav tab, `/api/scraper*`, the `scraper` grant and the
+      `scraper_*` models are gone (the tables stay on the disk until
+      dropped); the Worker no longer fetches config or posts status (branch
+      `rm-scraper-fetch`).
 Definition of Done: `grep -ri "theoddsapi\|bettingiscool\|odds_api_key" render/api/`
 is empty, the coupon feed is unchanged, and the worker runs a day from local
 config.

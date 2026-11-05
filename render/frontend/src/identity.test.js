@@ -9,10 +9,9 @@ describe('identityFor', () => {
     })
   })
 
-  it('names the coupon tracker and the scraper page, not just the default', () => {
+  it('names the coupon tracker, not just the default', () => {
     expect(identityFor('/').png).toBe('/icons/coupons-180.png')
     expect(identityFor('/t/abc').title).toBe('Puntmore — Coupon')
-    expect(identityFor('/scraper').manifest).toBe('/manifests/scraper.webmanifest')
   })
 
   it('keeps the boost icon on the virtuals manifest', () => {
