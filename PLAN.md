@@ -470,6 +470,19 @@ and `/state`. AccaBonus is not live (`enable_accabonus` False).
       That tuning is a MANUAL, user-triggered comparison: BB's terms ban
       automated access (`render/api/AGENTS.md`, BookieBashing constraint), so the
       tracker is never scraped by the engine or the Worker.
+      **Landed (branch `twoup-engine`, Nov 2026): the 2-Up engine backend.**
+      `render/api/app/twoup/` — model (power de-vig, rescue table
+      `rescue_table.json` with initial buckets, edge, fractional Kelly on the
+      pooled bankroll, 1-2-5 rounding, window / 20-a-day / ceiling / growth
+      limits), OddsPapi feed (bet365 + Pinnacle 1X2, shared client and
+      cache), `twoup_*` ledger with the Hub endpoint's functions, per-client
+      decision (singles), a scheduled pass, `/api/2up/*` behind the
+      `accabonus` grant, a `2up` source in `/api/value`, `twoup_detail` in
+      `/api/ready`, and `tools/twoup_backtest.py` for the manual BB
+      comparison. Dry-run on for every client. Still open: the 2-Up tab on
+      the 365 page, doubles/trebles and cover bets, the Hub endpoint that
+      sends `pending_bet_lists`, Bet Finder candidates
+      (`decision.extra_candidates`), and the first real rescue-table tune.
 - [ ] **Remove the `/scraper` control page** and its routes; the worker reads
       `targets.toml` on the Hub, edited by Hermes.
 Definition of Done: `grep -ri "theoddsapi\|bettingiscool\|odds_api_key" render/api/`
