@@ -41,7 +41,7 @@ the code. Older product decisions (coupon tracker, pricing, design) stay in
   unparked). The `accabonus` grant keeps its name because renaming a grant
   revokes accounts' access. (5 Nov 2026, Callum)
 - **The `/scraper` control page is gone.** The Scraper's configuration is
-  `targets.toml` on the Hub, edited by hand or by the scraper-manager; Render
+  `targets.toml` on the Hub, changed only through `scraper/targets.py` (the console's Scraper tab, the `targets` CLI, the scraper-manager), never by hand while the Scraper runs; Render
   holds no scraper config and receives no scraper status. (5 Nov 2026, Callum)
 - **The Bet Finder's sources are Scraper targets** (`site = "generic"`); `hub/`
   has no browser and no budget of its own. Bet Finder output is **owner-only**
