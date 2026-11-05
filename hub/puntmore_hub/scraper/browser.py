@@ -106,6 +106,8 @@ def fetch(url: str, source: Source, cfg: Settings = default_settings) -> Fetched
             status = resp.status if resp else None
             reason = sb.blocked(page, status)
             if reason:
+                # Only our own words in the error: page text is untrusted and
+                # would otherwise travel into the escalation brief the agent reads.
                 raise BlockedError(f"{url}: {reason}")
             sb.dismiss_consent(page)
             if source.wait_selector:
@@ -119,5 +121,5 @@ def fetch(url: str, source: Source, cfg: Settings = default_settings) -> Fetched
         finally:
             ctx.close()
     if looks_blocked(status, title, html):
-        raise BlockedError(f"{url} status={status} title={title!r}")
+        raise BlockedError(f"{url}: challenge or block detected (status={status})")
     return Fetched(url=url, status=status, html=html, title=title, json_responses=captured)

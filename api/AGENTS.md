@@ -98,6 +98,17 @@ because that rules out the key and the network in one line.
 
 Both live behind their seams. Core logic never calls a vendor API directly.
 
+## 365 tool (acca boost + goalscorers + 2-Up, one tool — PLAN item 11)
+- **The 2-up edge is proven** (Callum, 5 Nov 2026). Do not re-litigate it,
+  model it from scratch, or gate the build on a literature review.
+- **The rescue model is fine-tuned during testing against Bookie Bashing's
+  2-up tracker.** By hand: BB's terms ban automated access (see the
+  BookieBashing constraint under Cards & Corners), so neither the engine nor
+  the Hub's Worker ever fetches the tracker. The comparison is a
+  user-triggered step and its results are recorded in the tool's notes.
+- Bet lists it emits go to the Hub over `hub/PROTOCOL.md`; nothing in `api/`
+  places a bet.
+
 ## Hard rules (do not violate)
 - The provider seams MUST stay behind their interfaces (see Provider guide
   below). Never call external APIs directly from core logic.
