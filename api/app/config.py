@@ -2,9 +2,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # TheOddsApi key — read ONLY by the goalscorers pipeline until it is ported
-    # to OddsPapi, the only odds source (PLAN item 11). Nothing new reads it.
-    odds_api_key: str = ""
     # OCR provider keys — set one. GOOGLE_API_KEY takes priority; falls back to
     # ANTHROPIC_API_KEY; falls back to MockOCRProvider if neither is present.
     google_api_key: str = ""
@@ -21,24 +18,13 @@ class Settings(BaseSettings):
     # 512 MB instance. Refusing beats resizing: OCR accuracy on a coupon's small
     # print depends on the full resolution.
     max_upload_mb: int = 25
-    # TheOddsApi in-memory cache TTL (seconds), goalscorers only. 24 h keeps
-    # its 500 credits/month safe; do not lower it.
-    odds_cache_ttl: int = 86400
     # Minimum edge vs de-vigged Pinnacle to include in the Paddy feed. Stored as
     # an edge fraction; the UI presents it as %EV (bet odds as a percentage of
     # fair: %EV = (1 + edge) × 100). Default -0.02 = the 98% EV preset.
     cards_min_edge: float = -0.02
 
     # --- Cards & corners (SPEC 1, docs/provider-verification.md) ------------
-    # PADDY POWER comes from TheOddsApi's PER-EVENT endpoint; Pinnacle comes
-    # from bettingiscool. That split is a cost decision, not a preference:
-    # TheOddsApi bills (markets x regions) per event, Paddy Power is a `uk`
-    # book and Pinnacle an `eu` one, so asking one vendor for both spans two
-    # regions. Asking only for Paddy Power is unambiguously ONE region, and
-    # bettingiscool is Pinnacle-native on a plan billing per DAY rather than
-    # per month.
-    #
-    # PADDY POWER VIA ODDSPAPI (Sept 2026). TheOddsApi does not carry Paddy's
+    # PADDY POWER VIA ODDSPAPI (Sept 2026). No other vendor carries Paddy's
     # corners/cards (probe, 28 Sept: one book with corners, none with cards,
     # no Paddy). With a key set, Paddy's side comes from OddsPapi instead —
     # see cards/oddspapi.py. OddsPapi bills per REQUEST, and one
@@ -88,12 +74,6 @@ class Settings(BaseSettings):
     # than a team-name match. Blank = no fair side at all (the feed stays empty
     # and /paddy/diagnostics says so).
     oddspapi_fair_book: str = "pinnacle"
-    # TheOddsApi's monthly quota guard, for the tools still on that vendor
-    # (AccaBonus, the coupon fallback): stop when the vendor's own
-    # x-requests-remaining header falls to this. Authoritative — it survives a
-    # restart and already reflects the true per-call cost — and it keeps a
-    # runaway from taking the coupon fallback and the goalscorer scans down.
-    cards_quota_reserve: int = 1500
     # Paddy lines never shown, as "market:line" pairs. Paddy SHOPS don't carry
     # every line its website does, and the team bets in shops (Callum, Oct
     # 2026: no 11.5 corners). Pinnacle's rung at the same line still feeds the
@@ -112,7 +92,7 @@ class Settings(BaseSettings):
     coupon_odds_source: str = "oddspapi"
     # Cache TTL (seconds) for the coupon tracker's odds pulls, reused across
     # every leg and the 10-min refresh loop. Independent of odds_cache_ttl
-    # (goalscorers' TheOddsApi pulls).
+    # (there is no second cache now).
     #
     # Default 600 = 10 min, matching the refresh cadence. OddsPapi is billed per
     # request, but the whole coupon board is a handful of bulk requests per
@@ -127,7 +107,9 @@ class Settings(BaseSettings):
     # the UI when on. The scheduler builds a daily watchlist of major fixtures
     # and scans each at kickoff − 45 min (Pinnacle only posts the market near KO
     # for majors), storing rows and alerting Discord on new value.
-    enable_goalscorers: bool = True
+    # Goalscorers is PARKED (5 Nov 2026): its odds vendor is gone and OddsPapi
+    # is the only source. Off until rebuilt on OddsPapi (PLAN.md, Parked).
+    enable_goalscorers: bool = False
     # Private P&L bet tracker. Mounted when on, but gated by the "pnl" tool
     # grant — only users whose AUTH_USERS permission is "*" (or lists "pnl")
     # see it, so it stays a private per-user ledger.

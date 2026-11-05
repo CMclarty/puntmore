@@ -51,10 +51,6 @@ services:
         generateValue: true    # random, then stable — sessions survive deploys
       - key: AUTH_USERS
         sync: false
-      # TheOddsApi: the goalscorers pipeline only, until it is ported to
-      # OddsPapi (PLAN.md item 11). Nothing else reads it.
-      - key: ODDS_API_KEY
-        sync: false
       # Paddy Power's corners/cards AND the Pinnacle fair side (OddsPapi). The
       # only source for the Paddy tool; without it the feed is empty and
       # /api/paddy/diagnostics says so. Budget: Settings.oddspapi_* in config.

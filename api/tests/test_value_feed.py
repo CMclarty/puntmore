@@ -85,10 +85,10 @@ def _get(path, perms="value", **params):
 
 def test_one_shape_across_every_source_best_edge_first():
     body = _get("/value").json()
-    assert body["sources"] == ["paddy", "scorers", "coupon"]
+    assert body["sources"] == ["paddy", "coupon"]   # goalscorers parked
     assert body["errors"] == {}
     rows = body["selections"]
-    assert {r["source"] for r in rows} == {"paddy", "scorers", "coupon"}
+    assert {r["source"] for r in rows} == {"paddy", "coupon"}
     edges = [r["edge"] for r in rows]
     assert edges == sorted(edges, reverse=True) and min(edges) > 0
     keys = {"source", "bookmaker", "event_id", "event", "home", "away", "kickoff",
@@ -119,7 +119,7 @@ def test_coupon_rows_are_live_priced_selections_only():
 
 def test_a_tool_grant_sees_only_its_own_rows():
     body = _get("/value", perms="coupons+goalscorers").json()
-    assert body["sources"] == ["scorers", "coupon"]
+    assert body["sources"] == ["coupon"]   # goalscorers parked
     assert _get("/value/paddy", perms="coupons").status_code == 403
     assert _get("/value", perms="shop").status_code == 403
     assert _get("/value/nope").status_code == 404
@@ -129,7 +129,7 @@ def test_kickoff_window_and_bookmaker_filters():
     soon = _get("/value", kickoff_within_hours=12).json()["selections"]
     assert {r["source"] for r in soon} == {"paddy", "coupon"}
     b365 = _get("/value", bookmaker="bet365").json()["selections"]
-    assert {r["source"] for r in b365} == {"scorers"}
+    assert {r["source"] for r in b365} == set()   # goalscorers parked; no bet365 source live
 
 
 def test_a_failing_source_is_named_and_the_rest_still_answer(monkeypatch):
@@ -138,4 +138,4 @@ def test_a_failing_source_is_named_and_the_rest_still_answer(monkeypatch):
     monkeypatch.setattr("app.cards.feed.price_events", boom)
     body = _get("/value").json()
     assert "paddy" in body["errors"] and "vendor down" in body["errors"]["paddy"]
-    assert {r["source"] for r in body["selections"]} == {"scorers", "coupon"}
+    assert {r["source"] for r in body["selections"]} == {"coupon"}

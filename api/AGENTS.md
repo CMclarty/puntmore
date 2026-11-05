@@ -14,12 +14,11 @@ bettingiscool is gone, and so are the acca boost package and the TheOddsApi
 coupon fallback (5 Nov 2026): without an OddsPapi key the tracker runs on the
 mock and says so at boot and on `/api/ready`.
 
-**One exception, temporary:** the goalscorers pipeline (`goalscorers/`, live
-at `/365/scorers`) still pulls its fixtures and prices through
-`odds/client.py::TheOddsApiClient` (`ODDS_API_KEY`). That client exists for
-goalscorers alone until it is ported to OddsPapi (PLAN item 11). Nothing else
-may read it, and no new code is written against TheOddsApi. The acca boost
-returns as a 365 tab on OddsPapi.
+No other odds vendor exists in the code. **Goalscorers is PARKED** (Callum,
+5 Nov 2026): its vendor was removed, so `goalscorers/` stays in the tree
+behind `ENABLE_GOALSCORERS=false` with no client, and comes back on OddsPapi
+after the open work is done (PLAN.md, Parked). The acca boost returns as a
+365 tab on OddsPapi the same way.
 
 What must stay diagnosable, whichever provider: a tool that cannot price a
 market **refuses** it with a named reason rather than approximating; one
@@ -254,7 +253,7 @@ Both live behind their seams. Core logic never calls a vendor API directly.
     title, the period and the ladder. Strips are told the headings in print
     order (`OcrHint.headings`) because the header is usually above the cut,
     and are told to leave out any row the cut slices through.
-- TheOddsApi's free tier (goalscorers, until ported) is 500 credits/month. The 24-hour
+- (History: the old vendor's free tier was 500 credits/month. The 24-hour
   cache (`Settings.odds_cache_ttl`, `app/odds/client.py`) keeps this safe — do
   not lower the default. A paid-tier upgrade is an `.env` change only.
 - The refresh loop runs every 10 minutes; it recomputes value locally and reads
@@ -381,12 +380,6 @@ July 2026.
 Refresh cadence is 10 min, reading through the cache — it never adds vendor
 calls. To add a provider, implement `OddsProvider` and add an `elif` on
 `settings.coupon_odds_source` in the `main.py` lifespan.
-
-### Goalscorers' TheOddsApi client (`app/odds/client.py`) — RETIRING
-Read by `goalscorers/service.py` only (watchlist + per-event pulls), cached
-in-memory and bounded (`CACHE_MAX`, `EVENT_CACHE_MAX`). Its 500 credits/month
-are kept safe by `Settings.odds_cache_ttl` (24 h); do not lower it. It is
-deleted when goalscorers moves to OddsPapi (PLAN item 11).
 
 ### Cards & Corners (`app/cards/`) — TWO vendors, on purpose
 Both sides come from **OddsPapi** (Oct 2026, below): Paddy Power's prices and

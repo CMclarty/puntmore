@@ -6,7 +6,7 @@ check uses a constant-time comparison; a blank key disables the endpoint
 entirely rather than allowing unauthenticated access.
 
 Feed data reads through the shared odds cache (same as the UI endpoints),
-so polling this endpoint never increases TheOddsApi call frequency.
+so polling this endpoint never adds vendor calls.
 """
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session, selectinload

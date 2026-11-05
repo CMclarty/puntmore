@@ -22,7 +22,6 @@ from .security import (
     weak_seed_passwords,
     MIN_PASSWORD_LENGTH,
 )
-from .odds.client import TheOddsApiClient
 from . import coupon_types
 from .providers.oddspapi_coupon import OddsPapiCouponProvider
 from .providers.mock_odds import MockOddsProvider
@@ -97,19 +96,15 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
-    # TheOddsApi client: read ONLY by the goalscorers pipeline (its daily
-    # watchlist and per-fixture scans) until that is ported to OddsPapi, which
-    # is the only odds source (PLAN item 11). Nothing else may take it.
-    if settings.odds_api_key:
-        odds_client = TheOddsApiClient(
-            settings.odds_api_key, cache_ttl=settings.odds_cache_ttl
-        )
-    else:
-        odds_client = None
+    # Goalscorers is PARKED (5 Nov 2026): its odds vendor is gone and OddsPapi
+    # is the only source. The pipeline stays in the tree behind
+    # ENABLE_GOALSCORERS=false and gets no client until it is rebuilt on
+    # OddsPapi (PLAN.md, Parked).
+    odds_client = None
     app.state.cards_client = None
     app.state.hills_client = None
     # Paddy Power's corners/cards come from OddsPapi when it is configured:
-    # TheOddsApi does not carry them (cards/oddspapi.py). Pinnacle's side comes
+    # no other vendor carries them (cards/oddspapi.py). Pinnacle's side comes
     # from OddsPapi too (`oddspapi_fair_book`).
     # ONE OddsPapi client for both the Paddy source and the coupon provider: its
     # rate-limit lock, daily budget and caches are per instance, so two of them
@@ -464,7 +459,7 @@ def ready():
     # ignoring every uploaded image.
     #
     # The odds entry NAMES the provider rather than saying "live". "live" was
-    # actively misleading: the TheOddsApi fallback reported live while being
+    # actively misleading: a since-removed fallback vendor reported live while
     # unable to price six of the nine coupon types, so a deploy showing every
     # selection blank looked healthy here. `degraded` is the one-word answer to
     # "why is nothing pricing", and `cannot_price` says exactly which coupons
