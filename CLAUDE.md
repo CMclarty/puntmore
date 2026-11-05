@@ -33,7 +33,7 @@ separate builds. The backend serves them all under namespaced routers.
 (`/tennis` is the AccaBonus tool's legacy prefix — kept as redirect/API aliases
 for stale PWA clients; don't add new code under it.)
 **365** (Oct 2026) is the bet365 offers, one tool with a tab each at
-`/365/<tab>`: `acca` (the AccaBonus page, `accabonus` grant) and `scorers`
+`/365/<tab>`: `acca` (the acca boost, removed 5 Nov 2026 and returning on OddsPapi, `accabonus` grant) and `scorers`
 (the goalscorer finder, `goalscorers` grant); 2-Up joins when its bet365 feed
 exists. `/accabonus`, `/tennis` and `/goalscorers` redirect into it; the
 grants, flags and API paths keep their old names.

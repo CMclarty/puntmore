@@ -10,11 +10,16 @@ scars and the next agent "fixes" a rule it does not understand.
 prices on `OddsPapiCouponProvider` (`providers/oddspapi_coupon.py`,
 `COUPON_ODDS_SOURCE=oddspapi`, the default) and the Paddy tool on
 `cards/oddspapi.py`. Fair odds are de-vigged in-house from its raw prices.
-bettingiscool is gone. The TheOddsApi code that remains (`odds/client.py`,
-`providers/odds_api.py`, the imports in accabonus, goalscorers, the cards feed,
-the coupon fallback branch in `main.py` and `/state`) is leftover and is
-deleted in PLAN item 11; write no new code against it and never make it a
-live path again.
+bettingiscool is gone, and so are the acca boost package and the TheOddsApi
+coupon fallback (5 Nov 2026): without an OddsPapi key the tracker runs on the
+mock and says so at boot and on `/api/ready`.
+
+**One exception, temporary:** the goalscorers pipeline (`goalscorers/`, live
+at `/365/scorers`) still pulls its fixtures and prices through
+`odds/client.py::TheOddsApiClient` (`ODDS_API_KEY`). That client exists for
+goalscorers alone until it is ported to OddsPapi (PLAN item 11). Nothing else
+may read it, and no new code is written against TheOddsApi. The acca boost
+returns as a 365 tab on OddsPapi.
 
 What must stay diagnosable, whichever provider: a tool that cannot price a
 market **refuses** it with a named reason rather than approximating; one
@@ -249,7 +254,7 @@ Both live behind their seams. Core logic never calls a vendor API directly.
     title, the period and the ladder. Strips are told the headings in print
     order (`OcrHint.headings`) because the header is usually above the cut,
     and are told to leave out any row the cut slices through.
-- The Odds API free tier (AccaBonus/Cards) is 500 credits/month. The 24-hour
+- TheOddsApi's free tier (goalscorers, until ported) is 500 credits/month. The 24-hour
   cache (`Settings.odds_cache_ttl`, `app/odds/client.py`) keeps this safe — do
   not lower the default. A paid-tier upgrade is an `.env` change only.
 - The refresh loop runs every 10 minutes; it recomputes value locally and reads
@@ -360,7 +365,6 @@ internally and returns FAIR odds plus the fixture it fuzzy-matched.
 |---|---|---|
 | `OddsPapiCouponProvider` | `providers/oddspapi_coupon.py` | `COUPON_ODDS_SOURCE=oddspapi` (default, the only live path) |
 | `MockOddsProvider` | `providers/mock_odds.py` | no provider key (dev/test) |
-| `TheOddsApiProvider` | `providers/odds_api.py` | leftover; deleted in PLAN item 11 |
 
 Legs are priced through `pricing/legs.py::price_legs` — one implementation
 shared by upload, the on-demand refresh and the scheduler. Don't reintroduce a
@@ -378,52 +382,11 @@ Refresh cadence is 10 min, reading through the cache — it never adds vendor
 calls. To add a provider, implement `OddsProvider` and add an `elif` on
 `settings.coupon_odds_source` in the `main.py` lifespan.
 
-*(TheOddsApi, leftover code — PLAN item 11 deletes it; kept here only until then.)*
-**NEVER send `bookmakers` AND `regions` together** (`odds/client.py`). Billing is
-`markets × regions`, and naming books is the cheaper form — but the real damage
-is filtering: bet365 is a `uk` book and Paddy Power a `uk` book, so a leftover
-default `regions=eu` beside a named book can drop it from the response entirely.
-AccaBonus skips any event missing bet365, so that produced a completely blank
-feed with nothing logged. `fetch` and `fetch_event` both send one or the other,
-and tests pin it on both.
-
-### Odds data layer for value tools (`app/odds/client.py::TheOddsApiClient`) — RETIRING
-**Leftover.** OddsPapi is the only odds source; this client and everything
-that reads it are deleted in PLAN item 11. Nothing live depends on it
-(AccaBonus is off). The notes below describe the code as it stands until then.
-AccaBonus + Cards read TheOddsApi through this one shared client (HTTP + cache).
-`fetch(sport_key, markets, bookmakers=None) -> list[dict]`, cached in-memory
-keyed by `(sport_key, markets, bookmakers)`.
-
-- Free tier: 500 credits/month. Each `/v4/sports/{sport}/odds` call costs ~2
-  credits. Cache TTL is `Settings.odds_cache_ttl` (default 86400 = 24 h). Do not
-  lower the default: a 1-hour cache burns ~336 credits/day on a single sport.
-- Off-season sport keys return 404 (free, no quota) and are cached empty — safe
-  to keep all keys listed year-round.
-- Fair odds come from de-vigging Pinnacle via the **power method**
-  (`app/odds/utils.py::devigd` / `devigd_multi` — user decision, June 2026;
-  don't revert to multiplicative). Pinnacle is the reference everywhere. The
-  coupon tracker devigs the same way, over TheOddsApi prices.
-- TheOddsApi returns the totals line as `"point"` (numeric) on each outcome.
-  Do not confuse with `"description"` — that field does not exist in this API.
-
-Consumers:
-| Consumer | File | Source | Markets | Bookmakers |
-|---|---|---|---|---|
-| coupons | `providers/odds_api.py` | TheOddsApi | `h2h`, `totals` | Pinnacle (falls back to first listed) |
-| arbs router | `routers/accabonus.py` + `accabonus/arbs.py` | TheOddsApi | `h2h` | bet365 vs Pinnacle |
-| `CardsApiClient` | `cards/client.py` + `cards/value.py` | TheOddsApi | `alternate_totals` ⚠️ **broken, see below** | Pinnacle, Paddy Power |
-
-⚠️ `CardsApiClient` asks the **bulk** endpoint for `alternate_totals`, which
-that endpoint rejects (`INVALID_MARKET`) — so it has never returned a row. The
-tool is gated off, so nothing is affected, but re-enabling it means rebuilding
-against the per-event endpoint with the real corners/cards market keys. See
-`docs/provider-verification.md` and PLAN item 7 before touching it.
-
-`TheOddsApiProvider` satisfies the `OddsProvider` interface (used by the refresh
-loop) and reads through the client on its own `COUPON_ODDS_CACHE_TTL`. AccaBonus
-and cards consume the `TheOddsApiClient` directly via `app.state.arbs_client` /
-`app.state.cards_client` because they query bespoke market/bookmaker combos.
+### Goalscorers' TheOddsApi client (`app/odds/client.py`) — RETIRING
+Read by `goalscorers/service.py` only (watchlist + per-event pulls), cached
+in-memory and bounded (`CACHE_MAX`, `EVENT_CACHE_MAX`). Its 500 credits/month
+are kept safe by `Settings.odds_cache_ttl` (24 h); do not lower it. It is
+deleted when goalscorers moves to OddsPapi (PLAN item 11).
 
 ### Cards & Corners (`app/cards/`) — TWO vendors, on purpose
 Both sides come from **OddsPapi** (Oct 2026, below): Paddy Power's prices and
@@ -437,7 +400,7 @@ the regions lesson from it still holds.
 - **OddsPapi is the ONLY source for the Paddy tool** (Oct 2026): Paddy's prices
   and Pinnacle's fair side, joined on the same fixture id. The TheOddsApi Paddy
   path (`CardsApiClient`, its tiered window/cadence, `probe-books`, the daily
-  call budget) is gone; TheOddsApi serves AccaBonus and the coupon fallback
+  call budget) is gone; TheOddsApi serves goalscorers
   only, guarded by `cards_quota_reserve` on its `x-requests-remaining` header.
 - **Every line PADDY POWER quotes is priced, off Pinnacle's fitted ladder**
   (`cards/laddered.py`) — or the team split where Pinnacle posts one line, or
@@ -522,7 +485,7 @@ the regions lesson from it still holds.
   `/api/cards/oddspapi-check` shows what the live catalogue calls each corner
   and card market. Read it before trusting a price. It emits TheOddsApi-shaped
   events, so the Pinnacle join, the pricing model and the diagnostics are
-  unchanged. The TheOddsApi path behind it is leftover (PLAN item 11).
+  unchanged. The TheOddsApi path behind it is gone.
 - **Pinnacle's side comes from OddsPapi too** (`oddspapi_fair_book`, default
   `pinnacle`, Sept 2026). Checked live on the Nations League: Pinnacle posts a
   5-line corners ladder and a 5-line "Bookings" ladder (a CARD COUNT, 3.0–6.0 —
@@ -580,29 +543,6 @@ the regions lesson from it still holds.
 - `merge_pinnacle` joins the two vendors into one event so `value.py` stays
   vendor-agnostic — swapping either side back is a change in that function
   alone.
-- **AccaBonus eligibility is bet365's published list, not a guess.** Checked
-  against UK sources Aug 2026 (bet365's own pages are egress-blocked): football
-  (80+ competitions), tennis, MMA, basketball, NFL, baseball, ice hockey. Two
-  corrections came out of that check and both were the same failure — a value
-  figure measured against a promotion that would not pay on it: **ITF tennis is
-  NOT eligible** (the list names Grand Slams/ATP/WTA/Davis Cup/BJK/Challenger),
-  and **soccer IS** — it had been excluded since June 2026 on the incorrect
-  grounds that the coupon and cards tools cover football, which they do for
-  different MARKETS. Soccer and tennis are PREFIX lists, never whole groups:
-  the groups carry friendlies, youth and ITF events the offer excludes.
-  `/accabonus/eligible-keys` lists what the filter accepts plus near-misses, off
-  the FREE `/v4/sports` endpoint, so re-checking against the terms costs nothing.
-- **AccaBonus is bet365-only, and Pinnacle is the MEASURING STICK.** The Acca
-  Boost is a bet365 promotion, so bet365 is where every row is placed;
-  de-vigged Pinnacle is just what "fair odds" means, as in every other tool.
-  There is deliberately no cross-book arb flag — one existed and rendered as
-  the row's most prominent badge, describing a bet that needs a Pinnacle leg
-  nobody here places. Don't re-add it.
-  `ACCABONUS_CACHE_TTL` is the cost dial: 1 credit per sport key per pull, so
-  24h is ~450 credits/month and 1h is ~3.6k–10.8k depending on how many keys
-  discovery finds. Cards is ~17k of a 20k plan, so hourly only fits alongside
-  it with `ACCABONUS_SPORT_KEYS` pinned to a handful — watch the
-  "accabonus pull" log line for the live key count.
 - The sweep's Discord dedupe (`scheduler._cards_notified`) is IN MEMORY and is
   swept each pass. Cards rows are computed, never stored, so there is no row to
   flag — but the map must keep dropping bets that fall off the sweep, or it is
@@ -620,7 +560,7 @@ are deduped via `legs.notified_tier` (notify only on new/changed tier) — keep
 that behaviour when touching the loop, or live coupons re-alert every 10 min.
 
 ### State snapshot (`app/routers/state.py`)
-`GET /state` returns the whole app state (coupons+legs, AccaBonus feed, cards
+`GET /state` returns the whole app state (coupons+legs, cards
 feed) for machine consumers. It is NOT session-guarded — it self-guards with
 the static `STATE_API_KEY` (`X-API-Key` header, constant-time compare; blank
 key = 503/disabled). It reads through the odds cache, so polling it never
@@ -654,7 +594,7 @@ any key, never public. Changes are ADDITIVE ONLY — a breaking change goes to
 `/api/v2/...`. `GET /api/value` is the cross-tool value feed in one
 `ValueSelection` shape, built from each tool's own feed builder (never a
 second pricing path). Tool logic lives in services (`cards/feed.py`,
-`accabonus/feed.py`, `coupons/service.py`, `pnl/service.py`,
+`coupons/service.py`, `pnl/service.py`,
 `shop/service.py`); routers stay thin. The Python client is
 `clients/python/puntmore`. Nothing in the API places a bet — read and
 report — and no bookmaker-account automation is ever added here.
