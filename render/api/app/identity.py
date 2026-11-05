@@ -11,8 +11,8 @@ served: manifest, apple-touch-icon, favicon and title. PageIdentity still runs
 in the page for client-side navigation. The table below MIRRORS
 frontend/src/identity.js (tests/test_identity.py checks they agree).
 
-Two sites share the shell (app/site.py): Paddy, Hills and the scraper
-carry Shalgo's name, and a path with no tool of its own (/login, a Shalgo
+Two sites share the shell (app/site.py): Paddy and Hills carry
+Shalgo's name, and a path with no tool of its own (/login, a Shalgo
 landing) takes the identity of the site whose host served it.
 """
 import re
@@ -31,7 +31,6 @@ IDENTITIES = [
     (lambda p: p.startswith("/365") or p == "/accabonus", "Puntmore — 365", "accabonus", None),
     (lambda p: p.startswith("/paddy") or p == "/cards", "Shalgo — Paddy", "paddy", None),
     (lambda p: p.startswith("/hills"), "Shalgo — Hills", "hills", None),
-    (lambda p: p == "/scraper", "Shalgo — Scraper", "scraper", None),
 ]
 DEFAULT = ("Puntmore", "puntmore", None)
 DEFAULTS = {PUNTMORE: DEFAULT, SHALGO: ("Shalgo", "shalgo", None)}

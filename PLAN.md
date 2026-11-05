@@ -490,8 +490,12 @@ and `/state`. AccaBonus is not live (`enable_accabonus` False).
       the 365 page, doubles/trebles and cover bets, the Hub endpoint that
       sends `pending_bet_lists`, Bet Finder candidates
       (`decision.extra_candidates`), and the first real rescue-table tune.
-- [ ] **Remove the `/scraper` control page** and its routes; the worker reads
-      `targets.toml` on the Hub, edited by Hermes.
+- [x] **Remove the `/scraper` control page** and its routes; the worker reads
+      `targets.toml` on the Hub, edited by Hermes. Done 5 Nov 2026: the page,
+      its nav tab, `/api/scraper*`, the `scraper` grant and the
+      `scraper_*` models are gone (the tables stay on the disk until
+      dropped); the Worker no longer fetches config or posts status (branch
+      `rm-scraper-fetch`).
 Definition of Done: `grep -ri "theoddsapi\|bettingiscool\|odds_api_key" render/api/`
 is empty, the coupon feed is unchanged, and the worker runs a day from local
 config.

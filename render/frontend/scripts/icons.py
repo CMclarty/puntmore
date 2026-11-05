@@ -42,7 +42,7 @@ def text(s, size=280, y=340):
 # name -> (background, glyph)
 ICONS = {
     "puntmore": ("#2F7D55", text("P")),
-    # Shalgo: the props side's own app (Paddy, Hills, AW 26, Scraper).
+    # Shalgo: the props side's own app (Paddy, Hills).
     "shalgo": ("#2D2A5F", text("S")),
     # Coupon tracker: the ticket.
     "coupons": ("#2F7D55", nav('<rect x="4" y="2" width="14" height="18" rx="2"/>'
@@ -73,10 +73,6 @@ ICONS = {
     "hills": ("#1F3A5F", nav('<polyline points="2,17 8,8 12,13 15,9 20,17"/><line x1="2" y1="17" x2="20" y2="17"/>')),
     # Shop visits: the bag.
     "shop": ("#2F7D55", big('<path d="M136 196h240l-20 176H156z"/><path d="M204 196v-44a52 52 0 0 1 104 0v44"/>')),
-    # Scraper control: the sliders.
-    "scraper": ("#7B3F61", nav('<line x1="4" y1="6" x2="18" y2="6"/><line x1="4" y1="11" x2="18" y2="11"/>'
-                               '<line x1="4" y1="16" x2="18" y2="16"/><circle cx="8" cy="6" r="1.6"/>'
-                               '<circle cx="14" cy="11" r="1.6"/><circle cx="10" cy="16" r="1.6"/>')),
 }
 
 
