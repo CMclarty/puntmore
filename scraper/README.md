@@ -98,8 +98,12 @@ python -m scraper targets remove racing-tips
   rewritten whole, so comments are lost: the first save keeps the
   hand-written file as `targets.toml.bak`.
 - The running Scraper picks a change up within 60 s (its re-read of the
-  file). A changed target has its tabs closed and reopened on the next tick,
-  whatever the field: today even an `every_min` change costs a fresh load.
+  file). A change to only `every_min`, `stale_min`, `priority`, `window`,
+  `min_rows` or `trust_weight` is applied in place: the open tabs stay and
+  are rescheduled (a timed reload is redrawn from the last load), so it
+  costs no load. A change to `url`, `site`, `mode`, `parser`, `post`,
+  `wait_for` or `matches` closes the target's tabs and reopens them on the
+  next tick. Disabling or removing a target closes its tabs.
 - `priority` (higher goes first when a site's hourly budget is short) and
   `window` (`"HH:MM-HH:MM"` local time; outside it the target's tabs close)
   are acted on by the runner (`schedule.py`).

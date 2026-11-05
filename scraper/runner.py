@@ -19,8 +19,10 @@ Target kinds:
 Targets are targets.toml on the Hub, changed only through scraper/targets.py
 (an atomic rename, so a half-written file is never read). The file is checked every
 TARGETS_CHECK_S: after an edit a removed or changed target's tabs close, a new
-one opens on the next tick - no restart. A file that will not parse is
-reported and the running targets are kept. The runner writes its state to
+one opens on the next tick - no restart. A change to its timing, priority,
+window, min_rows or trust_weight only is applied to the open tabs in place
+(RESCHEDULE_FIELDS). A file that will not parse is reported and the running
+targets are kept. The runner writes its state to
 data/status.json every STATUS_EVERY_S, which the Hub reads.
 
 This module wires the pieces: schedule.py says when a target is due,
@@ -28,6 +30,7 @@ sinks.py delivers its rows (Render or the Hub), status.py writes the
 heartbeat and status.json, guard.py says yes or no to every load.
 """
 import collections
+import dataclasses
 import json
 import random
 import re
@@ -49,6 +52,10 @@ from .status import (HEALTH_PING_S, STATUS_EVERY_S, Reporter, market_tabs_said, 
                      site_status, target_entry)
 
 PARSE_EVERY_S = 60
+# A change to only these fields is applied to the open tabs in place; a change
+# to any other (url, site, mode, parser, post, wait_for, matches) closes the
+# target's tabs and reopens them.
+RESCHEDULE_FIELDS = ("every_min", "stale_min", "priority", "window", "min_rows", "trust_weight")
 TARGETS_CHECK_S = 60             # a stat of targets.toml; read only when it changed
 
 
@@ -409,15 +416,22 @@ class Runner:
         self.apply_targets(targets)
 
     def apply_targets(self, targets):
-        """Swap in a new target list. A target that is gone, or whose
-        definition changed, has its tabs closed; new and changed targets open
-        through the normal tick (and its guard) from the next tick on."""
+        """Swap in a new target list. A target that is gone (removed or
+        disabled), or whose page changed (any field but RESCHEDULE_FIELDS),
+        has its tabs closed; new and changed targets open through the normal
+        tick (and its guard) from the next tick on. A change to
+        RESCHEDULE_FIELDS only is applied in place: the open tabs stay and
+        are rescheduled, so it costs no load."""
         old = {t.name: t for t in self.targets}
         new = {t.name: t for t in targets}
         if old == new:
             return
+        in_place = sorted(n for n in set(old) & set(new)
+                          if old[n] != new[n] and reschedule_only(old[n], new[n]))
+        for name in in_place:
+            self._reschedule(new[name])
         for name, t in old.items():
-            if new.get(name) != t:
+            if new.get(name) != t and name not in in_place:
                 for key in [k for k, tab in self.tabs.items() if tab.target.name == name]:
                     self._close(key)
                 self.retired.pop(name, None)
@@ -429,11 +443,26 @@ class Runner:
             self.retired_targets.pop(name, None)
         added = sorted(set(new) - set(old))
         removed = sorted(set(old) - set(new))
-        changed = sorted(n for n in set(old) & set(new) if old[n] != new[n])
+        changed = sorted(n + (" (in place)" if n in in_place else "")
+                         for n in set(old) & set(new) if old[n] != new[n])
         print("config: " + "; ".join(f"{label} {', '.join(names)}" for label, names in
                                      (("added", added), ("removed", removed), ("changed", changed))
                                      if names), flush=True)
         self.targets = list(targets)
+
+    def _reschedule(self, t):
+        """A change to RESCHEDULE_FIELDS only: the open tabs keep their pages
+        and take the new definition. A timed reload is redrawn from the last
+        load with the new every_min; a fetch target's next run likewise. The
+        window and priority apply from the next tick."""
+        for tab in self.tabs.values():
+            if tab.target.name == t.name:
+                if tab.target.every_min != t.every_min:
+                    tab.due_at = None
+                tab.target = t
+        last = self.last_load_at.get(t.name)
+        if t.name in self.next_fetch and last is not None:
+            self.next_fetch[t.name] = schedule.next_fetch_at(last, t.every_min)
 
     def _tick_page(self, t, key, url, now):
         tab = self.tabs.get(key)
@@ -696,6 +725,11 @@ class Runner:
     def close_all(self):
         for key in list(self.tabs):
             self._close(key)
+
+
+def reschedule_only(old, new) -> bool:
+    """True when the two definitions differ only in RESCHEDULE_FIELDS."""
+    return dataclasses.replace(old, **{f: getattr(new, f) for f in RESCHEDULE_FIELDS}) == new
 
 
 def match_links(page, link_re, base_url) -> list[str]:
