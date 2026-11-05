@@ -12,9 +12,9 @@ React frontend, behind a shared nginx layer.
 > `ENABLE_ACCABONUS` / `ENABLE_CARDS` (default False) and their nav tabs/routes
 > are suppressed. Code, tests, and the seams are all kept; this is a visibility
 > gate, not a removal. The disabled routers / coupon-only UI are intentional —
-> do not "fix" them. The coupon tracker prices via **bettingiscool**
-> (`COUPON_ODDS_SOURCE=bettingiscool`), de-vigs in-house, and derives
-> Win-and-Over off the fitted score grid. OCR **auto-confirms**: rows save and
+> do not "fix" them. The coupon tracker prices via **OddsPapi**
+> (`COUPON_ODDS_SOURCE=oddspapi`, the only odds source), de-vigs in-house,
+> and derives Win-and-Over off the fitted score grid. OCR **auto-confirms**: rows save and
 > price on upload, with inline edit and re-scan.
 
 What runs where (the full table is in `README.md`; keep the two in step):
@@ -69,8 +69,8 @@ loads it through the directory's `CLAUDE.md`):
 `PLAN.md` → **Decisions** is settled and applies everywhere.
 
 ## Hard rules (do not violate)
-- NEVER commit secrets. All credentials (bettingiscool key, Odds API key, OCR
-  key, Discord webhook, auth users + session key) live in `.env` only.
+- NEVER commit secrets. All credentials (OddsPapi key, OCR key, Discord
+  webhook, auth users + session key) live in `.env` only.
   `.env` is git-ignored; only `.env.example` is committed.
 - The API (`api/`, on Render) never places a bet and no bookmaker-account
   automation is added to it (`api/AGENTS.md`, API clients). Placement and the

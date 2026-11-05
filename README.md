@@ -17,9 +17,9 @@ Only `main` deploys Render, so nothing is pushed to `main` directly: work on a b
 
 ## The two boxes
 
-**Render** prices and decides. It holds the odds API clients, the 2-Up decision layer, the per-client ledgers, and the control page that tells the scraper what to read. It never loads a bookmaker page.
+**Render** finds, prices and decides bets and holds the ledger. It runs the app, the 365 tool (acca boost, goalscorers and the 2-Up engine, one tool), the Bet Finder orchestrator, and the odds API client. **OddsPapi is the only odds source** (the leftover TheOddsApi code goes in PLAN.md item 11). Render never loads a bookmaker page and never places a bet.
 
-**The Hub** touches bookmakers. `scraper/` keeps Paddy Power and Bookie Bashing pages open in one real Chrome and posts prices to the API. `hub/` is the 2-Up side: a persistent outbound link to Render, the client engine that places bets on sub-client phones, escalation to the local AI, and the Bet Finder's scrape sources. The bet-placing bot itself, the part that takes a bet and returns `placed`, `price_changed` or `failed`, is a placeholder: `hub/puntmore_hub/placement/README.md` has its contract and the stub to replace. The contract between the two boxes is `hub/PROTOCOL.md` and `hub/schemas/`.
+**The Hub** does only what needs a residential IP, the phones or the GPU. `scraper/` keeps Paddy Power and Bookie Bashing pages open in one real Chrome and posts prices to the API. `hub/` holds the link to Render, the client engine that places bets on sub-client phones, escalation, and the Bet Finder's scrape sources. Hermes owns the Hub: it runs the schedules and takes every escalation. The bet-placing bot itself, the part that takes a bet and returns `placed`, `price_changed` or `failed`, is a placeholder: `hub/puntmore_hub/placement/README.md` has its contract and the stub to replace. The contract between the two boxes is `hub/PROTOCOL.md` and `hub/schemas/`.
 
 ## Running the tests
 

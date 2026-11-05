@@ -6,33 +6,23 @@ what is specific to the FastAPI backend: moved verbatim from `CLAUDE.md` on
 scars and the next agent "fixes" a rule it does not understand.
 
 ## Odds sources
-- **Coupon tracker** → `BettingIsCoolProvider` (`providers/bettingiscool.py`).
-  Pinnacle-native and exposes team totals, which feed the derived score grid.
-  Fair odds are de-vigged in-house from its raw prices.
-- **AccaBonus + Cards** → the shared `TheOddsApiClient` (free tier). Unchanged.
+**OddsPapi is the only odds source** (Callum, 5 Nov 2026). The coupon tracker
+prices on `OddsPapiCouponProvider` (`providers/oddspapi_coupon.py`,
+`COUPON_ODDS_SOURCE=oddspapi`, the default) and the Paddy tool on
+`cards/oddspapi.py`. Fair odds are de-vigged in-house from its raw prices.
+bettingiscool is gone. The TheOddsApi code that remains (`odds/client.py`,
+`providers/odds_api.py`, the imports in accabonus, goalscorers, the cards feed,
+the coupon fallback branch in `main.py` and `/state`) is leftover and is
+deleted in PLAN item 11; write no new code against it and never make it a
+live path again.
 
-`TheOddsApiProvider` (`providers/odds_api.py`) is the fallback and is **no
-longer the live path**. It has no score grid of its own, so its compound-leg
-pricing is still a naive product — if it is ever made live again, wire it to
-`pricing.grid` first rather than shipping that path.
-
-**The fallback is reached SILENTLY when `BETTINGISCOOL_API_KEY` is unset**, and
-it serves h2h + totals only — no team totals, no grid. So TTS1/2/3, Win to Nil
-and the GG family cannot be priced on it AT ALL, and a coupon of one of those
-types opens with every selection blank. That is indistinguishable from a failed
-scan by looking at it, which is how it went undiagnosed (Aug 2026: a
-"Team to Score 2" sheet, 154 fixtures, 154 blanks). Three things keep it
-diagnosable — do not quietly undo any of them:
-- It **refuses** what it cannot price (`odds_api.unsupported_reason`) rather
-  than approximating. Win to Nil is the one that matters: it contains "win", so
-  it used to fall through and return the STRAIGHT WIN price — a confident wrong
-  price on a much shorter bet.
-- It logs ONE warning per pricing pass naming the market, the count and the
-  missing env var — never one line per leg, and never none.
-- `/api/ready` NAMES the provider (`providers.odds_detail`) with `degraded` and
-  `cannot_price`. It used to report `"live"` for this fallback, which made a
-  deploy that could price nothing look healthy. The diagnostics ring buffer's
-  `boot` record carries the provider name too.
+What must stay diagnosable, whichever provider: a tool that cannot price a
+market **refuses** it with a named reason rather than approximating; one
+warning per pricing pass names the market and the count, never one line per
+leg and never none; `/api/ready` names the provider (`providers.odds_detail`)
+with `degraded` and `cannot_price`, so a deploy that can price nothing never
+looks healthy. These came out of Aug 2026, when a silent fallback priced a
+154-fixture "Team to Score 2" sheet as 154 blanks.
 
 **Reading a pick's market and team is ONE implementation** (`app/picks.py`) —
 `team_fragment`, `side_of`, `is_team_specific` and the market regexes. It was
@@ -87,8 +77,6 @@ cannot check the match without a wrong match vouching for itself. Legs read
 before it existed have none and are matched on name and competition only.
 It costs nothing: pruning other days' fixtures before the fuzzy scoring made a
 150-leg pass against a 1,000-fixture board ~5x FASTER (8.6s → 1.6s).
-The fallback `TheOddsApiProvider` does NOT apply these checks (not the live
-path) — port `_match_fixture` before it is ever made live again.
 
 **A BLANK TRACKER HAS FIVE DIFFERENT CAUSES and they used to look identical**
 — a selection with no fair odds, whichever one it was. `get_fair_odds` now
@@ -359,9 +347,9 @@ internally and returns FAIR odds plus the fixture it fuzzy-matched.
 
 | Class | File | Trigger |
 |---|---|---|
-| `BettingIsCoolProvider` | `providers/bettingiscool.py` | `COUPON_ODDS_SOURCE=bettingiscool` (default) |
-| `TheOddsApiProvider` | `providers/odds_api.py` | `COUPON_ODDS_SOURCE=theoddsapi` (fallback) |
+| `OddsPapiCouponProvider` | `providers/oddspapi_coupon.py` | `COUPON_ODDS_SOURCE=oddspapi` (default, the only live path) |
 | `MockOddsProvider` | `providers/mock_odds.py` | no provider key (dev/test) |
+| `TheOddsApiProvider` | `providers/odds_api.py` | leftover; deleted in PLAN item 11 |
 
 Legs are priced through `pricing/legs.py::price_legs` — one implementation
 shared by upload, the on-demand refresh and the scheduler. Don't reintroduce a
@@ -379,6 +367,7 @@ Refresh cadence is 10 min, reading through the cache — it never adds vendor
 calls. To add a provider, implement `OddsProvider` and add an `elif` on
 `settings.coupon_odds_source` in the `main.py` lifespan.
 
+*(TheOddsApi, leftover code — PLAN item 11 deletes it; kept here only until then.)*
 **NEVER send `bookmakers` AND `regions` together** (`odds/client.py`). Billing is
 `markets × regions`, and naming books is the cheaper form — but the real damage
 is filtering: bet365 is a `uk` book and Paddy Power a `uk` book, so a leftover
@@ -387,7 +376,10 @@ AccaBonus skips any event missing bet365, so that produced a completely blank
 feed with nothing logged. `fetch` and `fetch_event` both send one or the other,
 and tests pin it on both.
 
-### Odds data layer for value tools (`app/odds/client.py::TheOddsApiClient`)
+### Odds data layer for value tools (`app/odds/client.py::TheOddsApiClient`) — RETIRING
+**Leftover.** OddsPapi is the only odds source; this client and everything
+that reads it are deleted in PLAN item 11. Nothing live depends on it
+(AccaBonus is off). The notes below describe the code as it stands until then.
 AccaBonus + Cards read TheOddsApi through this one shared client (HTTP + cache).
 `fetch(sport_key, markets, bookmakers=None) -> list[dict]`, cached in-memory
 keyed by `(sport_key, markets, bookmakers)`.
@@ -423,11 +415,10 @@ and cards consume the `TheOddsApiClient` directly via `app.state.arbs_client` /
 `app.state.cards_client` because they query bespoke market/bookmaker combos.
 
 ### Cards & Corners (`app/cards/`) — TWO vendors, on purpose
-Paddy Power's price comes from **TheOddsApi's per-event endpoint**
-(`bookmakers=paddypower`, never a `regions` param beside it); Pinnacle's fair
-reference comes from **bettingiscool**. That split is a COST decision, not a
-preference: billing is `markets × regions` per event, Paddy Power is a `uk` book
-and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
+Both sides come from **OddsPapi** (Oct 2026, below): Paddy Power's prices and
+Pinnacle's fair reference, joined on the same fixture id. The two-vendor split
+in the heading is history (TheOddsApi for Paddy, bettingiscool for Pinnacle);
+the regions lesson from it still holds.
 - **Regions describe the BOOKMAKER, not the league.** Paddy Power prices La Liga
   from `uk` perfectly well; the competition is chosen by sport key and the
   fixture list is free. Getting this backwards is what produced the original
@@ -520,14 +511,13 @@ and Pinnacle an `eu` one, so asking one vendor for both spans two regions.
   `/api/cards/oddspapi-check` shows what the live catalogue calls each corner
   and card market. Read it before trusting a price. It emits TheOddsApi-shaped
   events, so the Pinnacle join, the pricing model and the diagnostics are
-  unchanged; unset the key and TheOddsApi's path is back.
+  unchanged. The TheOddsApi path behind it is leftover (PLAN item 11).
 - **Pinnacle's side comes from OddsPapi too** (`oddspapi_fair_book`, default
   `pinnacle`, Sept 2026). Checked live on the Nations League: Pinnacle posts a
   5-line corners ladder and a 5-line "Bookings" ladder (a CARD COUNT, 3.0–6.0 —
   not booking points). One request per book per chunk, joined on OddsPapi's
-  FIXTURE ID (`merge_books`) — exact, where bettingiscool needed a team-name
-  match. `merge_pinnacle` only goes to bettingiscool for events that arrive
-  without a Pinnacle book; blank the setting to use bettingiscool for all.
+  FIXTURE ID (`merge_books`) — exact, where the old team-name match was not.
+  An event that arrives without a Pinnacle book is left unpriced.
 - **OddsPapi billing, per its docs ("Understanding API Requests & Quota",
   read Oct 2026):** 1 request per call to a billable endpoint whatever the
   response — size, item count and status (4xx/5xx included) make no
