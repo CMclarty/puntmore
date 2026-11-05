@@ -49,8 +49,6 @@ PAGE = "<html><title>Saves</title><body><table><tr><td>7.5</td></tr></table></bo
 
 class Handler(http.server.BaseHTTPRequestHandler):
     blocked_path = None
-    config = {"targets": []}          # what /api/scraper/config serves
-    reports: list = []                # what /api/scraper/status received
 
     def log_message(self, *a):
         pass
@@ -89,15 +87,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         if path == "/how-it-works":
             return self._send(200, "<html><title>How It Works</title><body>Subscribe</body></html>")
-        if path == "/api/scraper/config":
-            return self._send(200, json.dumps(Handler.config), "application/json")
         self._send(404, "no")
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("content-length", 0)))
-        if self.path == "/api/scraper/status":
-            Handler.reports.append(json.loads(body))
-            return self._send(200, "{}", "application/json")
         self._send(404, "no")
 
 
@@ -105,18 +98,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
 def site():
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    Handler.config, Handler.reports = {"targets": []}, []
     yield f"http://127.0.0.1:{srv.server_port}"
     Handler.blocked_path = None
     srv.shutdown()
 
 
-def _runner(tmp_path, targets, p, server=None):
+def _runner(tmp_path, targets, p, targets_file=None):
     from scraper import browser
     s = config.Settings(data_dir=tmp_path, profile_dir=tmp_path / "profile", channel=None,
-                        alert_webhook=None, healthcheck_url=None, puntmore_url=server or "http://x",
-                        ingest_key="k" if server else None, capture_mb=20, targets=targets,
-                        from_server=bool(server), targets_source="server" if server else "toml")
+                        alert_webhook=None, healthcheck_url=None, puntmore_url="http://x",
+                        ingest_key=None, capture_mb=20, targets=targets,
+                        targets_file=targets_file)
     guard = Guard(tmp_path / "g.sqlite3", {n: (r.per_hour, r.per_day) for n, r in SITES.items()})
     guard.quiet = (0, 0)
     ctx = browser.launch(p, s, headless=True)
@@ -199,39 +191,50 @@ def test_a_redirect_away_from_the_tool_is_logged_out(tmp_path, site):
 
 
 def test_config_change_closes_removed_tabs_and_opens_new_ones(tmp_path, site):
-    """A change on the page reaches the running scraper on its next config
-    fetch: the removed target's tabs close, the new target opens - no restart -
-    and the status report says so."""
+    """An edit to targets.toml reaches the running scraper on its next check:
+    the removed target's tabs close, the new target opens - no restart - and
+    data/status.json says so."""
+    import os
     from playwright.sync_api import sync_playwright
-    from scraper.runner import CONFIG_EVERY_S
-    bb = {"name": "bb", "site": "bookiebashing", "url": site + "/bbpage", "every_min": 10,
-          "parser": "bb_saves"}
+    from scraper.runner import TARGETS_CHECK_S
+    toml = tmp_path / "targets.toml"
+
+    def write(text):                                         # an mtime that has moved
+        toml.write_text(text)
+        st = toml.stat()
+        os.utime(toml, ns=(st.st_atime_ns, st.st_mtime_ns + 2_000_000_000))
+
+    pp = _pp(site)
+    write(f'[[target]]\nname="pp"\nsite="paddypower"\nurl="{pp.url}"\nparser="pp_most"\n'
+          f'stale_min=120\n[target.matches]\nmax_tabs={pp.matches.max_tabs}\n'
+          f'market_tabs={list(pp.matches.market_tabs)!r}\n'.replace("\'", '"'))
     with sync_playwright() as p:
-        r, ctx = _runner(tmp_path, [_pp(site)], p, server=site)
+        r, ctx = _runner(tmp_path, config.load_targets(toml), p, targets_file=toml)
+        status = lambda: json.loads((tmp_path / "status.json").read_text())
         t0 = time.time()
         r.tick(t0)
         r.tick(t0 + 200)                                     # loads are spaced
         assert any(k.startswith("pp:m:") for k in r.tabs) and "pp:list" in r.tabs
-        first = Handler.reports[-1]["targets"]
-        assert [(t["name"], t["state"]) for t in first] == [("pp", "running")]
+        assert [(t["name"], t["state"]) for t in status()["targets"]] == [("pp", "running")]
 
-        Handler.config = {"targets": [bb]}                   # edited on the page
+        write(f'[[target]]\nname="bb"\nsite="bookiebashing"\nurl="{site}/bbpage"\n'
+              'every_min=10\nparser="bb_saves"\n')         # edited by Hermes
         r.tick(t0 + 230)                                     # not due yet
         assert "pp:list" in r.tabs and "bb" not in r.tabs
-        r.tick(t0 + CONFIG_EVERY_S + 5)
+        r.tick(t0 + 200 + TARGETS_CHECK_S + 5)
         assert not any(k.startswith("pp") for k in r.tabs)   # every pp tab closed
         assert "bb" in r.tabs                                # the new one opened
-        assert json.loads((tmp_path / "config.json").read_text()) == Handler.config
-        states = {t["name"]: t for t in Handler.reports[-1]["targets"]}
+        r.tick(t0 + 200 + 2 * TARGETS_CHECK_S + 10)          # the next status write
+        states = {t["name"]: t for t in status()["targets"]}
         assert states["pp"]["state"] == "retired" and states["bb"]["state"] == "running"
         # The fake "Saves" page is not the bet builder, so its driver fails -
-        # and that failure is the target's detail, where /scraper shows it.
+        # and that failure is the target's detail in status.json.
         assert "parser failed" in states["bb"]["detail"]
-        assert {s["site"] for s in Handler.reports[-1]["sites"]} == set(SITES)
-        assert Handler.reports[-1]["sites"][0]["loads_hour"] >= 1
+        assert {s["site"] for s in status()["sites"]} == set(SITES)
+        assert status()["sites"][0]["loads_hour"] >= 1
 
-        Handler.config = {"targets": []}
-        r.tick(t0 + 2 * CONFIG_EVERY_S + 10)
+        write("")
+        r.tick(t0 + 200 + 3 * TARGETS_CHECK_S + 15)
         assert not r.tabs
         r.close_all()
         ctx.close()

@@ -71,7 +71,7 @@ enabled = false
 
 def _runner(tmp_path):
     s = SimpleNamespace(data_dir=tmp_path, capture_mb=10, capture_tab_mb=1, targets=[],
-                        targets_source="toml", from_server=False)
+                        targets_file=None)
     guard = Guard(tmp_path / "g.sqlite3", {k: (v.per_hour, v.per_day) for k, v in SITES.items()})
     return Runner(s, ctx=None, guard=guard, alerts=Alerts(tmp_path / "alerts.log", None),
                   run_dir=tmp_path / "run")

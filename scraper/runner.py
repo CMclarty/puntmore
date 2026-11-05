@@ -16,9 +16,11 @@ Target kinds:
   matches  a listing page (kept open) whose match links are opened, a few at
            a time, in their own kept-open tabs (e.g. a Paddy competition)
 
-Targets set on Puntmore's /scraper page are re-fetched every CONFIG_EVERY_S:
-a removed or changed target's tabs close, a new one opens on the next tick —
-no restart. The runner reports its state back every STATUS_EVERY_S.
+Targets are targets.toml on the Hub. The file is checked every
+TARGETS_CHECK_S: after an edit a removed or changed target's tabs close, a new
+one opens on the next tick - no restart. A file that will not parse is
+reported and the running targets are kept. The runner writes its state to
+data/status.json every STATUS_EVERY_S, which the Hub reads.
 """
 import collections
 import json
@@ -37,9 +39,8 @@ from .sites import BACKOFF_MIN, SITES
 
 PARSE_EVERY_S = 60
 HEALTH_PING_S = 300
-CONFIG_EVERY_S = 300
+TARGETS_CHECK_S = 60             # a stat of targets.toml; read only when it changed
 STATUS_EVERY_S = 60
-STATUS_PATH = "/api/scraper/status"
 # Jitter on timed reloads, drawn ONCE per load. (Drawing it afresh every 15 s
 # tick, as before, made a reload fire at the low end nearly every time.)
 RELOAD_JITTER = (0.75, 1.35)     # every_min
@@ -101,8 +102,9 @@ class Runner:
         self.parser_said: dict[str, str] = {}
         self.next_health = 0.0
         self.targets = list(settings.targets)
-        self.source = settings.targets_source         # server | cache | toml
-        self.next_config: float | None = None
+        self.targets_file = settings.targets_file
+        self.targets_mtime = self._mtime()            # load() has just read it
+        self.next_targets_check = 0.0
         self.next_status = 0.0
         self.last_load_at: dict[str, float] = {}       # target name -> last good load
         self.last_parse_at: dict[str, float] = {}      # ... last parse that returned rows
@@ -287,7 +289,7 @@ class Runner:
     # --- the tick -----------------------------------------------------------
     def tick(self, now=None):
         now = now or time.time()
-        self._refresh_config(now)
+        self._reload_targets(now)
         for site in SITES:
             why = self._paused(site, now)
             was = self.paused_said.get(site)
@@ -320,23 +322,33 @@ class Runner:
         self._heartbeat(now)
         self._report(now)
 
-    # --- config from Puntmore ----------------------------------------------------
-    def _refresh_config(self, now):
-        if not self.s.from_server:
-            return
-        if self.next_config is None:                 # load() has just fetched it
-            self.next_config = now + CONFIG_EVERY_S
-            return
-        if now < self.next_config:
-            return
-        self.next_config = now + CONFIG_EVERY_S
+    # --- targets.toml, re-read when it changes ------------------------------------
+    def _mtime(self):
         try:
-            targets = config.fetch_server(self.s.puntmore_url, self.s.ingest_key, self.s.data_dir)
-        except Exception as exc:                     # keep what is running
-            print(f"config: refresh failed ({exc.__class__.__name__}: {exc}); "
+            return self.targets_file.stat().st_mtime_ns if self.targets_file else None
+        except OSError:
+            return None
+
+    def _reload_targets(self, now):
+        """Apply an edit to targets.toml without a restart. A file that has
+        gone, or will not load, keeps what is running and says so once per
+        edit - a half-written save must not close every tab."""
+        if self.targets_file is None or now < self.next_targets_check:
+            return
+        self.next_targets_check = now + TARGETS_CHECK_S
+        mtime = self._mtime()
+        if mtime == self.targets_mtime:
+            return
+        self.targets_mtime = mtime
+        if mtime is None:
+            print(f"config: {self.targets_file} is gone; keeping the current targets", flush=True)
+            return
+        try:
+            targets = config.load_targets(self.targets_file)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(f"config: {self.targets_file} not applied ({exc.__class__.__name__}: {exc}); "
                   "keeping the current targets", flush=True)
             return
-        self.source = "server"
         self.apply_targets(targets)
 
     def apply_targets(self, targets):
@@ -555,7 +567,7 @@ class Runner:
                 self.parser_said[t.name] = f"parser not written ({t.parser}) - capturing only"
             return
         except Exception as exc:
-            # Shown as the target's detail on /scraper until a call succeeds -
+            # Shown as the target's detail in status.json until a call succeeds -
             # a driver that cannot bring its page up says so there, not only here.
             print(f"{t.name}: parser failed: {exc}", flush=True)
             self.parser_said[t.name] = f"parser failed: {str(exc).splitlines()[0][:120]}"
@@ -583,7 +595,7 @@ class Runner:
             print(f"{t.name}: send failed: {exc}", flush=True)
             return False
 
-    # --- status back to Puntmore -------------------------------------------------
+    # --- status, for the Hub and `python -m scraper status` ---------------------------
     def status(self, now) -> dict:
         """Per target: state, detail, last load/parse, rows posted. Per site:
         budget spent and cool-off. What `python -m scraper status` prints."""
@@ -592,7 +604,7 @@ class Runner:
             retired = t.name in self.retired_targets
             why = self._paused(t.site, now)
             if retired:
-                state, detail = "retired", "removed on the page"
+                state, detail = "retired", "removed from targets.toml"
             elif why and (why.startswith("cooling off") or why.startswith("backing off")):
                 state, detail = "blocked", why
             elif why:
@@ -608,7 +620,7 @@ class Runner:
                             "detail": detail, "last_load": self.last_load_at.get(t.name),
                             "last_parse": self.last_parse_at.get(t.name),
                             "rows_posted": self.rows_posted.get(t.name, 0)})
-        return {"at": now, "source": self.source,
+        return {"at": now, "targets_file": str(self.targets_file) if self.targets_file else None,
                 "targets": targets, "sites": site_status(self.guard, now)}
 
     def _report(self, now):
@@ -620,16 +632,6 @@ class Runner:
             (self.s.data_dir / "status.json").write_text(json.dumps(body, indent=1))
         except OSError:
             pass
-        if not (self.s.from_server and self.s.ingest_key):
-            return
-        import httpx
-        try:
-            r = httpx.post(self.s.puntmore_url.rstrip("/") + STATUS_PATH,
-                           json={"targets": body["targets"], "sites": body["sites"]},
-                           headers={"X-API-Key": self.s.ingest_key}, timeout=15)
-            r.raise_for_status()
-        except Exception as exc:
-            print(f"status: send failed: {exc}", flush=True)
 
     def _requests(self):
         """`python -m scraper dump <target>` drops a file; the running loop

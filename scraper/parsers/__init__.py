@@ -1,7 +1,7 @@
 """Parsers: turn a kept-open page into rows. One module per parser.
 
 A parser is `fn(page, capture) -> list[dict]`, named in a target's `parser`
-(the market's parser on Puntmore's /scraper page). It may read the page's DOM,
+in targets.toml. It may read the page's DOM,
 or the payloads the page received (`capture.recent`: (ts, kind, url, text)
 tuples, newest last). Rows are POSTed as {"prices": rows} to the target's
 `post` path, so a parser emits exactly the shape that endpoint takes.

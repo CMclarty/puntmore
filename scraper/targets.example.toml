@@ -1,7 +1,7 @@
-# OFFLINE ONLY. With PUNTMORE_URL and SAVES_INGEST_KEY set, the targets come
-# from Puntmore's /scraper page and this file is not read (unless
-# SCRAPER_TARGETS points at it, which always wins). Here, changes take effect
-# on the next restart.
+# The Worker's targets: copy to data/targets.toml on the Hub (or point
+# SCRAPER_TARGETS at a file). Nothing else configures it. The running service
+# checks the file once a minute and applies an edit without a restart; a file
+# that will not load is logged and the running targets are kept.
 #
 # Any mix of the two sites. Each site's budget, quiet hours and block
 # handling are fixed in code (sites.py), whatever is listed here.
