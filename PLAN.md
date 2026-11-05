@@ -444,6 +444,7 @@ The Hub side of the 2-Up Engine spec. Branch `home-box`.
 - [x] Fold the Bet Finder's sources into the Worker (branch `fold-worker`, 5 Nov): a `generic` site kind under `scraper/guard.py`, fetch-mode targets, tips and events dropped as files for `hub/`'s inbox; `hub/` no longer has a browser, budget or parsers.
 - [x] Self-update (branch `hub-update`): `puntmore-update.timer` every 10 min runs `hub/deploy/update.sh` (`puntmore update`): fast-forward to `origin/main`, reinstall, restart the enabled units; waits while a bet is `received`/`placing`; logs to `hub/data/update.log`, alerts on failure.
 - [ ] Phone placement adapter; IMAP tipster source; kick-off-window sweeps.
+- [x] Hub Console (branch `hub-console`): `puntmore web`, one page on the Hub with a live state per component (Worker, Link, Placement, Escalations, Tips, Model, Hermes, Render) and the CLI's own actions (kill switch, resolve, inbox, link-check, heartbeat) behind `PUNTMORE_WEB_TOKEN`; unit `puntmore-web`, localhost by default.
 - [ ] Two weeks of dry-run reports before `PUNTMORE_DRY_RUN=0`.
 Definition of Done: a bet list from Render reaches a phone in dry-run and its
 `placed` report shows in Render's ledger; a broken source is repaired by the

@@ -36,6 +36,7 @@ flowchart LR
     WORKER["Worker · scraper/<br/>one real Chrome: Paddy Power and Bookie Bashing pages kept open, Bet Finder sources loaded-parsed-closed; budgets in code<br/><i>live · tips drop to the Hub</i>"]
     PLACE["Placement bot<br/>bet in → placed / price_changed / failed; no retry<br/><i>placeholder</i>"]
     LINK["Render link + inbox · hub/<br/>outbound WebSocket, durable outbox, idempotent; ingests the Worker's drops<br/><i>scaffold</i>"]
+    CONSOLE["Hub Console · hub/web<br/>what every Hub component is doing, live, and the kill switch<br/><i>scaffold</i>"]
   end
 
   ODDS["OddsPapi<br/>the only odds source"] --> T365
@@ -67,6 +68,7 @@ flowchart LR
 | Worker | `scraper/`: one real Chrome; Paddy Power and Bookie Bashing pages kept open, Bet Finder sources as `generic` targets | Hub | live (parsers partly written; sources drop tips to the Hub) |
 | Placement bot | Bet in, placed / price_changed / failed out, on the phones | Hub | placeholder (dry-run adapter only; contract in `hub/puntmore_hub/placement/README.md`) |
 | Render link + inbox | `hub/`: outbound WebSocket, durable outbox, client engine, the Worker's drops ingested; updates itself from `origin/main` every 10 min (`puntmore-update.timer`) | Hub | scaffold, 65 tests; waits on the Hub endpoint |
+| Hub Console | `hub/puntmore_hub/web/`, `puntmore web`: what every Hub component is doing, live, and the kill switch; the CLI's actions behind a token | Hub | scaffold (localhost by default; reads what the CLI reads) |
 | Wire contract | `hub/PROTOCOL.md`, JSON Schema, examples, mock Render | both | v1, contract tests |
 
 ## The Render ↔ Hub contract

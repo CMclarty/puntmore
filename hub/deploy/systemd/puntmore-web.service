@@ -1,0 +1,14 @@
+[Unit]
+Description=Puntmore Hub Console: what every Hub component is doing, live, and the kill switch (PUNTMORE_WEB_BIND)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/puntmore/hub
+ExecStart=%h/.venvs/puntmore/bin/puntmore web
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
