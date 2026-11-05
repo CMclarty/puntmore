@@ -22,10 +22,7 @@ from .security import (
     weak_seed_passwords,
     MIN_PASSWORD_LENGTH,
 )
-from .odds.client import TheOddsApiClient
 from . import coupon_types
-from .providers import odds_api
-from .providers.odds_api import TheOddsApiProvider
 from .providers.oddspapi_coupon import OddsPapiCouponProvider
 from .providers.mock_odds import MockOddsProvider
 from .providers.claude_ocr import ClaudeOCRProvider
@@ -37,7 +34,6 @@ from .notifications.routes import RoutedNotifier
 from .scheduler import cleanup_kicked_off_legs, cleanup_old_coupons, start_scheduler
 from .routers import coupons
 from .routers.upload import router as upload_router
-from .routers import accabonus
 from .routers import cards as cards_router
 from .routers import saves_ingest as saves_ingest_router
 from .routers import goalscorers as goalscorers_router
@@ -100,20 +96,15 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
-    # TheOddsApi serves the AccaBonus tool and the coupon fallback only; Paddy's
-    # corners/cards come from OddsPapi (below) or not at all.
-    if settings.odds_api_key:
-        odds_client = TheOddsApiClient(
-            settings.odds_api_key, cache_ttl=settings.odds_cache_ttl
-        )
-        app.state.arbs_client = odds_client
-    else:
-        odds_client = None
-        app.state.arbs_client = None
+    # Goalscorers is PARKED (5 Nov 2026): its odds vendor is gone and OddsPapi
+    # is the only source. The pipeline stays in the tree behind
+    # ENABLE_GOALSCORERS=false and gets no client until it is rebuilt on
+    # OddsPapi (PLAN.md, Parked).
+    odds_client = None
     app.state.cards_client = None
     app.state.hills_client = None
     # Paddy Power's corners/cards come from OddsPapi when it is configured:
-    # TheOddsApi does not carry them (cards/oddspapi.py). Pinnacle's side comes
+    # no other vendor carries them (cards/oddspapi.py). Pinnacle's side comes
     # from OddsPapi too (`oddspapi_fair_book`).
     # ONE OddsPapi client for both the Paddy source and the coupon provider: its
     # rate-limit lock, daily budget and caches are per instance, so two of them
@@ -139,9 +130,8 @@ async def lifespan(app: FastAPI):
     # OddsPapi is the live source: Pinnacle's 1X2 + goal totals + team goal
     # totals come back in one bulk request per tournament chunk, which the
     # provider-agnostic GridCouponProvider fits the score grid from and derives
-    # GG / GG-No-Draw / TTS / Win-and-Over / Win-to-Nil off. Without a key it
-    # degrades to TheOddsApi, which cannot derive those off the grid and prices
-    # compound legs naively — a stopgap, not an equivalent.
+    # GG / GG-No-Draw / TTS / Win-and-Over / Win-to-Nil off. Without a key the
+    # tracker runs on the mock and says so loudly — there is no other source.
     # "bettingiscool" is accepted as a LEGACY alias for "oddspapi": bettingiscool
     # is gone, but a stale COUPON_ODDS_SOURCE=bettingiscool on Render must route
     # to OddsPapi rather than silently drop the tracker to the mock.
@@ -156,15 +146,8 @@ async def lifespan(app: FastAPI):
         else:
             logger.warning(
                 "COUPON_ODDS_SOURCE=%s but ODDSPAPI_API_KEY is unset — "
-                "falling back to TheOddsApi for coupon pricing.", source
+                "coupon pricing will be MOCKED (every selection blank).", source
             )
-
-    if provider is None and odds_client is not None and source in (
-        "oddspapi", "bettingiscool", "theoddsapi",
-    ):
-        provider = TheOddsApiProvider(
-            odds_client, cache_ttl=settings.coupon_odds_cache_ttl
-        )
 
     app.state.odds_provider = provider or MockOddsProvider()
     logger.info(
@@ -172,41 +155,12 @@ async def lifespan(app: FastAPI):
         type(app.state.odds_provider).__name__, source,
         settings.coupon_odds_cache_ttl,
     )
-    # Say OUT LOUD what a degraded provider cannot price. Both fallbacks fail
-    # SILENTLY and identically to a bad photo: the legs save, the coupon opens,
-    # every row simply has no fair odds. A "Team to Score 2" sheet on TheOddsApi
-    # is 154 selections and 154 blanks, which reads as "the scan is broken"
-    # rather than "this deploy has no OddsPapi key" — the actual cause.
     if isinstance(app.state.odds_provider, MockOddsProvider):
         logger.warning(
             "COUPON PRICING IS MOCKED — no odds provider is configured, so "
             "EVERY selection will show blank fair odds. Set "
-            "ODDSPAPI_API_KEY (or ODDS_API_KEY) to price real legs."
+            "ODDSPAPI_API_KEY to price real legs."
         )
-    elif isinstance(app.state.odds_provider, TheOddsApiProvider):
-        logger.warning(
-            "Coupon pricing is on the TheOddsApi FALLBACK. It serves h2h + "
-            "totals only, so these coupon types cannot price at all and every "
-            "selection on them will be blank: %s. Set ODDSPAPI_API_KEY to "
-            "restore them.",
-            ", ".join(
-                t.label for t in coupon_types.COUPON_TYPES
-                if odds_api.unsupported_reason(t.selection) is not None
-            ),
-        )
-    # The default TTL suits OddsPapi (per-request, generous daily budget).
-    # TheOddsApi bills
-    # 500 credits/MONTH, where a short cache burns the whole allowance in hours.
-    if (
-        isinstance(app.state.odds_provider, TheOddsApiProvider)
-        and settings.coupon_odds_cache_ttl < 72000
-    ):
-        logger.warning(
-            "COUPON_ODDS_CACHE_TTL=%ss with TheOddsApi: the free tier is 500 "
-            "credits/MONTH and this will exhaust it. Raise to 86400.",
-            settings.coupon_odds_cache_ttl,
-        )
-
     # A real provider is always WRAPPED: every price on a priced grid is read
     # twice, by separate calls over separate pieces of the page, and kept only
     # where the reads agree. Not a dial — a switch to turn the check off is a
@@ -248,7 +202,6 @@ async def lifespan(app: FastAPI):
         notifier=app.state.notifier,
         odds_client=odds_client,
         cards_client=app.state.cards_client,
-        arbs_client=app.state.arbs_client,
     )
     app.state.scheduler = scheduler
 
@@ -338,9 +291,6 @@ app.include_router(upload_router, dependencies=[Depends(require_tool("coupons"))
 # AccaBonus and Cards/Corners are hidden for now (coupon-tracker-only mode,
 # PLAN.md v5). Code is kept; the routers are only mounted when re-enabled via
 # the ENABLE_ACCABONUS / ENABLE_CARDS flags in .env.
-if settings.enable_accabonus:
-    app.include_router(accabonus.router, tags=["accabonus"],
-                       dependencies=[Depends(require_tool("accabonus"))])
 if settings.enable_cards:
     # The tool is "Paddy" now — corners, cards, goals and saves — so it lives
     # under /paddy. /cards stays as an alias for installed app shells and
@@ -509,7 +459,7 @@ def ready():
     # ignoring every uploaded image.
     #
     # The odds entry NAMES the provider rather than saying "live". "live" was
-    # actively misleading: the TheOddsApi fallback reported live while being
+    # actively misleading: a since-removed fallback vendor reported live while
     # unable to price six of the nine coupon types, so a deploy showing every
     # selection blank looked healthy here. `degraded` is the one-word answer to
     # "why is nothing pricing", and `cannot_price` says exactly which coupons
@@ -518,7 +468,7 @@ def ready():
     odds = {
         "provider": type(odds_provider).__name__ if odds_provider else None,
         "source": settings.coupon_odds_source,
-        "degraded": isinstance(odds_provider, (MockOddsProvider, TheOddsApiProvider)),
+        "degraded": isinstance(odds_provider, MockOddsProvider),
     }
     # The last pricing pass, when the live provider ran one. This is the
     # difference between "the feed is down", "the fixtures aren't matching" and
@@ -529,11 +479,6 @@ def ready():
         odds["last_pass"] = last_pass
     if isinstance(odds_provider, MockOddsProvider):
         odds["cannot_price"] = ["ALL — no odds provider configured"]
-    elif isinstance(odds_provider, TheOddsApiProvider):
-        odds["cannot_price"] = [
-            t.label for t in coupon_types.COUPON_TYPES
-            if odds_api.unsupported_reason(t.selection) is not None
-        ]
     providers = {
         "ocr": "mock" if isinstance(
             getattr(app.state, "ocr_provider", None), MockOCRProvider

@@ -219,8 +219,7 @@ COUPON_TYPES: tuple[CouponType, ...] = (
     # group (bundle_value below), exactly as it does on a ladder combination.
     #
     # Every selection is a straight win, so this type prices off de-vigged 1X2
-    # alone: no team totals, no score grid. It is the one priced type that
-    # would still work on the TheOddsApi fallback.
+    # alone: no team totals, no score grid.
     CouponType(
         "FREDB", "Fred Bundles", "{team} Win",
         period_codes=_VARIABLE, prices_each_selection=False, bundles=True,

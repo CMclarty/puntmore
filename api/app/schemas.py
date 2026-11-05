@@ -182,20 +182,7 @@ class LegEditRequest(BaseModel):
 
 
 # AccaBonus feed (simplified card shape)
-class AccaBonusFeedItem(BaseModel):
-    match: str
-    sport: str  # league/tour label, e.g. "EPL", "ATP French Open"
-    pick: str
-    odds: float
-    value: float
-    # Added Oct 2026 for machine consumers (the value feed); the page ignores
-    # them. Additive only — nothing above changed.
-    event_id: Optional[str] = None
-    home: Optional[str] = None
-    away: Optional[str] = None
-    commence_time: Optional[str] = None
-    sport_key: Optional[str] = None
-    fair: Optional[float] = None      # de-vigged Pinnacle price of `pick`
+
 
 
 # Cards & corners feed (grouped by match)
@@ -305,30 +292,6 @@ class GoalscorerFeedItem(BaseModel):
     inplay: bool
 
 
-# AccaBonus arbs (full detail)
-class ArbOut(BaseModel):
-    event_id: str
-    sport_title: str
-    home_team: str
-    away_team: str
-    commence_time: str
-    bet365_home: float
-    bet365_away: float
-    pinnacle_home: float
-    pinnacle_away: float
-    fair_home: float
-    fair_away: float
-    pinnacle_margin: float
-    edge_home: float
-    edge_away: float
-    best_edge: float
-    # Only when both books price a draw (e.g. MMA) — null on 2-way markets:
-    bet365_draw: float | None = None
-    pinnacle_draw: float | None = None
-    fair_draw: float | None = None
-    edge_draw: float | None = None
-
-
 # Whole-app state snapshot (GET /state — machine consumers, API-key auth)
 class CouponStateOut(CouponOut):
     legs: list[LegOut]
@@ -337,7 +300,6 @@ class CouponStateOut(CouponOut):
 class StateOut(BaseModel):
     generated_at: datetime
     coupons: list[CouponStateOut]
-    accabonus: list[AccaBonusFeedItem]
     cards: list[CardFeedItem]
 
 

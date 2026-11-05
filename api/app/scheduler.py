@@ -323,36 +323,6 @@ def build_goalscorer_watchlist(scheduler, client, notifier=None) -> int:
     return len(watch)
 
 
-# 365 acca boost picks already alerted, and at what tier. In memory and swept
-# every pass, for the same reasons as _cards_notified.
-_acca_notified: dict[tuple, str] = {}
-
-
-def sweep_accabonus(arbs_client, notifier=None) -> int:
-    """Post 365 acca boost picks that are new or changed tier. Returns rows."""
-    if arbs_client is None:
-        return 0
-    from .accabonus.feed import build_feed
-    rows = build_feed(arbs_client, settings.accabonus_alert_min_edge)
-    fresh, seen = [], set()
-    for r in rows:
-        key = (r.match, r.pick)
-        seen.add(key)
-        tier = value_tier(r.value)
-        if tier and _acca_notified.get(key) != tier:
-            fresh.append(r)
-        if tier:
-            _acca_notified[key] = tier
-    for key in [k for k in _acca_notified if k not in seen]:
-        del _acca_notified[key]
-    if settings.accabonus_discord_alerts:
-        notify_rows(notifier, "365", ":rocket: 365 acca boost — {n} new/changed value pick(s):", [
-            (r.value, f"  {r.match} ({r.sport}) — {r.pick} @ {r.odds}, +{r.value:.1%}")
-            for r in fresh
-        ])
-    return len(rows)
-
-
 def paddy_health(notifier=None) -> list[str]:
     """The Paddy lines under the morning post (cards/health.py): the day's
     sweeps, the team split's disagreements and whether the scraper fed
@@ -378,7 +348,7 @@ def paddy_health(notifier=None) -> list[str]:
 
 
 def start_scheduler(
-    odds_provider, notifier=None, odds_client=None, cards_client=None, arbs_client=None,
+    odds_provider, notifier=None, odds_client=None, cards_client=None,
 ) -> BackgroundScheduler:
     """Create, configure, and start the background scheduler."""
     scheduler = BackgroundScheduler()
@@ -447,18 +417,6 @@ def start_scheduler(
         coalesce=True,
         max_instances=1,
     )
-
-    if settings.enable_accabonus and arbs_client is not None:
-        scheduler.add_job(
-            sweep_accabonus,
-            trigger="interval",
-            minutes=settings.accabonus_alert_minutes,
-            id="accabonus_alerts",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-            kwargs={"arbs_client": arbs_client, "notifier": notifier},
-        )
 
     # First-goalscorer pipeline: rebuild the watchlist daily, and once now so a
     # restart re-populates today's per-fixture scans instead of waiting a day.

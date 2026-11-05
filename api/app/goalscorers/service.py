@@ -26,7 +26,7 @@ _BOOKMAKERS = "bet365,pinnacle"
 
 
 def _parse_commence(iso: str) -> datetime | None:
-    """Parse TheOddsApi's ISO8601 commence_time (…Z) to an aware UTC datetime."""
+    """Parse an ISO8601 commence_time (…Z) to an aware UTC datetime."""
     if not iso:
         return None
     try:

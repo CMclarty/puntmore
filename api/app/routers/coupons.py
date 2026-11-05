@@ -106,8 +106,8 @@ def get_legs(coupon_id: int, db: Session = Depends(get_db)):
 def refresh_coupon(coupon_id: int, request: Request, db: Session = Depends(get_db)):
     """Refresh fair odds + value for one coupon's legs on demand.
 
-    Reads through the odds cache (same as the 10-min loop) — never increases
-    TheOddsApi call frequency.
+    Reads through the odds cache (same as the 10-min loop) — never adds
+    vendor calls.
     """
     coupon = (
         db.query(Coupon)

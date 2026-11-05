@@ -71,7 +71,7 @@ def _event(b365: dict | None, pin: dict | None, *, eid="ev1",
 
 
 class FakeClient:
-    """Stands in for TheOddsApiClient for watchlist + per-event pulls."""
+    """Stands in for the odds client (duck-typed) for watchlist + per-event pulls."""
     def __init__(self, events_by_sport=None, event_odds=None):
         self._events = events_by_sport or {}
         self._odds = event_odds or {}
@@ -215,6 +215,7 @@ def test_scan_stores_rows_and_alerts_new_value():
 
 # --- feed router ---
 
+@pytest.mark.skip(reason="goalscorers is parked: its router is not mounted while ENABLE_GOALSCORERS is false")
 def test_feed_returns_stored_rows_best_edge_first():
     db = TestSession()
     try:

@@ -455,12 +455,13 @@ prices on OddsPapi (`coupon_odds_source` defaults to `oddspapi`;
 TheOddsApi code remains (`odds/client.py`, `providers/odds_api.py`) and is
 still imported by accabonus, goalscorers, the cards feed, the coupon fallback
 and `/state`. AccaBonus is not live (`enable_accabonus` False).
-- [ ] **Delete TheOddsApi.** Remove `odds/client.py`, `providers/odds_api.py`,
-      `ODDS_API_KEY`, the coupon fallback branch in `main.py`, and the
-      accabonus/goalscorers/cards-feed imports. Anything that needs a price
-      it no longer has reads OddsPapi or is left unpriced with a named
-      reason, never approximated. 7 test files reference it; update or drop.
-      Separate branch; the API suite green before it goes near `main`.
+- [x] **Remove AccaBonus and the TheOddsApi coupon fallback** (branch
+      `retire-theoddsapi`, 5 Nov): package, router, feed, sweep, value source,
+      state field, settings, env/Render keys, frontend tab, 69 tests. The
+      `accabonus` grant name stays. API 708 green.
+- [x] **Goalscorers PARKED, the old odds vendor deleted entirely** (5 Nov,
+      Callum's call). `odds/client.py` and its key are gone; `goalscorers/`
+      stays in the tree behind `ENABLE_GOALSCORERS=false` with no client.
 - [ ] **Merge 365 and 2-Up into one tool**: one router, one page with tabs,
       one grant; the 2-Up engine arrives as the third tab when built.
       Goalscorers moves onto OddsPapi as part of this.
@@ -475,6 +476,17 @@ and `/state`. AccaBonus is not live (`enable_accabonus` False).
 Definition of Done: `grep -ri "theoddsapi\|bettingiscool\|odds_api_key" api/`
 is empty, the coupon feed is unchanged, and the worker runs a day from local
 config.
+
+## Parked (after the open work is done)
+
+### Goalscorers on OddsPapi
+Parked 5 Nov 2026. The first/anytime-goalscorer finder (`api/app/goalscorers/`,
+page `/365/scorers`, `goalscorers` grant) read a vendor that is now removed;
+OddsPapi is the only odds source. Code and tests stay (the tests use a stub
+client). To revive, and only via OddsPapi: confirm its catalogue carries a
+goalscorer market (`/api/cards/oddspapi-check`), write an OddsPapi
+watchlist/event source with the duck-typed `fetch_event` shape the service
+expects, flip `ENABLE_GOALSCORERS`, and it is the 365 tool's scorers tab again.
 
 ## History
 

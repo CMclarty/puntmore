@@ -62,19 +62,3 @@ def test_a_plain_notifier_still_gets_one_message():
     assert got == ["H 2:\na\nb"]
 
 
-def test_acca_boost_alerts_once_per_pick_and_again_on_a_tier_change(monkeypatch):
-    feed = [SimpleNamespace(match="A vs B", sport="EPL", pick="A", odds=2.1, value=0.03)]
-    import app.accabonus.feed as acc
-    monkeypatch.setattr(acc, "build_feed", lambda client, min_edge: feed)
-    monkeypatch.setattr(settings, "accabonus_discord_alerts", True)
-    scheduler._acca_notified.clear()
-    n = _notifier(routes="365=T")
-    scheduler.sweep_accabonus(object(), n)
-    scheduler.sweep_accabonus(object(), n)                 # unchanged: silent
-    feed[0].value = 0.07                                   # lo -> hi
-    scheduler.sweep_accabonus(object(), n)
-    assert [u for u, _ in _Hook.sent] == ["T", "T"]
-    assert "A vs B (EPL) — A @ 2.1, +7.0%" in _Hook.sent[1][1]
-    feed.clear()
-    scheduler.sweep_accabonus(object(), n)
-    assert scheduler._acca_notified == {}                  # swept, no leak

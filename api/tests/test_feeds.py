@@ -76,48 +76,6 @@ def _totals_event(event_id, home, away, pin_over, pin_under, paddy_over, paddy_u
 # test_cards_sources.py.
 
 
-# --- /accabonus/feed ---
-
-def test_accabonus_feed_empty_without_client():
-    app.state.arbs_client = None
-    assert client.get("/accabonus/feed").json() == []
-
-
-def test_accabonus_feed_picks_best_side():
-    # Bet365 home 2.10 vs fair ~2.05 → home is the value side
-    app.state.arbs_client = StubArbsClient([
-        _h2h_event("e1", "Alcaraz", "Sinner", 2.10, 1.80, 2.00, 1.90),
-    ])
-    rows = client.get("/accabonus/feed?min_edge=-0.5").json()
-    assert len(rows) == 1
-    row = rows[0]
-    assert row["match"] == "Alcaraz vs Sinner"
-    assert row["pick"] == "Alcaraz"
-    assert row["odds"] == 2.10
-    assert row["value"] > 0
-    assert "sport" in row
-
-
-def test_accabonus_feed_respects_min_edge():
-    app.state.arbs_client = StubArbsClient([
-        # Bet365 well below fair on both sides → big negative edge
-        _h2h_event("e1", "A", "B", 1.50, 1.50, 2.00, 2.00),
-    ])
-    rows = client.get("/accabonus/feed?min_edge=0.0").json()
-    assert rows == []
-
-
-def test_accabonus_feed_carries_no_arb_flag():
-    """The ARB chip described a bet that needs a Pinnacle leg. The Acca Boost
-    is a bet365 promotion, so that leg cannot be placed."""
-    app.state.arbs_client = StubArbsClient([
-        _h2h_event("e1", "A", "B", 2.30, 1.60, 2.10, 1.90),
-    ])
-    rows = client.get("/accabonus/feed?min_edge=-0.5").json()
-    assert len(rows) == 1
-    assert "is_arb" not in rows[0]
-
-
 # --- /paddy/feed (was /cards/feed, still an alias) ---
 
 def test_cards_feed_empty_without_client():
@@ -158,8 +116,6 @@ def test_feeds_require_auth():
     app.dependency_overrides.pop(require_user, None)
     app.dependency_overrides.pop(user_permissions, None)
     try:
-        assert client.get("/accabonus/feed").status_code == 401
-        assert client.get("/tennis/feed").status_code == 401  # legacy alias guarded too
         assert client.get("/paddy/feed").status_code == 401
     finally:
         app.dependency_overrides[require_user] = lambda: "testuser"

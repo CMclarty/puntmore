@@ -44,7 +44,7 @@ logger = logging.getLogger("uvicorn.error")
 # (period 1) are ignored. A concrete provider's _odds() rows carry this.
 FULL_MATCH_PERIOD = 0
 
-# Fuzzy-match thresholds. HIGHER than the TheOddsApi provider's 0.6 on purpose:
+# Fuzzy-match thresholds. HIGHER than the old provider's 0.6 on purpose:
 # that one scores against ~10 fixtures per league, this one against the whole
 # soccer board (500+). A bigger candidate pool means more chances for an
 # unrelated name to clear a loose threshold — observed live, "Nonexistent FC vs

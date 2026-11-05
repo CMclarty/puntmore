@@ -230,10 +230,6 @@ export async function editLeg(couponId, legId, fields) {
   return res.json()
 }
 
-// AccaBonus arbs
-export const getAccaBonusFeed = (minEdge = -0.02) =>
-  get(`/accabonus/feed?min_edge=${minEdge}`)
-
 // Cards & corners
 // Why the cards screen looks the way it does. An empty feed has several
 // distinct causes that are identical from the outside, and one of them

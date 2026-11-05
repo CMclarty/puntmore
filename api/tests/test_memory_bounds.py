@@ -12,7 +12,6 @@ import time
 
 import pytest
 
-from app.odds.client import CACHE_MAX, EVENT_CACHE_MAX, TheOddsApiClient
 from app.providers.grid_coupon import (
     GRID_CACHE_MAX, ODDS_CACHE_MAX, GridCouponProvider,
 )
@@ -78,15 +77,6 @@ def test_the_coupon_odds_caches_are_bounded():
         p._grid_cache.set(event_id, {(0, 0): 0.1})
     assert len(p._odds_cache) <= ODDS_CACHE_MAX
     assert len(p._grid_cache) <= GRID_CACHE_MAX
-
-
-def test_the_shared_odds_client_caches_are_bounded():
-    c = TheOddsApiClient("test-key")
-    for i in range(max(CACHE_MAX, EVENT_CACHE_MAX) * 3):
-        c._cache.set(("sport", "h2h", str(i)), [{"id": i}])
-        c._event_cache.set(("__event__", str(i), "m", ""), {"id": i})
-    assert len(c._cache) <= CACHE_MAX
-    assert len(c._event_cache) <= EVENT_CACHE_MAX
 
 
 def test_the_login_limiter_cannot_be_grown_without_limit():

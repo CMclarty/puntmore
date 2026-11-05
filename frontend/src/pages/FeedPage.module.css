@@ -46,7 +46,7 @@
   overflow-y: auto;
 }
 
-/* Value cards (AccaBonus) */
+/* Value cards */
 .card {
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);

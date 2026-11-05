@@ -195,8 +195,8 @@ def diagnose(client) -> dict:
                "with no corners/cards/goals lines on any of them — nothing to price against.")
         )
     elif not oddspapi_fair and not priced:
-        # No fair side on the sweep AND nothing was ever priced: the legacy
-        # TheOddsApi path, or OddsPapi with the fair book unset.
+        # No fair side on the sweep AND nothing was ever priced: OddsPapi with
+        # the fair book unset.
         verdict = (
             "No Pinnacle side to price against. Set ODDSPAPI_FAIR_BOOK — the fair "
             f"side comes from OddsPapi on the same fixture id as {name}'s."

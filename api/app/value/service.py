@@ -2,7 +2,7 @@
 
 A future bet-placer asks one question here and gets `ValueSelection` rows
 (schemas.py), sorted by edge. Every row comes from the tool's OWN feed builder
-(cards/feed.py, accabonus/feed.py, the goalscorer rows the scheduler stores,
+(cards/feed.py, the goalscorer rows the scheduler stores,
 the coupon tracker's priced legs), so this file prices nothing itself and
 cannot drift from what the pages show. It reads through the same caches as
 the pages: polling it costs no vendor quota beyond what the pages cost.
@@ -35,7 +35,6 @@ class Source:
 # Feed order. A source is listed only while its tool is enabled on the server.
 SOURCES: tuple[Source, ...] = (
     Source("paddy", "cards", "paddypower"),
-    Source("365", "accabonus", "bet365"),
     Source("scorers", "goalscorers", "bet365"),
     Source("coupon", "coupons", "williamhill"),
 )
@@ -97,26 +96,6 @@ def paddy_rows(cards_client, floor: float, now: datetime) -> list[ValueSelection
     return out
 
 
-def acca_rows(arbs_client, floor: float, now: datetime) -> list[ValueSelection]:
-    from ..accabonus.feed import build_feed
-    out = []
-    for item in build_feed(arbs_client, floor):
-        if item.fair is None:
-            continue
-        home, away = _sides(item.match, item.home, item.away)
-        side = ("home" if item.pick == home else "away" if item.pick == away
-                else "draw" if item.pick == "Draw" else None)
-        out.append(ValueSelection(
-            source="365", bookmaker="bet365",
-            event_id=item.event_id, event=item.match, home=home, away=away,
-            kickoff=_utc(item.commence_time), sport=item.sport_key or item.sport,
-            market="h2h", selection=item.pick, side=side,
-            odds=item.odds, fair=item.fair, edge=item.value, basis="devig",
-            seen_at=now,
-        ))
-    return out
-
-
 def scorer_rows(db: Session, floor: float, now: datetime) -> list[ValueSelection]:
     out = []
     for r in db.query(GoalscorerAlert).filter(GoalscorerAlert.edge >= floor).all():
@@ -158,7 +137,6 @@ def collect(
     *,
     db: Session,
     cards_client=None,
-    arbs_client=None,
     min_edge: float | None = None,
     kickoff_within_hours: float | None = None,
     bookmaker: str | None = None,
@@ -174,7 +152,6 @@ def collect(
     floor = 0.0 if min_edge is None else min_edge
     builders: dict[str, Callable[[], list[ValueSelection]]] = {
         "paddy": lambda: paddy_rows(cards_client, floor, now),
-        "365": lambda: acca_rows(arbs_client, floor, now),
         "scorers": lambda: scorer_rows(db, floor, now),
         "coupon": lambda: coupon_rows(db, floor, now),
     }
