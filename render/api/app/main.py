@@ -49,6 +49,7 @@ from .routers import state as state_router
 from .routers import diagnostics as diagnostics_router
 from .routers import scraper as scraper_router
 from .routers import value as value_router
+from .routers import hub_ws as hub_ws_router
 from . import diagnostics
 
 logger = logging.getLogger("uvicorn.error")
@@ -378,6 +379,10 @@ app.include_router(scraper_router.worker_router)
 # The cross-tool value feed: `value` grant sees every source, a tool grant its
 # own rows (routers/value.py resolves that itself, through user_permissions).
 app.include_router(value_router.router)
+
+# The Hub link (hub/PROTOCOL.md): /2up/ws authenticates its own handshake (an
+# API client granted `hub`); its operator routes carry the 365 grant per route.
+app.include_router(hub_ws_router.router)
 
 # /state self-guards with a static API key (machine consumers, no session).
 app.include_router(state_router.router, tags=["state"])

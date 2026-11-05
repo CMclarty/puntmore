@@ -202,6 +202,12 @@ class Settings(BaseSettings):
     # Key the local Bookie Bashing script sends (X-API-Key) with fair saves
     # prices to POST /api/paddy/saves-fair. Blank = endpoint disabled (503).
     saves_ingest_key: str = ""
+    # The Hub link (/api/2up/ws, hub/PROTOCOL.md). The client id whose bets may
+    # carry source_scope "owner" (Bet Finder): such a bet is never sent to any
+    # other client. And how often each connected client's pending bet lists are
+    # polled from the 2-Up engine, in seconds.
+    hub_owner_client_id: str = "owner"
+    hub_poll_seconds: float = 5.0
     # Session cookie signing key. If blank, a random key is generated at startup
     # (sessions reset on restart — fine for dev; set a fixed value in prod).
     secret_key: str = ""
