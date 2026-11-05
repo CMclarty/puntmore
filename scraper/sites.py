@@ -7,9 +7,9 @@ paddypower     Logged out. Budget 15 loads/h, 120/day across ALL its targets.
                No traffic 01:00-07:00 (pages are closed, not just left idle).
                A block (403/429/Cloudflare) closes every Paddy page and starts
                a 24 h cool-off that also needs a manual `resume`.
-bookiebashing  Your subscription, logged in through VNC. Budget 8/h, 120/day.
+bookiebashing  Your subscription, logged in on the Hub's screen (over VNC in Docker). Budget 8/h, 120/day.
                No quiet hours. A block or logout alerts once and backs off
-               (15 min doubling to 2 h) until you have sorted it over VNC.
+               (15 min doubling to 2 h) until you have sorted it (on the Hub's screen; VNC in Docker).
 generic        Any other site: the Bet Finder's sources (tipster pages, listings).
                Never Paddy or Bookie Bashing. Budget 60/h, 400/day across ALL
                generic targets, 20 s+ between loads. A target is loaded, parsed

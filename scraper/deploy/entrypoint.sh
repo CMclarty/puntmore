@@ -5,6 +5,16 @@
 set -e
 AS_PW="setpriv --reuid=pwuser --regid=pwuser --init-groups env HOME=/home/pwuser"
 mkdir -p /data/profile
+# The desktop Scraper (deploy/native/, the Hub's default) may be running on this
+# same data dir: its heartbeat is fresh. Two Chromes on one profile corrupt it,
+# so wait it out (Docker's restart policy tries again). After this container's
+# own exit the heartbeat goes stale within 90 s and the restart goes through.
+if [ -f /data/heartbeat ] && \
+   [ $(( $(date +%s) - $(cat /data/heartbeat) )) -lt 90 ]; then
+  echo "the heartbeat in /data is fresh: another Scraper (the desktop one?) runs on this data dir; not starting"
+  sleep 30
+  exit 1
+fi
 chown -R pwuser:pwuser /data
 # A container that was killed leaves Chrome's profile lock behind, and Chrome
 # then refuses the profile - which would stop an unattended restart dead.

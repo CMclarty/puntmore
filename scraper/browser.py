@@ -36,8 +36,8 @@ _KEEP_TABS_LIVE = [
 # en_GB.UTF-8 and gives Chrome's own "en-GB,en-US;q=0.9,en;q=0.8"; the window
 # is whatever Chrome and the profile choose on the real screen; and the GPU,
 # fonts and screen a site sees are the box's own. Measured 5 Nov 2026: Chrome
-# 157 in the container reported no WebGL at all, the container's fonts and no
-# deviceMemory; the same binary on the Hub's Wayland session reports the
+# 157 in the container reported no WebGL at all and the container's fonts;
+# the same binary on the Hub's Wayland session reports the
 # Radeon 8060S through ANGLE.
 #
 # In the container (SCRAPER_IN_CONTAINER=1, set by the Dockerfile) and in a
@@ -147,8 +147,11 @@ def selfcheck(ctx) -> dict:
         try:
             page.goto("chrome://version")
             seen["version"] = " ".join(page.locator("#version").inner_text().split())
-            if not seen["brands"]:          # only on a secure page; this one is
-                seen["brands"] = page.evaluate(_SEEN)["brands"]
+            if not seen["brands"] or seen.get("deviceMemory") is None:
+                # Both exist only on a secure page; this one is.
+                secure = page.evaluate(_SEEN)
+                seen["brands"] = seen["brands"] or secure["brands"]
+                seen["deviceMemory"] = secure["deviceMemory"]
             cmd = page.locator("#command_line").inner_text()
         except Exception:
             seen["version"], cmd = None, ""

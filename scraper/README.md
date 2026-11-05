@@ -61,8 +61,8 @@ Too few rows (`min_rows`) or a block raises an alert here and an event in
 ## Running on the Hub's desktop (the default)
 Since 5 Nov 2026 the Scraper runs on the Hub's real desktop session, so the
 sites see a person's Chrome: real GPU, real fonts, real screen. Measured that
-day, Chrome 157 in the container reported no WebGL at all (Xvfb, no GPU),
-the container's fonts and no `deviceMemory`; the same binary on the Hub's
+day, Chrome 157 in the container reported no WebGL at all (Xvfb, no GPU) and
+the container's fonts; the same binary on the Hub's
 Wayland session reports `ANGLE (AMD, AMD Radeon 8060S Graphics (radeonsi
 strix_halo ACO), OpenGL ES 3.2)`.
 
@@ -117,6 +117,10 @@ export SCRAPER_DATA_DIR=/opt/puntmore-scraper/data
 The fallback: one real Chrome on Xvfb inside a container, for a box with no
 desktop. The image sets `SCRAPER_IN_CONTAINER=1`, which is what gives Chrome
 its fixed window and language flags (`browser.py`). Expect no WebGL there.
+The container will not start while `data/heartbeat` is under 90 s old
+(`deploy/entrypoint.sh`): another Scraper, the desktop one, runs on that data
+dir. So a cron `update.sh` left behind on the Hub cannot put a second Chrome
+on the profile.
 Any Linux host with Docker, amd64, about 3 GB RAM free.
 
 ```sh
