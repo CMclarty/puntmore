@@ -181,6 +181,12 @@ def cmd_link_check(a):
         sys.exit(1)
 
 
+def cmd_update(a):
+    """Fast-forward the checkout to origin/main, reinstall, restart the units (deploy/update.sh)."""
+    from . import update
+    update.main(a, settings)
+
+
 # ---- parser -----------------------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
@@ -205,6 +211,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("link", help="run the Render link daemon").set_defaults(fn=cmd_link)
     lc = sub.add_parser("link-check", help="handshake with a Render build (hello -> hello_ack)")
     lc.add_argument("url", nargs="?"); lc.add_argument("--key"); lc.set_defaults(fn=cmd_link_check)
+    up = sub.add_parser("update", help="fast-forward to origin/main, reinstall, restart (puntmore-update.timer)")
+    mode = up.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true", help="print what it would do; change nothing")
+    mode.add_argument("--check", action="store_true", help="exit 0 if up to date, 1 if behind, 2 if it cannot tell")
+    up.add_argument("--repo", help="the checkout (default: the one this package is installed from)")
+    up.set_defaults(fn=cmd_update)
     return p
 
 
