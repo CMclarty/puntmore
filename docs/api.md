@@ -147,6 +147,7 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 | shop (`shop`) | `GET /shop`, `POST /shop/visits`, `DELETE /shop/visits[/{id}]` | per-caller route |
 | scraper (`scraper`) | `GET /scraper`, `PUT /scraper/leagues/{id}`, `/scraper/markets/{key}`, `/scraper/timings/{site}` | control page |
 | scraper box (`ingest`) | `GET /scraper/config`, `POST /scraper/status` | |
+| 365 Bet Finder (`accabonus`) | `GET /2up/betfinder/sources`, `PATCH /2up/betfinder/sources/{name}`, `GET /2up/betfinder/stats`, `/2up/betfinder/tips` (`?status=&source=&limit=`), `/2up/betfinder/quarantine`, `/2up/betfinder/candidates`; `POST /2up/betfinder/run` | the source registry (trust weight, active, stake mode, set by hand) with each source's strike rate and level-stake ROI; the pipeline's tips and its quarantine with reasons (tip text is untrusted, returned as text); what the owner's decision would be offered now; one pipeline pass (fetches nothing) |
 | 2-Up Hub link (`hub`) | WebSocket `/2up/ws` — `hub/PROTOCOL.md`, version 1 | Bearer key + `X-Client-Id` on the handshake |
 | 2-Up Hub operators (`accabonus`) | `GET /2up/hub/clients`, `GET /2up/hub/tips`, `POST /2up/hub/{client_id}/kill_switch`, `POST /2up/hub/{client_id}/scrape_job` | link status, Bet Finder tips, queue a frame |
 | diagnostics (`*`, or `state`) | `GET/DELETE /diagnostics/errors` | error ring buffer |
