@@ -100,7 +100,9 @@ def _get(path, perms="value", **params):
 
 def test_one_shape_across_every_source_best_edge_first():
     body = _get("/value").json()
-    assert body["sources"] == ["paddy", "365", "scorers", "coupon"]
+    # 2up is listed (ENABLE_TWOUP defaults on) but has no feed without an
+    # OddsPapi key, so it adds no rows and no error here.
+    assert body["sources"] == ["paddy", "365", "scorers", "coupon", "2up"]
     assert body["errors"] == {}
     rows = body["selections"]
     assert {r["source"] for r in rows} == {"paddy", "365", "scorers", "coupon"}
