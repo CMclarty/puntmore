@@ -125,7 +125,7 @@ def _prune(root, keep):
 def status(s):
     """Per site: budget and cool-off. Per target: the running service's last
     report (data/status.json) - the same file the Hub reads."""
-    from .runner import site_status
+    from .status import site_status
     for st in site_status(_guard(s), time.time()):
         line = (f"{st['site']:14} loads {st['loads_hour']}/{st['per_hour']} this hour, "
                 f"{st['loads_day']}/{st['per_day']} today")
