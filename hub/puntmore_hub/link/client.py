@@ -13,6 +13,7 @@ log = logging.getLogger("puntmore.link")
 
 PROTOCOL_VERSION = 1   # see hub/PROTOCOL.md and schemas/protocol.schema.json
 Handler = Callable[[Envelope], Awaitable[None] | None]
+CONTROL = ("ack", "pong")   # Render never acks these; they are done once sent
 
 
 class RenderLink:
@@ -36,7 +37,7 @@ class RenderLink:
                                    body=__import__("json").loads(row["body"]))
                     try:
                         await self._ws.send(env.to_json())
-                        self.store.outbox_mark_sent(row["msg_id"])
+                        self.store.outbox_mark_sent(row["msg_id"], acked=row["type"] in CONTROL)
                     except Exception as exc:  # noqa: BLE001
                         log.warning("send failed, will retry: %s", exc)
                         break
@@ -44,7 +45,12 @@ class RenderLink:
 
     # ---- inbound ---------------------------------------------------------------------------------
     async def handle(self, env: Envelope) -> None:
-        if env.type in ("ack", "hello_ack"):
+        if env.type == "ack":
+            mid = env.body.get("msg_id")
+            if not (mid and self.store.outbox_mark_acked(mid)):
+                log.debug("ack for unknown or already-acked message %r", mid)
+            return
+        if env.type == "hello_ack":
             return
         if env.type == "ping":
             self.enqueue("pong", {"msg_id": env.msg_id})
@@ -94,6 +100,9 @@ class RenderLink:
                     hello = Envelope(type="hello", client_id=self.cfg.client_id, body=self.hello_body())
                     await ws.send(hello.to_json())
                     log.info("connected to %s", self.cfg.render_ws_url)
+                    resend = self.store.outbox_resend_unacked()
+                    if resend:
+                        log.info("re-sending %d message(s) Render never acked", resend)
                     flusher = asyncio.create_task(self._flush_outbox())
                     try:
                         await self._recv_loop()

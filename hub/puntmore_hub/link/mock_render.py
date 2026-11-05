@@ -25,6 +25,7 @@ class MockRender:
         self.api_key = api_key
         self.protocol_version = protocol_version
         self.received: list[Envelope] = []
+        self.silent = False          # True = receive but never ack (tests the Hub's resend)
         self.clients: set = set()
         self.server = None
         self.port: int | None = None
@@ -63,10 +64,15 @@ class MockRender:
                     await ws.send(Envelope(type="hello_ack", client_id=env.client_id,
                                            body={"protocol_version": self.protocol_version,
                                                  "server_time": utcnow_iso()}).to_json())
-                elif env.type not in ("ack", "pong"):
+                elif env.type not in ("ack", "pong") and not self.silent:
                     await ws.send(Envelope(type="ack", client_id=env.client_id, body={"msg_id": env.msg_id}).to_json())
         finally:
             self.clients.discard(ws)
+
+    async def drop_clients(self) -> None:
+        """Close every connection, as a Render restart would."""
+        for ws in list(self.clients):
+            await ws.close()
 
     async def send(self, env: Envelope) -> None:
         for ws in list(self.clients):
