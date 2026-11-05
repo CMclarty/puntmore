@@ -445,6 +445,14 @@ The Hub side of the 2-Up Engine spec. Branch `home-box`.
 - [x] Self-update (branch `hub-update`): `puntmore-update.timer` every 10 min runs `hub/deploy/update.sh` (`puntmore update`): fast-forward to `origin/main`, reinstall, restart the enabled units; waits while a bet is `received`/`placing`; logs to `hub/data/update.log`, alerts on failure.
 - [ ] Phone placement adapter; IMAP tipster source; kick-off-window sweeps.
 - [x] Hub Console (branch `hub-console`): `puntmore web`, one page on the Hub with a live state per component (Worker, Link, Placement, Escalations, Tips, Model, Hermes, Render) and the CLI's own actions (kill switch, resolve, inbox, link-check, heartbeat) behind `PUNTMORE_WEB_TOKEN`; unit `puntmore-web`, localhost by default.
+- [ ] **A controllable Scraper.** [x] `scraper/targets.py` + `python -m scraper
+      targets list|show|add|set|enable|disable|remove [--json]` (branch
+      `scraper-targets`, 5 Nov): the only way `targets.toml` changes; validated
+      by `config._target`, atomic save under an flock, `summary()` joins
+      `status.json` for the console; new fields `priority` and `window`.
+      [ ] The runner honours `priority` and `window` (`TODO(runner)`), and
+      applies an `every_min`/`stale_min`-only change without closing the tab.
+      [ ] The Hub Console and Hermes's scraper-manager call it.
 - [ ] Two weeks of dry-run reports before `PUNTMORE_DRY_RUN=0`.
 Definition of Done: a bet list from Render reaches a phone in dry-run and its
 `placed` report shows in Render's ledger; a broken source is repaired by the

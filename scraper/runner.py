@@ -16,7 +16,8 @@ Target kinds:
   matches  a listing page (kept open) whose match links are opened, a few at
            a time, in their own kept-open tabs (e.g. a Paddy competition)
 
-Targets are targets.toml on the Hub. The file is checked every
+Targets are targets.toml on the Hub, changed only through scraper/targets.py
+(an atomic rename, so a half-written file is never read). The file is checked every
 TARGETS_CHECK_S: after an edit a removed or changed target's tabs close, a new
 one opens on the next tick - no restart. A file that will not parse is
 reported and the running targets are kept. The runner writes its state to
@@ -303,6 +304,12 @@ class Runner:
                 self._close_site(site)
 
         self._check_open(now)
+        # TODO(runner): honour Target.window and Target.priority here. They are
+        # stored and validated (config._target) and shown by `targets list`,
+        # but not acted on yet: a target outside its window should be treated
+        # like quiet hours (its tabs closed, not loaded), and when a site's
+        # hourly budget cannot cover every due target, loads should go to the
+        # highest priority first instead of file order.
         for t in self.targets:
             if self._paused(t.site, now):
                 continue

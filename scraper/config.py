@@ -15,6 +15,7 @@ less, never faster.
 """
 import os
 import pathlib
+import re
 import tomllib
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
@@ -74,6 +75,11 @@ class Target:
     min_rows: int = 0                   # fewer parsed rows than this = unhealthy (layout change?)
     trust_weight: float = 1.0           # Bet Finder: sent to the Hub beside the rows
     wait_for: str | None = None         # CSS selector to wait for before parsing (fetch targets)
+    # Stored and shown now; the runner does not act on them yet (TODO(runner)
+    # in runner.py): higher priority wins a site's contended hourly budget,
+    # and outside its window ("HH:MM-HH:MM", local time) a target is not loaded.
+    priority: int = 0
+    window: str | None = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +95,27 @@ class Settings:
     targets: list[Target] = field(default_factory=list)
     targets_file: pathlib.Path | None = None   # re-read while running when it changes
     capture_tab_mb: float = 8.0         # each tab's share of capture_mb (disk samples)
+
+
+_WINDOW = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)$")
+
+
+def _window(name: str, w) -> str | None:
+    """"HH:MM-HH:MM" in local time; may wrap midnight ("22:00-02:00")."""
+    if w is None or w == "":
+        return None
+    if not isinstance(w, str) or not _WINDOW.match(w):
+        raise ValueError(f"target {name}: window must be \"HH:MM-HH:MM\" (24 h, local time), not {w!r}")
+    start, end = w.split("-")
+    if start == end:
+        raise ValueError(f"target {name}: window {w!r} is empty (start equals end)")
+    return w
+
+
+def _priority(name: str, p) -> int:
+    if isinstance(p, bool) or not isinstance(p, int):
+        raise ValueError(f"target {name}: priority must be a whole number, not {p!r}")
+    return p
 
 
 def _target(t: dict) -> Target:
@@ -124,19 +151,22 @@ def _target(t: dict) -> Target:
         min_rows=int(_clamp(int(t.get("min_rows", 0)), lo=0)),
         trust_weight=_clamp(float(t.get("trust_weight", 1.0)), 0.0, 1.0),
         wait_for=t.get("wait_for") or None,
+        priority=_priority(name, t.get("priority", 0)),
+        window=_window(name, t.get("window")),
     )
 
 
-def load_targets(path: pathlib.Path) -> list[Target]:
+def load_targets(path: pathlib.Path, include_disabled: bool = False) -> list[Target]:
+    """The targets the Scraper runs. include_disabled keeps the `enabled =
+    false` ones too (scraper/targets.py, which rewrites the whole file)."""
     if not path.exists():
         return []
     raw = tomllib.loads(path.read_text())
     targets = [_target(t) for t in raw.get("target", [])]
     names = [t.name for t in targets]           # a disabled target still reserves its name
-    targets = [t for t in targets if t.enabled]
     if len(names) != len(set(names)):
         raise ValueError("target names must be unique")
-    return targets
+    return targets if include_disabled else [t for t in targets if t.enabled]
 
 
 def load() -> Settings:

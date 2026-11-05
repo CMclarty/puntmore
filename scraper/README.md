@@ -54,6 +54,50 @@ Bashing). The parser returns tips; `post = "hub:tips"` writes them to
 Too few rows (`min_rows`) or a block raises an alert here and an event in
 `data/hub/events/` that the Hub turns into an escalation for the local AI.
 
+## Changing targets
+`targets.toml` is changed only through `scraper/targets.py`: this CLI, the
+Hub Console and Hermes's scraper-manager all call it, so there is one config
+store. It works on `SCRAPER_TARGETS`, else `SCRAPER_DATA_DIR/targets.toml`
+(`--file` for another), and needs no browser.
+
+```sh
+python -m scraper targets list                 # every target, joined to status.json
+python -m scraper targets show pp-epl-most --json
+python -m scraper targets add --name racing-tips --site generic \
+    --url https://tips.example.org/racing --parser racing_tips --post hub:tips \
+    --every-min 360 --min-rows 2 --trust-weight 0.5 --disabled
+python -m scraper targets set pp-epl-most --every-min 15 --priority 2 --window 07:00-23:30
+python -m scraper targets set racing-tips --window none     # "none" clears a field
+python -m scraper targets set pp-epl-most --matches '{"max_tabs": 2, "market_tabs": ["Corners"]}'
+python -m scraper targets enable racing-tips
+python -m scraper targets disable racing-tips
+python -m scraper targets remove racing-tips
+```
+
+- Every change is validated as a whole by `config._target` (sites, hosts,
+  clamps) before anything is written. A value the clamps would change is
+  refused, not quietly raised: `--every-min 2` is an error, not 5. A refusal
+  exits 2 with the reason (`{"error": "..."}` with `--json`).
+- `--json` prints machine output: `list` the `targets.summary()` list,
+  `show`/`add`/`set`/`enable`/`disable` that target's entry, `remove`
+  `{"removed": name, "targets": [names left]}`. Each entry is every field of
+  the target plus `status`: the running Scraper's last report on it from
+  `status.json` (`state`, `detail`, `last_load`, `last_parse`,
+  `rows_posted`, `reported_at`), or `null` when it has none (disabled, or
+  not reported yet).
+- Saves are atomic (temp file + rename in the same directory) under an
+  `flock` on `targets.toml.lock`, so the console, the CLI and Hermes cannot
+  interleave and the running Scraper never reads half a file. The file is
+  rewritten whole, so comments are lost: the first save keeps the
+  hand-written file as `targets.toml.bak`.
+- The running Scraper picks a change up within 60 s (its re-read of the
+  file). A changed target has its tabs closed and reopened on the next tick,
+  whatever the field: today even an `every_min` change costs a fresh load.
+- `priority` (whole number, default 0; higher wins a site's contended hourly
+  budget) and `window` (`"HH:MM-HH:MM"` local time, may wrap midnight; the
+  target is not loaded outside it) are stored, validated and shown, but the
+  runner does not act on them yet (`TODO(runner)` in `runner.py`).
+
 ## Server setup (once)
 Any Linux host with Docker, amd64, about 3 GB RAM free.
 
@@ -110,7 +154,8 @@ whole server goes quiet.
 
 ## Targets
 One file: `data/targets.toml` (see `targets.example.toml`), or the file
-`SCRAPER_TARGETS` names. It lives on the Hub and Hermes edits it. The running
+`SCRAPER_TARGETS` names. It lives on the Hub and is changed only through
+`scraper/targets.py` (Changing targets, above). The running
 service checks it once a minute and applies an edit without a restart: a
 removed or changed target's tabs close, a new one opens on the next tick. A
 file that will not load (a half-written save, a bad target) is reported in the
