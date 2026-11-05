@@ -1,8 +1,11 @@
 """Settings for the Hub.
 
-Everything comes from environment variables (a ``.env`` in the repo root is loaded if present).
-Nothing operational is hard-coded, so an agent changes behaviour by editing ``.env`` or a
-source YAML, never code. See ``.env.example`` for every variable.
+Everything comes from environment variables (a ``.env`` in ``hub/`` is loaded if present).
+Nothing operational is hard-coded, so an agent changes behaviour by editing ``.env``, never
+code. See ``.env.example`` for every variable.
+
+Scraping is not configured here: the Worker (``scraper/``) owns every page load and its
+own settings. The Hub only knows where the Worker's data directory is.
 """
 from __future__ import annotations
 
@@ -11,7 +14,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-ROOT = Path(os.environ.get("PUNTMORE_HOME_ROOT", Path(__file__).resolve().parent.parent))
+ROOT = Path(os.environ.get("PUNTMORE_HUB_ROOT", Path(__file__).resolve().parent.parent))
 
 
 def _load_dotenv(path: Path) -> None:
@@ -49,19 +52,13 @@ class Settings:
 
     # Paths
     data_dir: Path = ROOT / "data"
-    db_path: Path = ROOT / "data" / "home.sqlite"
-    raw_dir: Path = ROOT / "data" / "raw"
-    sources_dir: Path = ROOT / "sources"
-    parsers_dir: Path = ROOT / "parsers"
+    db_path: Path = ROOT / "data" / "hub.sqlite"
     sub_clients_file: Path = ROOT / "sub_clients.yaml"
-    chrome_profile_dir: Path = Path(os.environ.get("PUNTMORE_CHROME_PROFILE", ROOT / "data" / "chrome-profile"))
 
-    # Scraper hard rules (inherited from the PP scraper handover)
-    pages_per_hour: int = int(os.environ.get("PUNTMORE_PAGES_PER_HOUR", "60"))
-    pages_per_day: int = int(os.environ.get("PUNTMORE_PAGES_PER_DAY", "400"))
-    block_cooloff_hours: int = int(os.environ.get("PUNTMORE_BLOCK_COOLOFF_HOURS", "24"))
-    use_real_chrome: bool = _env_bool("PUNTMORE_USE_REAL_CHROME", True)
-    headless: bool = _env_bool("PUNTMORE_HEADLESS", False)
+    # The Worker (scraper/) writes its heartbeat, status.json and the hub/ drop folders here.
+    # In the Docker setup that is the container's /data volume on the host.
+    worker_data_dir: Path = Path(os.environ.get("PUNTMORE_WORKER_DATA", "/opt/puntmore-scraper/data"))
+    worker_stale_minutes: int = int(os.environ.get("PUNTMORE_WORKER_STALE_MINUTES", "10"))
 
     # Alerting and the local AI
     discord_webhook: str = os.environ.get("PUNTMORE_DISCORD_WEBHOOK", "")
@@ -78,6 +75,10 @@ class Settings:
     @property
     def link_configured(self) -> bool:
         return bool(self.render_ws_url and self.render_api_key)
+
+    @property
+    def inbox_dir(self) -> Path:
+        return self.worker_data_dir / "hub"
 
     def kill_switch_on(self) -> bool:
         return self.kill_switch_file.exists()

@@ -1,10 +1,21 @@
-# scraper/ — rules for the Paddy / Bookie Bashing worker
+# scraper/ — rules for the Worker
 
 The repo's `CLAUDE.md` applies everywhere and wins on any conflict. Setup and
 day-to-day commands are in `README.md`; the boundaries that still apply are in
-`HANDOVER.md`. The rule below is moved verbatim from `CLAUDE.md` on
-5 Nov 2026. The Hub's 2-Up code (`hub/`) borrows `browser.py` from
-here; keep the realism rules in this directory.
+`HANDOVER.md`. The Worker is the ONLY thing on the Hub that loads a page.
+
+- **Bet Finder sources are Worker targets** (5 Nov 2026, Callum: one Chrome,
+  one budget, one alert path). `site = "generic"` may name any host except the
+  two bookmakers; its budget is in `sites.py` (60/h, 400/day, no quiet hours,
+  a block = 24 h cool-off + `resume generic`). A generic target is `fetch`
+  mode: loaded, parsed once, closed. Its parser follows the same contract as
+  every other parser and emits TIPS (event, market, selection, optional
+  advised_price / advised_stake_units / tip_time / expiry / origin). With
+  `post = "hub:tips"` the rows go to `data/hub/tips/` as one file per run;
+  `min_rows` breaches and blocks go to `data/hub/events/`. The Hub's
+  `puntmore inbox` reads both. Never let a generic target reach Paddy Power
+  or Bookie Bashing; never add a second budget anywhere.
+- The rule below is moved verbatim from `CLAUDE.md` on 5 Nov 2026.
 
 - **The scraper (`scraper/`, Oct 2026) is a SEPARATE service** — its own
   Docker image (`.github/workflows/scraper-image.yml` → GHCR), on its own

@@ -27,13 +27,23 @@ from urllib.parse import urlparse
 
 HERE = pathlib.Path(__file__).resolve().parent
 
-# The only hosts a page may be opened on. localhost is for the tests' fake site.
+# The only hosts a paddypower / bookiebashing target may open. localhost is for
+# the tests' fake site. A `generic` target (the Bet Finder's sources) may open
+# any host EXCEPT these two: the bookmakers are read only under their own site
+# rules, never under the looser generic budget.
 ALLOWED_HOSTS = ("paddypower.com", "bookiebashing.net", "localhost", "127.0.0.1")
+BOOKMAKER_HOSTS = ("paddypower.com", "bookiebashing.net")
 
 
-def host_allowed(url: str) -> bool:
+def _on(host: str, hosts) -> bool:
+    return any(host == h or host.endswith("." + h) for h in hosts)
+
+
+def host_allowed(url: str, site: str | None = None) -> bool:
     host = (urlparse(url).hostname or "").lower()
-    return any(host == h or host.endswith("." + h) for h in ALLOWED_HOSTS)
+    if site == "generic":
+        return bool(host) and not _on(host, BOOKMAKER_HOSTS)
+    return _on(host, ALLOWED_HOSTS)
 
 
 def _clamp(v, lo=None, hi=None):
@@ -65,6 +75,11 @@ class Target:
     parser: str | None = None           # name in parsers.PARSERS
     post: str | None = None             # puntmore path to POST {"prices": rows} to
     matches: Matches | None = None
+    mode: str = "keep"                  # keep: page stays open (Paddy/BB) | fetch: load, parse, close
+    enabled: bool = True
+    min_rows: int = 0                   # fewer parsed rows than this = unhealthy (layout change?)
+    trust_weight: float = 1.0           # Bet Finder: sent to the Hub beside the rows
+    wait_for: str | None = None         # CSS selector to wait for before parsing (fetch targets)
 
 
 @dataclass(frozen=True)
@@ -88,10 +103,15 @@ def _target(t: dict) -> Target:
     name, site, url = t["name"], t["site"], t["url"]
     if site not in SITES:
         raise ValueError(f"target {name}: unknown site {site!r} (have {', '.join(SITES)})")
-    if not host_allowed(url):
-        raise ValueError(f"target {name}: {url} is not on an allowed host")
+    if not host_allowed(url, site):
+        raise ValueError(f"target {name}: {url} is not on an allowed host for site {site!r}")
+    mode = t.get("mode") or ("fetch" if site == "generic" else "keep")
+    if mode not in ("keep", "fetch"):
+        raise ValueError(f"target {name}: mode must be keep or fetch, not {mode!r}")
     m = t.get("matches")
     matches = None
+    if m is not None and site == "generic":
+        raise ValueError(f"target {name}: a generic target cannot have [target.matches]")
     if m is not None:
         matches = Matches(
             link_re=m.get("link_re", Matches.link_re),
@@ -107,6 +127,10 @@ def _target(t: dict) -> Target:
         every_min=None if every is None else _clamp(float(every), lo=5.0),
         stale_min=_clamp(float(t.get("stale_min", 20.0)), lo=10.0),
         parser=t.get("parser"), post=t.get("post"), matches=matches,
+        mode=mode, enabled=bool(t.get("enabled", True)),
+        min_rows=int(_clamp(int(t.get("min_rows", 0)), lo=0)),
+        trust_weight=_clamp(float(t.get("trust_weight", 1.0)), 0.0, 1.0),
+        wait_for=t.get("wait_for") or None,
     )
 
 
@@ -115,7 +139,8 @@ def load_targets(path: pathlib.Path) -> list[Target]:
         return []
     raw = tomllib.loads(path.read_text())
     targets = [_target(t) for t in raw.get("target", [])]
-    names = [t.name for t in targets]
+    names = [t.name for t in targets]           # a disabled target still reserves its name
+    targets = [t for t in targets if t.enabled]
     if len(names) != len(set(names)):
         raise ValueError("target names must be unique")
     return targets
@@ -136,7 +161,8 @@ def targets_from(raw: list[dict]) -> list[Target]:
             print(f"config: skipped duplicate target {target.name}", flush=True)
             continue
         names.add(target.name)
-        out.append(target)
+        if target.enabled:
+            out.append(target)
     return out
 
 

@@ -1,4 +1,8 @@
-"""``puntmore`` command line. Every operation an agent or a human needs, with plain text output."""
+"""``puntmore`` command line. Every operation an agent or a human needs, with plain text output.
+
+Scraping is the Worker's (`python -m scraper ...` in `scraper/`); this CLI reads what the
+Worker drops and reports, and owns the link to Render, placement, and escalations.
+"""
 from __future__ import annotations
 
 import argparse
@@ -6,12 +10,12 @@ import asyncio
 import json
 import logging
 import sys
+import threading
 from datetime import timedelta
-from pathlib import Path
 
-from . import __version__, alerts, escalation
+from . import __version__, alerts, escalation, inbox
 from .config import settings
-from .store import Store, parse_iso, utcnow
+from .store import Store, utcnow
 
 
 def _store() -> Store:
@@ -29,11 +33,12 @@ def _print_rows(rows, cols):
 # ---- commands ---------------------------------------------------------------------------------
 
 def cmd_init(a):
-    for d in (settings.data_dir, settings.raw_dir, settings.chrome_profile_dir, settings.data_dir / "escalations"):
+    for d in (settings.data_dir, settings.data_dir / "escalations"):
         d.mkdir(parents=True, exist_ok=True)
     _store().close()
     print(f"initialised {settings.data_dir} (db {settings.db_path})")
     print(f"dry_run={settings.dry_run} kill_switch={settings.kill_switch_on()} link_configured={settings.link_configured}")
+    print(f"worker data: {settings.worker_data_dir} ({'present' if settings.worker_data_dir.exists() else 'not found'})")
 
 
 def cmd_status(a):
@@ -42,103 +47,39 @@ def cmd_status(a):
     print(f"puntmore-hub {__version__}  client={settings.client_id}  dry_run={settings.dry_run}  "
           f"kill_switch={'ON' if settings.kill_switch_on() else 'off'}  link={'configured' if settings.link_configured else 'OFFLINE'}")
     print("last 24h: " + ", ".join(f"{k}={v}" for k, v in s.items()))
-    from .scraper.budget import RequestBudget
-    b = RequestBudget(st, settings.pages_per_hour, settings.pages_per_day)
-    print(f"request budget remaining: {b.remaining()[0]}/h, {b.remaining()[1]}/day")
-    states = st.all_source_states()
-    if states:
-        print("sources:")
-        _print_rows(states, ["source", "healthy", "last_ok", "last_run", "cooloff_until", "note"])
+    w = inbox.worker_status(settings)
+    age = w["heartbeat_age_s"]
+    print(f"worker: {'running' if w['running'] else 'NOT RUNNING'}"
+          + (f" (heartbeat {age}s ago)" if age is not None else " (no heartbeat file)")
+          + f", {len(w['targets'])} target(s), blocked={w['blocked'] or 'none'}, unhealthy={w['unhealthy'] or 'none'}")
+    if w["targets"]:
+        _print_rows(w["targets"], ["name", "site", "mode", "state", "detail", "rows_posted"])
 
 
-def cmd_sources(a):
-    from .scraper.sources import load_sources
-    rows = []
-    st = _store()
-    for s in load_sources(settings.sources_dir).values():
-        state = st.source_state(s.name)
-        rows.append({"name": s.name, "enabled": s.enabled, "kind": s.kind, "parser": s.parser,
-                     "schedule": s.schedule.every or ",".join(s.schedule.at) or "manual",
-                     "healthy": state["healthy"], "last_ok": state["last_ok"]})
-    _print_rows(rows, ["name", "enabled", "kind", "parser", "schedule", "healthy", "last_ok"])
-
-
-def cmd_scrape(a):
-    from .scraper.runner import run_due, run_source
-    from .scraper.sources import load_sources
-    st = _store()
-    if a.which == "due":
-        results = run_due(st, notify=not a.no_notify)
-        if not results:
-            print("nothing due")
-    else:
-        srcs = load_sources(settings.sources_dir)
-        if a.name not in srcs:
-            sys.exit(f"unknown source {a.name!r}; known: {', '.join(srcs) or 'none'}")
-        results = [run_source(srcs[a.name], st, force=a.force, notify=not a.no_notify)]
-    for r in results:
-        print(f"{r.source}: {r.status} items={r.items} new={r.new_tips}" + (f" error={r.error}" if r.error else "")
-              + (f" raw={r.raw_path}" if r.raw_path else ""))
-    if any(r.status not in ("ok", "skipped") for r in results):
-        sys.exit(1)
-
-
-def cmd_runs(a):
-    rows = [dict(r) for r in _store().recent_runs(a.limit)]
-    _print_rows(rows, ["id", "source", "started", "status", "items", "error"])
-
-
-def cmd_raw(a):
-    d = settings.raw_dir / a.source
-    files = sorted(d.glob("*.html")) if d.exists() else []
-    if not files:
-        print(f"no raw payloads for {a.source}")
-        return
-    for f in files[-a.limit:]:
-        print(f"{f}  {f.stat().st_size} bytes")
-
-
-def cmd_parser_test(a):
-    """Run a parser against a saved page (or a fixture) and print what it would emit."""
-    from .scraper.browser import Fetched
-    from .scraper.parsers import load_parser
-    from .scraper.runner import validate
-    from .scraper.sources import Source, load_sources
-    html = Path(a.file).read_text()
-    srcs = load_sources(settings.sources_dir)
-    source = srcs.get(a.source) if a.source else next((s for s in srcs.values() if s.parser == a.parser), None)
-    if source is None:
-        source = Source(name=a.parser, parser=a.parser)
-    fetched = Fetched(url=f"file://{a.file}", status=200, html=html)
-    items = load_parser(a.parser, settings.parsers_dir)(fetched, source)
-    good, problems = validate(items, source)
-    print(f"{len(items)} parsed, {len(good)} valid, {len(problems)} rejected (min_items {source.health.min_items})")
-    for it in good[: a.limit]:
-        print(json.dumps(it, default=str))
-    for p in problems[:5]:
-        print("REJECTED:", p)
-    if len(good) < source.health.min_items:
-        sys.exit(1)
+def cmd_inbox(a):
+    counts = inbox.ingest(_store(), settings, notify=not a.no_notify)
+    print(", ".join(f"{k}={v}" for k, v in counts.items()))
 
 
 def cmd_health(a):
     st = _store()
-    bad = [s for s in st.all_source_states() if not s.get("healthy", 1)]
+    w = inbox.worker_status(settings)
     open_esc = st.open_escalations()
-    stale_h = a.stale_hours
-    stale = []
-    for s in st.all_source_states():
-        ok = parse_iso(s.get("last_ok"))
-        if ok and utcnow() - ok > timedelta(hours=stale_h):
-            stale.append(s["source"])
-    print(f"unhealthy sources: {', '.join(s['source'] for s in bad) or 'none'}")
-    print(f"stale sources (> {stale_h}h since last ok): {', '.join(stale) or 'none'}")
+    bad = []
+    if not w["running"]:
+        bad.append("worker not running (stale or missing heartbeat)")
+    if w["blocked"]:
+        bad.append("blocked: " + ", ".join(w["blocked"]))
+    if w["unhealthy"]:
+        bad.append("unhealthy sources: " + ", ".join(w["unhealthy"]))
+    print(f"worker: {'running' if w['running'] else 'NOT RUNNING'}; blocked: {', '.join(w['blocked']) or 'none'}; "
+          f"unhealthy: {', '.join(w['unhealthy']) or 'none'}")
     print(f"open escalations: {len(open_esc)}")
     for e in open_esc:
         print(f"  #{e['id']} {e['kind']} {e['ref']} ({e['created']}): {e['detail'][:160]}")
     if settings.kill_switch_on():
         print("KILL SWITCH IS ON")
-    if bad or open_esc or stale:
+    if bad or open_esc:
         sys.exit(1)
 
 
@@ -148,7 +89,7 @@ def cmd_kill(a):
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(f"set {utcnow().isoformat()}\n")
         escalation.raise_escalation(_store(), "kill_switch", "global", "kill switch turned ON from the CLI", notify=False)
-        print("kill switch ON: no scrapes, no placements until `puntmore kill off`")
+        print("kill switch ON: no placements until `puntmore kill off`")
     elif a.action == "off":
         f.unlink(missing_ok=True)
         print("kill switch off")
@@ -176,32 +117,27 @@ def cmd_tips(a):
 
 
 def cmd_heartbeat(a):
-    print(alerts.heartbeat(_store()))
+    print(alerts.heartbeat(_store(), worker=inbox.worker_status(settings)))
 
 
 def cmd_link(a):
-    """Run the Render link daemon: bet lists -> client engine, scrape jobs -> runner."""
-    from .link.client import RenderLink, bets_from, job_from
+    """Run the Render link daemon: bet lists -> client engine, Worker drops -> tips and escalations."""
+    from .link.client import RenderLink, bets_from
     from .placement.engine import ClientEngine
-    from .scraper.runner import run_source
-    from .scraper.sources import load_sources
 
     st = _store()
     engine = ClientEngine(st)
     link = RenderLink(st)
+    log = logging.getLogger("puntmore.link")
 
     def on_bet_list(env):
         statuses = engine.handle_bet_list(bets_from(env))
-        logging.getLogger("puntmore.link").info("bet_list %s -> %s", env.msg_id, statuses)
+        log.info("bet_list %s -> %s", env.msg_id, statuses)
 
     def on_scrape_job(env):
-        job = job_from(env)
-        srcs = load_sources(settings.sources_dir)
-        if job.source not in srcs:
-            link.enqueue("scrape_result", {"job_id": job.job_id, "status": "error", "error": f"unknown source {job.source}"})
-            return
-        r = run_source(srcs[job.source], st, force=bool(job.params.get("force")))
-        link.enqueue("scrape_result", {"job_id": job.job_id, "status": r.status, "items": r.items, "error": r.error})
+        # Scraping is the Worker's: a job from Render is noted, not run here.
+        link.enqueue("scrape_result", {"job_id": env.body.get("job_id"), "status": "skipped",
+                                       "error": "scrapes run on the Worker's own schedule (scraper/targets.toml)"})
 
     def on_kill(env):
         on = bool(env.body.get("on", True))
@@ -212,6 +148,19 @@ def cmd_link(a):
         escalation.raise_escalation(st, "kill_switch", "render", f"kill switch set {'ON' if on else 'off'} by Render")
 
     link.handlers.update({"bet_list": on_bet_list, "scrape_job": on_scrape_job, "kill_switch": on_kill})
+
+    def ingest_loop():
+        import time
+        while True:
+            try:
+                counts = inbox.ingest(Store(settings.db_path), settings)
+                if counts["tip_files"] or counts["events"]:
+                    log.info("inbox: %s", counts)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("inbox pass failed: %s", exc)
+            time.sleep(30)
+
+    threading.Thread(target=ingest_loop, name="inbox", daemon=True).start()
     alerts.startup(st, "link")
     try:
         asyncio.run(link.run())
@@ -240,22 +189,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init", help="create data dirs and the database").set_defaults(fn=cmd_init)
-    sub.add_parser("status", help="one-screen status").set_defaults(fn=cmd_status)
-    sub.add_parser("sources", help="list configured sources").set_defaults(fn=cmd_sources)
-
-    sc = sub.add_parser("scrape", help="run scrapers").add_subparsers(dest="which", required=True)
-    r = sc.add_parser("run", help="run one source now"); r.add_argument("name"); r.add_argument("--force", action="store_true")
-    r.add_argument("--no-notify", action="store_true", help="record escalations without waking the local AI"); r.set_defaults(fn=cmd_scrape)
-    d = sc.add_parser("due", help="run every source that is due (timer entry point)"); d.add_argument("--no-notify", action="store_true"); d.set_defaults(fn=cmd_scrape)
-
-    rr = sub.add_parser("runs", help="recent scraper runs"); rr.add_argument("--limit", type=int, default=30); rr.set_defaults(fn=cmd_runs)
-    rw = sub.add_parser("raw", help="list archived raw payloads for a source"); rw.add_argument("source"); rw.add_argument("--limit", type=int, default=10); rw.set_defaults(fn=cmd_raw)
-
-    pt = sub.add_parser("parser-test", help="run a parser on a saved page or fixture")
-    pt.add_argument("parser"); pt.add_argument("file"); pt.add_argument("--source", help="source name whose health rules to apply")
-    pt.add_argument("--limit", type=int, default=20); pt.set_defaults(fn=cmd_parser_test)
-
-    h = sub.add_parser("health", help="exit 1 if anything needs attention"); h.add_argument("--stale-hours", type=float, default=24); h.set_defaults(fn=cmd_health)
+    sub.add_parser("status", help="one-screen status, including the Worker").set_defaults(fn=cmd_status)
+    ib = sub.add_parser("inbox", help="one pass over the Worker's drop folders (the link daemon does this every 30 s)")
+    ib.add_argument("--no-notify", action="store_true", help="record escalations without waking the local AI"); ib.set_defaults(fn=cmd_inbox)
+    sub.add_parser("health", help="exit 1 if anything needs attention").set_defaults(fn=cmd_health)
     k = sub.add_parser("kill", help="kill switch"); k.add_argument("action", choices=["on", "off", "status"]); k.set_defaults(fn=cmd_kill)
 
     es = sub.add_parser("escalation", help="escalations to the local AI").add_subparsers(dest="which", required=True)
