@@ -73,5 +73,5 @@ vendor quota; polling faster returns the same prices.
 
 ## Tests
 
-`api/tests/test_python_client.py` runs this client against the real app
-in-process over `httpx.ASGITransport` (from `api/`: `python -m pytest -q`).
+`render/api/tests/test_python_client.py` runs this client against the real app
+in-process over `httpx.ASGITransport` (from `render/api/`: `python -m pytest -q`).

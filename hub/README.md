@@ -1,6 +1,6 @@
 # hub/ — the Hub
 
-Hub side of the Puntmore 2-Up Engine, in the same repo as the Render service it talks to (`api/`) and the Paddy/Bookie Bashing worker (`scraper/`). The wire contract between this and Render is `PROTOCOL.md` + `schemas/`; change them together. One machine on a residential connection that owns everything touching a bookmaker site or a phone. The cloud side (Render) owns pricing, the 2-up decision model and the per-client ledgers, and never loads a bookmaker page.
+Hub side of the Puntmore 2-Up Engine, in the same repo as the Render service it talks to (`render/api/`) and the Paddy/Bookie Bashing worker (`scraper/`). The wire contract between this and Render is `PROTOCOL.md` + `schemas/`; change them together. One machine on a residential connection that owns everything touching a bookmaker site or a phone. The cloud side (Render) owns pricing, the 2-up decision model and the per-client ledgers, and never loads a bookmaker page.
 
 ```
 Render (cloud)                         Hub (this repo)
@@ -78,4 +78,4 @@ puntmore link                        the Render link daemon
 `pytest` runs the real link against `puntmore_hub/link/mock_render.py` over a localhost socket, and validates every example in `schemas/examples/` against `schemas/protocol.schema.json`. Against a real Render build: `puntmore link-check wss://host/ws --key <key>`.
 
 ## Status
-Scaffold. The scraper pipeline, client engine, link protocol, escalation path and CLI are implemented and tested with fakes. Not yet done: the phone placement adapter, the IMAP tipster source kind, the kick-off-window sweep schedule, the Render end of the WebSocket (`api/`), and unifying the request budget with `scraper/guard.py`.
+Scaffold. The scraper pipeline, client engine, link protocol, escalation path and CLI are implemented and tested with fakes. Not yet done: the phone placement adapter, the IMAP tipster source kind, the kick-off-window sweep schedule, the Render end of the WebSocket (`render/api/`), and unifying the request budget with `scraper/guard.py`.

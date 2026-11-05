@@ -106,7 +106,7 @@ stays provisional until the calibration backtest (item 3) measures it.
   TheOddsApi code goes in item 11. Backend-only — never surface a provider
   picker in the UI.
 - **OddsPapi bills per request, not per response** (its docs, Oct 2026); the
-  fixture list is billable. Budget and refresh tiers are in `api/AGENTS.md`.
+  fixture list is billable. Budget and refresh tiers are in `render/api/AGENTS.md`.
 - **Never call external APIs from core logic** — everything goes through the
   seams (`OCRProvider`, `OddsProvider`, `NotificationProvider`).
 
@@ -288,7 +288,7 @@ it — the rectangle was intact and every price was a real price.
   pass, and whether any real board league slips the youth patterns.
 
 ### 3. Calibration backtest  *(was Phase V4 — depends on 1)*
-- [ ] `api/tools/backtest_calibration.py`: over a season+ of historical fixtures
+- [ ] `render/api/tools/backtest_calibration.py`: over a season+ of historical fixtures
       with settlements, fit grids, compute derived P(win ∧ over X), score
       against outcomes (reliability curve + Brier, bucketed).
 - [ ] Replace the provisional 8% threshold and the displayed uncertainty band
@@ -339,7 +339,7 @@ had to be made twice, and it was made twice for the toolbar fix and again for
 the Enter removal in the same week. Deliberately deferred, not abandoned: this
 is a rebuild-when-the-tracker-is-done item, not a scheduled one.
 
-What was removed: `frontend/src/pages/PnlBattlePage.jsx` and its CSS module
+What was removed: `render/frontend/src/pages/PnlBattlePage.jsx` and its CSS module
 (both in git history — restore from the commit that deletes them rather than
 rewriting from scratch), the lazy import and three routes in `App.jsx`, the two
 `PageIdentity` entries, and the `battle` chip on the plain page.
@@ -439,7 +439,7 @@ The Hub side of the 2-Up Engine spec. Branch `home-box`.
       sources (YAML + parser + fixture), CLI, systemd units, tests.
 - [x] Wire contract: `hub/PROTOCOL.md`, JSON Schema, examples, contract tests,
       a mock Render for integration tests, `puntmore link-check`.
-- [ ] Render end of the protocol in `api/` (WebSocket endpoint, per-client keys,
+- [ ] Render end of the protocol in `render/api/` (WebSocket endpoint, per-client keys,
       bet lists out, reports in) — the other side of `hub/PROTOCOL.md`.
 - [ ] Unify `hub/`'s request budget with `scraper/guard.py` (per-site, in code).
 - [ ] Phone placement adapter; IMAP tipster source; kick-off-window sweeps.
@@ -469,11 +469,11 @@ and `/state`. AccaBonus is not live (`enable_accabonus` False).
       it or gate the build on a literature review. The rescue model is
       fine-tuned during testing against Bookie Bashing's 2-up tracker.
       That tuning is a MANUAL, user-triggered comparison: BB's terms ban
-      automated access (`api/AGENTS.md`, BookieBashing constraint), so the
+      automated access (`render/api/AGENTS.md`, BookieBashing constraint), so the
       tracker is never scraped by the engine or the Worker.
 - [ ] **Remove the `/scraper` control page** and its routes; the worker reads
       `targets.toml` on the Hub, edited by Hermes.
-Definition of Done: `grep -ri "theoddsapi\|bettingiscool\|odds_api_key" api/`
+Definition of Done: `grep -ri "theoddsapi\|bettingiscool\|odds_api_key" render/api/`
 is empty, the coupon feed is unchanged, and the worker runs a day from local
 config.
 

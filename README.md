@@ -6,7 +6,7 @@ Betting tools: a web app on Render, and a Hub on a residential connection that r
 
 | Directory | Runs on | Built and deployed by | Updated when |
 |---|---|---|---|
-| `api/` + `frontend/` | Render, one Docker web service (`puntmore.com`) | `render.yaml`: `api/Dockerfile` builds the frontend into the API image | **every push to `main`** |
+| `render/api/` + `render/frontend/` | Render, one Docker web service (`puntmore.com`) | `render.yaml`: `render/api/Dockerfile` builds the frontend into the API image | **every push to `main`** |
 | `scraper/` | Hub, Docker container, real Chrome on Xvfb | `.github/workflows/scraper-image.yml` publishes to GHCR; the box's `update.sh` cron pulls `:latest` | push to `main` touching `scraper/` |
 | `hub/` | Hub, systemd user services | `hub/deploy/systemd/`; the box runs this checkout | `git pull` on the box |
 | `hub/puntmore_hub/placement/` | Hub, driving the sub-client phones | part of `hub/` | **placeholder**: the bet-placing bot. Bets in, results out. Contract in its README; only the dry-run adapter exists |
@@ -24,8 +24,8 @@ Only `main` deploys Render, so nothing is pushed to `main` directly: work on a b
 ## Running the tests
 
 ```
-cd api && .venv/bin/python -m pytest tests/ -q       # Render side
-cd frontend && npm run lint && npm test && npm run build
+cd render/api && .venv/bin/python -m pytest tests/ -q       # Render side
+cd render/frontend && npm run lint && npm test && npm run build
 python -m pytest scraper/tests -q                   # scraper (needs playwright + chromium)
 cd home && ~/.venvs/puntmore/bin/pytest -q          # Hub, including the protocol contract tests
 ```

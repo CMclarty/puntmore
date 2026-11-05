@@ -7,8 +7,8 @@ For the agent doing this build. Verified against the repo on 26 Oct 2026;
 nothing here is a guess. Worktree `/home/callum/bettingtools-api`, branch
 `api-modular` off `main` (d405531). **Every push to `main` is a production
 deploy** — the agent does NOT push; it commits and reports. Run
-`/home/callum/bettingtools/api/.venv/bin/python -m pytest -q` from `api/`
-(791 pass) and `cd frontend && npm run lint && npm run test && npm run build`
+`/home/callum/bettingtools/api/.venv/bin/python -m pytest -q` from `render/api/`
+(791 pass) and `cd render/frontend && npm run lint && npm run test && npm run build`
 before reporting. CLAUDE.md rules apply (build only what is asked; no
 unrequested UI).
 
@@ -24,7 +24,7 @@ every tool", and get one answer in one shape. Nothing here places bets.
 
 ## What exists today (verified)
 
-- FastAPI app `api/app/main.py` (`app = FastAPI(title="Puntmore API")`),
+- FastAPI app `render/api/app/main.py` (`app = FastAPI(title="Puntmore API")`),
   mounted under `/api` by `app/asgi.py` (`root = FastAPI(docs_url=None,
   redoc_url=None)`), which also serves the built frontend. 55 routes across
   `app/routers/` (accabonus 7, auth 3, aw26 7, aw26_ingest 4, cards 4,
@@ -120,8 +120,8 @@ path to `/api/v2/...`). CLAUDE.md entry.
 ## Constraints
 - No bet placing, no bookmaker account automation of any kind. Read, record,
   report.
-- Do not touch `api/app/cards/laddered.py`, `split.py`, `pricing/` maths, or
-  `frontend/src/pages/CardsPage.jsx`. The frontend keeps working unchanged
+- Do not touch `render/api/app/cards/laddered.py`, `split.py`, `pricing/` maths, or
+  `render/frontend/src/pages/CardsPage.jsx`. The frontend keeps working unchanged
   (same paths, same shapes — additive only).
 - Never log or echo a key. Keys hashed at rest.
 - Commit on `api-modular`; **never push**. Report: commits, test counts,

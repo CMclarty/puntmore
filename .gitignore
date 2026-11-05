@@ -4,16 +4,16 @@
 # Python
 __pycache__/
 *.pyc
-api/.venv/
+render/api/.venv/
 .pytest_cache/
 
 # Local dev database & uploads
-api/coupontracker.db
-api/uploads/
+render/api/coupontracker.db
+render/api/uploads/
 
 # Node / frontend build
-frontend/node_modules/
-frontend/dist/
+render/frontend/node_modules/
+render/frontend/dist/
 
 # Editor/OS noise
 .DS_Store
@@ -22,7 +22,7 @@ frontend/dist/
 .claude/settings.local.json
 
 # Frontend build copied into the API image at build time (Dockerfile stage)
-api/static/
+render/api/static/
 
 # 2-Up Hub runtime state (hub/README.md)
 hub/data/

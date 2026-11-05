@@ -21,7 +21,7 @@ What runs where (the full table is in `README.md`; keep the two in step):
 
 | Directory | Runs on | Deployed by | Updated when |
 |---|---|---|---|
-| `api/` + `frontend/` | Render, ONE Docker web service | `render.yaml`; `api/Dockerfile` builds the frontend into the API image, `app/asgi.py` serves both | **every push to `main`** |
+| `render/api/` + `render/frontend/` | Render, ONE Docker web service | `render.yaml`; `render/api/Dockerfile` builds the frontend into the API image, `app/asgi.py` serves both | **every push to `main`** |
 | `scraper/` | Hub, Docker | `scraper-image.yml` → GHCR; the box's `update.sh` cron | push to `main` touching `scraper/` |
 | `hub/` | Hub, systemd user services | `hub/deploy/systemd/` on a checkout | `git pull` on the box |
 | `hub/puntmore_hub/placement/` | Hub → sub-client phones | part of `hub/` | **placeholder**: the bet-placing bot (bets in, results out); contract in its README |
@@ -61,8 +61,8 @@ loads it through the directory's `CLAUDE.md`):
 
 | Directory | File | What it covers |
 |---|---|---|
-| `api/` | `api/AGENTS.md` | odds sources, pricing and OCR hard rules, the provider seams, API clients |
-| `frontend/` | `frontend/AGENTS.md` | UI rules (tools, build only what is asked), the acca maths |
+| `render/api/` | `render/api/AGENTS.md` | odds sources, pricing and OCR hard rules, the provider seams, API clients |
+| `render/frontend/` | `render/frontend/AGENTS.md` | UI rules (tools, build only what is asked), the acca maths |
 | `scraper/` | `scraper/AGENTS.md` | the Paddy / Bookie Bashing worker |
 | `hub/` | `hub/AGENTS.md` | the 2-Up Hub: link, placement, escalation, Bet Finder sources |
 
@@ -74,8 +74,8 @@ here and nowhere else, and change in the same pull request as the code.
 - NEVER commit secrets. All credentials (OddsPapi key, OCR key, Discord
   webhook, auth users + session key) live in `.env` only.
   `.env` is git-ignored; only `.env.example` is committed.
-- The API (`api/`, on Render) never places a bet and no bookmaker-account
-  automation is added to it (`api/AGENTS.md`, API clients). Placement and the
+- The API (`render/api/`, on Render) never places a bet and no bookmaker-account
+  automation is added to it (`render/api/AGENTS.md`, API clients). Placement and the
   engine that produces bet lists live on the Hub (`hub/`, decision 5 Nov 2026).
 - Every directory's own hard rules are in its `AGENTS.md`; they are not
   optional because they live in a different file.
@@ -92,7 +92,7 @@ here and nowhere else, and change in the same pull request as the code.
 
 ## Stack & deployment
 - Backend: FastAPI (Python), one app, routers namespaced per tool.
-- Frontend: one React (Vite) app. `api/Dockerfile` builds it and copies the
+- Frontend: one React (Vite) app. `render/api/Dockerfile` builds it and copies the
   static bundle into the API image; `app/asgi.py` serves the SPA at `/` and the
   API under `/api` — ONE origin (required: the session cookie is `same_site=lax`
   and the frontend calls relative `/api/...`). CSS modules + vars in `index.css`.
@@ -105,11 +105,11 @@ here and nowhere else, and change in the same pull request as the code.
 - Scheduler: APScheduler (in-process).
 
 ## Adding a new tool page
-1. Add the compute logic under `api/app/<tool>/` (and a client consumer of
+1. Add the compute logic under `render/api/app/<tool>/` (and a client consumer of
    `TheOddsApiClient` if it needs odds).
-2. Add a router under `api/app/routers/<tool>.py`; include it in `main.py`.
+2. Add a router under `render/api/app/routers/<tool>.py`; include it in `main.py`.
 3. Add a Pydantic response schema in `schemas.py`.
-4. Frontend: add a page under `frontend/src/pages/`, a route in `App.jsx`, and a
+4. Frontend: add a page under `render/frontend/src/pages/`, a route in `App.jsx`, and a
    tab in `components/NavTabs.jsx`. Reuse `DataTable.module.css` for tables.
 
 ## Fresh clone
@@ -119,10 +119,10 @@ Render Docker image all come up clean with NO credentials present.
 
 ```
 git clone git@github.com:CMclarty/puntmore.git && cd puntmore
-uv venv api/.venv
-uv pip install -r api/requirements.txt -r api/requirements-dev.txt \
-   --python api/.venv/bin/python3
-(cd frontend && npm install)
+uv venv render/api/.venv
+uv pip install -r render/api/requirements.txt -r render/api/requirements-dev.txt \
+   --python render/api/.venv/bin/python3
+(cd render/frontend && npm install)
 git config core.hooksPath .githooks     # gitleaks pre-commit (needs gitleaks on PATH)
 ```
 
@@ -135,24 +135,24 @@ catches the bugs unit tests cannot.
 
 ## Commands
 ```
-# Run tests (from api/):
+# Run tests (from render/api/):
 .venv/bin/python -m pytest tests/ -q
 
-# Run API locally (from api/):
+# Run API locally (from render/api/):
 .venv/bin/uvicorn app.main:app --reload
 
-# Run the frontend dev server (from frontend/):
+# Run the frontend dev server (from render/frontend/):
 npm run dev
 
 # Deploy: push to main — Render autoDeploys (no local stack).
 git push origin HEAD:main
 
-# Re-run the derived-market calibration backtest (from api/):
+# Re-run the derived-market calibration backtest (from render/api/):
 .venv/bin/python tools/backtest_calibration.py
 
-# Frontend unit tests (from frontend/) — vitest, currently the acca-insurance maths:
+# Frontend unit tests (from render/frontend/) — vitest, currently the acca-insurance maths:
 npm test
 
 # Install a new Python package into the venv (no pip in venv — use uv):
-uv pip install <package> --python api/.venv/bin/python3
+uv pip install <package> --python render/api/.venv/bin/python3
 ```

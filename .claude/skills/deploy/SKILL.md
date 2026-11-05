@@ -6,7 +6,7 @@ description: Ship Puntmore to production — push `main`, which Render auto-depl
 # Deploy Puntmore (production)
 
 There is **no deploy script and no local stack**. puntmore.com is ONE Render web
-service (`render.yaml`, `autoDeploy: true`): the API image (`api/Dockerfile`)
+service (`render.yaml`, `autoDeploy: true`): the API image (`render/api/Dockerfile`)
 builds the frontend into itself and serves it from the same origin. **Every push
 to `main` is a production deploy.** Render promotes the new build only once
 `healthCheckPath: /api/ready` returns 200, so a build that can't serve never

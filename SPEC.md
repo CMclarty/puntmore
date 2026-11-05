@@ -42,11 +42,11 @@ beats de-vigged Pinnacle. Same de-vig methodology as arbs, applied to
 `alternate_totals` lines. Filterable by minimum edge.
 
 ## 2. Architecture & stack
-- **Frontend**: a single React app (`frontend/`, Vite), built to static assets,
+- **Frontend**: a single React app (`render/frontend/`, Vite), built to static assets,
   served by its own nginx container. React Router serves all three tools as
   routes (`/`, `/accabonus`, `/cards`) plus `/upload` and `/login` (`/tennis`
   redirects to `/accabonus` — legacy path).
-- **Backend**: one FastAPI app (`api/`). Routers namespaced per tool. Python
+- **Backend**: one FastAPI app (`render/api/`). Routers namespaced per tool. Python
   chosen for mature image/HTTP + numerical tooling; with Claude/Gemini doing OCR
   the backend stays light (no Tesseract/OpenCV), and the derived-market grid fit
   uses numpy/scipy only.
@@ -63,7 +63,7 @@ beats de-vigged Pinnacle. Same de-vig methodology as arbs, applied to
 
 ```
 bettingtools/
-├── api/              ← shared FastAPI backend (all three tools)
+├── render/api/              ← shared FastAPI backend (all three tools)
 │   ├── app/
 │   │   ├── odds/         ← shared TheOddsApiClient (HTTP + cache) + devig util
 │   │   ├── providers/    ← OCRProvider + OddsProvider seams + impls
@@ -73,7 +73,7 @@ bettingtools/
 │   │   ├── cards/        ← cards client + value compute logic
 │   │   └── routers/      ← coupons, upload, accabonus, cards, auth, state
 │   └── tools/            ← backtest_calibration.py (re-runnable, committed)
-├── frontend/         ← single React app (all three tools)
+├── render/frontend/         ← single React app (all three tools)
 ├── nginx/            ← shared reverse proxy
 └── docker-compose.yml
 ```
