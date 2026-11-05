@@ -220,7 +220,7 @@ class Settings(BaseSettings):
     twoup_decision_minutes: int = 10
 
     # --- Bet Finder orchestrator (app/betfinder/) ----------------------------
-    # Turns the Hub's `tip` frames (hub_tips) into OWNER-ONLY 2-Up candidates.
+    # Turns the Hub's `tip` frames (the `tips` table) into OWNER-ONLY 2-Up candidates.
     # It never fetches anything (no IMAP, no tipster pages): tips arrive over
     # the Hub link, prices come from the 2-Up feed's cache. Off = no job and
     # `extra_candidates` returns nothing; the routes still read.

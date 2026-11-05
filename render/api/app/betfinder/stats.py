@@ -19,10 +19,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import BetFinderTip
+from ..models import Tip
 
 
-def _block(tips: list[BetFinderTip]) -> dict:
+def _block(tips: list[Tip]) -> dict:
     counted = [t for t in tips if t.outcome != "void" and t.staked]
     won = sum(1 for t in counted if t.outcome == "won")
     lost = sum(1 for t in counted if t.outcome == "lost")
@@ -42,13 +42,14 @@ def _block(tips: list[BetFinderTip]) -> dict:
 def source_stats(db: Session) -> dict[str, dict]:
     """{source: {"all": block, "rolling": block, "tips": {status: n}}}."""
     window = max(1, settings.betfinder_stats_window)
-    settled: dict[str, list[BetFinderTip]] = {}
-    for t in (db.query(BetFinderTip).filter(BetFinderTip.status == "settled")
-              .order_by(BetFinderTip.settled_at.desc(), BetFinderTip.id.desc()).all()):
+    settled: dict[str, list[Tip]] = {}
+    for t in (db.query(Tip).filter(Tip.status == "settled")
+              .order_by(Tip.settled_at.desc(), Tip.id.desc()).all()):
         settled.setdefault(t.source, []).append(t)
     counts: dict[str, dict[str, int]] = {}
-    for source, status, n in (db.query(BetFinderTip.source, BetFinderTip.status, func.count())
-                              .group_by(BetFinderTip.source, BetFinderTip.status).all()):
+    for source, status, n in (db.query(Tip.source, Tip.status, func.count())
+                              .filter(Tip.status.isnot(None))
+                              .group_by(Tip.source, Tip.status).all()):
         counts.setdefault(source, {})[status] = n
     out = {}
     for source in set(settled) | set(counts):

@@ -137,12 +137,8 @@ def cmd_link(a):
                                        "error": "scrapes run on the Worker's own schedule (scraper/targets.toml)"})
 
     def on_kill(env):
-        on = bool(env.body.get("on", True))
-        if on:
-            settings.kill_switch_file.write_text("set by Render\n")
-        else:
-            settings.kill_switch_file.unlink(missing_ok=True)
-        escalation.raise_escalation(st, "kill_switch", "render", f"kill switch set {'ON' if on else 'off'} by Render")
+        # ON only: Render never turns the file off (killswitch.from_render).
+        killswitch.from_render(st, env.body, settings)
 
     link.handlers.update({"bet_list": on_bet_list, "scrape_job": on_scrape_job, "kill_switch": on_kill})
 

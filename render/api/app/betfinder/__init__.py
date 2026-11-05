@@ -1,6 +1,6 @@
 """The Bet Finder orchestrator (docs/2up-engine-spec.md, "Bet Finder").
 
-Turns the tips a Hub sends (`hub_tips`) into OWNER-ONLY 2-Up candidates:
+Turns the tips a Hub sends (one `tips` row each, written by the Hub endpoint) into OWNER-ONLY 2-Up candidates:
 
 - `sources.py`   — the source registry (config as data, trust set by hand).
 - `pipeline.py`  — normalise, dedupe, match to an OddsPapi fixture from the

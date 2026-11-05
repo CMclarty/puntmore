@@ -12,8 +12,9 @@ from app.betfinder import candidates as bf_candidates
 from app.betfinder import pipeline, sources, stats
 from app.config import settings
 from app.database import Base, get_db
+from app.hub import service
 from app.main import app
-from app.models import BetFinderSource, BetFinderTip, HubTip, TwoUpBet
+from app.models import BetFinderSource, Tip, TwoUpBet
 from app.security import user_permissions
 from app.twoup import decision, ledger
 from app.twoup.feed import TwoUpFeed
@@ -63,9 +64,7 @@ def hub_tip(db, *, source="sharp", event="Arsenal v Chelsea", market="Match Resu
             "selection": selection, "advised_price": advised_price,
             "advised_stake_units": units, "tip_time": tt, "expiry": expiry,
             "origin": "tipster", "source_scope": "owner", "extra": {"trust_weight": 0.99}}
-    db.add(HubTip(tip_id=tid, client_id=client, source_id=source, event=event, market=market,
-                  selection=selection, advised_price=advised_price, tip_time=tt,
-                  body=json.dumps(body)))
+    service._on_tip(db, client, body)      # the endpoint's own write: the one `tips` row
     db.commit()
     return tid
 
@@ -82,8 +81,8 @@ def priced(db, feed=None, now=NOW):
     return pipeline.price_open(db, feed.candidates(now), now)
 
 
-def tip_row(db, tid) -> BetFinderTip:
-    return db.query(BetFinderTip).filter(BetFinderTip.tip_id == tid).one()
+def tip_row(db, tid) -> Tip:
+    return db.query(Tip).filter(Tip.tip_id == tid).one()
 
 
 # --- source registry ----------------------------------------------------------
@@ -219,7 +218,7 @@ def test_same_source_event_market_selection_and_day_is_one_tip(db):
     assert tip_row(db, other_source).status == "new"
     # Ingest is once per hub tip: a second pass adds nothing.
     assert pipeline.ingest(db, NOW)["new"] == 0
-    assert db.query(BetFinderTip).count() == 4
+    assert db.query(Tip).count() == 4
 
 
 def test_two_sources_on_one_selection_make_one_candidate_the_more_trusted(db):
@@ -403,8 +402,9 @@ def test_a_failed_bet_leaves_the_tip_not_placed_and_out_of_the_stats(db):
 def test_the_rolling_window_is_the_most_recent_settled_tips(db, monkeypatch):
     monkeypatch.setattr(settings, "betfinder_stats_window", 1)
     for i, (outcome, ret) in enumerate((("lost", 0.0), ("won", 10.0))):
-        db.add(BetFinderTip(
-            tip_id=f"s-{i:06d}", hub_client_id="owner", source="sharp", event_raw="a v b",
+        db.add(Tip(
+            tip_id=f"s-{i:06d}", client_id="owner", source_id="sharp", tip_time_raw="-",
+            body="{}", source="sharp", event_raw="a v b",
             market_raw="1x2", selection_raw="a", market="match_result", dedupe_key=f"k{i}",
             status="settled", outcome=outcome, staked=5.0, returned=ret, bet_ids="[]",
             settled_at=NOW + timedelta(hours=i)))
@@ -475,7 +475,7 @@ def test_the_pass_never_makes_a_request(db):
     feed.candidates(NOW)
     n = len(client.calls)
     pipeline.run_pass(db, feed, NOW)
-    assert len(client.calls) == n and db.query(BetFinderTip).one().status == "priced"
+    assert len(client.calls) == n and db.query(Tip).one().status == "priced"
 
 
 def test_the_2up_pass_reprices_open_tips_and_bets_the_owner_once(db):
