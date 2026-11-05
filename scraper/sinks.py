@@ -3,7 +3,8 @@
 A target names its sink by its `post` value:
   "/api/..."    POST {"prices": rows} to Render (PUNTMORE_URL) with the ingest key
   "hub:<chan>"  one JSON file per run into data/hub/tips/, for the Hub's
-                `puntmore inbox` (Bet Finder sources)
+                `puntmore inbox` (Bet Finder sources); each row carries its
+                `tip_id`, minted here (ids.py)
 
 Events for the Hub (a block, an unhealthy source) are drop files too, in
 data/hub/events/. Every drop is written atomically (temp file + rename), so
@@ -11,6 +12,8 @@ the Hub never reads half a file.
 """
 import json
 import re
+
+from .ids import with_tip_ids
 
 
 def _safe(s: str) -> str:
@@ -85,10 +88,13 @@ def _drop(data_dir, sub, name, body) -> bool:
 def deliver_to_hub(data_dir, target, rows, now) -> bool:
     """Hand a fetch target's rows to the Hub: one file per run, picked up by the
     Hub's link daemon (`puntmore inbox`) and sent to Render as tips. The channel
-    after `hub:` in the target's post (e.g. `hub:tips`) is passed through."""
+    after `hub:` in the target's post (e.g. `hub:tips`) is passed through.
+
+    Every row is written with its `tip_id` (ids.py): the tip's one id, minted
+    here, where it is first seen. The Hub stores and forwards it unchanged."""
     body = {"source": target.name, "at": now, "url": target.url,
             "channel": target.post.split(":", 1)[1] or "tips",
-            "trust_weight": target.trust_weight, "rows": rows}
+            "trust_weight": target.trust_weight, "rows": with_tip_ids(target.name, rows, now)}
     ok = _drop(data_dir, "tips", target.name, body)
     if ok:
         print(f"{target.name}: {len(rows)} row(s) handed to the Hub", flush=True)
