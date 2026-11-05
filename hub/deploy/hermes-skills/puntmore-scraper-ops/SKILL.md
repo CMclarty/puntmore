@@ -19,7 +19,7 @@ Read `docs/decisions.md` first; it wins over this runbook. One Chrome on the Hub
 1. `puntmore health` and `puntmore status` for the Scraper's view: which target, which state, the detail string.
 2. `journalctl --user -u puntmore-scraper -n 200` for the parser's own error (in the Docker fallback, `docker logs --tail 200 puntmore-scraper`), and `data/latest/<target>.json` for the last rows it produced.
 3. Classify:
-   - **blocked** (state `blocked`): cooling off or backing off. Note it in the target's comment in `targets.toml`, resolve the escalation with "blocked, cooling off until <time>", stop. If it repeats after the cool-off, set `enabled = false` and say so.
+   - **blocked** (state `blocked`): cooling off or backing off. Resolve the escalation with "blocked, cooling off until <time>", stop (`targets.toml` keeps no comments; the escalation is the record). If it repeats after the cool-off, `targets disable <target>` (see "Adding a Bet Finder source" for how to run it) and say so.
    - **layout change** (detail says "layout change?" or "parser failed"): go to step 4.
    - **parser not written**: the target is capturing only; samples are collecting under `data/samples/`.
 4. Get a dump of the page as the Scraper sees it: `python -m scraper dump <target>` writes `data/dumps/<target>-<time>/0.html` and a screenshot. Fix `scraper/parsers/<parser>.py` against that file, and add it to `scraper/tests/fixtures/<parser>/` with a test so the old pages still parse.
@@ -28,4 +28,9 @@ Read `docs/decisions.md` first; it wins over this runbook. One Chrome on the Hub
 7. Report one line to the chief of staff.
 
 ## Adding a Bet Finder source
-Add a `[[target]]` with `site = "generic"`, `parser`, `post = "hub:tips"`, `min_rows` and `enabled = false` to `data/targets.toml` (see `scraper/targets.example.toml`). Let it capture a sample, write the parser from the sample with a fixture test, then set `enabled = true`. Rows reach Render as candidate tips through the Hub's inbox. Trust is set on Render, not here: a new source arrives inactive at trust 0.5, and Callum sets its trust weight with `PATCH /api/2up/betfinder/sources/{name}` (a `trust_weight` in `targets.toml` is ignored by Render).
+Never edit `data/targets.toml` by hand: every change goes through the Scraper's targets CLI, which validates it and saves atomically. Run it from `~/Projects/puntmore` with `SCRAPER_DATA_DIR=/opt/puntmore-scraper/data PYTHONPATH=. ~/.venvs/puntmore/bin/python -m scraper targets ...` (shown below as `targets ...`). Add `--json` to read the result; a refused change exits 2 with the reason, which you report rather than work around.
+1. Add it disabled: `targets add --name <source> --site generic --url <url> --parser <parser> --post hub:tips --min-rows <n> --trust-weight 0.5 --every-min <minutes> --disabled`. A bookmaker host, or a frequency below the floor, is refused.
+2. Let it capture a sample, then write `scraper/parsers/<parser>.py` from the sample with a fixture test.
+3. `targets enable <source>`. The running Scraper picks it up within 60 s; `targets show <source> --json` shows its `status` once it has reported.
+4. To change it later: `targets set <source> --every-min 120` (any field; `none` clears an optional one). To stop it: `targets disable <source>`; to delete it: `targets remove <source>`.
+Rows reach Render as candidate tips through the Hub's inbox.

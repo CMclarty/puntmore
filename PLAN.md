@@ -448,6 +448,14 @@ The Hub side of the 2-Up Engine spec. (History: built on branch `home-box`, as
 - [ ] Phone placement adapter; IMAP tipster source; kick-off-window sweeps.
 - [x] Hub Console (branch `hub-console`): `puntmore web`, one page on the Hub with a live state per component (Scraper, Link, Placement, Escalations, Tips, Model, Hermes, Render) and the CLI's own actions (kill switch, resolve, inbox, link-check, heartbeat) behind `PUNTMORE_WEB_TOKEN`; unit `puntmore-web`, localhost by default.
 - [x] The Scraper on the Hub's desktop (branch `native-worker`, 5 Nov 2026): measured that day, Chrome 157 in the container reported NO WebGL (Xvfb, no GPU) and the container's fonts (its blank `deviceMemory` was partly `selfcheck` reading it on `about:blank`, where Chrome hides it; it now reads it on a secure page: 32 GB natively), while the same binary on the Hub's Wayland session reports `ANGLE (AMD, AMD Radeon 8060S Graphics (radeonsi strix_halo ACO), OpenGL ES 3.2)`. So the Scraper now runs there as the user service `puntmore-scraper` (`scraper/deploy/native/`), Chrome on its own defaults, restarted by `puntmore-update.timer` when `scraper/` changes; Docker is the no-screen fallback, and `selfcheck` prints the WebGL renderer. Rules unchanged: no stealth, one profile, budgets in code.
+- [ ] **A controllable Scraper.** [x] `scraper/targets.py` + `python -m scraper
+      targets list|show|add|set|enable|disable|remove [--json]` (branch
+      `scraper-targets`, 5 Nov): the only way `targets.toml` changes; validated
+      by `config._target`, atomic save under an flock, `summary()` joins
+      `status.json` for the console; new fields `priority` and `window`.
+      [ ] The runner honours `priority` and `window` (`TODO(runner)`), and
+      applies an `every_min`/`stale_min`-only change without closing the tab.
+      [ ] The Hub Console and Hermes's scraper-manager call it.
 - [ ] Two weeks of dry-run reports before `PUNTMORE_DRY_RUN=0`.
 Definition of Done: a bet list from Render reaches a phone in dry-run and its
 `placed` report shows in Render's ledger; a broken source is repaired by the

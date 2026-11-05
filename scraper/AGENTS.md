@@ -15,6 +15,10 @@ day-to-day commands are in `README.md`; the boundaries that still apply are in
   `min_rows` breaches and blocks go to `data/hub/events/`. The Hub's
   `puntmore inbox` reads both. Never let a generic target reach Paddy Power
   or Bookie Bashing; never add a second budget anywhere.
+- targets.toml is edited only through `scraper/targets.py` (the CLI, the
+  console, the scraper-manager); never by hand while the Scraper runs.
+  Validation stays in `config._target`; `targets.py` must not grow its own
+  copy of a clamp, host or site rule.
 - The rule below is moved from `CLAUDE.md` on 5 Nov 2026 (its first lines
   updated the same day for the move to the Hub's desktop).
 
