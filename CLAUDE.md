@@ -66,7 +66,9 @@ loads it through the directory's `CLAUDE.md`):
 | `scraper/` | `scraper/AGENTS.md` | the Paddy / Bookie Bashing worker |
 | `hub/` | `hub/AGENTS.md` | the 2-Up Hub: link, placement, escalation, Bet Finder sources |
 
-`PLAN.md` → **Decisions** is settled and applies everywhere.
+`PLAN.md` → **Decisions** is settled and applies everywhere. The architecture is
+`docs/architecture.md` and the 2-Up spec is `docs/2up-engine-spec.md`; both live
+here and nowhere else, and change in the same pull request as the code.
 
 ## Hard rules (do not violate)
 - NEVER commit secrets. All credentials (OddsPapi key, OCR key, Discord
