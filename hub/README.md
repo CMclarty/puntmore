@@ -22,8 +22,10 @@ puntmore_hub/
   placement/       engine.py (client engine) · adapters/{dry_run,phone}.py
   escalation.py    hands failures to Hermes with a self-contained brief; records the outcome
   alerts.py        Discord/log alerts with de-dup; daily heartbeat
+  update.py        self-update: fast-forward to origin/main, reinstall, restart (`puntmore update`)
   cli.py           `puntmore ...`
-deploy/systemd/    link daemon, 09:00 heartbeat timer
+deploy/update.sh   thin wrapper around `puntmore update`, run by the update timer
+deploy/systemd/    link daemon, 09:00 heartbeat timer, 10-minute update timer
 deploy/hermes-skills/  the Worker-ops runbook the scraper-manager agent follows
 data/              runtime state (git-ignored): hub.sqlite, KILL
 ```
@@ -41,7 +43,7 @@ puntmore init && pytest -q
 Services (user units, headful Chrome needs the desktop session):
 ```bash
 cp deploy/systemd/* ~/.config/systemd/user/ && systemctl --user daemon-reload
-systemctl --user enable --now puntmore-link puntmore-heartbeat.timer
+systemctl --user enable --now puntmore-link puntmore-heartbeat.timer puntmore-update.timer
 ```
 
 ## Everyday commands
@@ -55,8 +57,43 @@ puntmore tips                        candidate bets found
 puntmore heartbeat                   the daily summary, on demand
 puntmore link                        the Render link daemon (also runs the inbox)
 puntmore link-check <url> --key K    handshake with a Render build
+puntmore update [--dry-run|--check]  fast-forward to origin/main, reinstall, restart (deploy/update.sh)
 python -m scraper status|dump|resume the Worker's own commands, from scraper/
 ```
+
+## Updating the Hub
+A change merged to `main` reaches the box within 10 minutes. `puntmore-update.timer` runs `deploy/update.sh` (a wrapper around `puntmore update`, code in `puntmore_hub/update.py`) against the box's checkout, `~/Projects/puntmore`:
+
+1. `git fetch origin main`. If `origin/main` is not ahead of HEAD, nothing else happens.
+2. `git pull --ff-only origin main`. Never a merge, never a reset.
+3. `uv pip install -e 'hub[web]' --python ~/.venvs/puntmore/bin/python` (plain `hub` while there is no `web` extra; the venv's own pip if uv is not on PATH).
+4. `systemctl --user restart` each of `puntmore-link`, `puntmore-web` and `puntmore-heartbeat.timer` that exists and is enabled.
+
+Every run, including "up to date", appends one line to `data/update.log`: time, outcome, branch, the commit moved from and to. A failure is also alerted through `alerts.py` (Discord, de-duplicated per kind for `PUNTMORE_ALERT_DEDUP_HOURS`) and is never retried inside the run.
+
+**What blocks it** (logged; the ones marked *alert* also go to Discord):
+- **A bet in flight**: any bet in the store with status `received` or `placing`. Nothing is pulled or restarted; the next tick tries again. A bet stuck in flight for over 30 minutes is a crash, not a placement: *alert*, and it keeps blocking until a human settles that bet.
+- **A bet that arrives during the install**: the code is pulled and installed, the restart waits. `data/UPDATE_PENDING` holds the commit, so the next tick restarts even though the checkout is current. An install or restart failure leaves the same marker, so the next tick (not this run) tries once more.
+- **Not a fast-forward** (the checkout has commits that are not on `origin/main`): *alert*, left alone. The box's checkout belongs on `main`; a feature branch that was squash-merged diverges.
+- **Local edits to tracked files**, or a **detached HEAD**: *alert*, left alone.
+- **Another run** holding `data/update.lock`.
+
+It does not copy unit files. When a pull changes `hub/deploy/systemd/`, the run sends a warning naming the files; copy them to `~/.config/systemd/user/` and `systemctl --user daemon-reload` by hand.
+
+Enable it once, after the first pull that brings `puntmore update` onto the box (that one is by hand):
+```bash
+cp deploy/systemd/puntmore-update.* ~/.config/systemd/user/ && systemctl --user daemon-reload
+systemctl --user enable --now puntmore-update.timer
+```
+
+By hand, from the checkout:
+```bash
+hub/deploy/update.sh --check     # exit 0 up to date, 1 behind (2: could not reach origin)
+hub/deploy/update.sh --dry-run   # what it would do, including a bet it would wait for; changes nothing
+hub/deploy/update.sh             # update now
+tail hub/data/update.log
+```
+`git fetch` runs from a systemd user unit with no ssh-agent: the checkout's `origin` must be reachable without a prompt (https, or a key with no passphrase).
 
 ## Behaviour that is fixed by the spec
 - **Dry-run by default.** Placement logs what it would do and reports `placed` with `dry_run: true`.

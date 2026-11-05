@@ -23,7 +23,7 @@ What runs where (the full table is in `README.md`; keep the two in step):
 |---|---|---|---|
 | `render/api/` + `render/frontend/` | Render, ONE Docker web service | `render.yaml`; `render/api/Dockerfile` builds the frontend into the API image, `app/asgi.py` serves both | **every push to `main`** |
 | `scraper/` | Hub, Docker | `scraper-image.yml` → GHCR; the box's `update.sh` cron | push to `main` touching `scraper/` |
-| `hub/` | Hub, systemd user services | `hub/deploy/systemd/` on a checkout | `git pull` on the box |
+| `hub/` | Hub, systemd user services | `hub/deploy/systemd/` on a checkout | `puntmore-update.timer` pulls `main` every 10 min and restarts the services (`hub/deploy/update.sh`) |
 | `hub/puntmore_hub/placement/` | Hub → sub-client phones | part of `hub/` | **placeholder**: the bet-placing bot (bets in, results out); contract in its README |
 
 Nothing goes to `main` directly: branch, pull request, path-scoped workflows.

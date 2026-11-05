@@ -8,7 +8,7 @@ Betting tools: a web app on Render, and a Hub on a residential connection that r
 |---|---|---|---|
 | `render/api/` + `render/frontend/` | Render, one Docker web service (`puntmore.com`) | `render.yaml`: `render/api/Dockerfile` builds the frontend into the API image | **every push to `main`** |
 | `scraper/` | Hub, Docker container, real Chrome on Xvfb | `.github/workflows/scraper-image.yml` publishes to GHCR; the box's `update.sh` cron pulls `:latest` | push to `main` touching `scraper/` |
-| `hub/` | Hub, systemd user services | `hub/deploy/systemd/`; the box runs this checkout | `git pull` on the box |
+| `hub/` | Hub, systemd user services | `hub/deploy/systemd/`; the box runs this checkout | push to `main`: `puntmore-update.timer` fast-forwards the box within 10 min |
 | `hub/puntmore_hub/placement/` | Hub, driving the sub-client phones | part of `hub/` | **placeholder**: the bet-placing bot. Bets in, results out. Contract in its README; only the dry-run adapter exists |
 | `clients/python/` | any machine client | from the repo | on demand |
 | `local/` | one-off scripts on the Hub | by hand | — |
