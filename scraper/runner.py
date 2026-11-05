@@ -115,6 +115,8 @@ class Runner:
         self.next_fetch: dict[str, float] = {}
         self.health_said: dict[str, str] = {}
         self.sinks = Sinks(settings)
+        self.outside: set[str] = set()                 # targets now outside their window
+        self.wanting_since: dict[str, float] = {}      # target -> when it began wanting a load
 
     # --- site-wide state ----------------------------------------------------
     def _paused(self, site, now) -> str | None:
@@ -290,15 +292,18 @@ class Runner:
                 self._close_site(site)
 
         self._check_open(now)
-        # TODO(runner): honour Target.window and Target.priority here. They are
-        # stored and validated (config._target) and shown by `targets list`,
-        # but not acted on yet: a target outside its window should be treated
-        # like quiet hours (its tabs closed, not loaded), and when a site's
-        # hourly budget cannot cover every due target, loads should go to the
-        # highest priority first instead of file order.
+        live = []
         for t in self.targets:
             if self._paused(t.site, now):
                 continue
+            if not schedule.in_window(t.window, now):
+                self._outside_window(t)
+                continue
+            if t.name in self.outside:
+                self.outside.discard(t.name)
+                print(f"{t.name}: window open - running", flush=True)
+            live.append(t)
+        for t in schedule.order(live, self._wanting(live, now), lambda site: self._left(site, now)):
             if t.mode == "fetch":
                 self._tick_fetch(t, now)
             elif t.matches:
@@ -314,6 +319,65 @@ class Runner:
         self._requests()
         self._heartbeat(now)
         self._report(now)
+
+    # --- window and priority -------------------------------------------------
+    def _outside_window(self, t):
+        """Outside its window a target is treated like quiet hours: its tabs
+        close and nothing loads. A fetch target forgets its next run, so it
+        runs when the window opens."""
+        if t.name not in self.outside:
+            self.outside.add(t.name)
+            print(f"{t.name}: outside window {t.window} - paused", flush=True)
+        for key in [k for k, tab in self.tabs.items() if tab.target.name == t.name]:
+            self._close(key)
+        self.next_fetch.pop(t.name, None)
+        self.wanting_since.pop(t.name, None)
+
+    def _left(self, site, now) -> int:
+        """Loads the site has left: this hour's, or today's if fewer."""
+        h, d = self.guard.spent(site, now)
+        return max(0, min(SITES[site].per_hour - h, SITES[site].per_day - d))
+
+    def _wanting(self, targets, now) -> dict:
+        """name -> when the target began wanting a load, for schedule.order.
+        Worked out only for a site that could be contended (fewer loads left
+        than it has targets): elsewhere the order is file order anyway."""
+        tight = {site for site in {t.site for t in targets}
+                 if self._left(site, now) < sum(1 for t in targets if t.site == site)}
+        for t in targets:
+            if t.site not in tight or not self._wants(t, now):
+                self.wanting_since.pop(t.name, None)
+            else:
+                self.wanting_since.setdefault(t.name, self._due_since(t, now))
+        return {t.name: self.wanting_since[t.name] for t in targets if t.name in self.wanting_since}
+
+    def _wants(self, t, now) -> bool:
+        """Would this target load something if it were given the next slot?
+        Asks only what is already known: no page is read."""
+        if t.mode == "fetch":
+            due = self.next_fetch.get(t.name)
+            return due is None or now >= due
+        if not t.matches:
+            tab = self.tabs.get(t.name)
+            return tab is None or schedule.page_due(t, tab, now)
+        listing = self.tabs.get(f"{t.name}:list")
+        if listing is None or schedule.listing_due(t, listing, now):
+            return True
+        mine = [tab for k, tab in self.tabs.items() if k.startswith(t.name + ":m:")]
+        if any(schedule.stale(t, tab, now) or tab.worn(now) for tab in mine):
+            return True
+        # Room for another match tab: counted as a want, though the listing
+        # may turn out to have no new link.
+        return len(mine) < t.matches.max_tabs and now >= self.next_open.get(t.name, 0.0)
+
+    def _due_since(self, t, now) -> float:
+        """When a wanted load fell due: the drawn reload time when there is
+        one, else now (the target is first seen wanting it now)."""
+        if t.mode == "fetch":
+            return min(self.next_fetch.get(t.name, now), now)
+        tab = self.tabs.get(f"{t.name}:list" if t.matches else t.name)
+        due = getattr(tab, "due_at", None)
+        return min(due, now) if due is not None else now
 
     # --- targets.toml, re-read when it changes ------------------------------------
     def _mtime(self):
@@ -579,6 +643,8 @@ class Runner:
                 state, detail = "blocked", why
             elif why:
                 state, detail = "paused", why
+            elif not schedule.in_window(t.window, now):
+                state, detail = "paused", "outside window"
             else:
                 mine = [tab for tab in self.tabs.values() if tab.target.name == t.name]
                 n = len(mine)

@@ -100,10 +100,9 @@ python -m scraper targets remove racing-tips
 - The running Scraper picks a change up within 60 s (its re-read of the
   file). A changed target has its tabs closed and reopened on the next tick,
   whatever the field: today even an `every_min` change costs a fresh load.
-- `priority` (whole number, default 0; higher wins a site's contended hourly
-  budget) and `window` (`"HH:MM-HH:MM"` local time, may wrap midnight; the
-  target is not loaded outside it) are stored, validated and shown, but the
-  runner does not act on them yet (`TODO(runner)` in `runner.py`).
+- `priority` (higher goes first when a site's hourly budget is short) and
+  `window` (`"HH:MM-HH:MM"` local time; outside it the target's tabs close)
+  are acted on by the runner (`schedule.py`).
 
 ## Running on the Hub's desktop (the default)
 Since 5 Nov 2026 the Scraper runs on the Hub's real desktop session, so the
