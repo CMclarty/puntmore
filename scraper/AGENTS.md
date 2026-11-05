@@ -1,10 +1,10 @@
-# scraper/ — rules for the Worker
+# scraper/ — rules for the Scraper
 
-The repo's `CLAUDE.md` applies everywhere and wins on any conflict. Setup and
+`docs/decisions.md` is read first and wins; the repo's `CLAUDE.md` applies everywhere and wins on any other conflict. Setup and
 day-to-day commands are in `README.md`; the boundaries that still apply are in
-`HANDOVER.md`. The Worker is the ONLY thing on the Hub that loads a page.
+`HANDOVER.md`. The Scraper is the ONLY thing on the Hub that loads a page.
 
-- **Bet Finder sources are Worker targets** (5 Nov 2026, Callum: one Chrome,
+- **Bet Finder sources are Scraper targets** (5 Nov 2026, Callum: one Chrome,
   one budget, one alert path). `site = "generic"` may name any host except the
   two bookmakers; its budget is in `sites.py` (60/h, 400/day, no quiet hours,
   a block = 24 h cool-off + `resume generic`). A generic target is `fetch`
@@ -26,10 +26,10 @@ day-to-day commands are in `README.md`; the boundaries that still apply are in
   the first load most targets cost no requests. WHAT it reads is config, and
   the config is ONE file: **`targets.toml` on the Hub** (`data/targets.toml`,
   or the file `SCRAPER_TARGETS` names), edited by Hermes — nothing on Render
-  configures the Worker (decision 5 Nov 2026; Puntmore's `/scraper` page and
+  configures the Scraper (decision 5 Nov 2026; Puntmore's `/scraper` page and
   its config and status routes are gone). A target is a page, or a
   competition listing whose match links are opened (in-page tabs, parser,
-  ingest path). The Worker checks the file once a minute and applies an edit
+  ingest path). The Scraper checks the file once a minute and applies an edit
   without a restart; a file that will not load is reported and the running
   targets are kept. It writes its state to `data/status.json` once a minute,
   which the Hub reads; the only thing it sends Render is the prices it posts.
@@ -48,5 +48,7 @@ day-to-day commands are in `README.md`; the boundaries that still apply are in
   across sites (`sites.py load_gap_s`); jitter is drawn once per load. Parsers
   (`scraper/parsers/`, one module each) are written only from what the real
   pages were seen to do: `bb_saves` drives the Bookie Bashing bet builder
-  (above); `pp_most` is unwritten (Oct 2026 — no priced most market in the
-  samples yet).
+  (above; **OPEN, Callum to decide** in `docs/decisions.md` whether this one
+  BB target stays as the named exception to "BB is never automated" or is
+  disabled); `pp_most` reads Paddy's most-corners / most-cards three-ways
+  (written from the 29 Oct 2026 capture).

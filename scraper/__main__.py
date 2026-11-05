@@ -2,7 +2,7 @@
 
   run              The service: one Chrome, every target kept open. Targets are
                    data/targets.toml on the Hub; an edit applies without a
-                   restart. This is what the container runs.
+                   restart. This is what the service runs.
   status           Budget spent, cool-offs, each target's state, heartbeat age.
   resume <site>    End a cool-off early-ish: it still needs its hours to pass.
   dump <target>    Ask the RUNNING service to save that target's open page(s)

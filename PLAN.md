@@ -1,6 +1,7 @@
 # Puntmore — Plan
 
-Current work is in **Open work** below. **Decisions** are settled — don't
+Read `docs/decisions.md` first: it is the decisions register and wins over
+this file. Current work is in **Open work** below. **Decisions** are settled — don't
 re-litigate them. **History** is a record of completed phases, kept because the
 reasoning behind some of them is expensive to reconstruct.
 
@@ -14,6 +15,8 @@ reasoning behind some of them is expensive to reconstruct.
 ---
 
 ## Current status (July 2026)
+
+> History (superseded 5 Nov 2026; `docs/decisions.md` is the current state):
 
 Only the **coupon tracker** is surfaced. AccaBonus and Cards/Corners are gated
 off (`ENABLE_ACCABONUS` / `ENABLE_CARDS`, default False) — hidden, not removed.
@@ -32,22 +35,21 @@ stays provisional until the calibration backtest (item 3) measures it.
 
 ### Where things run (5 Nov 2026, Callum's call)
 - **Bet finding, pricing and decision live on Render.** The 365 tool (acca
-  boost + goalscorers + the 2-Up engine, ONE tool) and the Bet Finder
+  boost + the 2-Up engine, + goalscorers when unparked, ONE tool) and the Bet Finder
   orchestrator are Render code beside the ledger. The Hub does only what
   needs a residential IP, the phones or the GPU: bookmaker pages, placement,
   Hermes and the local model. The model is never in the pricing path.
 - **OddsPapi is the only odds source.** The coupon tracker already runs on
-  it and bettingiscool is gone; the remaining TheOddsApi code is deleted in
-  item 11. No new code against any other odds API.
+  it and bettingiscool is gone; the remaining TheOddsApi code was deleted in
+  item 11 (5 Nov 2026). No new code against any other odds API.
 - **Hermes owns the Hub.** The scraper's config lives on the Hub; the
   `/scraper` control page on Render is removed (item 11).
 
 ### Product
-- **Coupon tracker is the only visible tool.** AccaBonus + Cards stay in the
-  tree, gated behind config flags. Re-enabling = flip both flags, restore the
-  nav tabs/routes, rebuild.
-- **Keep the 3-tool suite as the architecture.** The tools are dormant, not
-  dropped.
+- History (superseded 5 Nov 2026 by `docs/decisions.md`: one Render service,
+  three subdomains, 365 one tool, the acca boost package removed): "Coupon
+  tracker is the only visible tool; AccaBonus + Cards gated behind flags; keep
+  the 3-tool suite as the architecture."
 - **Keep the coupons/legs model.** Do NOT reintroduce sets/versions/matches or
   the Mon–Wed/Sat/Sun set navigation.
 - **Syndicate model**: 4 members, shared data, all equal. No roles, no per-user
@@ -79,8 +81,8 @@ stays provisional until the calibration backtest (item 3) measures it.
   moment the next one landed. Opening a type resolves to its most recent window
   (the coupon just photographed); `/t/<code>/all` spans every issue and is
   reached from the tab row.
-- **OCR is auto-confirm** — rows auto-save and price immediately with per-row
-  anomaly flags and inline editing. *(Supersedes the v2-era rule that OCR always
+- **OCR is auto-confirm** — rows auto-save and price immediately with inline
+  editing (the per-row anomaly flags were removed in July 2026). *(Supersedes the v2-era rule that OCR always
   passes through a blocking manual-correction step.)*
 
 ### Pricing
@@ -95,7 +97,7 @@ stays provisional until the calibration backtest (item 3) measures it.
   as fair is worse than no price.
 - **Win-and-Over must be DERIVED** from a calibrated score grid. NEVER price it
   as moneyline × over — result and total goals are correlated, so the product
-  overstates fair odds. (Currently still approximated; see open item 1.)
+  overstates fair odds.
 - **Derived-market thresholds come from MEASURED backtest calibration**, not
   assumption. Until measured: provisional 8% with the uncertainty band shown.
 
@@ -103,7 +105,7 @@ stays provisional until the calibration backtest (item 3) measures it.
 - **OddsPapi is the only odds source** (5 Nov 2026, Callum's call; supersedes
   everything below this line that named TheOddsApi or bettingiscool). Coupons
   price on `OddsPapiCouponProvider`; Paddy on `cards/oddspapi.py`. The leftover
-  TheOddsApi code goes in item 11. Backend-only — never surface a provider
+  TheOddsApi code was deleted in item 11. Backend-only — never surface a provider
   picker in the UI.
 - **OddsPapi bills per request, not per response** (its docs, Oct 2026); the
   fixture list is billable. Budget and refresh tiers are in `render/api/AGENTS.md`.
@@ -141,7 +143,8 @@ Retires the last naive-independence path in pricing.
       band's number comes from the backtest, and shipping a provisional ±band
       as if it were measured is the kind of false precision the 8% threshold
       rule exists to prevent.
-- **Scope note:** TheOddsApi exposes no team totals, so the fit uses 1X2 + the
+- **Scope note** (History, written for TheOddsApi, removed 5 Nov 2026):
+  TheOddsApi exposed no team totals, so the fit used 1X2 + the
   single totals line — 3 constraints for 2 parameters. Identifiable, but the
   dependence parameter is less well pinned than team totals would allow. A
   fuller ladder via `alternate_totals` adds a third market (2 → 3 credits per
@@ -193,6 +196,9 @@ invalidated several assumptions at once.
 ### 2a. Price the seven coupon types  *(market definitions in SPEC §3, §8.5, §8.6)*
 Ordered so the shared prerequisite lands first.
 
+> History (superseded 5 Nov 2026: bettingiscool and TheOddsApi are both gone,
+> OddsPapi is the only source). The `/api/ready` advice still holds.
+>
 > **Aug 2026 — read this before debugging "nothing prices".** These markets all
 > price on **bettingiscool** and NONE of them price on the TheOddsApi fallback,
 > which the app drops to silently when `BETTINGISCOOL_API_KEY` is unset. A TTS
@@ -283,7 +289,6 @@ it — the rectangle was intact and every price was a real price.
       after the marker ("U19 Championship" → "u19championship").
 - [x] 20 tests incl. delays, a -9h/+9h morning skew, the two-"England vs
       Spain" case, and a timing guard. 628 pass. Pass time ~5x faster.
-- Not ported to the fallback `TheOddsApiProvider` (not live).
 - **Still to see live**: the `refused_youth` / `refused_day` counts on a real
   pass, and whether any real board league slips the youth patterns.
 
@@ -301,7 +306,8 @@ it — the rectangle was intact and every price was a real price.
 - [ ] Staleness banner: prices older than 2× the refresh interval show a
       last-updated banner.
 - [ ] Full verification: pytest green, `npm run build` clean, responsive
-      390/768px, `docker compose up --build -d` + live smoke test.
+      390/768px, a Render deploy (merge to `main`) gated on `/api/ready` +
+      live smoke test.
 
 ### 5. PWA polish & offline  *(was Phase R6 — the only unfinished v3 phase)*
 - [ ] Live status `● LIVE · HH:MM`; stale/offline indicator when the service
@@ -310,27 +316,20 @@ it — the rectangle was intact and every price was a real price.
 - [ ] Lighthouse PWA pass.
 
 ### 6. bettingiscool provider — DONE
+> History (superseded 5 Nov 2026: bettingiscool is gone; OddsPapi is the only
+> odds source, `COUPON_ODDS_SOURCE=oddspapi`).
+
 Landed July 2026 and is now the live coupon odds source (`COUPON_ODDS_SOURCE`
 defaults to `bettingiscool`); it feeds the score grid in item 1.
 - [x] `providers/bettingiscool.py` + the `main.py` branch. No caller changes —
       the seam absorbed it as designed.
 - **Known risk (accepted):** one-person vendor. The seam is the mitigation.
 
-### 7. If Cards/Corners is ever re-enabled, it needs rebuilding
-Not scheduled — the tool is gated off (`ENABLE_CARDS=False`) and nothing
-depends on it. Logged so the breakage isn't rediscovered by surprise.
-
-`cards/client.py` requests `alternate_totals` from TheOddsApi's **bulk**
-endpoint. That endpoint serves featured markets only and rejects the request
-with `INVALID_MARKET`, so the tool has never returned a row — and
-`alternate_totals` is *goal* totals anyway, not cards or corners. Real corners
-and cards markets exist (`alternate_totals_corners`, `alternate_totals_cards`)
-but only on the **per-event** endpoint, at `events × markets × regions` credits
-per sweep, and Paddy Power did not price them on any fixture sampled.
-
-Full evidence, including the caveats on that sampling, is in
-`docs/provider-verification.md` — read it before spending credits re-deriving
-this.
+### 7. (Deleted 5 Nov 2026)
+Was "if Cards/Corners is ever re-enabled, it needs rebuilding" against
+TheOddsApi's `cards/client.py`. The tool is Paddy on OddsPapi now and that
+client is gone; the evidence is still in `docs/provider-verification.md`
+(history).
 
 ### 8. Bring back the P&L battle skin
 Removed in August 2026 (Callum's call) to keep attention on finishing the
@@ -422,7 +421,8 @@ scraping Bookie Bashing's Group Tracker daily. Results from OddsPapi if it
 covers them, else the web. A refund is worth 0.75 of the stake. Daily update
 to Discord, just Callum for now.
 
-**Built:** everything above, plus `local/bookiebashing_tracker.py`.
+**Built:** everything above, plus `local/bookiebashing_tracker.py` (now only on
+the `archive/aw26` branch, with the rest of AW 26).
 **Waiting on real pages, deliberately not guessed:**
 - [ ] `parse_page` in the tracker script — needs `dump` of the Group Tracker.
 - [ ] Automatic results — needs `/api/aw26/results-check?fixture=<id>` on a
@@ -433,18 +433,20 @@ to Discord, just Callum for now.
 ---
 
 ### 10. 2-Up Hub (`hub/`) — SCAFFOLD LANDED (Nov 2026)
-The Hub side of the 2-Up Engine spec. Branch `home-box`.
+The Hub side of the 2-Up Engine spec. (History: built on branch `home-box`, as
+`home/`; now `hub/` on `main`.)
 - [x] Package: Render link (durable outbox, idempotent inbound), client engine
       (dry-run, phone adapter stub), escalation to the local AI, Bet Finder
-      sources (YAML + parser + fixture), CLI, systemd units, tests.
+      sources (YAML + parser + fixture; folded into the Scraper 5 Nov 2026,
+      below), CLI, systemd units, tests.
 - [x] Wire contract: `hub/PROTOCOL.md`, JSON Schema, examples, contract tests,
       a mock Render for integration tests, `puntmore link-check`.
-- [ ] Render end of the protocol in `render/api/` (WebSocket endpoint, per-client keys,
-      bet lists out, reports in) — the other side of `hub/PROTOCOL.md`.
-- [x] Fold the Bet Finder's sources into the Worker (branch `fold-worker`, 5 Nov): a `generic` site kind under `scraper/guard.py`, fetch-mode targets, tips and events dropped as files for `hub/`'s inbox; `hub/` no longer has a browser, budget or parsers.
+- [x] Render end of the protocol in `render/api/` (WebSocket endpoint, per-client keys,
+      bet lists out, reports in) — landed Nov 2026, branch `hub-endpoint` (item 11).
+- [x] Fold the Bet Finder's sources into the Scraper (branch `fold-worker`, 5 Nov): a `generic` site kind under `scraper/guard.py`, fetch-mode targets, tips and events dropped as files for `hub/`'s inbox; `hub/` no longer has a browser, budget or parsers.
 - [x] Self-update (branch `hub-update`): `puntmore-update.timer` every 10 min runs `hub/deploy/update.sh` (`puntmore update`): fast-forward to `origin/main`, reinstall, restart the enabled units; waits while a bet is `received`/`placing`; logs to `hub/data/update.log`, alerts on failure.
 - [ ] Phone placement adapter; IMAP tipster source; kick-off-window sweeps.
-- [x] Hub Console (branch `hub-console`): `puntmore web`, one page on the Hub with a live state per component (Worker, Link, Placement, Escalations, Tips, Model, Hermes, Render) and the CLI's own actions (kill switch, resolve, inbox, link-check, heartbeat) behind `PUNTMORE_WEB_TOKEN`; unit `puntmore-web`, localhost by default.
+- [x] Hub Console (branch `hub-console`): `puntmore web`, one page on the Hub with a live state per component (Scraper, Link, Placement, Escalations, Tips, Model, Hermes, Render) and the CLI's own actions (kill switch, resolve, inbox, link-check, heartbeat) behind `PUNTMORE_WEB_TOKEN`; unit `puntmore-web`, localhost by default.
 - [ ] Two weeks of dry-run reports before `PUNTMORE_DRY_RUN=0`.
 Definition of Done: a bet list from Render reaches a phone in dry-run and its
 `placed` report shows in Render's ledger; a broken source is repaired by the
@@ -465,20 +467,22 @@ and `/state`. AccaBonus is not live (`enable_accabonus` False).
       Callum's call). `odds/client.py` and its key are gone; `goalscorers/`
       stays in the tree behind `ENABLE_GOALSCORERS=false` with no client.
 - [ ] **Merge 365 and 2-Up into one tool**: one router, one page with tabs,
-      one grant; the 2-Up engine arrives as the third tab when built.
-      Goalscorers moves onto OddsPapi as part of this.
+      one grant; the 2-Up engine (landed, below) arrives as a tab.
+      Goalscorers is parked and returns on OddsPapi only after the open work
+      (Parked, below).
       **The 2-up edge is proven** (Callum, 5 Nov 2026) — do not re-litigate
       it or gate the build on a literature review. The rescue model is
       fine-tuned during testing against Bookie Bashing's 2-up tracker.
       That tuning is a MANUAL, user-triggered comparison: BB's terms ban
       automated access (`render/api/AGENTS.md`, BookieBashing constraint), so the
-      tracker is never scraped by the engine or the Worker.
+      tracker is never scraped by the engine or the Scraper
+      (`docs/decisions.md`; the Scraper's one BB target, `bb-saves`, is an
+      open item there).
 - [x] **Render end of the Hub link landed** (Nov 2026, branch `hub-endpoint`):
       `/api/2up/ws` per `hub/PROTOCOL.md` v1 — key auth on the handshake
       (`hub` grant), acks/replay on `hub_inbox_seen`, schema-validated frames,
       tips/escalations stored, bet lists dispatched from the 2-Up engine and
-      marked sent only on ack (`render/api/AGENTS.md`, "Hub endpoint"). Runs on
-      engine stubs until `twoup-engine` lands `app/twoup/ledger.py`.
+      marked sent only on ack (`render/api/AGENTS.md`, "Hub endpoint").
 
       **Landed (branch `twoup-engine`, Nov 2026): the 2-Up engine backend.**
       `render/api/app/twoup/` — model (power de-vig, rescue table
@@ -490,24 +494,25 @@ and `/state`. AccaBonus is not live (`enable_accabonus` False).
       `accabonus` grant, a `2up` source in `/api/value`, `twoup_detail` in
       `/api/ready`, and `tools/twoup_backtest.py` for the manual BB
       comparison. Dry-run on for every client. Still open: the 2-Up tab on
-      the 365 page, doubles/trebles and cover bets, the Hub endpoint that
-      sends `pending_bet_lists`, Bet Finder candidates
-      (`decision.extra_candidates`), and the first real rescue-table tune.
+      the 365 page, doubles/trebles and cover bets, how a Bet Finder tip is
+      staked (OPEN in `docs/decisions.md`, Callum's call), and the first real
+      rescue-table tune. (The Hub endpoint and the Bet Finder candidates have
+      landed.)
 - [x] **Bet Finder orchestrator** (branch `betfinder`, Nov 2026): `render/api/app/betfinder/` fills `decision.extra_candidates` from `hub_tips` — Match Result tips matched and priced off the 2-Up feed, everything else quarantined, owner-only, sources as data with hand-set trust, per-source strike rate / ROI off the ledger (`render/api/AGENTS.md`, "Bet Finder"); IMAP is a seam only.
-- [x] **Remove the `/scraper` control page** and its routes; the worker reads
+- [x] **Remove the `/scraper` control page** and its routes; the Scraper reads
       `targets.toml` on the Hub, edited by Hermes. Done 5 Nov 2026: the page,
       its nav tab, `/api/scraper*`, the `scraper` grant and the
       `scraper_*` models are gone (the tables stay on the disk until
-      dropped); the Worker no longer fetches config or posts status (branch
+      dropped); the Scraper no longer fetches config or posts status (branch
       `rm-scraper-fetch`).
 Definition of Done: `grep -ri "theoddsapi\|bettingiscool\|odds_api_key" render/api/`
-is empty, the coupon feed is unchanged, and the worker runs a day from local
+is empty, the coupon feed is unchanged, and the Scraper runs a day from local
 config.
 
 ## Parked (after the open work is done)
 
 ### Goalscorers on OddsPapi
-Parked 5 Nov 2026. The first/anytime-goalscorer finder (`api/app/goalscorers/`,
+Parked 5 Nov 2026. The first/anytime-goalscorer finder (`render/api/app/goalscorers/`,
 page `/365/scorers`, `goalscorers` grant) read a vendor that is now removed;
 OddsPapi is the only odds source. Code and tests stay (the tests use a stub
 client). To revive, and only via OddsPapi: confirm its catalogue carries a

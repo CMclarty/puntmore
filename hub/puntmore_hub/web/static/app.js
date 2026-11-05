@@ -4,12 +4,12 @@
 "use strict";
 
 const COMPONENTS = [
-  ["worker", "Worker"], ["link", "Link"], ["placement", "Placement"], ["escalations", "Escalations"],
+  ["scraper", "Scraper"], ["link", "Link"], ["placement", "Placement"], ["escalations", "Escalations"],
   ["tips", "Tips"], ["model", "Model"], ["hermes", "Hermes"], ["render", "Render"],
 ];
 const POLL_MS = 5000;
 const STALE_MS = 20000;
-// A Worker target's own state (scraper/runner.py `status`) -> the colour it gets.
+// A Scraper target's own state (scraper/runner.py `status`) -> the colour it gets.
 const TARGET_STATE = { running: "up", paused: "warn", blocked: "down", retired: "off" };
 
 const feeds = {};          // name -> {lastOk: ms, data, skew: server now - client now (ms)}
@@ -175,7 +175,7 @@ function select(name) {
 
 // ---- tabs ---------------------------------------------------------------------------------------
 const RENDER = {
-  worker(sec, d, skew) {
+  scraper(sec, d, skew) {
     fill(sec, "summary", kv([
       ["state", stateTag(d.state)], ["detail", d.detail],
       ["heartbeat", d.heartbeat_age_s === null || d.heartbeat_age_s === undefined ? "no heartbeat file" : d.heartbeat_age_s + "s ago"],
@@ -303,7 +303,7 @@ async function showLatest(target) {
   meta.textContent = "loading…";
   rowsBox.replaceChildren();
   try {
-    const d = await getJSON("/api/worker/latest/" + encodeURIComponent(target));
+    const d = await getJSON("/api/scraper/latest/" + encodeURIComponent(target));
     meta.textContent = `${d.count} row(s), parsed ${d.at || "?"}${d.truncated ? " (first 500 shown)" : ""} from ${d.url || "?"}`;
     const keys = [];
     for (const r of d.rows) if (r && typeof r === "object") for (const k of Object.keys(r)) if (!keys.includes(k) && keys.length < 30) keys.push(k);
@@ -372,10 +372,10 @@ function wireActions() {
 document.addEventListener("DOMContentLoaded", () => {
   buildStrip();
   wireActions();
-  let first = "worker";
+  let first = "scraper";
   try { first = localStorage.getItem("puntmoreTab") || first; } catch (e) { /* */ }
   if (location.hash.length > 1) first = location.hash.slice(1);     // #escalations etc., for a bookmark
-  if (!COMPONENTS.some(([n]) => n === first)) first = "worker";
+  if (!COMPONENTS.some(([n]) => n === first)) first = "scraper";
   select(first);
   pollOverview();
   setInterval(pollOverview, POLL_MS);

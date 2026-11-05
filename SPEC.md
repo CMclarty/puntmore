@@ -1,5 +1,14 @@
 # Puntmore — Build Specification
 
+> **History (superseded 5 Nov 2026).** This is the pre-November design of the
+> web app: three tools behind nginx/Caddy and docker-compose, bettingiscool and
+> TheOddsApi, the AccaBonus feed, `lab.puntmore.com`, the anomaly badge, the
+> Coupon/AccaBonus/C/C bottom tabs and the v4 realignment. It is kept for the
+> reasoning (the pricing maths in §8 still applies) and is **not instruction**.
+> What is true now is `docs/decisions.md` (read first) and
+> `docs/architecture.md`; where this file disagrees with them, this file is
+> stale. Paths and file names below may no longer exist.
+
 A self-hosted suite of three betting tools sharing one FastAPI backend and one
 React frontend. Single household/syndicate (≤4 trusted users), not a SaaS —
 keep it simple.
@@ -399,9 +408,10 @@ move if the §8.4 backtest recalibrates the grid. Treat 1.80 as a selection
 filter, not a value claim — nothing here asserts an edge over a bookmaker.
 
 ### 8.6 Resolving the picked team (prerequisite for all seven)
-Every coupon type above is team-specific, but the pick matcher currently reads
-only `win` / `over N` / `under N` and resolves no team at all. Consequences to
-fix together, not piecemeal:
+**Done Aug 2026** (`app/picks.py`: the side comes from the pick's team
+fragment; unresolved ⇒ unpriced). What it fixed: every coupon type above is
+team-specific, but the pick matcher then read only `win` / `over N` /
+`under N` and resolved no team at all. Consequences, fixed together:
 
 - Moneyline takes outcome index 1 (home) unconditionally, and
   `p_win_and_over(..., home=True)` is hardcoded — so an **away**-team

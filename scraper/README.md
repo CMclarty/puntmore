@@ -3,7 +3,9 @@
 One real Chrome on a Linux server, keeping a few Paddy Power and Bookie Bashing
 pages **open** and listening to what they receive. After the first load the
 site's own scripts keep each page fresh, so most targets cost no further
-requests. Runs unattended in Docker and updates itself from GHCR.
+requests. This is the Scraper: by default the user service `puntmore-scraper`
+on the Hub's desktop session, real Chrome on the real display, updated by
+`puntmore-update.timer`; Docker (below) is the fallback for a box with no screen.
 
 **What it reads is `data/targets.toml` on the Hub**, edited by Hermes; an
 edit applies without a restart. Its state goes to `data/status.json`, which
@@ -13,13 +15,15 @@ prices it posts. Any Linux box with Docker can run it.
 The parsers (`parsers/`, one module each) are written only from what the real
 pages were seen to do. `bb_saves` DRIVES Bookie Bashing's Bet Builder (select
 the game, type each line, read "Total Odds" — see its docstring; needs the
-box's Chrome logged in over VNC). `pp_most` is unwritten: see its docstring
-for what the samples hold.
+box's Chrome logged in by a person; over VNC in the Docker fallback).
+`pp_most` reads Paddy's most-corners / most-cards three-ways (written from
+the 29 Oct 2026 capture; see its docstring).
 
 ## What it will and won't do
-- Opens pages only on `paddypower.com` and `bookiebashing.net`, within fixed
-  budgets (`sites.py`): Paddy 15 loads/h and 120/day, Bookie Bashing 8/h and
-  120/day. Nothing in config can raise them.
+- Opens pages on `paddypower.com`, `bookiebashing.net` (one target, an open
+  item in `docs/decisions.md`) and the Bet Finder's `generic` sources, within
+  fixed budgets (`sites.py`): Paddy 15 loads/h and 120/day, Bookie Bashing 8/h
+  and 120/day, generic 60/h and 400/day. Nothing in config can raise them.
 - No Paddy traffic between 01:00 and 07:00 (Europe/London). Its pages are
   closed for those hours.
 - Paddy 403/429 or Cloudflare check → every Paddy page closes and a 24 h
@@ -41,8 +45,9 @@ for what the samples hold.
   1920x1080 screen) and started as a person's Chrome, not a test run
   (Playwright's `--enable-automation` is not passed); `selfcheck` shows
   exactly what a site sees.
-- **A datacentre IP is more likely to be challenged than a home one.** If Paddy
-  challenges this server, the scraper stops and tells you. It does not work
+- **It runs on the Hub's residential connection**, which is less likely to be
+  challenged than a datacentre IP. If Paddy challenges it anyway, the
+  scraper stops and tells you. It does not work
   around the challenge.
 
 ## Bet Finder sources
@@ -71,8 +76,9 @@ echo "$GHCR_PAT" | docker login ghcr.io -u cmclarty --password-stdin
 ```
 
 **Updates:** push to `main` with changes under `scraper/`. CI runs the
-tests and publishes the image, and within 15 minutes the server's cron restarts
-onto it. Profile, budget and cool-off state live in `data/`, so they survive
+tests; `puntmore-update.timer` fast-forwards the Hub and restarts the service
+within 10 minutes (in the Docker fallback, CI publishes the image and the
+server's 15-minute cron restarts onto it). Profile, budget and cool-off state live in `data/`, so they survive
 the restart.
 
 ## Logging in to Bookie Bashing, or clearing a check (VNC)

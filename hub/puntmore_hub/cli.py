@@ -1,7 +1,7 @@
 """``puntmore`` command line. Every operation an agent or a human needs, with plain text output.
 
-Scraping is the Worker's (`python -m scraper ...` in `scraper/`); this CLI reads what the
-Worker drops and reports, and owns the link to Render, placement, and escalations.
+Scraping is the Scraper's (`python -m scraper ...` in `scraper/`); this CLI reads what the
+Scraper drops and reports, and owns the link to Render, placement, and escalations.
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def cmd_init(a):
     _store().close()
     print(f"initialised {settings.data_dir} (db {settings.db_path})")
     print(f"dry_run={settings.dry_run} kill_switch={settings.kill_switch_on()} link_configured={settings.link_configured}")
-    print(f"worker data: {settings.worker_data_dir} ({'present' if settings.worker_data_dir.exists() else 'not found'})")
+    print(f"scraper data: {settings.scraper_data_dir} ({'present' if settings.scraper_data_dir.exists() else 'not found'})")
 
 
 def cmd_status(a):
@@ -47,9 +47,9 @@ def cmd_status(a):
     print(f"puntmore-hub {__version__}  client={settings.client_id}  dry_run={settings.dry_run}  "
           f"kill_switch={'ON' if settings.kill_switch_on() else 'off'}  link={'configured' if settings.link_configured else 'OFFLINE'}")
     print("last 24h: " + ", ".join(f"{k}={v}" for k, v in s.items()))
-    w = inbox.worker_status(settings)
+    w = inbox.scraper_status(settings)
     age = w["heartbeat_age_s"]
-    print(f"worker: {'running' if w['running'] else 'NOT RUNNING'}"
+    print(f"scraper: {'running' if w['running'] else 'NOT RUNNING'}"
           + (f" (heartbeat {age}s ago)" if age is not None else " (no heartbeat file)")
           + f", {len(w['targets'])} target(s), blocked={w['blocked'] or 'none'}, unhealthy={w['unhealthy'] or 'none'}")
     if w["targets"]:
@@ -63,16 +63,16 @@ def cmd_inbox(a):
 
 def cmd_health(a):
     st = _store()
-    w = inbox.worker_status(settings)
+    w = inbox.scraper_status(settings)
     open_esc = st.open_escalations()
     bad = []
     if not w["running"]:
-        bad.append("worker not running (stale or missing heartbeat)")
+        bad.append("scraper not running (stale or missing heartbeat)")
     if w["blocked"]:
         bad.append("blocked: " + ", ".join(w["blocked"]))
     if w["unhealthy"]:
         bad.append("unhealthy sources: " + ", ".join(w["unhealthy"]))
-    print(f"worker: {'running' if w['running'] else 'NOT RUNNING'}; blocked: {', '.join(w['blocked']) or 'none'}; "
+    print(f"scraper: {'running' if w['running'] else 'NOT RUNNING'}; blocked: {', '.join(w['blocked']) or 'none'}; "
           f"unhealthy: {', '.join(w['unhealthy']) or 'none'}")
     print(f"open escalations: {len(open_esc)}")
     for e in open_esc:
@@ -114,11 +114,11 @@ def cmd_tips(a):
 
 
 def cmd_heartbeat(a):
-    print(alerts.heartbeat(_store(), worker=inbox.worker_status(settings)))
+    print(alerts.heartbeat(_store(), scraper=inbox.scraper_status(settings)))
 
 
 def cmd_link(a):
-    """Run the Render link daemon: bet lists -> client engine, Worker drops -> tips and escalations."""
+    """Run the Render link daemon: bet lists -> client engine, Scraper drops -> tips and escalations."""
     from .link.client import RenderLink, bets_from
     from .placement.engine import ClientEngine
 
@@ -132,9 +132,9 @@ def cmd_link(a):
         log.info("bet_list %s -> %s", env.msg_id, statuses)
 
     def on_scrape_job(env):
-        # Scraping is the Worker's: a job from Render is noted, not run here.
+        # Scraping is the Scraper's: a job from Render is noted, not run here.
         link.enqueue("scrape_result", {"job_id": env.body.get("job_id"), "status": "skipped",
-                                       "error": "scrapes run on the Worker's own schedule (scraper/targets.toml)"})
+                                       "error": "scrapes run on the Scraper's own schedule (scraper/targets.toml)"})
 
     def on_kill(env):
         on = bool(env.body.get("on", True))
@@ -196,8 +196,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init", help="create data dirs and the database").set_defaults(fn=cmd_init)
-    sub.add_parser("status", help="one-screen status, including the Worker").set_defaults(fn=cmd_status)
-    ib = sub.add_parser("inbox", help="one pass over the Worker's drop folders (the link daemon does this every 30 s)")
+    sub.add_parser("status", help="one-screen status, including the Scraper").set_defaults(fn=cmd_status)
+    ib = sub.add_parser("inbox", help="one pass over the Scraper's drop folders (the link daemon does this every 30 s)")
     ib.add_argument("--no-notify", action="store_true", help="record escalations without waking the local AI"); ib.set_defaults(fn=cmd_inbox)
     sub.add_parser("health", help="exit 1 if anything needs attention").set_defaults(fn=cmd_health)
     k = sub.add_parser("kill", help="kill switch"); k.add_argument("action", choices=["on", "off", "status"]); k.set_defaults(fn=cmd_kill)

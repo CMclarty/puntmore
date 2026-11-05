@@ -1,13 +1,13 @@
 """Settings (environment) and targets (targets.toml on the Hub).
 
-WHAT is read is config: a list of targets — pages, any mix of Paddy Power and
-Bookie Bashing — that changes without a code change. HOW each site is treated
+WHAT is read is config: a list of targets — pages, any mix of Paddy Power,
+Bookie Bashing and generic (Bet Finder) sources — that changes without a code change. HOW each site is treated
 — its budget, quiet hours, what a block means — is code (sites.py), because
 those are the guarantees, and a config edit must not be able to loosen them.
 
 The targets are ONE file: data/targets.toml, or the file SCRAPER_TARGETS
 names (tests, by hand). It lives on the Hub and Hermes edits it; nothing on
-Render configures the Worker (PLAN.md, decision 5 Nov 2026). The runner
+Render configures the Scraper (docs/decisions.md, 5 Nov 2026). The runner
 checks the file every TARGETS_CHECK_S and applies an edit without a restart.
 
 Every rate limit is a CEILING: config can make the scraper slower or read

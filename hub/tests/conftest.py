@@ -19,7 +19,7 @@ def cfg(tmp_path: Path) -> Settings:
         kill_switch_file=tmp_path / "KILL",
         data_dir=tmp_path, db_path=tmp_path / "hub.sqlite",
         sub_clients_file=tmp_path / "sub_clients.yaml",
-        worker_data_dir=tmp_path / "worker",
+        scraper_data_dir=tmp_path / "scraper",
         discord_webhook="", hermes_bin="", escalate_to_local_ai=False,
     )
 

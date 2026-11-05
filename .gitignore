@@ -27,3 +27,8 @@ render/api/static/
 # 2-Up Hub runtime state (hub/README.md)
 hub/data/
 hub/sub_clients.yaml
+
+# never commit databases or build metadata
+*.sqlite
+*.sqlite3
+*.egg-info/

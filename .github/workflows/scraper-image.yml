@@ -1,6 +1,7 @@
-# Tests the scraper and publishes its image. The server's update.sh pulls
-# :latest every 15 min and restarts onto it, so a green push to main that
-# touches scraper/ is a deploy of the scraper.
+# Tests the Scraper and publishes its image. The image serves the Docker
+# FALLBACK only (a box with no screen; docs/decisions.md): there, update.sh
+# pulls :latest every 15 min and restarts onto it. The Hub's default is the
+# native user service puntmore-scraper, updated by puntmore-update.timer.
 name: scraper image
 
 on:

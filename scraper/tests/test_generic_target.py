@@ -1,4 +1,4 @@
-"""Bet Finder sources as Worker targets: site rules, fetch mode, row health, the
+"""Bet Finder sources as Scraper targets: site rules, fetch mode, row health, the
 hand-off to the Hub. No browser needed."""
 import json
 import time

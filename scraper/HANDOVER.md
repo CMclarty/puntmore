@@ -2,10 +2,14 @@
 
 > **Superseded in part (26 Oct 2026):** the scraper now lives at top-level
 > `scraper/`, its targets come from Puntmore's `/scraper` page, and the
-> parsers are `parsers/pp_most.py` and `parsers/bb_saves.py` (both still
-> unwritten). See `README.md`. The boundaries below still apply.
+> parsers are `parsers/pp_most.py` and `parsers/bb_saves.py` (both written
+> since). See `README.md`. The boundaries below still apply.
 > **5 Nov 2026:** the `/scraper` page is gone; the targets are
-> `targets.toml` on the Hub.
+> `targets.toml` on the Hub. The Docker service on a virtual display described
+> below is now the fallback for a box with no screen: the Scraper runs as the
+> user service `puntmore-scraper` in real Chrome on the Hub's desktop,
+> updated by `puntmore-update.timer` (`docs/decisions.md`). The `local/scraper/`
+> paths are history; the code is `scraper/` on `main`.
 
 **Repo:** https://github.com/CMclarty/puntmore. Private; you need to be added as a collaborator.
 **Branch:** [`scraper-v0.1`](https://github.com/CMclarty/puntmore/tree/scraper-v0.1). Not merged to `main`.

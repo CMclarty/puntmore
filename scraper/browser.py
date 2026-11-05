@@ -1,4 +1,5 @@
-"""One real Chrome, one persistent profile, shared by both sites.
+"""One real Chrome, one persistent profile, shared by every site (Paddy Power,
+Bookie Bashing and the generic Bet Finder sources).
 
 Nothing here fakes a fingerprint: spoofed values that disagree with the real
 browser are what bot checks look for. The profile is a real, ordinary Chrome

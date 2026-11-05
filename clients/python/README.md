@@ -29,7 +29,7 @@ pm.whoami()                                      # {"username": "api:bet-placer"
 feed = pm.value(min_edge=0.03,                   # ValueFeed
                 kickoff_within_hours=6,
                 bookmaker="paddypower",          # optional
-                source=None)                     # or "paddy" | "365" | "scorers" | "coupon"
+                source=None)                     # or "paddy" | "scorers" | "coupon" | "2up"
 feed.selections                                  # list[ValueSelection], best edge first
 feed.errors                                      # {source: reason} for a source that FAILED
 pm.paddy.feed(min_edge=None)                     # the Paddy page's feed (cards grant)

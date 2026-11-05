@@ -1,7 +1,8 @@
 # frontend/ — rules for the React app
 
-The repo's `CLAUDE.md` applies everywhere and wins on any conflict. Moved
-verbatim from `CLAUDE.md` on 5 Nov 2026.
+`docs/decisions.md` is read first and wins over this file; the repo's
+`CLAUDE.md` applies everywhere and wins on any other conflict. Moved verbatim
+from `CLAUDE.md` on 5 Nov 2026.
 
 ## UI rules — these are TOOLS, build only what is asked
 Callum has had to strip unrequested additions out repeatedly (Oct 2026). A
@@ -22,8 +23,9 @@ screen is for finding a bet and placing it in seconds.
   "best acca", "suggested" or "pick of the day" blocks unless asked.
 - **Every live-price screen refreshes itself** (`hooks/useAutoRefresh.js`):
   every 2 min while on screen, and at once when the app is reopened after
-  30 s away — silently, in place. Paddy, 365 acca, scorers and the coupon
-  tracker use it; a new tool showing prices must too. A failed refresh must
+  30 s away — silently, in place. Paddy and the coupon tracker use it (as
+  did the 365 acca, removed 5 Nov 2026, and scorers, parked); a new tool
+  showing prices must too. A failed refresh must
   never leave old prices looking current. The feeds read the server's
   caches, so refreshing costs no vendor quota.
 - When asked to change one thing, change that thing. Don't tidy, restyle or

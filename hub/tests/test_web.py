@@ -1,6 +1,6 @@
-"""The Hub Console: collectors against a fixture Worker data dir, routes, and the action guards.
+"""The Hub Console: collectors against a fixture Scraper data dir, routes, and the action guards.
 
-The fixture files are in the Worker's real shapes (scraper/runner.py): `heartbeat` is epoch seconds
+The fixture files are in the Scraper's real shapes (scraper/runner.py): `heartbeat` is epoch seconds
 as text, `status.json` is `Runner.status()`, `latest/<target>.json` is `{at, url, rows}`, `alerts.log`
 is `scraper/alerts.py` lines, the hub drops are `_drop()`'s `<ms>-<name>.json`.
 """
@@ -36,7 +36,7 @@ def isolate(monkeypatch, tmp_path):
     monkeypatch.setattr(collect, "_get_json", lambda url, timeout: (None, None, "ConnectionRefusedError: test"))
 
 
-def write_worker(d: Path, *, heartbeat_age: float = 5.0, detail: str = "1 tab open") -> None:
+def write_scraper(d: Path, *, heartbeat_age: float = 5.0, detail: str = "1 tab open") -> None:
     now = time.time()
     (d / "latest").mkdir(parents=True)
     (d / "hub" / "tips").mkdir(parents=True)
@@ -68,7 +68,7 @@ def write_worker(d: Path, *, heartbeat_age: float = 5.0, detail: str = "1 tab op
 
 @pytest.fixture
 def wcfg(cfg):
-    write_worker(cfg.worker_data_dir)
+    write_scraper(cfg.scraper_data_dir)
     Store(cfg.db_path).close()          # `puntmore init`
     return cfg
 
@@ -79,8 +79,8 @@ def client(cfg, token: str = "") -> TestClient:
 
 # ---- collectors -------------------------------------------------------------------------------
 
-def test_worker_collector_reads_the_real_shapes(wcfg):
-    w = collect.worker(wcfg)
+def test_scraper_collector_reads_the_real_shapes(wcfg):
+    w = collect.scraper(wcfg)
     assert w["state"] == "warn"                       # one target blocked
     assert "blocked: tipster one" in w["detail"]
     assert 0 <= w["heartbeat_age_s"] < 60
@@ -95,19 +95,19 @@ def test_worker_collector_reads_the_real_shapes(wcfg):
     assert lr["count"] == 2 and lr["rows"][0]["event"] == XSS
 
 
-def test_worker_states(cfg):
-    assert collect.worker(cfg)["state"] == "unknown"   # no data dir at all
-    write_worker(cfg.worker_data_dir, heartbeat_age=3600)
-    assert collect.worker(cfg)["state"] == "down"
-    (cfg.worker_data_dir / "heartbeat").write_text(str(int(time.time())))
-    st = json.loads((cfg.worker_data_dir / "status.json").read_text())
+def test_scraper_states(cfg):
+    assert collect.scraper(cfg)["state"] == "unknown"   # no data dir at all
+    write_scraper(cfg.scraper_data_dir, heartbeat_age=3600)
+    assert collect.scraper(cfg)["state"] == "down"
+    (cfg.scraper_data_dir / "heartbeat").write_text(str(int(time.time())))
+    st = json.loads((cfg.scraper_data_dir / "status.json").read_text())
     st["targets"] = st["targets"][:1]
-    (cfg.worker_data_dir / "status.json").write_text(json.dumps(st))
-    assert collect.worker(cfg)["state"] == "up"
+    (cfg.scraper_data_dir / "status.json").write_text(json.dumps(st))
+    assert collect.scraper(cfg)["state"] == "up"
 
 
 def test_latest_rows_cannot_leave_latest(wcfg):
-    (wcfg.worker_data_dir / "secret.json").write_text('{"rows": [1]}')
+    (wcfg.scraper_data_dir / "secret.json").write_text('{"rows": [1]}')
     assert collect.latest_rows(wcfg, "../secret") is None
     assert collect.latest_rows(wcfg, "/etc/passwd") is None
 
@@ -209,20 +209,20 @@ def test_every_route_answers_with_nothing_present(cfg):
     for name, comp in comps.items():
         assert comp["state"] in ("unknown", "off", "up"), (name, comp)
         assert set(comp) == {"state", "checked_at", "detail"}
-    assert comps["worker"]["state"] == "unknown" and comps["model"]["state"] == "off"
+    assert comps["scraper"]["state"] == "unknown" and comps["model"]["state"] == "off"
     assert ov.json()["actions_enabled"] is False
     for name in collect.COMPONENTS:
         r = c.get(f"/api/{name}")
         assert r.status_code == 200, name
         assert {"state", "checked_at", "detail"} <= set(r.json())
-    assert c.get("/api/worker/latest/nope").status_code == 404
+    assert c.get("/api/scraper/latest/nope").status_code == 404
     assert not cfg.db_path.exists()                     # reads never create the hub database
     assert comps["link"]["state"] == "unknown" and "puntmore init" in comps["link"]["detail"]
 
 
 def test_tab_routes_with_the_fixture(wcfg):
     c = client(wcfg)
-    w = c.get("/api/worker").json()
+    w = c.get("/api/scraper").json()
     assert {"heartbeat_age_s", "targets", "alerts", "sites"} <= set(w)
     assert {"service", "outbox", "outbox_rows", "inbox_drops"} <= set(c.get("/api/link").json())
     assert {"dry_run", "kill_switch", "bets", "accounts"} <= set(c.get("/api/placement").json())
@@ -231,7 +231,7 @@ def test_tab_routes_with_the_fixture(wcfg):
     assert {"health", "props", "slots"} <= set(c.get("/api/model").json())
     assert {"service", "journal", "profiles"} <= set(c.get("/api/hermes").json())
     assert {"ready", "last_link_check"} <= set(c.get("/api/render").json())
-    lr = c.get("/api/worker/latest/bb-saves")
+    lr = c.get("/api/scraper/latest/bb-saves")
     assert lr.status_code == 200 and lr.headers["content-type"].startswith("application/json")
     assert lr.json()["rows"][0]["event"] == XSS        # untrusted text comes back as JSON data
 
@@ -250,7 +250,7 @@ def test_untrusted_text_is_never_rendered_as_html(wcfg):
     assert "innerHTML" not in js.text.replace("never innerHTML", "")
     assert "insertAdjacentHTML" not in js.text and "document.write" not in js.text
     assert c.get("/static/style.css").status_code == 200
-    raw = c.get("/api/worker").text
+    raw = c.get("/api/scraper").text
     assert json.loads(raw)["alerts"][-1].endswith(XSS)
 
 
@@ -299,7 +299,7 @@ def test_kill_on_and_off(cfg):
 
 def test_escalation_resolve(cfg):
     st = Store(cfg.db_path)
-    esc = st.add_escalation("other", "worker", "something")
+    esc = st.add_escalation("other", "scraper", "something")
     c = client(cfg, TOKEN)
     h = {"X-Puntmore-Token": TOKEN}
     assert c.post("/api/actions/escalation-resolve", headers=h, json={"id": esc}).status_code == 400
