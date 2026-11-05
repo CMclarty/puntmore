@@ -22,9 +22,9 @@ What runs where (the full table is in `README.md`; keep the two in step):
 | Directory | Runs on | Deployed by | Updated when |
 |---|---|---|---|
 | `api/` + `frontend/` | Render, ONE Docker web service | `render.yaml`; `api/Dockerfile` builds the frontend into the API image, `app/asgi.py` serves both | **every push to `main`** |
-| `scraper/` | home box, Docker | `scraper-image.yml` → GHCR; the box's `update.sh` cron | push to `main` touching `scraper/` |
-| `home/` | home box, systemd user services | `home/deploy/systemd/` on a checkout | `git pull` on the box |
-| `home/puntmore_home/placement/` | home box → sub-client phones | part of `home/` | **placeholder**: the bet-placing bot (bets in, results out); contract in its README |
+| `scraper/` | Hub, Docker | `scraper-image.yml` → GHCR; the box's `update.sh` cron | push to `main` touching `scraper/` |
+| `hub/` | Hub, systemd user services | `hub/deploy/systemd/` on a checkout | `git pull` on the box |
+| `hub/puntmore_hub/placement/` | Hub → sub-client phones | part of `hub/` | **placeholder**: the bet-placing bot (bets in, results out); contract in its README |
 
 Nothing goes to `main` directly: branch, pull request, path-scoped workflows.
 
@@ -64,7 +64,7 @@ loads it through the directory's `CLAUDE.md`):
 | `api/` | `api/AGENTS.md` | odds sources, pricing and OCR hard rules, the provider seams, API clients |
 | `frontend/` | `frontend/AGENTS.md` | UI rules (tools, build only what is asked), the acca maths |
 | `scraper/` | `scraper/AGENTS.md` | the Paddy / Bookie Bashing worker |
-| `home/` | `home/AGENTS.md` | the 2-Up home box: link, placement, escalation, Bet Finder sources |
+| `hub/` | `hub/AGENTS.md` | the 2-Up Hub: link, placement, escalation, Bet Finder sources |
 
 `PLAN.md` → **Decisions** is settled and applies everywhere.
 
@@ -74,8 +74,8 @@ loads it through the directory's `CLAUDE.md`):
   `.env` is git-ignored; only `.env.example` is committed.
 - The API never places a bet and no bookmaker-account automation is added to
   it (`api/AGENTS.md`, API clients). **Open conflict (Nov 2026):** the 2-Up
-  spec has Render emitting bet lists to the home box's client engine. Callum
-  decides which rule wins before the Render end of `home/PROTOCOL.md` is built.
+  spec has Render emitting bet lists to the Hub's client engine. Callum
+  decides which rule wins before the Render end of `hub/PROTOCOL.md` is built.
 - Every directory's own hard rules are in its `AGENTS.md`; they are not
   optional because they live in a different file.
 

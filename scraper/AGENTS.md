@@ -3,7 +3,7 @@
 The repo's `CLAUDE.md` applies everywhere and wins on any conflict. Setup and
 day-to-day commands are in `README.md`; the boundaries that still apply are in
 `HANDOVER.md`. The rule below is moved verbatim from `CLAUDE.md` on
-5 Nov 2026. The home box's 2-Up code (`home/`) borrows `browser.py` from
+5 Nov 2026. The Hub's 2-Up code (`hub/`) borrows `browser.py` from
 here; keep the realism rules in this directory.
 
 - **The scraper (`scraper/`, Oct 2026) is a SEPARATE service** — its own

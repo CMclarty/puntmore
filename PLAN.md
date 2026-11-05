@@ -54,7 +54,7 @@ stays provisional until the calibration backtest (item 3) measures it.
   the app matches headings and assigns sides in code. The model is never asked
   which block to read or which team a price belongs to. Consequence: one photo
   of a sheet fills every market printed on it, sharing one stored image.
-  (July 2026, after a coupon came back with home/away prices crossed.)
+  (July 2026, after a coupon came back with hub/away prices crossed.)
 - **One issue per (type, period); the newest upload is the coupon.** A new
   upload replaces the previous one of the same type AND period — row and image
   both — but only once it has read rows, so a failed or empty scan never takes
@@ -431,16 +431,16 @@ to Discord, just Callum for now.
 
 ---
 
-### 10. 2-Up home box (`home/`) — SCAFFOLD LANDED (Nov 2026)
-The home-box side of the 2-Up Engine spec. Branch `home-box`.
+### 10. 2-Up Hub (`hub/`) — SCAFFOLD LANDED (Nov 2026)
+The Hub side of the 2-Up Engine spec. Branch `home-box`.
 - [x] Package: Render link (durable outbox, idempotent inbound), client engine
       (dry-run, phone adapter stub), escalation to the local AI, Bet Finder
       sources (YAML + parser + fixture), CLI, systemd units, tests.
-- [x] Wire contract: `home/PROTOCOL.md`, JSON Schema, examples, contract tests,
+- [x] Wire contract: `hub/PROTOCOL.md`, JSON Schema, examples, contract tests,
       a mock Render for integration tests, `puntmore link-check`.
 - [ ] Render end of the protocol in `api/` (WebSocket endpoint, per-client keys,
-      bet lists out, reports in) — the other side of `home/PROTOCOL.md`.
-- [ ] Unify `home/`'s request budget with `scraper/guard.py` (per-site, in code).
+      bet lists out, reports in) — the other side of `hub/PROTOCOL.md`.
+- [ ] Unify `hub/`'s request budget with `scraper/guard.py` (per-site, in code).
 - [ ] Phone placement adapter; IMAP tipster source; kick-off-window sweeps.
 - [ ] Two weeks of dry-run reports before `PUNTMORE_DRY_RUN=0`.
 Definition of Done: a bet list from Render reaches a phone in dry-run and its
