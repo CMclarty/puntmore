@@ -470,6 +470,12 @@ and `/state`. AccaBonus is not live (`enable_accabonus` False).
       That tuning is a MANUAL, user-triggered comparison: BB's terms ban
       automated access (`render/api/AGENTS.md`, BookieBashing constraint), so the
       tracker is never scraped by the engine or the Worker.
+- [x] **Render end of the Hub link landed** (Nov 2026, branch `hub-endpoint`):
+      `/api/2up/ws` per `hub/PROTOCOL.md` v1 — key auth on the handshake
+      (`hub` grant), acks/replay on `hub_inbox_seen`, schema-validated frames,
+      tips/escalations stored, bet lists dispatched from the 2-Up engine and
+      marked sent only on ack (`render/api/AGENTS.md`, "Hub endpoint"). Runs on
+      engine stubs until `twoup-engine` lands `app/twoup/ledger.py`.
 - [ ] **Remove the `/scraper` control page** and its routes; the worker reads
       `targets.toml` on the Hub, edited by Hermes.
 Definition of Done: `grep -ri "theoddsapi\|bettingiscool\|odds_api_key" render/api/`
