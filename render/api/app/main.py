@@ -50,6 +50,7 @@ from .routers import diagnostics as diagnostics_router
 from .routers import scraper as scraper_router
 from .routers import value as value_router
 from .routers import hub_ws as hub_ws_router
+from .routers import twoup as twoup_router
 from . import diagnostics
 
 logger = logging.getLogger("uvicorn.error")
@@ -69,6 +70,11 @@ async def lifespan(app: FastAPI):
     try:
         seed(db)
         scraper_router.ensure_seeded(db)
+        # 2-Up clients named in TWOUP_CLIENTS that do not exist yet (dry-run
+        # on, kill switch off). Existing rows are never touched.
+        from .twoup.ledger import ensure_clients
+        if ensure_clients(db):
+            logger.info("2up: seeded client(s)/account(s) from TWOUP_CLIENTS")
         created, regranted = seed_users(db, settings.auth_users)
         if created:
             logger.info("Seeded %d user(s) from AUTH_USERS", created)
@@ -134,6 +140,14 @@ async def lifespan(app: FastAPI):
         from .hills.target import EXTRA_TOURNAMENTS
         app.state.hills_client = OddsPapiPaddySource(oddspapi_client, book=WILLIAM_HILL,
                                                      extra_tournaments=EXTRA_TOURNAMENTS)
+
+    # The 2-Up engine's feed: bet365 + Pinnacle 1X2 on the SAME OddsPapi
+    # client (one budget, one rate limit; Pinnacle's chunks shared with the
+    # coupon tracker and Paddy). No key = no feed, and /api/ready says so.
+    app.state.twoup_feed = None
+    if settings.enable_twoup and oddspapi_client is not None:
+        from .twoup.feed import TwoUpFeed
+        app.state.twoup_feed = TwoUpFeed(oddspapi_client)
 
     # Coupon odds provider (behind the OddsProvider seam).
     #
@@ -250,6 +264,7 @@ async def lifespan(app: FastAPI):
         odds_client=odds_client,
         cards_client=app.state.cards_client,
         arbs_client=app.state.arbs_client,
+        twoup_feed=app.state.twoup_feed,
     )
     app.state.scheduler = scheduler
 
@@ -371,6 +386,11 @@ if settings.enable_pnl:
 # The shop tracker reads and writes only its own rows and calls no vendor API,
 # so there is no flag to gate it on — access is per-user via the grant alone.
 app.include_router(shop_router.router, dependencies=[Depends(require_tool("shop"))])
+# The 2-Up engine is part of the 365 tool, so it sits behind the same grant as
+# the acca boost (`accabonus` — grants keep their old names). Its own flag,
+# not ENABLE_ACCABONUS: the acca page can stay hidden while 2-Up runs dry.
+if settings.enable_twoup:
+    app.include_router(twoup_router.router, dependencies=[Depends(require_tool("accabonus"))])
 # The scraper's control plane: the page edits it under the `scraper` grant;
 # the scraper box reads its config and reports status with the ingest key.
 app.include_router(scraper_router.router, dependencies=[Depends(require_tool("scraper"))])
@@ -539,6 +559,16 @@ def ready():
             t.label for t in coupon_types.COUPON_TYPES
             if odds_api.unsupported_reason(t.selection) is not None
         ]
+    # The 2-Up feed, the same way: named, `degraded` while it cannot price
+    # (no OddsPapi client, every request failing, fixtures on but none priced,
+    # or an unreadable rescue table), with the reasons in `cannot_price`.
+    if settings.enable_twoup:
+        feed = getattr(app.state, "twoup_feed", None)
+        twoup = (feed.status() if feed is not None else {
+            "provider": None, "degraded": True,
+            "cannot_price": ["ALL — no OddsPapi client (ODDSPAPI_API_KEY unset)"]})
+    else:
+        twoup = None
     providers = {
         "ocr": "mock" if isinstance(
             getattr(app.state, "ocr_provider", None), MockOCRProvider
@@ -546,6 +576,8 @@ def ready():
         "odds": "mock" if isinstance(odds_provider, MockOddsProvider) else "live",
         "odds_detail": odds,
     }
+    if twoup is not None:
+        providers["twoup_detail"] = twoup
     # The process's resident size, object and thread counts ride along: the
     # instance was restarting at its memory cap (Oct 2026) and this is the one
     # unauthenticated place the climb can be watched from outside.

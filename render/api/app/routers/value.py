@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..schemas import ValueFeedOut
-from ..security import enabled_tools, user_permissions
+from ..security import user_permissions
 from ..value import service
 
 router = APIRouter(prefix="/value", tags=["value"])
@@ -23,6 +23,7 @@ def _feed(request: Request, db: Session, sources, min_edge, kickoff_within_hours
         sources, db=db,
         cards_client=getattr(request.app.state, "cards_client", None),
         arbs_client=getattr(request.app.state, "arbs_client", None),
+        twoup_feed=getattr(request.app.state, "twoup_feed", None),
         min_edge=min_edge, kickoff_within_hours=kickoff_within_hours,
         bookmaker=bookmaker, now=now,
     )
@@ -64,8 +65,8 @@ def get_value_for(
     perms: str = Depends(user_permissions),
     db: Session = Depends(get_db),
 ):
-    """One source's value selections (paddy | 365 | scorers | coupon)."""
-    if source not in service.BY_NAME or service.BY_NAME[source].tool not in enabled_tools():
+    """One source's value selections (paddy | 365 | scorers | coupon | 2up)."""
+    if source not in service.BY_NAME or not service.source_enabled(service.BY_NAME[source]):
         raise HTTPException(status_code=404, detail=f"Unknown source: {source}")
     allowed = [s for s in service.visible_sources(perms) if s.name == source]
     if not allowed:
