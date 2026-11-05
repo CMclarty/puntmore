@@ -31,8 +31,8 @@ deploy/hermes-skills/  the Worker-ops runbook the scraper-manager agent follows
 data/              runtime state (git-ignored): hub.sqlite, KILL
 ```
 
-## Relationship to `scraper/`
-The Worker (`scraper/`) is the only thing on the Hub that loads a page: Paddy Power and Bookie Bashing pages kept open, and the Bet Finder's sources as `generic` targets that are loaded, parsed and closed, all under one Chrome, one guard and one alert path. For a Bet Finder target the Worker writes one JSON file per run into `<worker data>/hub/tips/` and, when something needs a decision, into `<worker data>/hub/events/`. `puntmore inbox` (run by the link daemon every 30 s) turns those into deduplicated tips queued for Render and into escalations for Hermes. `puntmore health` reads the Worker's heartbeat and `status.json` from the same directory (`PUNTMORE_WORKER_DATA`, the Docker volume on the host).
+## Relationship to `scraper/` (the Scraper)
+The Scraper (`scraper/`) is the only thing on the Hub that loads a page: Paddy Power and Bookie Bashing pages kept open, and the Bet Finder's sources as `generic` targets that are loaded, parsed and closed, all under one Chrome, one guard and one alert path. For a Bet Finder target the Scraper writes one JSON file per run into `<worker data>/hub/tips/` and, when something needs a decision, into `<worker data>/hub/events/`. `puntmore inbox` (run by the link daemon every 30 s) turns those into deduplicated tips queued for Render and into escalations for Hermes. `puntmore health` reads the Scraper's heartbeat and `status.json` from the same directory (`PUNTMORE_WORKER_DATA`, `/opt/puntmore-scraper/data`). The Scraper runs on the Hub's desktop as the user service `puntmore-scraper` (`scraper/README.md`, "Running on the Hub's desktop"); Docker is only its fallback for a box with no screen.
 
 ## Setup (from `hub/`)
 ```bash
@@ -87,7 +87,7 @@ A change merged to `main` reaches the box within 10 minutes. `puntmore-update.ti
 1. `git fetch origin main`. If `origin/main` is not ahead of HEAD, nothing else happens.
 2. `git pull --ff-only origin main`. Never a merge, never a reset.
 3. `uv pip install -e 'hub[web]' --python ~/.venvs/puntmore/bin/python` (plain `hub` while there is no `web` extra; the venv's own pip if uv is not on PATH).
-4. `systemctl --user restart` each of `puntmore-link`, `puntmore-web` and `puntmore-heartbeat.timer` that exists and is enabled.
+4. `systemctl --user restart` each of `puntmore-link`, `puntmore-web` and `puntmore-heartbeat.timer` that exists and is enabled, and the Scraper's `puntmore-scraper` when the pull changed `scraper/` (a restart reopens its pages, out of the sites' budgets; `scraper/requirements.txt` is installed into the venv first when it changed).
 
 Every run, including "up to date", appends one line to `data/update.log`: time, outcome, branch, the commit moved from and to. A failure is also alerted through `alerts.py` (Discord, de-duplicated per kind for `PUNTMORE_ALERT_DEDUP_HOURS`) and is never retried inside the run.
 
@@ -98,7 +98,7 @@ Every run, including "up to date", appends one line to `data/update.log`: time, 
 - **Local edits to tracked files**, or a **detached HEAD**: *alert*, left alone.
 - **Another run** holding `data/update.lock`.
 
-It does not copy unit files. When a pull changes `hub/deploy/systemd/`, the run sends a warning naming the files; copy them to `~/.config/systemd/user/` and `systemctl --user daemon-reload` by hand.
+It does not copy unit files. When a pull changes `hub/deploy/systemd/` or `scraper/deploy/native/puntmore-scraper.service`, the run sends a warning naming the files; run `scraper/deploy/native/install.sh` for the Scraper's, and copy the others to `~/.config/systemd/user/` and `systemctl --user daemon-reload` by hand.
 
 Enable it once, after the first pull that brings `puntmore update` onto the box (that one is by hand):
 ```bash

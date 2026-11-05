@@ -7,7 +7,7 @@ Betting tools: a web app on Render, and a Hub on a residential connection that r
 | Directory | Runs on | Built and deployed by | Updated when |
 |---|---|---|---|
 | `render/api/` + `render/frontend/` | Render, one Docker web service (`puntmore.com`) | `render.yaml`: `render/api/Dockerfile` builds the frontend into the API image | **every push to `main`** |
-| `scraper/` | Hub, Docker container, real Chrome on Xvfb | `.github/workflows/scraper-image.yml` publishes to GHCR; the box's `update.sh` cron pulls `:latest` | push to `main` touching `scraper/` |
+| `scraper/` (the Scraper) | Hub, systemd user service `puntmore-scraper`: one real Chrome on the desktop session | `scraper/deploy/native/` on the box's checkout (`install.sh`); Docker (`scraper-image.yml` → GHCR) only as the fallback for a box with no screen | push to `main` touching `scraper/`: `puntmore-update.timer` pulls within 10 min and restarts `puntmore-scraper` |
 | `hub/` | Hub, systemd user services | `hub/deploy/systemd/`; the box runs this checkout | push to `main`: `puntmore-update.timer` fast-forwards the box within 10 min |
 | `hub/puntmore_hub/placement/` | Hub, driving the sub-client phones | part of `hub/` | **placeholder**: the bet-placing bot. Bets in, results out. Contract in its README; only the dry-run adapter exists |
 | `clients/python/` | any machine client | from the repo | on demand |

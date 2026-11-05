@@ -28,31 +28,75 @@ _KEEP_TABS_LIVE = [
 ]
 
 
-# One UK reader's ordinary Chrome window, set the way Chrome itself sets
-# things - not overridden page by page. Language: on Linux Chrome takes it
-# from the environment (it ignores --lang there), which gives its own
-# "en-GB,en-US;q=0.9,en;q=0.8" on a desktop with the locale installed. In
-# the Docker image (and CI) there is no en_GB locale and Chrome reads
+# Where Chrome runs decides how much of it is set by hand.
+#
+# On the Hub's desktop (the default since 5 Nov 2026) Chrome is left to its
+# own defaults on the real display: on Linux Chrome takes its language from
+# the session's locale (it ignores --lang there), which on the Hub is
+# en_GB.UTF-8 and gives Chrome's own "en-GB,en-US;q=0.9,en;q=0.8"; the window
+# is whatever Chrome and the profile choose on the real screen; and the GPU,
+# fonts and screen a site sees are the box's own. Measured 5 Nov 2026: Chrome
+# 157 in the container reported no WebGL at all, the container's fonts and no
+# deviceMemory; the same binary on the Hub's Wayland session reports the
+# Radeon 8060S through ANGLE.
+#
+# In the container (SCRAPER_IN_CONTAINER=1, set by the Dockerfile) and in a
+# headless run (tests, CI) there is no real screen and no en_GB locale, so
+# the settings below stand in for them. Language: there Chrome reads
 # "en-US@posix" whatever LANGUAGE/LANG say (measured 26 Oct 2026, locale-gen
-# included), so the language list is given to Chrome directly with
-# --accept-lang, as Chrome's own list: navigator.languages reads
-# ['en-GB', 'en-US', 'en'] and the header follows it. Playwright's `locale`
-# option would instead give a bare "en-GB" that no real Chrome sends. Window:
-# a real window of a normal size on the (larger) screen, not an emulated
-# viewport - an emulated one made the page as tall as the whole screen.
+# included), so the list is given with --accept-lang, as Chrome's own list:
+# navigator.languages reads ['en-GB', 'en-US', 'en'] and the header follows
+# it. Playwright's `locale` option would instead give a bare "en-GB" that no
+# real Chrome sends. Window: a real 1600x1000 window on Xvfb's 1920x1080
+# screen (deploy/entrypoint.sh), not an emulated viewport - an emulated one
+# made the page as tall as the whole screen.
 _WINDOW = ["--window-size=1600,1000", "--window-position=0,0"]
 _LANGUAGE = ["--accept-lang=en-GB,en-US,en"]
 _ENV = {"LANGUAGE": "en_GB:en", "LANG": "en_GB.UTF-8", "TZ": "Europe/London"}
-# A person's Chrome, not a test harness's (see the module docstring).
+# A person's Chrome, not a test harness's (see the module docstring). This
+# applies everywhere, the desktop included.
 _NOT_A_TEST_RUN = ["--disable-blink-features=AutomationControlled"]
 _PLAYWRIGHT_TEST_FLAGS = ["--enable-automation"]
 
 
+def in_container(environ=None) -> bool:
+    """True inside the Scraper's Docker image (its Dockerfile sets the flag)."""
+    return (os.environ if environ is None else environ).get("SCRAPER_IN_CONTAINER") == "1"
+
+
+def launch_options(headless: bool = False, environ=None) -> dict:
+    """launch_persistent_context's options here: the no-screen stand-ins
+    (window, language list, locale env) only in the container or headless;
+    on the desktop, Chrome's own defaults on the real display."""
+    env = dict(os.environ if environ is None else environ)
+    args = list(_KEEP_TABS_LIVE)
+    if in_container(env) or headless:
+        args += _WINDOW + _LANGUAGE
+        env.update(_ENV)
+    else:
+        env.setdefault("TZ", "Europe/London")
+    args += _NOT_A_TEST_RUN
+    return dict(headless=headless, no_viewport=True, args=args,
+                ignore_default_args=_PLAYWRIGHT_TEST_FLAGS, env=env)
+
+
+def need_display(headless: bool = False, environ=None) -> None:
+    """A headed Chrome on the desktop needs the session's display; without one
+    Chrome dies with a bare 'Missing X server or $DISPLAY'. Say why instead."""
+    env = os.environ if environ is None else environ
+    if headless or in_container(env):
+        return
+    if not (env.get("WAYLAND_DISPLAY") or env.get("DISPLAY")):
+        raise RuntimeError(
+            "no WAYLAND_DISPLAY or DISPLAY: the Scraper runs Chrome on the Hub's "
+            "desktop session. Run it as the user service puntmore-scraper (the "
+            "user manager hands it the session's display once the desktop is "
+            "up), or from a terminal inside that session.")
+
+
 def launch(p, settings, headless=False):
-    env = {**os.environ, **_ENV}
-    kw = dict(headless=headless, no_viewport=True,
-              args=_KEEP_TABS_LIVE + _WINDOW + _LANGUAGE + _NOT_A_TEST_RUN,
-              ignore_default_args=_PLAYWRIGHT_TEST_FLAGS, env=env)
+    need_display(headless)
+    kw = launch_options(headless)
     settings.profile_dir.mkdir(parents=True, exist_ok=True)
     if os.environ.get("SCRAPER_CHROME_PATH"):      # tests / unusual installs
         kw["executable_path"] = os.environ["SCRAPER_CHROME_PATH"]
@@ -79,6 +123,17 @@ _SEEN = """() => ({
   utcOffsetMin: -new Date().getTimezoneOffset(),
   inner: [innerWidth, innerHeight], outer: [outerWidth, outerHeight],
   screen: [screen.width, screen.height], dpr: devicePixelRatio,
+  webgl: (() => {
+    try {
+      const gl = document.createElement('canvas').getContext('webgl');
+      if (!gl) return null;
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)
+                 : gl.getParameter(gl.RENDERER);
+    } catch (e) { return null; }
+  })(),
+  deviceMemory: navigator.deviceMemory === undefined ? null : navigator.deviceMemory,
+  cores: navigator.hardwareConcurrency,
 })"""
 
 
@@ -122,6 +177,9 @@ def selfcheck_lines(seen: dict, source: str) -> list[str]:
         f"  window              inner {seen['inner'][0]}x{seen['inner'][1]}, "
         f"outer {seen['outer'][0]}x{seen['outer'][1]}, "
         f"screen {seen['screen'][0]}x{seen['screen'][1]}, dpr {seen['dpr']:g}",
+        f"  WebGL renderer      {seen.get('webgl') or 'NONE - no WebGL (no GPU, e.g. Xvfb)'}",
+        f"  hardware            deviceMemory {seen.get('deviceMemory') or '-'} GB, "
+        f"{seen.get('cores') or '-'} cores",
         f"  --enable-automation {auto}",
         f"  AutomationControlled disabled  {yn(seen['automation_controlled_disabled'])}",
     ]

@@ -22,7 +22,7 @@ What runs where (the full table is in `README.md`; keep the two in step):
 | Directory | Runs on | Deployed by | Updated when |
 |---|---|---|---|
 | `render/api/` + `render/frontend/` | Render, ONE Docker web service | `render.yaml`; `render/api/Dockerfile` builds the frontend into the API image, `app/asgi.py` serves both | **every push to `main`** |
-| `scraper/` | Hub, Docker | `scraper-image.yml` → GHCR; the box's `update.sh` cron | push to `main` touching `scraper/` |
+| `scraper/` (the Scraper) | Hub, systemd user service `puntmore-scraper` (real Chrome on the desktop) | `scraper/deploy/native/install.sh` on a checkout; Docker only as the no-screen fallback | push to `main` touching `scraper/`: `puntmore-update.timer` pulls and restarts `puntmore-scraper` |
 | `hub/` | Hub, systemd user services | `hub/deploy/systemd/` on a checkout | `puntmore-update.timer` pulls `main` every 10 min and restarts the services (`hub/deploy/update.sh`) |
 | `hub/puntmore_hub/placement/` | Hub → sub-client phones | part of `hub/` | **placeholder**: the bet-placing bot (bets in, results out); contract in its README |
 
@@ -63,7 +63,7 @@ loads it through the directory's `CLAUDE.md`):
 |---|---|---|
 | `render/api/` | `render/api/AGENTS.md` | odds sources, pricing and OCR hard rules, the provider seams, API clients |
 | `render/frontend/` | `render/frontend/AGENTS.md` | UI rules (tools, build only what is asked), the acca maths |
-| `scraper/` | `scraper/AGENTS.md` | the Paddy / Bookie Bashing worker |
+| `scraper/` | `scraper/AGENTS.md` | the Scraper (Paddy Power, Bookie Bashing, Bet Finder sources) |
 | `hub/` | `hub/AGENTS.md` | the 2-Up Hub: link, placement, escalation, Bet Finder sources |
 
 `PLAN.md` → **Decisions** is settled and applies everywhere. The architecture is

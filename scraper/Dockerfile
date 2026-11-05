@@ -1,4 +1,5 @@
-# puntmore scraper: one real Chrome on a virtual display, kept-open pages.
+# puntmore scraper in Docker: the fallback for a box with no screen (the Hub runs
+# it on its desktop, deploy/native/). One real Chrome on a virtual display, kept-open pages.
 # Built by .github/workflows/scraper-image.yml -> ghcr.io/cmclarty/puntmore-scraper
 FROM mcr.microsoft.com/playwright/python:v1.55.0-noble
 
@@ -8,6 +9,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LANGUAGE=en_GB:en \
     LANG=en_GB.UTF-8 \
     DISPLAY=:99 \
+    SCRAPER_IN_CONTAINER=1 \
     SCRAPER_DATA_DIR=/data \
     SCRAPER_PROFILE_DIR=/data/profile
 

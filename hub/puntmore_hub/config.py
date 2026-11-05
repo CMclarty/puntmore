@@ -56,7 +56,7 @@ class Settings:
     sub_clients_file: Path = ROOT / "sub_clients.yaml"
 
     # The Worker (scraper/) writes its heartbeat, status.json and the hub/ drop folders here.
-    # In the Docker setup that is the container's /data volume on the host.
+    # The Scraper's data dir (its user service and its Docker fallback use the same one).
     worker_data_dir: Path = Path(os.environ.get("PUNTMORE_WORKER_DATA", "/opt/puntmore-scraper/data"))
     worker_stale_minutes: int = int(os.environ.get("PUNTMORE_WORKER_STALE_MINUTES", "10"))
 
