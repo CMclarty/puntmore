@@ -69,6 +69,15 @@ class Settings:
 
     timezone: str = os.environ.get("PUNTMORE_TZ", "Europe/London")
 
+    # The Hub Console (`puntmore web`). Bound to localhost by default: binding to a LAN address
+    # exposes the actions to anyone on the LAN, so the token is then required. A blank token
+    # disables every action; the read-only views still work.
+    web_bind: str = os.environ.get("PUNTMORE_WEB_BIND", "127.0.0.1:8090")
+    web_token: str = os.environ.get("PUNTMORE_WEB_TOKEN", "")
+    llama_url: str = os.environ.get("PUNTMORE_LLAMA_URL", "http://127.0.0.1:8080")
+    # The https base of Render, for its /api/ready health gate. Blank = not configured.
+    render_http: str = os.environ.get("PUNTMORE_RENDER_HTTP", "")
+
     def with_overrides(self, **changes) -> "Settings":
         return dataclasses.replace(self, **changes)
 
@@ -79,6 +88,11 @@ class Settings:
     @property
     def inbox_dir(self) -> Path:
         return self.worker_data_dir / "hub"
+
+    @property
+    def web_host_port(self) -> tuple[str, int]:
+        host, _, port = self.web_bind.rpartition(":")
+        return (host or "127.0.0.1"), int(port or 8090)
 
     def kill_switch_on(self) -> bool:
         return self.kill_switch_file.exists()

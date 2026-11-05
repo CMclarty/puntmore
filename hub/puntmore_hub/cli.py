@@ -13,7 +13,7 @@ import sys
 import threading
 from datetime import timedelta
 
-from . import __version__, alerts, escalation, inbox
+from . import __version__, alerts, escalation, inbox, killswitch
 from .config import settings
 from .store import Store, utcnow
 
@@ -84,17 +84,14 @@ def cmd_health(a):
 
 
 def cmd_kill(a):
-    f = settings.kill_switch_file
     if a.action == "on":
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(f"set {utcnow().isoformat()}\n")
-        escalation.raise_escalation(_store(), "kill_switch", "global", "kill switch turned ON from the CLI", notify=False)
+        killswitch.turn_on(_store(), settings, by="the CLI")
         print("kill switch ON: no placements until `puntmore kill off`")
     elif a.action == "off":
-        f.unlink(missing_ok=True)
+        killswitch.turn_off(settings)
         print("kill switch off")
     else:
-        print("ON" if f.exists() else "off")
+        print("ON" if settings.kill_switch_on() else "off")
 
 
 def cmd_escalation(a):
@@ -181,6 +178,12 @@ def cmd_link_check(a):
         sys.exit(1)
 
 
+def cmd_web(a):
+    """Run the Hub Console: what every Hub component is doing, live, and the kill switch."""
+    from .web.app import serve
+    serve(settings, bind=a.bind)
+
+
 # ---- parser -----------------------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
@@ -205,6 +208,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("link", help="run the Render link daemon").set_defaults(fn=cmd_link)
     lc = sub.add_parser("link-check", help="handshake with a Render build (hello -> hello_ack)")
     lc.add_argument("url", nargs="?"); lc.add_argument("--key"); lc.set_defaults(fn=cmd_link_check)
+    w = sub.add_parser("web", help="the Hub Console web page (PUNTMORE_WEB_BIND, default 127.0.0.1:8090)")
+    w.add_argument("--bind", help="host:port, overrides PUNTMORE_WEB_BIND"); w.set_defaults(fn=cmd_web)
     return p
 
 

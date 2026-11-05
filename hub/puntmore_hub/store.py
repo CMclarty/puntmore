@@ -218,6 +218,37 @@ class Store:
                                 (account_id,)).fetchone()
         return float(row[0]) if row else None
 
+    # ---- readers for the Hub Console -----------------------------------------------------------
+    def recent_tips(self, limit: int = 100) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT tip_id, source_id, event, market, selection, advised_price, tip_time, first_seen, outcome "
+            "FROM tips ORDER BY first_seen DESC LIMIT ?", (limit,)).fetchall()
+
+    def tip_sources(self) -> list[str]:
+        return [r[0] for r in self.conn.execute("SELECT DISTINCT source_id FROM tips ORDER BY source_id").fetchall()]
+
+    def recent_bets(self, limit: int = 100) -> list[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM bets ORDER BY updated DESC, received DESC LIMIT ?", (limit,)).fetchall()
+
+    def accounts(self) -> list[str]:
+        """Every account seen in a bet or a balance snapshot."""
+        return [r[0] for r in self.conn.execute(
+            "SELECT account_id FROM bets UNION SELECT account_id FROM balances ORDER BY 1").fetchall() if r[0]]
+
+    def recent_outbox(self, limit: int = 50) -> list[sqlite3.Row]:
+        return self.conn.execute("SELECT id, msg_id, type, created, sent_at, acked_at FROM outbox ORDER BY id DESC LIMIT ?",
+                                 (limit,)).fetchall()
+
+    def outbox_counts(self) -> dict[str, int]:
+        q = lambda sql: self.conn.execute(sql).fetchone()[0]  # noqa: E731
+        return {"pending": q("SELECT COUNT(*) FROM outbox WHERE sent_at IS NULL AND acked_at IS NULL"),
+                "unacked": q("SELECT COUNT(*) FROM outbox WHERE acked_at IS NULL"),
+                "total": q("SELECT COUNT(*) FROM outbox")}
+
+    def resolved_escalations(self, limit: int = 100) -> list[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM escalations WHERE resolved IS NOT NULL ORDER BY resolved DESC LIMIT ?",
+                                 (limit,)).fetchall()
+
     # ---- summaries -------------------------------------------------------------------------------
     def summary_since(self, since: datetime) -> dict[str, Any]:
         s = iso(since)

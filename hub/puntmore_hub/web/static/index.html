@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Hub Console</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="title">
+    <h1>Hub Console</h1>
+    <span id="mode" class="badge">…</span>
+    <span id="kill-badge" class="badge kill" hidden>KILL SWITCH ON</span>
+    <span id="overview-stale" class="badge stale" hidden>stale</span>
+  </div>
+  <div class="actions-bar">
+    <button id="btn-kill-on" class="danger" type="button" title="Stops every placement now. Anyone may turn it on.">Kill switch ON</button>
+    <button id="btn-inbox" type="button" title="One pass over the Worker's drops (the link daemon does this every 30 s)">Inbox now</button>
+    <button id="btn-heartbeat" type="button" title="Send the daily summary now (Discord + log)">Heartbeat now</button>
+    <button id="btn-link-check" type="button" title="hello → hello_ack against the configured Render">Link-check</button>
+    <label class="token">Token <input id="token" type="password" autocomplete="off" placeholder="X-Puntmore-Token"></label>
+  </div>
+  <p id="action-result" class="action-result" role="status" hidden></p>
+</header>
+
+<nav id="strip" class="strip" aria-label="Components"></nav>
+
+<main>
+  <section id="tab-worker" class="tab" hidden>
+    <div class="feedhead"><h2>Worker</h2><span class="feedstate"></span></div>
+    <div class="summary" data-slot="summary"></div>
+    <h3>Targets</h3>
+    <p class="hint">Tap a target's name to see the rows in its <code>latest/&lt;target&gt;.json</code>. The Worker does not write a next-run time, so there is no column for it.</p>
+    <div class="scroll" data-slot="targets"></div>
+    <div id="latest" class="latest" hidden>
+      <h3 id="latest-title"></h3>
+      <p id="latest-meta" class="hint"></p>
+      <div class="scroll" id="latest-rows"></div>
+    </div>
+    <h3>Sites</h3>
+    <div class="scroll" data-slot="sites"></div>
+    <h3>alerts.log (last 100 lines, newest last)</h3>
+    <pre class="log" data-slot="alerts"></pre>
+  </section>
+
+  <section id="tab-link" class="tab" hidden>
+    <div class="feedhead"><h2>Link</h2><span class="feedstate"></span></div>
+    <div class="summary" data-slot="summary"></div>
+    <h3>Outbox (last 50)</h3>
+    <div class="scroll" data-slot="outbox"></div>
+  </section>
+
+  <section id="tab-placement" class="tab" hidden>
+    <div class="feedhead"><h2>Placement</h2><span class="feedstate"></span></div>
+    <div class="summary" data-slot="summary"></div>
+    <form id="kill-off-form" class="card form" autocomplete="off">
+      <h3>Turn the kill switch off</h3>
+      <p class="rule"><strong>Only Cal turns it off.</strong> Anyone may turn it on. Type <code>OFF</code> to confirm.</p>
+      <input id="kill-off-confirm" type="text" inputmode="text" autocapitalize="characters" placeholder="type OFF" maxlength="3">
+      <button type="submit">Kill switch off</button>
+    </form>
+    <h3>Accounts</h3>
+    <div class="scroll" data-slot="accounts"></div>
+    <h3>Bets (newest first)</h3>
+    <div class="scroll" data-slot="bets"></div>
+  </section>
+
+  <section id="tab-escalations" class="tab" hidden>
+    <div class="feedhead"><h2>Escalations</h2><span class="feedstate"></span></div>
+    <form id="resolve-form" class="card form" autocomplete="off">
+      <h3>Resolve an escalation</h3>
+      <p class="hint">Tap “resolve” on an open one to fill in its number. The outcome is queued for Render.</p>
+      <label>Number <input id="resolve-id" type="number" min="1" inputmode="numeric"></label>
+      <label class="wide">Outcome <textarea id="resolve-outcome" rows="2" maxlength="2000" placeholder="what was decided and done"></textarea></label>
+      <button type="submit">Resolve</button>
+    </form>
+    <h3>Open</h3>
+    <div class="scroll" data-slot="open"></div>
+    <h3>Resolved</h3>
+    <div class="scroll" data-slot="resolved"></div>
+  </section>
+
+  <section id="tab-tips" class="tab" hidden>
+    <div class="feedhead"><h2>Tips</h2><span class="feedstate"></span></div>
+    <div class="summary" data-slot="summary"></div>
+    <h3>Per source</h3>
+    <div class="scroll" data-slot="sources"></div>
+    <h3>Last 100 tips</h3>
+    <div class="scroll" data-slot="tips"></div>
+  </section>
+
+  <section id="tab-model" class="tab" hidden>
+    <div class="feedhead"><h2>Model</h2><span class="feedstate"></span></div>
+    <div class="summary" data-slot="summary"></div>
+    <h3>Slots</h3>
+    <div class="scroll" data-slot="slots"></div>
+  </section>
+
+  <section id="tab-hermes" class="tab" hidden>
+    <div class="feedhead"><h2>Hermes</h2><span class="feedstate"></span></div>
+    <div class="summary" data-slot="summary"></div>
+    <h3>hermes-gateway journal (last 50 lines)</h3>
+    <pre class="log" data-slot="journal"></pre>
+  </section>
+
+  <section id="tab-render" class="tab" hidden>
+    <div class="feedhead"><h2>Render</h2><span class="feedstate"></span></div>
+    <div class="summary" data-slot="summary"></div>
+    <h3>/api/ready</h3>
+    <pre class="log" data-slot="ready"></pre>
+    <h3>Last link-check</h3>
+    <pre class="log" data-slot="linkcheck"></pre>
+  </section>
+</main>
+<footer class="foot">Reads need nothing; actions need the token. Every action is logged to <code>data/console-actions.log</code>. The console never loads a page and never talks to a bookmaker.</footer>
+</body>
+</html>

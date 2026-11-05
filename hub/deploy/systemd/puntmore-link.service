@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/Projects/puntmore/home
+WorkingDirectory=%h/Projects/puntmore/hub
 ExecStart=%h/.venvs/puntmore/bin/puntmore link
 Restart=always
 RestartSec=5
