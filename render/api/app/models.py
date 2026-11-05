@@ -317,7 +317,7 @@ class LadderShadow(Base):
 
 # The scraper control plane (scraper_leagues, scraper_markets,
 # scraper_timings, scraper_target_status, scraper_site_status) was removed on
-# 5 Nov 2026: the Worker reads targets.toml on the Hub. Its tables are left in
+# 5 Nov 2026: the Scraper (then called the Worker) reads targets.toml on the Hub. Its tables are left in
 # the database untouched until someone drops them.
 
 

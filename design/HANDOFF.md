@@ -1,5 +1,11 @@
 # Handoff: Puntmore — Betting Intelligence PWA
 
+> **History (superseded 5 Nov 2026).** The original design handoff: three
+> feeds (coupon, tennis, C/C) and their bottom tabs. The app's tools, routes
+> and navigation have changed since; what is true now is `docs/decisions.md`
+> and `docs/architecture.md`. The paper theme and type rules live on in
+> `PLAN.md` → Decisions → Design.
+
 ## Overview
 Puntmore is a mobile betting-intelligence **Progressive Web App (PWA)**. Users log in to a provisioned account and track value bets across three feeds: a **coupon tracker** (accumulators they've uploaded), a **tennis tracker**, and a **corners & cards (C/C) tracker**. The app surfaces "value" — the model's edge (positive EV %) on each bet. Support flows let users **switch coupons** and **upload new coupon files**.
 

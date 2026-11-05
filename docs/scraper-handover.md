@@ -2,8 +2,14 @@
 
 > **Superseded, 5 Nov 2026.** The control plane described here (the
 > `/scraper` page, `/api/scraper/config`, `/api/scraper/status`) was removed:
-> the Worker reads `targets.toml` on the Hub (PLAN.md, Decisions and item 11).
-> Kept as the record of what was built.
+> the Scraper (then called the Worker) reads `targets.toml` on the Hub
+> (`docs/decisions.md`; PLAN.md item 11). Also history: the Scraper now runs
+> as the user service `puntmore-scraper` on the Hub's desktop session, in real
+> Chrome on the real display, updated by `puntmore-update.timer`; the Docker
+> image, Xvfb, VNC and the `update.sh` cron described below are the fallback
+> for a box with no screen only. The repo was then `/home/callum/bettingtools`
+> and the scraper `local/scraper/`; both are now `~/Projects/puntmore` and
+> `scraper/`. Kept as the record of what was built.
 
 For the agent doing the scraper build. Verified against the repo and the
 running box on 26 Oct 2026; nothing here is a guess. Repo

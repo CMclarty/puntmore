@@ -64,7 +64,7 @@ def get_value_for(
     perms: str = Depends(user_permissions),
     db: Session = Depends(get_db),
 ):
-    """One source's value selections (paddy | 365 | scorers | coupon | 2up)."""
+    """One source's value selections (paddy | scorers | coupon | 2up)."""
     if source not in service.BY_NAME or not service.source_enabled(service.BY_NAME[source]):
         raise HTTPException(status_code=404, detail=f"Unknown source: {source}")
     allowed = [s for s in service.visible_sources(perms) if s.name == source]

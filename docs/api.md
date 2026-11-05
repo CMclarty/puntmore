@@ -66,11 +66,11 @@ above are the only env-configured ones.
 
 ```
 GET /api/value?min_edge=&kickoff_within_hours=&bookmaker=
-GET /api/value/{source}            # paddy | 365 | scorers | coupon | 2up
+GET /api/value/{source}            # paddy | scorers | coupon | 2up
 ```
 
 Grant `value` (or `*`) sees every source; a tool grant sees that tool's
-source only (`cards` → paddy, `accabonus` → 365, `goalscorers` → scorers,
+source only (`cards` → paddy, `goalscorers` → scorers (parked),
 `coupons` → coupon, `accabonus` → 2up); none of them → `403`. A source whose
 tool is switched off on the server (`ENABLE_*`; 2up has `ENABLE_TWOUP`) is not
 listed. On `2up` rows `fair` is the 2-up-adjusted fair price
@@ -87,8 +87,8 @@ Response (`ValueFeedOut`):
 ```json
 {
   "generated_at": "2026-10-26T15:00:00Z",
-  "sources": ["paddy", "365", "scorers", "coupon"],
-  "errors": {"365": "RuntimeError: ..."},
+  "sources": ["paddy", "coupon", "2up"],
+  "errors": {"2up": "RuntimeError: ..."},
   "selections": [ValueSelection, ...]
 }
 ```
@@ -100,7 +100,7 @@ empty list is never ambiguous. Selections are sorted by edge, best first.
 
 | Field | |
 |---|---|
-| `source` | `paddy` \| `365` \| `scorers` \| `coupon` \| `2up` |
+| `source` | `paddy` \| `scorers` \| `coupon` \| `2up` |
 | `bookmaker` | `paddypower` \| `bet365` \| `williamhill` |
 | `event_id` | the source's own fixture id, or null |
 | `event`, `home`, `away` | the fixture as the source names it |
@@ -118,7 +118,7 @@ empty list is never ambiguous. Selections are sorted by edge, best first.
 | `seen_at` | when the price was read or the row computed (UTC) |
 
 Each source is the tool's own feed builder (`app/cards/feed.py`,
-`app/accabonus/feed.py`, the stored goalscorer rows, the coupon tracker's
+`app/twoup/feed.py`, the stored goalscorer rows (parked), the coupon tracker's
 priced legs still to kick off), so the feed can never disagree with the pages.
 It reads the same caches as the pages: polling costs no vendor quota beyond
 what the pages cost, and prices refresh every ~2 minutes. Integer and quarter
@@ -138,8 +138,7 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 | state (`state`) | `GET /state` | whole-app snapshot |
 | coupons (`coupons`) | `GET /coupons/types`, `/coupons/types/{type}/selections`, `/coupons/types/{type}/bundles`, `/coupons/periods`, `/coupons/upload-options`, `/coupons`, `/coupons/{id}/legs` | tracker reads |
 | coupons (`coupons`) | `POST /coupons/{id}/refresh`, `PATCH /coupons/{id}/legs/{leg}`, `POST /upload`, `POST /upload/{id}/rescan` | re-price, correct, upload a photo |
-| 365 acca (`accabonus`) | `GET /accabonus/feed`, `/accabonus/arbs`, `/accabonus/diagnostics`, `/accabonus/eligible-keys`, `/accabonus/probe-books` (costs credits) | |
-| 365 scorers (`goalscorers`) | `GET /goalscorers/feed` | |
+| 365 scorers (`goalscorers`) | `GET /goalscorers/feed` — PARKED, not mounted (`ENABLE_GOALSCORERS=false`) | |
 | 365 2-Up (`accabonus`) | `GET /2up/feed`, `/2up/ledger/{client_id}`, `/2up/diagnostics`; `POST /2up/clients/{client_id}/kill`, `/resume` | priced candidates, a client's bets/balances/exposure, the kill switch |
 | Paddy (`cards`) | `GET /paddy/feed`, `/paddy/diagnostics`, `/paddy/shadow`, `/paddy/oddspapi-check` | |
 | Paddy ingest (`ingest`) | `POST /paddy/saves-fair`, `POST /paddy/most-prices` | scraper writes |
@@ -181,6 +180,6 @@ keeps its v1 behaviour until every caller has moved.
 | auth, grants, key resolution | `render/api/app/security.py` |
 | API clients table / CLI | `render/api/app/models.py::ApiClient`, `render/api/app/apikeys.py` |
 | value feed | `render/api/app/value/service.py`, `render/api/app/routers/value.py` |
-| per-tool services | `render/api/app/cards/feed.py`, `render/api/app/accabonus/feed.py`, `render/api/app/coupons/service.py`, `render/api/app/pnl/service.py`, `render/api/app/shop/service.py` (+ the existing `cards/`, `goalscorers/` packages) |
+| per-tool services | `render/api/app/cards/feed.py`, `render/api/app/twoup/feed.py`, `render/api/app/coupons/service.py`, `render/api/app/pnl/service.py`, `render/api/app/shop/service.py` (+ the existing `cards/`, `goalscorers/` packages) |
 | response models | `render/api/app/schemas.py` |
 | route walk test | `render/api/tests/test_openapi.py` |

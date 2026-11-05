@@ -1,6 +1,7 @@
 # api/ — rules for the Render service
 
-The repo's `CLAUDE.md` applies everywhere and wins on any conflict. This file is
+`docs/decisions.md` is read first and wins over this file; the repo's
+`CLAUDE.md` applies everywhere and wins over this file on any other conflict. This file is
 what is specific to the FastAPI backend: moved verbatim from `CLAUDE.md` on
 5 Nov 2026, reasons and incident history included, because the rules are
 scars and the next agent "fixes" a rule it does not understand.
@@ -102,13 +103,13 @@ because that rules out the key and the network in one line.
 
 Both live behind their seams. Core logic never calls a vendor API directly.
 
-## 365 tool (acca boost + goalscorers + 2-Up, one tool — PLAN item 11)
+## 365 tool (the 2-Up engine; acca boost returns on OddsPapi, goalscorers parked — one tool, PLAN item 11)
 - **The 2-up edge is proven** (Callum, 5 Nov 2026). Do not re-litigate it,
   model it from scratch, or gate the build on a literature review.
 - **The rescue model is fine-tuned during testing against Bookie Bashing's
-  2-up tracker.** By hand: BB's terms ban automated access (see the
-  BookieBashing constraint under Cards & Corners), so neither the engine nor
-  the Hub's Worker ever fetches the tracker. The comparison is a
+  2-up tracker.** By hand: BB's terms ban automated access
+  (`docs/decisions.md`, "Scraping conduct"), so neither the engine nor
+  the Hub's Scraper ever fetches the tracker. The comparison is a
   user-triggered step and its results are recorded in the tool's notes.
 - Bet lists it emits go to the Hub over `hub/PROTOCOL.md`; nothing in `api/`
   places a bet.
@@ -366,9 +367,10 @@ Invariants — do not relax:
     title, the period and the ladder. Strips are told the headings in print
     order (`OcrHint.headings`) because the header is usually above the cut,
     and are told to leave out any row the cut slices through.
-- (History: the old vendor's free tier was 500 credits/month. The 24-hour
-  cache (`Settings.odds_cache_ttl`, `app/odds/client.py`) keeps this safe — do
-  not lower the default. A paid-tier upgrade is an `.env` change only.
+- (History: the old vendor's free tier was 500 credits/month and a 24-hour
+  cache in `app/odds/client.py` kept it safe; both are gone, 5 Nov 2026.) Now:
+  the coupon board reads through `Settings.coupon_odds_cache_ttl` (600 s, the
+  refresh cadence) on the shared OddsPapi client's budget.
 - The refresh loop runs every 10 minutes; it recomputes value locally and reads
   through the odds cache, so it never increases API call frequency. Never make
   it bypass the cache.
@@ -494,11 +496,11 @@ Refresh cadence is 10 min, reading through the cache — it never adds vendor
 calls. To add a provider, implement `OddsProvider` and add an `elif` on
 `settings.coupon_odds_source` in the `main.py` lifespan.
 
-### Cards & Corners (`app/cards/`) — TWO vendors, on purpose
+### Paddy (`app/cards/`) — OddsPapi
 Both sides come from **OddsPapi** (Oct 2026, below): Paddy Power's prices and
-Pinnacle's fair reference, joined on the same fixture id. The two-vendor split
-in the heading is history (TheOddsApi for Paddy, bettingiscool for Pinnacle);
-the regions lesson from it still holds.
+Pinnacle's fair reference, joined on the same fixture id. (History: it was two
+vendors, TheOddsApi for Paddy and bettingiscool for Pinnacle; the regions
+lesson from that still holds.)
 - **Regions describe the BOOKMAKER, not the league.** Paddy Power prices La Liga
   from `uk` perfectly well; the competition is chosen by sport key and the
   fixture list is free. Getting this backwards is what produced the original
@@ -506,8 +508,7 @@ the regions lesson from it still holds.
 - **OddsPapi is the ONLY source for the Paddy tool** (Oct 2026): Paddy's prices
   and Pinnacle's fair side, joined on the same fixture id. The TheOddsApi Paddy
   path (`CardsApiClient`, its tiered window/cadence, `probe-books`, the daily
-  call budget) is gone; TheOddsApi serves goalscorers
-  only, guarded by `cards_quota_reserve` on its `x-requests-remaining` header.
+  call budget) is gone, and TheOddsApi with it (5 Nov 2026).
 - **Every line PADDY POWER quotes is priced, off Pinnacle's fitted ladder**
   (`cards/laddered.py`) — or the team split where Pinnacle posts one line, or
   Pinnacle's own rung de-vigged where nothing fits. The matched-line path is
@@ -644,11 +645,13 @@ the regions lesson from it still holds.
   means fewer than N, not the standard line. The builder lists a game only
   when some bookmaker has posted a saves line for it (the Premier League is
   often empty until a day or two before kickoff). Its docstring has the rest.
-- `cards/pinnacle.py` returns **RAW** prices. De-vigging lives in
+  **OPEN, Callum to decide** (`docs/decisions.md`, "Scraping conduct"): this
+  BB target (`bb-saves`, driven after a person logs in) predates the rule that
+  BB is never automated; keep it as the single named exception, or disable it.
+- `cards/oddspapi.py` returns **RAW** prices. De-vigging lives in
   `cards/value.py`; handing it fair prices would de-vig them twice.
-- `merge_pinnacle` joins the two vendors into one event so `value.py` stays
-  vendor-agnostic — swapping either side back is a change in that function
-  alone.
+- `merge_books` (`cards/oddspapi.py`) joins the books into one event on the
+  fixture id so `value.py` stays vendor-agnostic.
 - The sweep's Discord dedupe (`scheduler._cards_notified`) is IN MEMORY and is
   swept each pass. Cards rows are computed, never stored, so there is no row to
   flag — but the map must keep dropping bets that fall off the sweep, or it is
@@ -661,7 +664,8 @@ the regions lesson from it still holds.
 `notify_rows(notifier, tool, header, rows)`, which routes each row to its
 tool's channel — or a higher edge band's (`paddy@0.08=URL`) — and falls back
 to the default webhook; system messages always use the default. Tools:
-`coupons`, `paddy`, `365` (acca boost + goalscorers). Value-bet alerts from the refresh loop
+`coupons`, `paddy`, `365` (the 365 tool's channel; only parked goalscorers
+wrote to it, and 2-Up sends no value alerts yet). Value-bet alerts from the refresh loop
 are deduped via `legs.notified_tier` (notify only on new/changed tier) — keep
 that behaviour when touching the loop, or live coupons re-alert every 10 min.
 

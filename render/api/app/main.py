@@ -308,9 +308,8 @@ app.include_router(auth_router.router)
 # part of the coupon tracker, so it shares the "coupons" grant.
 app.include_router(coupons.router, dependencies=[Depends(require_tool("coupons"))])
 app.include_router(upload_router, dependencies=[Depends(require_tool("coupons"))])
-# AccaBonus and Cards/Corners are hidden for now (coupon-tracker-only mode,
-# PLAN.md v5). Code is kept; the routers are only mounted when re-enabled via
-# the ENABLE_ACCABONUS / ENABLE_CARDS flags in .env.
+# Paddy (the old Cards/Corners) is mounted on ENABLE_CARDS. (The AccaBonus
+# package and ENABLE_ACCABONUS were removed 5 Nov 2026; docs/decisions.md.)
 if settings.enable_cards:
     # The tool is "Paddy" now — corners, cards, goals and saves — so it lives
     # under /paddy. /cards stays as an alias for installed app shells and
