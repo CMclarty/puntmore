@@ -18,6 +18,7 @@ This is the Hub side of the Puntmore 2-Up Engine. Render (cloud) prices and deci
 | Change where the Worker's drops are read from | `.env` (`PUNTMORE_WORKER_DATA`) |
 | Add a bookmaker account (sub-client) | `sub_clients.yaml` (see `sub_clients.example.yaml`) |
 | Implement real placement | `puntmore_hub/placement/adapters/phone.py` |
+| See what the Hub is doing | open the console at http://127.0.0.1:8090 (`puntmore web`, unit `puntmore-web`; code in `puntmore_hub/web/`) |
 | Change what Render and the Hub say to each other | `PROTOCOL.md`, `schemas/protocol.schema.json`, an example in `schemas/examples/`, `puntmore_hub/schemas.py`, and the Render side in `api/`, all in ONE pull request |
 
 ## Checks
