@@ -647,6 +647,107 @@ class TwoUpLedgerOut(BaseModel):
     balances: list[TwoUpBalanceOut]
 
 
+# --- Bet Finder (app/betfinder/) ----------------------------------------------
+
+class BetFinderStatsBlock(BaseModel):
+    settled: int
+    won: int
+    lost: int
+    partial: int
+    void: int
+    strike_rate: Optional[float] = None    # won / (won + lost + partial)
+    roi: Optional[float] = None            # level-stake, per non-void tip
+    staked: float
+    returned: float
+
+
+class BetFinderSourceStats(BaseModel):
+    all: BetFinderStatsBlock
+    rolling: BetFinderStatsBlock           # the last `window` settled tips
+    window: int
+    tips: dict[str, int]                   # tips by pipeline status
+
+
+class BetFinderSourceOut(BaseModel):
+    name: str
+    kind: str                              # hub | imap (a seam: not implemented)
+    trust_weight: float                    # set by hand; never adjusted by the code
+    active: bool
+    stake_mode: str                        # auto | advised | kelly
+    note: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    stats: Optional[BetFinderSourceStats] = None
+
+
+class BetFinderSourceIn(BaseModel):
+    trust_weight: Optional[float] = Field(None, ge=0.0, le=1.0)
+    active: Optional[bool] = None
+    stake_mode: Optional[str] = Field(None, pattern="^(auto|advised|kelly)$")
+    kind: Optional[str] = Field(None, pattern="^(hub|imap)$")
+    note: Optional[str] = Field(None, max_length=500)
+
+
+class BetFinderTipOut(BaseModel):
+    """A tip as the pipeline holds it. The `*_raw` fields are the source's
+    text, untrusted: display them as text, never interpret them."""
+    tip_id: str
+    hub_client_id: str
+    source: str
+    origin: Optional[str] = None
+    event_raw: str
+    market_raw: str
+    selection_raw: str
+    market: str
+    tip_time: Optional[datetime] = None
+    expiry: Optional[datetime] = None
+    advised_price: Optional[float] = None
+    advised_stake_units: Optional[float] = None
+    status: str
+    quarantine: Optional[str] = None
+    quarantine_detail: Optional[str] = None
+    retry_until: Optional[datetime] = None
+    duplicate_of: Optional[str] = None
+    event_id: Optional[str] = None
+    event: Optional[str] = None
+    selection: Optional[str] = None
+    side: Optional[str] = None
+    kickoff: Optional[datetime] = None
+    competition: Optional[str] = None
+    match_score: Optional[float] = None
+    price: Optional[float] = None          # bet365
+    p_win: Optional[float] = None          # Pinnacle de-vigged
+    fair_price: Optional[float] = None
+    edge: Optional[float] = None           # p_win - 1/price, rescue 0
+    priced_at: Optional[datetime] = None
+    bet_ids: list[str]
+    outcome: Optional[str] = None
+    staked: Optional[float] = None
+    returned: Optional[float] = None
+    settled_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class BetFinderCandidateOut(BaseModel):
+    """What `extra_candidates` would hand the owner's decision now."""
+    event_id: str
+    event: str
+    kickoff: datetime
+    selection: str
+    side: str
+    price: float
+    p_win: float
+    fair_price: Optional[float] = None
+    edge: float
+    source: str
+    source_scope: str
+    extra: dict[str, Any]
+
+
+class BetFinderRunOut(OpenModel):
+    at: str
+
+
 class TwoUpDiagnosticsOut(OpenModel):
     feed: dict[str, Any]
     rescue_table: dict[str, Any]

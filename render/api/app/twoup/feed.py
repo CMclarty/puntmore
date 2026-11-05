@@ -96,6 +96,13 @@ class TwoUpFeed:
         self._cache.set("feed", rows)
         return rows
 
+    def cached(self) -> list[Candidate] | None:
+        """The last priced feed if it is still inside its TTL, else None.
+        Never refreshes, so a caller that must not spend a request (the Bet
+        Finder pass) reads only what the 2-Up pass already paid for."""
+        hit = self._cache.get("feed")
+        return None if hit is MISS else hit
+
     def value(self, now: datetime | None = None) -> list[Candidate]:
         """Candidates that pass the price band and the edge floor, best first."""
         rows = [c for c in self.candidates(now) if model.passes_filters(c, self.params) is None]

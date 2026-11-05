@@ -41,11 +41,42 @@ logger = logging.getLogger("uvicorn.error")
 LAST_RUN: dict = {}
 
 
-def extra_candidates(db: Session, client_id: str) -> list[Candidate]:
-    """Bet Finder candidates for this client. Left returning [] — the
-    orchestrator fills it in. Rows must carry `source_scope="owner"`; the
-    decision only ever considers them for the owner client."""
-    return []
+def extra_candidates(db: Session, client_id: str, now: datetime | None = None) -> list[Candidate]:
+    """Bet Finder candidates for this client (`app/betfinder/candidates.py`):
+    priced tips from active sources, for the owner client only, every row
+    `source_scope="owner"` — and the decision drops any owner row that
+    reaches another client regardless. [] for everyone else."""
+    from ..betfinder.candidates import extra_candidates as bet_finder_rows
+    return bet_finder_rows(db, client_id, now=now)
+
+
+def target_stake(c: Candidate, bankroll: float, params: Params) -> float:
+    """The unrounded total stake for a candidate before the account split.
+
+    2-Up rows: fractional Kelly on the pool (`model.kelly_stake`). Bet Finder
+    rows may carry `extra["fixed_stake"]` (the tip's advised units in pounds),
+    bounded by the same per-selection fraction of the pool; and
+    `extra["stake_scale"]` (the source's trust weight) scales either. Every
+    cap after this — the pool left, account preservation, balances — applies
+    unchanged."""
+    extra = c.extra or {}
+    fixed = extra.get("fixed_stake")
+    if fixed is not None:
+        raw = min(max(0.0, float(fixed)), params.max_selection_fraction * max(0.0, bankroll))
+    else:
+        raw = model.kelly_stake(c, bankroll, params)
+    scale = extra.get("stake_scale")
+    if scale is not None:
+        raw *= min(1.0, max(0.0, float(scale)))
+    return raw
+
+
+def _filters_for(c: Candidate, params: Params) -> Params:
+    """A Bet Finder row carries its own edge floor (`betfinder_min_edge`):
+    its edge has no 2-up rescue in it, so the 2-up floor is not its bar."""
+    if c.source_scope == "owner" and (c.extra or {}).get("min_edge") is not None:
+        return params.but(min_edge=float(c.extra["min_edge"]))
+    return params
 
 
 def bet_id_for(client_id: str, account_id: str, event_id: str, selection: str,
@@ -116,11 +147,24 @@ def decide(db: Session, client_id: str, candidates: list[Candidate], *,
 
     # Bet Finder rows are the owner's alone; any that reach another client
     # are dropped here, whatever produced them.
-    pool = list(candidates) + list(extra_candidates(db, client_id))
+    pool = list(candidates) + list(extra_candidates(db, client_id, now=now))
     owner_rows = [c for c in pool if c.source_scope == "owner"]
     if not client.is_owner and owner_rows:
         out.drop("owner-only candidate", len(owner_rows))
         pool = [c for c in pool if c.source_scope != "owner"]
+    # One row per selection: a Bet Finder tip on a selection the 2-Up feed
+    # also offers would otherwise stake it twice in one pass (on two
+    # accounts). The higher edge wins — the 2-Up row, whose edge counts the
+    # rescue; the tip is then dropped as "already bet today" on later passes.
+    best: dict[tuple, Candidate] = {}
+    for c in pool:
+        key = (c.event_id, c.selection)
+        if key in best:
+            out.drop("same selection twice")
+            if c.edge <= best[key].edge:
+                continue
+        best[key] = c
+    pool = list(best.values())
 
     # What this client already has today: never the same selection twice,
     # except a re-price after price_changed.
@@ -141,7 +185,7 @@ def decide(db: Session, client_id: str, candidates: list[Candidate], *,
             reported = min((b.new_price for b in prior if b.new_price), default=None)
             price = min(c.price, reported) if reported else c.price
             c = replace(c, price=price, edge=model.edge(c.p_win, c.rescue, price))
-        reason = model.passes_filters(c, params)
+        reason = model.passes_filters(c, _filters_for(c, params))
         if reason:
             out.drop(reason)
             continue
@@ -175,7 +219,7 @@ def decide(db: Session, client_id: str, candidates: list[Candidate], *,
             continue
         # Constraint 1 (bankroll): Kelly on the pool, never past what the
         # pool has left after open exposure and this pass's bets.
-        total = model.round_stake(min(model.kelly_stake(c, bankroll, params), pool_left),
+        total = model.round_stake(min(target_stake(c, bankroll, params), pool_left),
                                   cap=pool_left)
         if total <= 0:
             out.drop("stake rounds to nothing")
@@ -255,6 +299,19 @@ def run_all(db: Session, feed, *, now: datetime | None = None,
         return summary
     candidates = feed.value(now)
     summary["candidates"] = len(candidates)
+    if settings.enable_betfinder:
+        # Re-price the open Bet Finder tips off the feed just read (a cache
+        # hit, no request), so `extra_candidates` offers this pass's prices.
+        # Its failure must never stop the 2-Up pass.
+        try:
+            from ..betfinder import pipeline
+            summary["betfinder"] = pipeline.price_open(
+                db, feed.candidates(now), now, degraded=bool(feed.status().get("degraded")))
+        except Exception as exc:
+            db.rollback()
+            summary["betfinder"] = {"error": type(exc).__name__}
+            logger.warning("2up decision: Bet Finder re-price failed (%s); 2-Up continues",
+                           type(exc).__name__)
     queued = 0
     for client in ledger.clients(db):
         try:

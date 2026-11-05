@@ -51,6 +51,7 @@ from .routers import scraper as scraper_router
 from .routers import value as value_router
 from .routers import hub_ws as hub_ws_router
 from .routers import twoup as twoup_router
+from .routers import betfinder as betfinder_router
 from . import diagnostics
 
 logger = logging.getLogger("uvicorn.error")
@@ -75,6 +76,11 @@ async def lifespan(app: FastAPI):
         from .twoup.ledger import ensure_clients
         if ensure_clients(db):
             logger.info("2up: seeded client(s)/account(s) from TWOUP_CLIENTS")
+        # Bet Finder sources named in BETFINDER_SOURCES that have no row.
+        # Existing rows (trust, active, stake mode) are never touched.
+        from .betfinder.sources import ensure_sources
+        if ensure_sources(db):
+            logger.info("betfinder: seeded source(s) from BETFINDER_SOURCES")
         created, regranted = seed_users(db, settings.auth_users)
         if created:
             logger.info("Seeded %d user(s) from AUTH_USERS", created)
@@ -391,6 +397,9 @@ app.include_router(shop_router.router, dependencies=[Depends(require_tool("shop"
 # not ENABLE_ACCABONUS: the acca page can stay hidden while 2-Up runs dry.
 if settings.enable_twoup:
     app.include_router(twoup_router.router, dependencies=[Depends(require_tool("accabonus"))])
+    # The Bet Finder's operator routes: same tool, same grant.
+    app.include_router(betfinder_router.router,
+                       dependencies=[Depends(require_tool("accabonus"))])
 # The scraper's control plane: the page edits it under the `scraper` grant;
 # the scraper box reads its config and reports status with the ingest key.
 app.include_router(scraper_router.router, dependencies=[Depends(require_tool("scraper"))])
