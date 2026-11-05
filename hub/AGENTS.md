@@ -23,7 +23,7 @@ This is the Hub side of the Puntmore 2-Up Engine. Render (cloud, `api/`) prices 
 
 ## Checks
 ```
-cd home && ~/.venvs/puntmore/bin/pytest -q  # must pass before any commit
+cd hub && ~/.venvs/puntmore/bin/pytest -q   # must pass before any commit
 puntmore health                             # exit 1 = something needs attention
 puntmore parser-test <parser> <saved page>  # before enabling a source
 ```
