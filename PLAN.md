@@ -464,6 +464,12 @@ and `/state`. AccaBonus is not live (`enable_accabonus` False).
 - [ ] **Merge 365 and 2-Up into one tool**: one router, one page with tabs,
       one grant; the 2-Up engine arrives as the third tab when built.
       Goalscorers moves onto OddsPapi as part of this.
+      **The 2-up edge is proven** (Callum, 5 Nov 2026) — do not re-litigate
+      it or gate the build on a literature review. The rescue model is
+      fine-tuned during testing against Bookie Bashing's 2-up tracker.
+      That tuning is a MANUAL, user-triggered comparison: BB's terms ban
+      automated access (`api/AGENTS.md`, BookieBashing constraint), so the
+      tracker is never scraped by the engine or the Worker.
 - [ ] **Remove the `/scraper` control page** and its routes; the worker reads
       `targets.toml` on the Hub, edited by Hermes.
 Definition of Done: `grep -ri "theoddsapi\|bettingiscool\|odds_api_key" api/`
