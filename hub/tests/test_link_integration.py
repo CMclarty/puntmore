@@ -67,3 +67,38 @@ def test_bad_key_is_refused_and_link_keeps_retrying(cfg, store):
         await server.stop()
 
     asyncio.run(scenario())
+
+
+def test_unacked_messages_are_resent_on_reconnect(cfg, store):
+    """PROTOCOL.md: the Hub re-sends anything un-acked after a reconnect, under the same msg_id."""
+    async def scenario():
+        server = MockRender(api_key="test-key")
+        server.silent = True
+        await server.start()
+        live = cfg.with_overrides(render_ws_url=f"ws://127.0.0.1:{server.port}", render_api_key="test-key")
+        link = RenderLink(store, cfg=live)
+        task = asyncio.create_task(link.run())
+        try:
+            await server.wait_for(lambda: server.of_type("hello"))
+            mid = link.enqueue("report", {"kind": "placed", "bet_id": "b-200", "actual_price": 2.0,
+                                          "timestamp": "2026-11-05T12:00:00+00:00", "dry_run": True})
+            await server.wait_for(lambda: server.of_type("report"))
+            assert store.outbox_pending() == []                       # sent once on this socket
+            assert [r["msg_id"] for r in store.outbox_unacked()] == [mid]
+
+            server.silent = False
+            await server.drop_clients()                               # Render restarts; the link reconnects
+            await server.wait_for(lambda: len(server.of_type("hello")) == 2, timeout=10)
+            await server.wait_for(lambda: len(server.of_type("report")) == 2, timeout=10)
+            assert [e.msg_id for e in server.of_type("report")] == [mid, mid]
+            await server.wait_for(lambda: store.outbox_unacked() == [])
+        finally:
+            link.stop()
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+            await server.stop()
+
+    asyncio.run(scenario())

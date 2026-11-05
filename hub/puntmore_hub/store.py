@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS bets(
     bet_id TEXT PRIMARY KEY, account_id TEXT, body TEXT, received TEXT,
     status TEXT, actual_price REAL, updated TEXT);
 CREATE TABLE IF NOT EXISTS outbox(
-    id INTEGER PRIMARY KEY, msg_id TEXT UNIQUE, type TEXT, body TEXT, created TEXT, sent_at TEXT);
+    id INTEGER PRIMARY KEY, msg_id TEXT UNIQUE, type TEXT, body TEXT, created TEXT, sent_at TEXT, acked_at TEXT);
 CREATE TABLE IF NOT EXISTS inbox_seen(msg_id TEXT PRIMARY KEY, ts TEXT);
 CREATE TABLE IF NOT EXISTS escalations(
     id INTEGER PRIMARY KEY, kind TEXT, ref TEXT, detail TEXT, created TEXT,
@@ -69,6 +69,7 @@ class Store:
         self.conn = sqlite3.connect(self.path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate()
 
     def close(self) -> None:
         self.conn.close()
@@ -126,7 +127,19 @@ class Store:
                                  (account_id,)).fetchall()
         return sum(float(json.loads(r["body"]).get("stake", 0.0)) for r in rows)
 
+    def _migrate(self) -> None:
+        """Columns added after a database was first created."""
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(outbox)").fetchall()}
+        if "acked_at" not in cols:
+            self.conn.execute("ALTER TABLE outbox ADD COLUMN acked_at TEXT")
+            self.conn.commit()
+
     # ---- outbox / inbox --------------------------------------------------------------------------
+    # A message is `sent` when it went down the socket and `acked` when Render answered with its
+    # msg_id (PROTOCOL.md, "Idempotency and acknowledgement"). Only an ack finishes it: on every
+    # reconnect `outbox_resend_unacked` puts the sent-but-unacked ones back in the queue, same msg_id,
+    # so Render's replay check does the de-duplication. Control frames (ack, pong) are never acked by
+    # Render and are finished at send time.
     def outbox_add(self, type_: str, body: dict, msg_id: str | None = None) -> str:
         msg_id = msg_id or new_id()
         self.conn.execute("INSERT OR IGNORE INTO outbox(msg_id, type, body, created) VALUES(?,?,?,?)",
@@ -135,11 +148,33 @@ class Store:
         return msg_id
 
     def outbox_pending(self, limit: int = 100) -> list[sqlite3.Row]:
-        return self.conn.execute("SELECT * FROM outbox WHERE sent_at IS NULL ORDER BY id LIMIT ?", (limit,)).fetchall()
+        """What to send now: never sent on the current socket and not yet acked."""
+        return self.conn.execute("SELECT * FROM outbox WHERE sent_at IS NULL AND acked_at IS NULL ORDER BY id LIMIT ?",
+                                 (limit,)).fetchall()
 
-    def outbox_mark_sent(self, msg_id: str) -> None:
-        self.conn.execute("UPDATE outbox SET sent_at=? WHERE msg_id=?", (iso(utcnow()), msg_id))
+    def outbox_unacked(self) -> list[sqlite3.Row]:
+        """Everything Render has not acknowledged, sent or not."""
+        return self.conn.execute("SELECT * FROM outbox WHERE acked_at IS NULL ORDER BY id").fetchall()
+
+    def outbox_mark_sent(self, msg_id: str, acked: bool = False) -> None:
+        now = iso(utcnow())
+        self.conn.execute("UPDATE outbox SET sent_at=?, acked_at=COALESCE(acked_at, ?) WHERE msg_id=?",
+                          (now, now if acked else None, msg_id))
         self.conn.commit()
+
+    def outbox_mark_acked(self, msg_id: str) -> bool:
+        """Render acknowledged msg_id. Returns False if it was unknown or already acked."""
+        now = iso(utcnow())
+        cur = self.conn.execute("UPDATE outbox SET acked_at=?, sent_at=COALESCE(sent_at, ?) WHERE msg_id=? AND acked_at IS NULL",
+                                (now, now, msg_id))
+        self.conn.commit()
+        return cur.rowcount == 1
+
+    def outbox_resend_unacked(self) -> int:
+        """On a new socket: queue every sent-but-unacked message again. Returns how many."""
+        cur = self.conn.execute("UPDATE outbox SET sent_at=NULL WHERE acked_at IS NULL AND sent_at IS NOT NULL")
+        self.conn.commit()
+        return cur.rowcount
 
     def inbox_seen(self, msg_id: str) -> bool:
         """Record an inbound msg_id. Returns True if it had been seen before (replay)."""
@@ -193,5 +228,5 @@ class Store:
             "bets_placed": q("SELECT COUNT(*) FROM bets WHERE updated>=? AND status='placed'", s),
             "bets_failed": q("SELECT COUNT(*) FROM bets WHERE updated>=? AND status='failed'", s),
             "escalations_open": q("SELECT COUNT(*) FROM escalations WHERE resolved IS NULL"),
-            "outbox_pending": q("SELECT COUNT(*) FROM outbox WHERE sent_at IS NULL"),
+            "outbox_pending": q("SELECT COUNT(*) FROM outbox WHERE acked_at IS NULL"),
         }
