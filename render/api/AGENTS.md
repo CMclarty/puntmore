@@ -134,7 +134,8 @@ default and a reason.
   `apply_report`, `open_exposure`, `pending_bet_lists`, `mark_sent`: keep
   their names and signatures. Everything is scoped by `client_id`.
 - `decision.py` — per client per day; singles only (multiples are a noted
-  follow-up). `extra_candidates` is the Bet Finder seam (returns []).
+  follow-up). `extra_candidates` is the Bet Finder seam (`app/betfinder/`,
+  below); one row per selection per pass, the higher edge kept.
 - `scheduler.run_twoup` — every `twoup_decision_minutes`, and a no-op outside
   the betting window (no feed read, no request).
 
@@ -157,6 +158,73 @@ Invariants — do not relax:
 - The rescue table is tuned BY HAND (`tools/twoup_backtest.py` over a CSV
   you exported from Bookie Bashing's tracker; `--merge` writes a new table).
   Nothing here or on the Hub ever fetches the tracker.
+
+### Bet Finder (`app/betfinder/`, Nov 2026)
+Turns the tips a Hub sends (`tip` frames, stored in `hub_tips` by the Hub
+endpoint) into owner-only 2-Up candidates. Routes `routers/betfinder.py` at
+`/api/2up/betfinder/*` (sources list/edit, stats, tips, quarantine,
+candidates preview, run), behind the `accabonus` grant; settings
+`betfinder_*`; flag `ENABLE_BETFINDER`. Tests: `tests/test_betfinder.py`.
+- `sources.py` — the registry as data (`betfinder_sources`): name, kind,
+  trust weight 0..1, active, stake mode. Seeded from `BETFINDER_SOURCES`
+  (missing rows only). A tip from an unknown source creates it INACTIVE at
+  trust 0.5.
+- `pipeline.py` — ingest (one `betfinder_tips` row per hub tip), dedupe
+  (source + event + market + selection + London day of tip_time, on
+  NORMALISED text), match to a 2-Up feed fixture with the coupon tracker's
+  comparison (`GridCouponProvider._pair_score` over `team_similarity`,
+  `MATCH_THRESHOLD`, `fixture_checks`' senior check) and side reader
+  (`picks.side_of`), price: bet365's price and Pinnacle's de-vigged p_win
+  from the feed, rescue 0, edge = p_win − 1/price. Then link to the
+  owner client's ledger bets on that selection and copy the outcome back.
+- `candidates.py` — `extra_candidates`: priced, active-source, unexpired,
+  fresh (`betfinder_max_price_age_minutes`), not-yet-bet tips, owner client
+  only. Two sources on one selection → one row, the more trusted.
+  Stake mode per source: `advised` (units × `betfinder_unit_stake`),
+  `kelly` (the engine's), `auto` (advised when the tip has units). Either
+  is scaled by the trust weight and then bounded by every 2-Up cap
+  (`decision.target_stake`); the mode applied is in `Candidate.extra`.
+- `stats.py` — per source: strike rate (voids out) and LEVEL-STAKE ROI,
+  all-time and over the last `betfinder_stats_window` settled tips.
+- Scheduling: `scheduler.run_betfinder` every `betfinder_minutes`, day and
+  night, reads only the feed's cache (`TwoUpFeed.cached()`); the 2-Up pass
+  also re-prices open tips off the feed it has just read, so the decision
+  sees current prices. Neither adds an OddsPapi request.
+
+Invariants — do not relax:
+- **Never fetches.** No IMAP, no HTTP to a tipster, no page load, no
+  OddsPapi request of its own. Tips come over the Hub link; prices come
+  from the 2-Up feed. `kind=imap` on a source is a documented SEAM only: an
+  email/Substack tipster is read on the Hub and arrives as a `tip`.
+- **Never guesses.** Only Match Result is priced. Any other market, a draw
+  (the feed has no draw price), an event that is not "A v B", no fixture or
+  two equally good ones, a selection that names neither side, a side bet365
+  does not price, a non-owner Hub, bad advised units: QUARANTINED with a
+  fixed reason (`pipeline.REASONS`), shown at `/quarantine`, never a
+  candidate. "No fixture" / "no bet365 price" are retried until
+  `betfinder_match_days` after the tip; the rest are final. A feed that
+  cannot price quarantines nothing.
+- **Owner-only.** Rows are `source_scope="owner"` and are produced for
+  `HUB_OWNER_CLIENT_ID` only when the ledger also marks it `is_owner`; tips
+  from any other Hub are quarantined. The decision, `record_bet_list` and
+  `pending_bet_lists` refuse owner rows for anyone else regardless.
+- **Trust weight is set by hand.** Nothing in the code changes it; the
+  stats sit beside it so Cal can.
+- **Tip text is untrusted.** Stored truncated with control characters
+  removed, returned as text by the routes, never logged (log lines carry
+  counts only), never evaluated, never put in a prompt. Source names are
+  reduced to `[a-z0-9._- ]`. A tip's own `extra.trust_weight` is ignored.
+- **The ledger is read, never written** by the Bet Finder. A tip's record
+  is the owner client's bets on its selection, whichever row was bet, so
+  returns are bet365's real ones (an early payout counts as a win). In
+  dry-run no bet is ever sent or settled, so no source has a record yet.
+- **Rescue 0 has a consequence.** Every priced tip is a selection the 2-Up
+  feed prices too, at an edge higher by the rescue, and the decision bets a
+  selection once (higher edge). At `BETFINDER_MIN_EDGE=0` a tip is never
+  staked as a Bet Finder row where 2-Up would bet it anyway; its advised
+  stake applies only below the 2-Up floor, which in practice means a
+  negative `BETFINDER_MIN_EDGE` — backing a tipster against Pinnacle, a
+  call for Cal, not a default.
 
 ## Hard rules (do not violate)
 - The provider seams MUST stay behind their interfaces (see Provider guide

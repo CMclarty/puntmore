@@ -360,6 +360,18 @@ def run_twoup(feed) -> dict:
         db.close()
 
 
+def run_betfinder(feed=None) -> dict:
+    """The Bet Finder pass (app/betfinder/pipeline.py): bring new Hub tips
+    in, price them off the 2-Up feed's CACHE (never a refresh), link and
+    settle them against the ledger. Fetches nothing of any kind."""
+    from .betfinder.pipeline import run_pass
+    db = SessionLocal()
+    try:
+        return run_pass(db, feed)
+    finally:
+        db.close()
+
+
 def start_scheduler(
     odds_provider, notifier=None, odds_client=None, cards_client=None,
     twoup_feed=None,
@@ -442,6 +454,22 @@ def start_scheduler(
             trigger="interval",
             minutes=max(1, settings.twoup_decision_minutes),
             id="twoup_decision",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+            kwargs={"feed": twoup_feed},
+        )
+
+    # Bet Finder: every few minutes, day and night — ingest, dedupe and the
+    # ledger link cost nothing, and pricing reads only the feed's cache, so
+    # it never spends an OddsPapi request. Without a feed it still ingests
+    # and quarantines; nothing is priced.
+    if settings.enable_twoup and settings.enable_betfinder:
+        scheduler.add_job(
+            run_betfinder,
+            trigger="interval",
+            minutes=max(1, settings.betfinder_minutes),
+            id="betfinder",
             replace_existing=True,
             coalesce=True,
             max_instances=1,

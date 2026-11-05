@@ -15,7 +15,7 @@ flowchart LR
     APP["Puntmore app<br/>FastAPI + React, one origin; SQLite ledger on disk<br/><i>live</i>"]
     subgraph TWOUP["2up.puntmore.com — the 2-Up product, serves every client"]
       T365["365 tool<br/>acca boost + 2-Up engine (goalscorers parked)<br/><i>to build</i>"]
-      BFO["Bet Finder orchestrator<br/>turns the Hub's tips into candidate bets<br/><i>to build</i>"]
+      BFO["Bet Finder orchestrator<br/>turns the Hub's tips into candidate bets<br/><i>scaffold</i>"]
       HEP["Hub endpoint<br/>Render end of the WebSocket: bet lists down, reports up<br/><i>to build</i>"]
     end
     subgraph SHALGO["shalgo.puntmore.com — Paddy Power tools, fed by the Worker"]
@@ -57,7 +57,7 @@ flowchart LR
 |---|---|---|---|
 | Puntmore app | One FastAPI + React deploy serving the three hostnames; SQLite ledger on disk | Render | live |
 | 365 tool | Bet365 offers as one tool: acca boost, 2-Up engine; goalscorers parked | Render · 2up | to build (acca returns on OddsPapi; 2-Up spec only) |
-| Bet Finder orchestrator | Turns the Hub's tips into candidate bets | Render · 2up | to build |
+| Bet Finder orchestrator | Turns the Hub's tips into owner-only candidate bets: Match Result priced off the 2-Up feed, the rest quarantined; fetches nothing (`render/api/app/betfinder/`) | Render · 2up | scaffold (tested with fakes; no live tips yet) |
 | Hub endpoint | The Render end of the WebSocket | Render · 2up | to build (contract in `hub/PROTOCOL.md`) |
 | Coupon tracker | Photographed coupons priced off Pinnacle via the score grid | Render · shalgo | live |
 | Paddy | Corners, cards, goals and saves against Paddy Power; its own setup, fed by the Worker | Render · shalgo | live |

@@ -192,7 +192,7 @@ def test_owner_candidates_only_reach_the_owner(db):
     assert d.bets and all(b["source_scope"] == "owner" for b in d.bets)
 
 
-def test_extra_candidates_is_an_empty_seam(db):
+def test_extra_candidates_is_empty_without_bet_finder_tips(db):
     assert decision.extra_candidates(db, "owner") == []
 
 

@@ -545,3 +545,87 @@ class TwoUpBalance(Base):
     balance = Column(Float, nullable=False)
     ts = Column(DateTime, nullable=False)
     created_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class BetFinderSource(Base):
+    """One Bet Finder source (app/betfinder/sources.py): config as data.
+
+    Seeded from BETFINDER_SOURCES on startup (missing rows only, never an
+    edit); a tip from a source not here creates it INACTIVE at trust 0.5.
+    `trust_weight` (0..1) scales the stake and is set by hand, never by the
+    code. `stake_mode`: auto (advised units when the tip carries them, else
+    Kelly) | advised | kelly. `kind`: hub (tips over the Hub link) | imap (a
+    documented seam, not implemented: Render never fetches)."""
+    __tablename__ = "betfinder_sources"
+
+    name = Column(String, primary_key=True)
+    kind = Column(String, nullable=False, default="hub")
+    trust_weight = Column(Float, nullable=False, default=0.5)
+    active = Column(Boolean, nullable=False, default=False)
+    stake_mode = Column(String, nullable=False, default="auto")
+    note = Column(String, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class BetFinderTip(Base):
+    """One `hub_tips` row as the Bet Finder pipeline sees it (one per tip_id).
+
+    Kept apart from `hub_tips` (swept at 30 days) so a source's record
+    outlives the raw tip. The `*_raw` columns are the tip's text, truncated,
+    UNTRUSTED: shown, never logged, never put in a prompt. The feed columns
+    (event_id ... edge) are OddsPapi's, set when the tip is priced.
+
+    status: new -> priced -> decided -> settled | not_placed, or quarantined
+    (with a `quarantine` reason), duplicate (of `duplicate_of`), expired."""
+    __tablename__ = "betfinder_tips"
+
+    id = Column(Integer, primary_key=True)
+    tip_id = Column(String, unique=True, nullable=False)
+    hub_client_id = Column(String, nullable=False)
+    source = Column(String, nullable=False, index=True)
+    origin = Column(String, nullable=True)
+    event_raw = Column(String, nullable=False)
+    market_raw = Column(String, nullable=False)
+    selection_raw = Column(String, nullable=False)
+    market = Column(String, nullable=False)              # normalised ("match_result", ...)
+    dedupe_key = Column(String, nullable=False, index=True)
+    tip_time = Column(DateTime, nullable=True)           # naive UTC
+    tip_day = Column(Date, nullable=True)
+    expiry = Column(DateTime, nullable=True)
+    advised_price = Column(Float, nullable=True)
+    advised_stake_units = Column(Float, nullable=True)
+    status = Column(String, nullable=False, default="new", index=True)
+    quarantine = Column(String, nullable=True)
+    duplicate_of = Column(String, nullable=True)
+    # From the 2-Up feed once matched and priced.
+    event_id = Column(String, nullable=True, index=True)
+    event = Column(String, nullable=True)
+    home = Column(String, nullable=True)
+    away = Column(String, nullable=True)
+    selection = Column(String, nullable=True)
+    side = Column(String, nullable=True)
+    kickoff = Column(DateTime, nullable=True)
+    competition = Column(String, nullable=True)
+    match_score = Column(Float, nullable=True)
+    price = Column(Float, nullable=True)                 # bet365
+    p_win = Column(Float, nullable=True)                 # Pinnacle de-vigged
+    fair_price = Column(Float, nullable=True)
+    edge = Column(Float, nullable=True)                  # p_win - 1/price (rescue 0)
+    priced_at = Column(DateTime, nullable=True)
+    # From the 2-Up ledger once bet and settled.
+    bet_ids = Column(Text, nullable=False, default="[]")
+    outcome = Column(String, nullable=True)
+    staked = Column(Float, nullable=True)
+    returned = Column(Float, nullable=True)
+    settled_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow)
+
+    @property
+    def bet_id_list(self) -> list:
+        try:
+            v = json.loads(self.bet_ids or "[]")
+        except ValueError:
+            return []
+        return v if isinstance(v, list) else []
