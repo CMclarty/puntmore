@@ -15,6 +15,11 @@ Invariants (render/api/AGENTS.md, "Hub endpoint"):
   `mark_sent` runs only on the ack. A bet is never listed again in a new frame,
   so a failed bet is never resent.
 - An `owner`-scope bet goes only to `settings.hub_owner_client_id`.
+- A Hub whose last `hello` said `kill_switch: true` is sent NO bet list (new
+  or re-delivered) until a later hello says false; its kill_switch and
+  scrape_job frames still go. The ledger's own `pending_bet_lists` is not
+  asked, so its semantics (Render's global and per-client switches) are
+  untouched. Either switch ON = no bets move (render/api/AGENTS.md).
 - One log line per problem per connection, never one per frame.
 - Every table is swept (`sweep`), every in-memory map is bounded.
 """
@@ -35,9 +40,10 @@ from starlette.concurrency import run_in_threadpool
 
 from ..config import settings
 from ..database import get_db
-from ..models import HubEscalation, HubInboxSeen, HubOutbox, HubSentBet, HubTip
+from ..models import HubEscalation, HubInboxSeen, HubOutbox, HubSentBet, Tip
 from ..security import has_permission, resolve_api_key
 from ..time_utils import utcnow
+from ..betfinder.pipeline import price_or_none, clean_text, sweep as sweep_tips
 from . import engine
 from .protocol import (
     CONTROL_TYPES, INBOUND_TYPES, MAX_FRAME_BYTES, PROTOCOL_VERSION, envelope,
@@ -49,11 +55,11 @@ log = logging.getLogger(__name__)
 GRANT = "hub"
 
 # Retention, by table. Seen ids only need to outlive the Hub's outbox replay
-# window; the rest are records someone may want to look back at.
+# window; the rest are records someone may want to look back at. Tips have
+# ONE rule, the Bet Finder's (`betfinder.pipeline.sweep`), run from here.
 SEEN_RETENTION = timedelta(days=7)
 OUTBOX_RETENTION = timedelta(days=7)
 SENT_BET_RETENTION = timedelta(days=30)
-TIP_RETENTION = timedelta(days=30)
 ESCALATION_RETENTION = timedelta(days=90)
 SWEEP_EVERY_S = 3600.0
 
@@ -380,8 +386,9 @@ class Connection:
                 if time.monotonic() - _last_sweep >= SWEEP_EVERY_S:
                     _last_sweep = time.monotonic()
                     await self.db(sweep)
+                hub_kill = bool(registry.state(self.client_id).kill_switch)
                 frames = await self.db(build_outgoing, self.client_id, first,
-                                       settings.hub_owner_client_id, self.problems)
+                                       settings.hub_owner_client_id, self.problems, hub_kill)
                 sent = []
                 try:
                     for msg_id, text in frames:
@@ -438,12 +445,15 @@ def _on_report(db, client_id: str, body: dict) -> None:
 
 
 def _on_tip(db, client_id: str, body: dict) -> None:
-    if db.query(HubTip.id).filter(HubTip.tip_id == body["tip_id"]).first() is not None:
+    """Write the tip's ONE row (`tips`), the row the Bet Finder then works on.
+    Only the wire columns: the Bet Finder fills its own on ingest."""
+    if db.query(Tip.id).filter(Tip.tip_id == body["tip_id"]).first() is not None:
         return       # the same tip re-scraped: tip_id is stable, keep the first
-    db.add(HubTip(
+    db.add(Tip(
         tip_id=body["tip_id"], client_id=client_id, source_id=body["source_id"],
-        event=body["event"], market=body["market"], selection=body["selection"],
-        advised_price=body.get("advised_price"), tip_time=body["tip_time"],
+        event_raw=clean_text(body["event"]), market_raw=clean_text(body["market"]),
+        selection_raw=clean_text(body["selection"]),
+        advised_price=price_or_none(body.get("advised_price")), tip_time_raw=body["tip_time"],
         body=json.dumps(body), received_at=utcnow(),
     ))
 
@@ -519,15 +529,26 @@ def _bet_lists(raw: list) -> list[list]:
 
 
 def build_outgoing(db, client_id: str, resend_sent: bool, owner_id: str,
-                   problems: LogOnce = _process_log) -> list[tuple[str, str]]:
+                   problems: LogOnce = _process_log,
+                   hub_kill: bool = False) -> list[tuple[str, str]]:
     """Frames to send now, as (msg_id, json): every unacked frame not yet sent
     (or, on a fresh connection, every unacked frame at all), then a new
     bet_list frame per pending list from the engine. New frames are written to
-    the outbox and their bet_ids to hub_sent_bets before they are returned."""
+    the outbox and their bet_ids to hub_sent_bets before they are returned.
+
+    `hub_kill` (the Hub's last hello said its kill switch is on): no bet_list
+    goes, not even a re-delivery, and the engine is not asked for new ones;
+    the frames wait in the outbox. Other frames go as usual."""
     q = db.query(HubOutbox).filter(HubOutbox.client_id == client_id, HubOutbox.acked_at.is_(None))
     if not resend_sent:
         q = q.filter(HubOutbox.sent_at.is_(None))
+    if hub_kill:
+        q = q.filter(HubOutbox.type != "bet_list")
     frames = [(r.msg_id, r.frame) for r in q.order_by(HubOutbox.id)]
+    if hub_kill:
+        problems("hub-kill", logging.WARNING,
+                 "hub %s: its hello says kill_switch ON; no bet list is sent to it", client_id)
+        return frames
 
     lists = _bet_lists(engine.pending_bet_lists(db, client_id))
     if not lists:
@@ -607,8 +628,7 @@ def sweep(db, now: datetime | None = None) -> dict[str, int]:
         .delete(synchronize_session=False),
         "sent_bets": db.query(HubSentBet).filter(HubSentBet.created_at < now - SENT_BET_RETENTION)
         .delete(synchronize_session=False),
-        "tips": db.query(HubTip).filter(HubTip.received_at < now - TIP_RETENTION)
-        .delete(synchronize_session=False),
+        "tips": sweep_tips(db, now),
         "escalations": db.query(HubEscalation)
         .filter(HubEscalation.received_at < now - ESCALATION_RETENTION)
         .delete(synchronize_session=False),

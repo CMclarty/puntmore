@@ -17,7 +17,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..database import get_db
 from ..hub import service
-from ..models import ApiClient, HubTip
+from ..models import ApiClient, Tip
 from ..schemas import HubClientOut, HubKillSwitchIn, HubQueuedOut, HubScrapeJobIn, HubTipOut
 from ..security import has_permission, require_tool
 
@@ -77,17 +77,28 @@ def hub_tips(
     client_id: str | None = None,
     db: Session = Depends(get_db),
 ):
-    """The most recent candidate tips from the Hubs' Bet Finder sources."""
-    q = db.query(HubTip)
+    """The most recent candidate tips from the Hubs' Bet Finder sources, as
+    they arrived: the wire columns of the one `tips` table (the Bet Finder's
+    view of the same rows is /2up/betfinder/tips)."""
+    q = db.query(Tip)
     if client_id:
-        q = q.filter(HubTip.client_id == client_id)
-    rows = q.order_by(HubTip.received_at.desc(), HubTip.id.desc()).limit(limit).all()
+        q = q.filter(Tip.client_id == client_id)
+    rows = q.order_by(Tip.received_at.desc(), Tip.id.desc()).limit(limit).all()
     return [
-        HubTipOut(tip_id=r.tip_id, client_id=r.client_id, source_id=r.source_id, event=r.event,
-                  market=r.market, selection=r.selection, advised_price=r.advised_price,
-                  tip_time=r.tip_time, received_at=r.received_at, tip=json.loads(r.body))
+        HubTipOut(tip_id=r.tip_id, client_id=r.client_id, source_id=r.source_id,
+                  event=r.event_raw, market=r.market_raw, selection=r.selection_raw,
+                  advised_price=r.advised_price, tip_time=r.tip_time_raw,
+                  received_at=r.received_at, tip=_body(r))
         for r in rows
     ]
+
+
+def _body(r: Tip) -> dict:
+    try:
+        v = json.loads(r.body or "{}")
+    except ValueError:
+        return {}
+    return v if isinstance(v, dict) else {}
 
 
 def _known_hub(db: Session, client_id: str) -> None:
@@ -108,8 +119,14 @@ def _queue(db: Session, client_id: str, type_: str, body: dict) -> HubQueuedOut:
 
 @router.post("/hub/{client_id}/kill_switch", response_model=HubQueuedOut, dependencies=operator)
 def hub_kill_switch(client_id: str, req: HubKillSwitchIn, db: Session = Depends(get_db)):
-    """Set or clear a Hub's global kill switch (PROTOCOL.md `kill_switch`)."""
-    return _queue(db, client_id, "kill_switch", {"on": req.on, "reason": req.reason})
+    """Turn a Hub's kill switch (its file `hub/data/KILL`) ON (PROTOCOL.md
+    `kill_switch`, "Kill switches"). Render can turn it on, never off: only
+    Cal turns it off, on the box. `on: false` is refused (422), and a Hub
+    ignores one anyway. Render's own switches are `/2up/clients/{id}/kill`."""
+    if not req.on:
+        raise HTTPException(status_code=422, detail="Render turns a Hub's kill switch ON only; "
+                                                    "it is turned off on the Hub, by Cal")
+    return _queue(db, client_id, "kill_switch", {"on": True, "reason": req.reason})
 
 
 @router.post("/hub/{client_id}/scrape_job", response_model=HubQueuedOut, dependencies=operator)

@@ -62,6 +62,14 @@ SLOW_REQUEST_MS = 8000
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     ensure_schema()
+    # One-off: hub_tips + betfinder_tips -> the one `tips` table. Runs once
+    # (a marker row); the old tables are left in place, unused. A failure is
+    # logged and retried on the next start: new tips land in `tips` anyway.
+    try:
+        from .tip_migration import migrate_tips
+        migrate_tips(engine)
+    except Exception:  # noqa: BLE001
+        logger.exception("tips migration failed; it is retried on the next start")
     db = SessionLocal()
     try:
         seed(db)

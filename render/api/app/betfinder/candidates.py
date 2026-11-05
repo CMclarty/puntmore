@@ -37,12 +37,12 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import BetFinderSource, BetFinderTip, TwoUpBet
+from ..models import BetFinderSource, Tip, TwoUpBet
 from ..twoup import ledger
 from ..twoup.model import Candidate
 
 
-def _stake_terms(src: BetFinderSource, tip: BetFinderTip) -> dict:
+def _stake_terms(src: BetFinderSource, tip: Tip) -> dict:
     mode = src.stake_mode or "auto"
     units = tip.advised_stake_units
     out = {"stake_mode_setting": mode, "advised_stake_units": units,
@@ -67,10 +67,10 @@ def extra_candidates(db: Session, client_id: str, now: datetime | None = None) -
     now_n = (now if now.tzinfo else now.replace(tzinfo=timezone.utc)) \
         .astimezone(timezone.utc).replace(tzinfo=None)
     fresh = now_n - timedelta(minutes=settings.betfinder_max_price_age_minutes)
-    rows = (db.query(BetFinderTip)
-            .filter(BetFinderTip.status == "priced", BetFinderTip.priced_at >= fresh,
-                    BetFinderTip.kickoff > now_n)
-            .order_by(BetFinderTip.tip_time, BetFinderTip.id).all())
+    rows = (db.query(Tip)
+            .filter(Tip.status == "priced", Tip.priced_at >= fresh,
+                    Tip.kickoff > now_n)
+            .order_by(Tip.tip_time, Tip.id).all())
     rows = [t for t in rows if t.expiry is None or t.expiry > now_n]
     if not rows:
         return []
@@ -83,7 +83,7 @@ def extra_candidates(db: Session, client_id: str, now: datetime | None = None) -
         TwoUpBet.client_id == client_id, TwoUpBet.status != "price_changed",
         TwoUpBet.event_id.in_(sorted({t.event_id for t in rows}))).all()}
 
-    groups: dict[tuple, list[BetFinderTip]] = {}
+    groups: dict[tuple, list[Tip]] = {}
     for t in rows:
         if (t.event_id, t.selection) in live:
             continue

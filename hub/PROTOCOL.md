@@ -55,7 +55,7 @@ ones. Render should order by `ts`, not arrival.
 | `hello_ack` | `{"server_time": ts, "protocol_version": 1}` | none; confirms auth |
 | `bet_list` | `{"bets": [Bet, …]}` | each bet goes to the client engine |
 | `scrape_job` | `{"job_id", "source", "params": {"force": bool}}` | the Hub answers `scrape_result` with `status: "skipped"`: scrapes run on the Scraper's own schedule (`targets.toml`), not on request |
-| `kill_switch` | `{"on": bool, "reason": str}` | sets or clears the global kill switch file, escalates |
+| `kill_switch` | `{"on": bool, "reason": str}` | `on: true` sets the global kill switch file and escalates; `on: false` is escalated and ignored (see Kill switches) |
 | `ping` | `{}` | answered with `pong` |
 | `ack` | `{"msg_id"}` | marks the Hub's outbox item as delivered |
 
@@ -140,6 +140,24 @@ A bet gets at most one of `placed`, `price_changed` or `failed`, then optionally
 - `kill_switch` in `hello`, and the `kill_switch` message, are global for the client. While on, every
   bet is answered with `failed` reason `kill switch on`.
 - Render's own kill switch and dry-run are independent of these and are not part of this protocol.
+
+## Kill switches
+
+There are three, and they are independent on purpose, never synced:
+
+- **The Hub's file** (`hub/data/KILL`) stops placement on that Hub at once and is the last word for
+  that box. Anyone may turn it on (CLI, Hub Console, Hermes through the CLI, or Render's
+  `kill_switch` message, all through `puntmore_hub/killswitch.py`); only Callum turns it off, on the
+  box. Render's message turns it ON and never off: an `on: false` is escalated and otherwise ignored,
+  and Render's route refuses to send one.
+- **Render's global switch** (`TWOUP_KILL_SWITCH`) stops the production of bet lists for every client.
+- **Render's per-client flag** (`twoup_clients.kill_switch`) stops production for that client.
+
+A Hub that has lost its link must still be stoppable (its file), and Render must be able to stop a
+client whose Hub is unreachable (its own switches). When both sides have one, either ON means no bets
+move for that client. Render reads the Hub's state from `hello`: while the last `hello` said
+`kill_switch: true` it sends that Hub no `bet_list`, new or re-delivered. The Hub fails any bet that
+reaches it while its file exists anyway, so a switch turned on between two `hello`s is still honoured.
 
 ## Versioning
 

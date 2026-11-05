@@ -161,16 +161,36 @@ Invariants — do not relax:
   Nothing here or on the Hub ever fetches the tracker.
 
 ### Bet Finder (`app/betfinder/`, Nov 2026)
-Turns the tips a Hub sends (`tip` frames, stored in `hub_tips` by the Hub
-endpoint) into owner-only 2-Up candidates. Routes `routers/betfinder.py` at
-`/api/2up/betfinder/*` (sources list/edit, stats, tips, quarantine,
-candidates preview, run), behind the `accabonus` grant; settings
-`betfinder_*`; flag `ENABLE_BETFINDER`. Tests: `tests/test_betfinder.py`.
+Turns the tips a Hub sends (`tip` frames) into owner-only 2-Up candidates.
+Routes `routers/betfinder.py` at `/api/2up/betfinder/*` (sources list/edit,
+stats, tips, quarantine, candidates preview, run), behind the `accabonus`
+grant; settings `betfinder_*`; flag `ENABLE_BETFINDER`. Tests:
+`tests/test_betfinder.py`, `tests/test_tips_one_table.py`.
+- **One tip, one row** (`models.Tip`, table `tips`, Nov 2026). The row the
+  Hub endpoint writes IS the row the Bet Finder works on: the endpoint
+  fills the wire columns (`tip_id` unique and stable per source + event +
+  market + selection + day, first kept; `client_id`, `source_id`, the
+  `*_raw` texts, `advised_price`, `tip_time_raw`, `body` as sent,
+  `received_at`), the pipeline fills its own nullable columns on the same
+  row (`status` NULL = not ingested yet; normalised `source` / `market`,
+  `dedupe_key` — a derived, indexed column, not a copy — parsed
+  `tip_time` / `tip_day`, the matched fixture and price, `quarantine`,
+  `duplicate_of`, the ledger's `bet_ids` / `outcome` / `staked` /
+  `returned` as the source's credit). `GET /api/2up/hub/tips` reads the
+  wire columns of every row; `/api/2up/betfinder/tips` the ingested rows.
+  **Retention is one rule in one sweep** (`pipeline.sweep`, run hourly by
+  the Hub endpoint's `service.sweep`): settled and decided tips are kept,
+  every other tip goes 90 days after it arrived. It replaced `hub_tips`
+  (30 days) + `betfinder_tips` (90 days, its own dedupe key); an existing
+  database is copied across once at startup (`app/tip_migration.py`, one
+  transaction, a `schema_migrations` marker) and the two old tables are
+  LEFT IN PLACE, unused — dropping them is a later manual step.
 - `sources.py` — the registry as data (`betfinder_sources`): name, kind,
   trust weight 0..1, active, stake mode. Seeded from `BETFINDER_SOURCES`
   (missing rows only). A tip from an unknown source creates it INACTIVE at
   trust 0.5.
-- `pipeline.py` — ingest (one `betfinder_tips` row per hub tip), dedupe
+- `pipeline.py` — ingest (fills the Bet Finder columns of each row not
+  yet seen), dedupe
   (source + event + market + selection + London day of tip_time, on
   NORMALISED text), match to a 2-Up feed fixture with the coupon tracker's
   comparison (`GridCouponProvider._pair_score` over `team_similarity`,
@@ -748,9 +768,29 @@ in `tests/test_hub_ws.py`:
   (`apply_report`). The engine is reached ONLY through `app/hub/engine.py`,
   which falls back to in-memory stubs while `app/twoup/` is absent (a deploy
   without the engine sends no bets). Its docstring is the interface.
-- Tips land in `hub_tips` (unique `tip_id`, first kept) for the Bet Finder;
-  escalations and their outcomes in `hub_escalations`; scrape results are
-  logged. Retention: tips and sent bets 30 days, outbox 7, escalations 90.
+- Tips land in `tips` (unique `tip_id`, first kept), the one row the Bet
+  Finder then works on (Bet Finder, "One tip, one row"); escalations and
+  their outcomes in `hub_escalations`; scrape results are logged.
+  Retention: sent bets 30 days, outbox 7, escalations 90; tips by the Bet
+  Finder's one rule (settled / decided kept, the rest 90 days), run from
+  the same hourly sweep.
+- **Kill switches — three, independent, never synced** (the same rule is in
+  `hub/PROTOCOL.md`, "Kill switches"). The Hub's file (`hub/data/KILL`) stops
+  placement on that Hub at once and is the last word for that box; anyone
+  may turn it on, only Cal turns it off, on the box. Render's global switch
+  (`TWOUP_KILL_SWITCH`) stops the production of bet lists for every client;
+  its per-client flag (`twoup_clients.kill_switch`,
+  `/api/2up/clients/{id}/kill|resume`) stops production for that client.
+  They are independent on purpose: a Hub that has lost its link must still
+  be stoppable, and Render must be able to stop a client whose Hub is
+  unreachable. When both exist, either ON means no bets move for that
+  client. In code: `pending_bet_lists` returns nothing while either Render
+  switch is on; the dispatcher sends a Hub NO bet list (new or re-delivered)
+  while its last `hello` said `kill_switch: true`, without asking the
+  ledger (`service.build_outgoing(hub_kill=...)`); `POST
+  /api/2up/hub/{client_id}/kill_switch` turns the Hub's file ON only
+  (`on: false` is a 422), and the Hub ignores an `on: false` anyway
+  (`killswitch.from_render`). Tests: `test_hub_ws.py`, "kill switches".
 - Operator routes are under the 365 grant (`accabonus`): `GET
   /api/2up/hub/clients`, `GET /api/2up/hub/tips`, `POST
   /api/2up/hub/{client_id}/kill_switch` and `/scrape_job` (queued in

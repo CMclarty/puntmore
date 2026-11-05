@@ -14,7 +14,7 @@ from ..betfinder import candidates as bf_candidates
 from ..betfinder import pipeline, sources, stats
 from ..config import settings
 from ..database import get_db
-from ..models import BetFinderTip
+from ..models import Tip
 from ..schemas import (
     BetFinderCandidateOut, BetFinderRunOut, BetFinderSourceIn, BetFinderSourceOut,
     BetFinderSourceStats, BetFinderTipOut,
@@ -35,11 +35,11 @@ def _source_out(src, st: dict | None) -> BetFinderSourceOut:
     )
 
 
-def _tip_out(t: BetFinderTip) -> BetFinderTipOut:
+def _tip_out(t: Tip) -> BetFinderTipOut:
     return BetFinderTipOut(
-        tip_id=t.tip_id, hub_client_id=t.hub_client_id, source=t.source, origin=t.origin,
+        tip_id=t.tip_id, hub_client_id=t.client_id, source=t.source, origin=t.origin,
         event_raw=t.event_raw, market_raw=t.market_raw, selection_raw=t.selection_raw,
-        market=t.market, tip_time=_utc(t.tip_time), expiry=_utc(t.expiry),
+        market=t.market or "", tip_time=_utc(t.tip_time), expiry=_utc(t.expiry),
         advised_price=t.advised_price, advised_stake_units=t.advised_stake_units,
         status=t.status, quarantine=t.quarantine,
         quarantine_detail=pipeline.REASONS.get(t.quarantine) if t.quarantine else None,
@@ -50,7 +50,7 @@ def _tip_out(t: BetFinderTip) -> BetFinderTipOut:
         competition=t.competition, match_score=t.match_score, price=t.price, p_win=t.p_win,
         fair_price=t.fair_price, edge=t.edge, priced_at=_utc(t.priced_at),
         bet_ids=t.bet_id_list, outcome=t.outcome, staked=t.staked, returned=t.returned,
-        settled_at=_utc(t.settled_at), created_at=_utc(t.created_at),
+        settled_at=_utc(t.settled_at), created_at=_utc(t.received_at),
     )
 
 
@@ -86,20 +86,21 @@ def list_tips(
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
-    """The pipeline's tips, newest first."""
-    q = db.query(BetFinderTip)
+    """The pipeline's tips, newest first: rows of the one `tips` table the
+    pipeline has ingested (a row it has not seen yet is only in /hub/tips)."""
+    q = db.query(Tip).filter(Tip.status.isnot(None))
     if status:
-        q = q.filter(BetFinderTip.status == status)
+        q = q.filter(Tip.status == status)
     if source:
-        q = q.filter(BetFinderTip.source == source)
-    return [_tip_out(t) for t in q.order_by(BetFinderTip.id.desc()).limit(limit).all()]
+        q = q.filter(Tip.source == source)
+    return [_tip_out(t) for t in q.order_by(Tip.id.desc()).limit(limit).all()]
 
 
 @router.get("/quarantine", response_model=list[BetFinderTipOut])
 def quarantine(limit: int = Query(100, ge=1, le=500), db: Session = Depends(get_db)):
     """Tips the pipeline would not price, each with its reason. Never bet."""
-    rows = (db.query(BetFinderTip).filter(BetFinderTip.status == "quarantined")
-            .order_by(BetFinderTip.id.desc()).limit(limit).all())
+    rows = (db.query(Tip).filter(Tip.status == "quarantined")
+            .order_by(Tip.id.desc()).limit(limit).all())
     return [_tip_out(t) for t in rows]
 
 

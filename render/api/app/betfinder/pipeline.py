@@ -1,16 +1,23 @@
-"""The Bet Finder pipeline: hub_tips -> priced, owner-only candidates.
+"""The Bet Finder pipeline: `tips` rows -> priced, owner-only candidates.
+
+ONE table (`models.Tip`): the row the Hub endpoint writes is the row this
+pipeline works on. The endpoint writes the wire columns; every step here
+fills the same row's nullable Bet Finder columns.
 
 Steps (spec, "Bet Finder" -> Pipeline; 1 and 2 happen on the Hub):
 
-- **ingest** — every `hub_tips` row not yet seen becomes ONE `betfinder_tips`
-  row. Its text is truncated and kept as untrusted data. A tip from a Hub
+- **ingest** — every row the pipeline has not seen (`status` NULL) gets its
+  Bet Finder columns: normalised source and market, parsed tip_time, the
+  dedupe key, a status. Its text was truncated by the endpoint and is kept
+  as untrusted data. A tip from a Hub
   other than the owner's, with an unreadable tip_time, with advised units
   out of range, or in a market other than Match Result is QUARANTINED here
   with a reason. Its source is created inactive (trust 0.5) if unknown.
 - **dedupe** — source + event + market + selection + London day (of
   tip_time) is one tip, compared on the NORMALISED text, so the Hub's
   tip_id differing for the same tip does not double it. Later copies are
-  `duplicate` of the first.
+  `duplicate` of the first. The key is a column on the same row
+  (`dedupe_key`, indexed), not a copy of the tip.
 - **match and price** — off the 2-Up feed's candidates (OddsPapi: bet365's
   1X2 and Pinnacle's de-vigged line), never a request of its own. The event
   is matched with the coupon tracker's fixture comparison
@@ -39,12 +46,12 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..fixture_checks import excluded_reason, query_is_senior
-from ..models import BetFinderTip, HubTip, TwoUpBet
+from ..models import Tip, TwoUpBet
 from ..normalise import normalise_match, normalise_team, split_sides
 from ..picks import SIDE_MARGIN, side_of, team_fragment
 from ..providers.grid_coupon import MATCH_THRESHOLD, GridCouponProvider
@@ -57,7 +64,8 @@ logger = logging.getLogger("uvicorn.error")
 
 TEXT_MAX = 200
 INGEST_BATCH = 500
-RETENTION = timedelta(days=90)      # settled tips are kept: they ARE the source record
+RETENTION = timedelta(days=90)
+KEEP = ("settled", "decided")    # kept past RETENTION: the source's record
 
 MATCH_RESULT = "match_result"
 # Spellings of the full-time 1X2 a tipster prints. Compared after lower-casing
@@ -91,7 +99,7 @@ LAST_RUN: dict = {}
 
 # --- normalising --------------------------------------------------------------
 
-def _text(v) -> str:
+def clean_text(v) -> str:
     """Untrusted text, bounded and with control characters removed."""
     s = "".join(ch for ch in str(v if v is not None else "") if ch.isprintable())
     return s.strip()[:TEXT_MAX]
@@ -148,60 +156,59 @@ def _units(body: dict) -> tuple[float | None, bool]:
     return (u if u > 0 else None), True
 
 
-def _price_or_none(v) -> float | None:
+def price_or_none(v) -> float | None:
     if isinstance(v, bool) or not isinstance(v, (int, float)):
         return None
     v = float(v)
     return v if math.isfinite(v) and v > 1.0 else None
 
 
-def _quarantine(tip: BetFinderTip, reason: str) -> None:
+def _quarantine(tip: Tip, reason: str) -> None:
     tip.status, tip.quarantine = "quarantined", reason
 
 
 # --- ingest + dedupe ----------------------------------------------------------
 
 def ingest(db: Session, now: datetime | None = None) -> dict:
-    """Bring every unseen hub_tips row into betfinder_tips. Returns counts."""
+    """Fill the Bet Finder columns of every row not yet seen (`status` NULL),
+    oldest first, at most INGEST_BATCH a pass. Returns counts."""
     counts = {"new": 0, "quarantined": 0, "duplicate": 0, "sources_created": 0}
-    seen_ids = select(BetFinderTip.tip_id)
-    rows = (db.query(HubTip).filter(HubTip.tip_id.notin_(seen_ids))
-            .order_by(HubTip.received_at, HubTip.id).limit(INGEST_BATCH).all())
+    rows = (db.query(Tip).filter(Tip.status.is_(None))
+            .order_by(Tip.received_at, Tip.id).limit(INGEST_BATCH).all())
     if not rows:
         return counts
     owner = settings.hub_owner_client_id
     keys_this_pass: dict[str, str] = {}
-    for h in rows:
+    for tip in rows:
         try:
-            body = json.loads(h.body or "{}")
+            body = json.loads(tip.body or "{}")
             if not isinstance(body, dict):
                 body = {}
         except ValueError:
             body = {}
-        src = sources.source_name(h.source_id)
-        event, market_raw, selection = _text(h.event), _text(h.market), _text(h.selection)
+        src = sources.source_name(tip.source_id)
+        event, market_raw, selection = (clean_text(tip.event_raw), clean_text(tip.market_raw),
+                                        clean_text(tip.selection_raw))
         market = normalise_market(market_raw)
-        tip_time = _naive_utc(h.tip_time)
+        tip_time = _naive_utc(tip.tip_time_raw)
         day = london_day(tip_time) if tip_time else None
         units, units_ok = _units(body)
-        origin = body.get("origin") if body.get("origin") in ("tipster", "scrape") else None
-        tip = BetFinderTip(
-            tip_id=h.tip_id, hub_client_id=str(h.client_id)[:64],
-            source=src or "-", origin=origin, event_raw=event, market_raw=market_raw,
-            selection_raw=selection, market=market,
-            dedupe_key=dedupe_key(src or "-", event, market, selection, day),
-            tip_time=tip_time, tip_day=day, expiry=_naive_utc(body.get("expiry")),
-            advised_price=_price_or_none(h.advised_price), advised_stake_units=units,
-            status="new", bet_ids="[]", created_at=utcnow(), updated_at=utcnow(),
-        )
-        if h.client_id != owner:
+        tip.source, tip.market = src or "-", market
+        tip.origin = body.get("origin") if body.get("origin") in ("tipster", "scrape") else None
+        tip.dedupe_key = dedupe_key(src or "-", event, market, selection, day)
+        tip.tip_time, tip.tip_day = tip_time, day
+        tip.expiry = _naive_utc(body.get("expiry"))
+        tip.advised_stake_units = units
+        tip.status, tip.bet_ids, tip.updated_at = "new", tip.bet_ids or "[]", utcnow()
+        if tip.client_id != owner:
             _quarantine(tip, "not_owner_hub")
         elif not src:
             _quarantine(tip, "no_source")
         else:
             _src, made = sources.get_or_create(db, src)
             counts["sources_created"] += int(made)
-            first = keys_this_pass.get(tip.dedupe_key) or _first_with_key(db, tip.dedupe_key)
+            first = (keys_this_pass.get(tip.dedupe_key)
+                     or _first_with_key(db, tip.dedupe_key, tip.id))
             if first is not None:
                 tip.status, tip.duplicate_of = "duplicate", first
             elif tip_time is None:
@@ -212,16 +219,18 @@ def ingest(db: Session, now: datetime | None = None) -> dict:
                 _quarantine(tip, "market_not_priced")
             if tip.status != "duplicate":
                 keys_this_pass.setdefault(tip.dedupe_key, tip.tip_id)
-        db.add(tip)
         counts[{"new": "new", "duplicate": "duplicate"}.get(tip.status, "quarantined")] += 1
     db.commit()
     return counts
 
 
-def _first_with_key(db: Session, key: str) -> str | None:
-    row = (db.query(BetFinderTip.tip_id)
-           .filter(BetFinderTip.dedupe_key == key, BetFinderTip.status != "duplicate")
-           .order_by(BetFinderTip.id).first())
+def _first_with_key(db: Session, key: str, not_id: int | None = None) -> str | None:
+    """The tip_id of the first ingested, non-duplicate row with this key."""
+    q = (db.query(Tip.tip_id)
+         .filter(Tip.dedupe_key == key, Tip.status.isnot(None), Tip.status != "duplicate"))
+    if not_id is not None:
+        q = q.filter(Tip.id != not_id)
+    row = q.order_by(Tip.id).first()
     return row[0] if row else None
 
 
@@ -250,7 +259,7 @@ def fixtures_from(candidates: list[Candidate]) -> dict[str, _Fixture]:
     return out
 
 
-def retry_until(tip: BetFinderTip) -> datetime | None:
+def retry_until(tip: Tip) -> datetime | None:
     """Naive UTC: until when an unmatched tip is tried again."""
     if tip.tip_time is None:
         return None
@@ -258,7 +267,7 @@ def retry_until(tip: BetFinderTip) -> datetime | None:
     return min(end, tip.expiry) if tip.expiry else end
 
 
-def match_tip(tip: BetFinderTip, fixtures: dict[str, _Fixture]):
+def match_tip(tip: Tip, fixtures: dict[str, _Fixture]):
     """(fixture, side, score) or (None, reason, None). Never a guess: every
     path that is not a clear match returns a reason."""
     sides = split_sides(tip.event_raw)
@@ -311,10 +320,10 @@ def price_open(db: Session, candidates: list[Candidate] | None, now: datetime | 
     now = now or datetime.now(timezone.utc)
     now_n = _aware(now).astimezone(timezone.utc).replace(tzinfo=None)
     counts = {"priced": 0, "quarantined": 0, "expired": 0}
-    open_rows = (db.query(BetFinderTip)
-                 .filter(BetFinderTip.status.in_(("new", "priced", "quarantined")),
-                         BetFinderTip.market == MATCH_RESULT)
-                 .order_by(BetFinderTip.id).all())
+    open_rows = (db.query(Tip)
+                 .filter(Tip.status.in_(("new", "priced", "quarantined")),
+                         Tip.market == MATCH_RESULT)
+                 .order_by(Tip.id).all())
     usable = candidates is not None and not (degraded and not candidates)
     fixtures = fixtures_from(candidates) if usable else {}
     for tip in open_rows:
@@ -378,9 +387,9 @@ def link_and_settle(db: Session) -> dict:
     per selection) and that bet is the tip's record. Returns are bet365's
     real ones, so an early payout counts as a win — said in the docs."""
     counts = {"decided": 0, "settled": 0, "not_placed": 0}
-    rows = (db.query(BetFinderTip)
-            .filter(BetFinderTip.status.in_(("priced", "decided", "expired")),
-                    BetFinderTip.event_id.isnot(None)).all())
+    rows = (db.query(Tip)
+            .filter(Tip.status.in_(("priced", "decided", "expired")),
+                    Tip.event_id.isnot(None)).all())
     for tip in rows:
         bets = _owner_bets(db, tip.event_id, tip.selection)
         if not bets:
@@ -415,13 +424,16 @@ def link_and_settle(db: Session) -> dict:
 
 
 def sweep(db: Session, now: datetime | None = None) -> int:
-    """Drop tips that will never count for anything after RETENTION.
-    Settled tips are kept: they are each source's record."""
+    """THE retention rule for tips: one table, one sweep (run hourly by the
+    Hub endpoint's sweep, `hub/service.py`). A tip that came to nothing goes
+    RETENTION after it arrived; a settled tip (its source's record) and a
+    decided one (its bet still open) are kept. A tip the pipeline never saw
+    (status NULL: the Bet Finder off, say) came to nothing too."""
     now = now or datetime.now(timezone.utc)
     cutoff = _aware(now).astimezone(timezone.utc).replace(tzinfo=None) - RETENTION
-    n = (db.query(BetFinderTip)
-         .filter(BetFinderTip.status.in_(("quarantined", "duplicate", "expired", "not_placed")),
-                 BetFinderTip.created_at < cutoff)
+    n = (db.query(Tip)
+         .filter(Tip.received_at < cutoff,
+                 or_(Tip.status.is_(None), Tip.status.notin_(KEEP)))
          .delete(synchronize_session=False))
     db.commit()
     return n
@@ -443,7 +455,6 @@ def run_pass(db: Session, feed=None, now: datetime | None = None) -> dict:
         degraded = bool(feed.status().get("degraded"))
         summary["pricing"] = price_open(db, cached, now, degraded=degraded)
     summary["ledger"] = link_and_settle(db)
-    summary["swept"] = sweep(db, now)
     ing, pr, led = summary["ingest"], summary["pricing"], summary["ledger"]
     logger.info(
         "betfinder: %d new tip(s), %d duplicate, %d quarantined at ingest, %d source(s) "

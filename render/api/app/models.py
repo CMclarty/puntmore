@@ -377,26 +377,6 @@ class HubInboxSeen(Base):
     seen_at = Column(DateTime, nullable=False, default=utcnow, index=True)
 
 
-class HubTip(Base):
-    """A candidate tip from a Hub's Bet Finder sources, kept for the Bet Finder
-    orchestrator to consume. `tip_id` is stable per source + event + market +
-    selection + day, so a re-scraped tip is the same row (the first is kept).
-    `body` is the tip as sent (JSON); the named columns are copies for listing."""
-    __tablename__ = "hub_tips"
-
-    id = Column(Integer, primary_key=True)
-    tip_id = Column(String, unique=True, nullable=False)
-    client_id = Column(String, nullable=False)
-    source_id = Column(String, nullable=False)
-    event = Column(String, nullable=False)
-    market = Column(String, nullable=False)
-    selection = Column(String, nullable=False)
-    advised_price = Column(Float, nullable=True)
-    tip_time = Column(String, nullable=False)            # ISO, as sent
-    body = Column(Text, nullable=False)
-    received_at = Column(DateTime, nullable=False, default=utcnow, index=True)
-
-
 class HubEscalation(Base):
     """Something a Hub handed to its local AI, and (once decided) the outcome.
     One row per (client_id, escalation_id): `escalation` creates it,
@@ -568,34 +548,49 @@ class BetFinderSource(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow)
 
 
-class BetFinderTip(Base):
-    """One `hub_tips` row as the Bet Finder pipeline sees it (one per tip_id).
+class Tip(Base):
+    """One candidate tip, end to end: the row the Hub endpoint writes IS the
+    row the Bet Finder works on (render/api/AGENTS.md, "Bet Finder").
 
-    Kept apart from `hub_tips` (swept at 30 days) so a source's record
-    outlives the raw tip. The `*_raw` columns are the tip's text, truncated,
-    UNTRUSTED: shown, never logged, never put in a prompt. The feed columns
-    (event_id ... edge) are OddsPapi's, set when the tip is priced.
+    The endpoint (`hub/service.py:_on_tip`) writes the wire columns, once per
+    `tip_id` (stable per source + event + market + selection + day, so a
+    re-scraped tip is the same row; the first is kept). Everything below
+    "Bet Finder state" is NULL until the pipeline ingests the row: `status`
+    NULL means "not seen yet". The `*_raw` columns are the source's text,
+    truncated, UNTRUSTED: shown, never logged, never put in a prompt; `body`
+    is the whole tip as sent (JSON).
 
-    status: new -> priced -> decided -> settled | not_placed, or quarantined
-    (with a `quarantine` reason), duplicate (of `duplicate_of`), expired."""
-    __tablename__ = "betfinder_tips"
+    status (Bet Finder): NULL -> new -> priced -> decided -> settled |
+    not_placed, or quarantined (with a `quarantine` reason), duplicate (of
+    `duplicate_of`, by `dedupe_key`), expired.
+
+    Retention, one rule (`betfinder.pipeline.sweep`, run by the Hub sweep):
+    settled and decided tips are kept; every other tip goes 90 days after it
+    arrived. Replaces `hub_tips` + `betfinder_tips` (`app/tip_migration.py`)."""
+    __tablename__ = "tips"
 
     id = Column(Integer, primary_key=True)
+    # --- as the Hub sent it (written by the endpoint) ---
     tip_id = Column(String, unique=True, nullable=False)
-    hub_client_id = Column(String, nullable=False)
-    source = Column(String, nullable=False, index=True)
-    origin = Column(String, nullable=True)
+    client_id = Column(String, nullable=False, index=True)   # the Hub that sent it
+    source_id = Column(String, nullable=False)
     event_raw = Column(String, nullable=False)
     market_raw = Column(String, nullable=False)
     selection_raw = Column(String, nullable=False)
-    market = Column(String, nullable=False)              # normalised ("match_result", ...)
-    dedupe_key = Column(String, nullable=False, index=True)
-    tip_time = Column(DateTime, nullable=True)           # naive UTC
+    advised_price = Column(Float, nullable=True)
+    tip_time_raw = Column(String, nullable=False)            # ISO, as sent
+    body = Column(Text, nullable=False)                        # the tip as sent, JSON
+    received_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+    # --- Bet Finder state (NULL until ingested) ---
+    status = Column(String, nullable=True, index=True)
+    source = Column(String, nullable=True, index=True)        # normalised source name
+    origin = Column(String, nullable=True)
+    market = Column(String, nullable=True)                    # normalised ("match_result", ...)
+    dedupe_key = Column(String, nullable=True, index=True)    # source|event|market|selection|day
+    tip_time = Column(DateTime, nullable=True)                # parsed, naive UTC
     tip_day = Column(Date, nullable=True)
     expiry = Column(DateTime, nullable=True)
-    advised_price = Column(Float, nullable=True)
     advised_stake_units = Column(Float, nullable=True)
-    status = Column(String, nullable=False, default="new", index=True)
     quarantine = Column(String, nullable=True)
     duplicate_of = Column(String, nullable=True)
     # From the 2-Up feed once matched and priced.
@@ -613,14 +608,13 @@ class BetFinderTip(Base):
     fair_price = Column(Float, nullable=True)
     edge = Column(Float, nullable=True)                  # p_win - 1/price (rescue 0)
     priced_at = Column(DateTime, nullable=True)
-    # From the 2-Up ledger once bet and settled.
-    bet_ids = Column(Text, nullable=False, default="[]")
+    # From the 2-Up ledger once bet and settled: the source's credit.
+    bet_ids = Column(Text, nullable=True, default="[]")
     outcome = Column(String, nullable=True)
     staked = Column(Float, nullable=True)
     returned = Column(Float, nullable=True)
     settled_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=True)
 
     @property
     def bet_id_list(self) -> list:
