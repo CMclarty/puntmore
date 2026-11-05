@@ -48,7 +48,7 @@ def client():
 
 def _scraper_config():
     """The scraper's own config module (stdlib only), imported from the repo."""
-    root = str(pathlib.Path(__file__).resolve().parents[2])
+    root = str(pathlib.Path(__file__).resolve().parents[3])
     if root not in sys.path:
         sys.path.insert(0, root)
     from scraper import config
