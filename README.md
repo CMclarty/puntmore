@@ -9,6 +9,7 @@ Betting tools: a web app on Render, and a home box on a residential connection t
 | `api/` + `frontend/` | Render, one Docker web service (`puntmore.com`) | `render.yaml`: `api/Dockerfile` builds the frontend into the API image | **every push to `main`** |
 | `scraper/` | home box, Docker container, real Chrome on Xvfb | `.github/workflows/scraper-image.yml` publishes to GHCR; the box's `update.sh` cron pulls `:latest` | push to `main` touching `scraper/` |
 | `home/` | home box, systemd user services | `home/deploy/systemd/`; the box runs this checkout | `git pull` on the box |
+| `home/puntmore_home/placement/` | home box, driving the sub-client phones | part of `home/` | **placeholder**: the bet-placing bot. Bets in, results out. Contract in its README; only the dry-run adapter exists |
 | `clients/python/` | any machine client | from the repo | on demand |
 | `local/` | one-off scripts on the home box | by hand | — |
 
@@ -18,7 +19,7 @@ Only `main` deploys Render, so nothing is pushed to `main` directly: work on a b
 
 **Render** prices and decides. It holds the odds API clients, the 2-Up decision layer, the per-client ledgers, and the control page that tells the scraper what to read. It never loads a bookmaker page.
 
-**The home box** touches bookmakers. `scraper/` keeps Paddy Power and Bookie Bashing pages open in one real Chrome and posts prices to the API. `home/` is the 2-Up side: a persistent outbound link to Render, the client engine that places bets on sub-client phones, escalation to the local AI, and the Bet Finder's scrape sources. The contract between the two boxes is `home/PROTOCOL.md` and `home/schemas/`.
+**The home box** touches bookmakers. `scraper/` keeps Paddy Power and Bookie Bashing pages open in one real Chrome and posts prices to the API. `home/` is the 2-Up side: a persistent outbound link to Render, the client engine that places bets on sub-client phones, escalation to the local AI, and the Bet Finder's scrape sources. The bet-placing bot itself, the part that takes a bet and returns `placed`, `price_changed` or `failed`, is a placeholder: `home/puntmore_home/placement/README.md` has its contract and the stub to replace. The contract between the two boxes is `home/PROTOCOL.md` and `home/schemas/`.
 
 ## Running the tests
 

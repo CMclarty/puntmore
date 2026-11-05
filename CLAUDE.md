@@ -24,6 +24,7 @@ What runs where (the full table is in `README.md`; keep the two in step):
 | `api/` + `frontend/` | Render, ONE Docker web service | `render.yaml`; `api/Dockerfile` builds the frontend into the API image, `app/asgi.py` serves both | **every push to `main`** |
 | `scraper/` | home box, Docker | `scraper-image.yml` → GHCR; the box's `update.sh` cron | push to `main` touching `scraper/` |
 | `home/` | home box, systemd user services | `home/deploy/systemd/` on a checkout | `git pull` on the box |
+| `home/puntmore_home/placement/` | home box → sub-client phones | part of `home/` | **placeholder**: the bet-placing bot (bets in, results out); contract in its README |
 
 Nothing goes to `main` directly: branch, pull request, path-scoped workflows.
 
