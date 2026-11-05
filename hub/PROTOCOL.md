@@ -1,4 +1,4 @@
-# Home ↔ Render protocol, version 1
+# Hub ↔ Render protocol, version 1
 
 This is the complete wire contract between the Puntmore Hub (this repo) and the Render
 service. It is written so that a separate team or a separate AI can build the Render end from
@@ -8,7 +8,8 @@ this file alone. The machine-readable form is `schemas/protocol.schema.json`; ev
 ## Transport
 
 - One WebSocket per client, **opened by the Hub** to Render. Render never connects inbound.
-- URL: whatever Render publishes, e.g. `wss://2up.puntmore.com/ws`.
+- URL: Render's `/api/2up/ws`: `wss://puntmore.com/api/2up/ws` until the `2up` subdomain exists,
+  then `wss://2up.puntmore.com/api/2up/ws`.
 - Auth on the handshake: `Authorization: Bearer <client api key>` and `X-Client-Id: <client_id>`.
   Render rejects the handshake (HTTP 401) if the key is unknown or does not belong to that client.
 - Text frames only, one JSON envelope per frame, UTF-8. Max frame 8 MiB.
@@ -27,7 +28,7 @@ Every frame, both directions:
 | field | meaning |
 |---|---|
 | `type` | message type, see tables below |
-| `client_id` | the home client this concerns. On frames from Render it is the recipient; on frames from home it is the sender. |
+| `client_id` | the Hub client this concerns. On frames from Render it is the recipient; on frames from the Hub it is the sender. |
 | `msg_id` | unique per message, at least 8 characters. **Idempotency key.** |
 | `ts` | ISO 8601 with timezone, UTC preferred |
 | `body` | type-specific object |
@@ -53,7 +54,7 @@ ones. Render should order by `ts`, not arrival.
 |---|---|---|
 | `hello_ack` | `{"server_time": ts, "protocol_version": 1}` | none; confirms auth |
 | `bet_list` | `{"bets": [Bet, …]}` | each bet goes to the client engine |
-| `scrape_job` | `{"job_id", "source", "params": {"force": bool}}` | runs that source now; answers with `scrape_result` |
+| `scrape_job` | `{"job_id", "source", "params": {"force": bool}}` | the Hub answers `scrape_result` with `status: "skipped"`: scrapes run on the Scraper's own schedule (`targets.toml`), not on request |
 | `kill_switch` | `{"on": bool, "reason": str}` | sets or clears the global kill switch file, escalates |
 | `ping` | `{}` | answered with `pong` |
 | `ack` | `{"msg_id"}` | marks the Hub's outbox item as delivered |
@@ -103,7 +104,7 @@ All reports carry `kind` and `ts`; the rest depends on the kind.
 |---|---|---|
 | `placed` | `bet_id, actual_price, dry_run` | placed; `dry_run: true` means nothing real happened |
 | `price_changed` | `bet_id, new_price` | not placed; Render re-runs the decision at the new price and may send a new bet with a new `bet_id` |
-| `failed` | `bet_id, reason` | not placed; dropped and escalated on the home side. **Render must not resend the same bet_id.** |
+| `failed` | `bet_id, reason` | not placed; dropped and escalated on the Hub side. **Render must not resend the same bet_id.** |
 | `settled` | `bet_id, outcome, return` | `outcome`: `won | lost | void | partial`; `return` is the gross return in account currency |
 | `balance` | `account_id, balance` | snapshot |
 
@@ -147,7 +148,7 @@ a client whose version it does not support with a close code 1008 and a reason s
 
 ## Testing against this contract
 
-- `pytest` runs the home-box link against `puntmore_hub/link/mock_render.py`, a minimal Render that
+- `pytest` runs the Hub's link against `puntmore_hub/link/mock_render.py`, a minimal Render that
   implements the handshake, acks, and a `bet_list`. Use it as the reference behaviour.
 - `puntmore link-check wss://…` connects to a real Render, sends `hello`, and reports whether a
   `hello_ack` came back within 10 seconds. Run it against a new Render build before pointing the

@@ -1,4 +1,4 @@
-# Tests the home-box package (hub/). Nothing is deployed from here: the Hub pulls
+# Tests the Hub package (hub/). Nothing is deployed from here: the Hub pulls
 # its own checkout. Runs on PRs and on main so the contract tests in hub/tests/test_protocol.py
 # gate any change to the Render side that touches the shared schema.
 name: hub tests

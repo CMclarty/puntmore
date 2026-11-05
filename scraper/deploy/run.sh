@@ -1,4 +1,7 @@
 #!/bin/sh
+# Docker FALLBACK for a box with no screen (docs/decisions.md). The default is
+# the user service puntmore-scraper on the Hub's desktop, updated by
+# puntmore-update.timer.
 # (Re)create the container from the current image. Run once by hand, then
 # update.sh calls it whenever a new image is published.
 set -e

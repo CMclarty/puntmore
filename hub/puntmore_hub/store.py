@@ -1,6 +1,6 @@
 """SQLite state for the Hub.
 
-One file, plain tables, so any agent can inspect it with ``sqlite3 data/home.sqlite``.
+One file, plain tables, so any agent can inspect it with ``sqlite3 data/hub.sqlite``.
 Tables:
     tips          candidate bets from the Scraper's sources, deduped, with settled outcome for ROI
     bets          bet lists received from Render and their placement status

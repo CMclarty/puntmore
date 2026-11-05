@@ -1,4 +1,7 @@
 #!/bin/sh
+# Docker FALLBACK for a box with no screen (docs/decisions.md). The default is
+# the user service puntmore-scraper on the Hub's desktop, updated by
+# puntmore-update.timer.
 # Cron, every 15 min: pull the image; if it changed, restart onto it.
 #   */15 * * * * /opt/puntmore-scraper/update.sh >> /opt/puntmore-scraper/update.log 2>&1
 set -e

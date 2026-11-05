@@ -1,13 +1,13 @@
-# The Worker's targets: copy to data/targets.toml on the Hub (or point
+# The Scraper's targets: copy to data/targets.toml on the Hub (or point
 # SCRAPER_TARGETS at a file). Nothing else configures it. The running service
 # checks the file once a minute and applies an edit without a restart; a file
 # that will not load is logged and the running targets are kept.
 #
-# Any mix of the two sites. Each site's budget, quiet hours and block
+# Any mix of the three site kinds. Each site's budget, quiet hours and block
 # handling are fixed in code (sites.py), whatever is listed here.
 #
 #   name       unique; used for samples, dumps and `dump <name>`
-#   site       paddypower | bookiebashing
+#   site       paddypower | bookiebashing | generic
 #   url        the page
 #   every_min  reload on this interval (min 5). Leave out to reload only
 #              when the page has gone quiet for stale_min (default 20, min 10)
@@ -20,10 +20,14 @@
 #   mode       "fetch" (the default for generic): load, parse, close
 #   post       "hub:tips" hands the rows to the Hub instead of POSTing to Puntmore
 #   min_rows   fewer parsed rows than this = unhealthy, alert + an event for the Hub
-#   trust_weight  0..1, sent to the Hub beside the rows
+#   trust_weight  0..1, carried to the Hub beside the rows; Render IGNORES it:
+#              trust is set by hand on Render (PATCH /api/2up/betfinder/sources/{name})
 #   wait_for   CSS selector to wait for before parsing
 #   enabled    false keeps the entry but never runs it
 
+# OPEN, Callum to decide (docs/decisions.md, "Scraping conduct"): this one BB
+# target predates the rule that BB is never automated; keep it as the named
+# exception, or disable it. Left enabled until he decides.
 [[target]]
 name = "bb-saves"
 site = "bookiebashing"
@@ -54,4 +58,4 @@ every_min = 360
 parser = "example_tipster"
 post = "hub:tips"
 min_rows = 2
-trust_weight = 0.5
+trust_weight = 0.5   # ignored by Render; trust is set on Render

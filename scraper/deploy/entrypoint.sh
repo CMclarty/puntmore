@@ -1,4 +1,7 @@
 #!/bin/sh
+# Docker FALLBACK for a box with no screen (docs/decisions.md). The default is
+# the user service puntmore-scraper on the Hub's desktop, updated by
+# puntmore-update.timer.
 # Root only long enough to fix the volume's owner, then everything runs as pwuser.
 # setpriv EXECs (no wrapper process), so python gets docker's SIGTERM itself
 # and closes Chrome cleanly; run with --init so Chrome's children are reaped.
