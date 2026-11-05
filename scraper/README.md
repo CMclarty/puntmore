@@ -5,9 +5,10 @@ pages **open** and listening to what they receive. After the first load the
 site's own scripts keep each page fresh, so most targets cost no further
 requests. Runs unattended in Docker and updates itself from GHCR.
 
-**What it reads is set on Puntmore's `/scraper` page** — leagues, markets,
-timings — and it reports its state back there. The server is the control
-plane; this is a worker. Any Linux box with Docker can run it.
+**What it reads is `data/targets.toml` on the Hub**, edited by Hermes; an
+edit applies without a restart. Its state goes to `data/status.json`, which
+the Hub reads. Nothing on Puntmore configures it: Puntmore only receives the
+prices it posts. Any Linux box with Docker can run it.
 
 The parsers (`parsers/`, one module each) are written only from what the real
 pages were seen to do. `bb_saves` DRIVES Bookie Bashing's Bet Builder (select
@@ -61,7 +62,7 @@ sudo mkdir -p /opt/puntmore-scraper/data && cd /opt/puntmore-scraper
 # from this folder of the repo:
 #   deploy/run.sh, deploy/update.sh  -> /opt/puntmore-scraper/
 #   .env.example                     -> /opt/puntmore-scraper/.env           (fill in)
-#   targets.example.toml             -> /opt/puntmore-scraper/data/targets.toml (offline fallback only)
+#   targets.example.toml             -> /opt/puntmore-scraper/data/targets.toml (then edit)
 chmod 600 .env
 # The image is private on GHCR: log in once with a PAT that has read:packages
 echo "$GHCR_PAT" | docker login ghcr.io -u cmclarty --password-stdin
@@ -90,7 +91,7 @@ docker logs -f puntmore-scraper
 docker exec puntmore-scraper python -m scraper status          # budget, cool-offs, each target, heartbeat
 docker exec puntmore-scraper python -m scraper dump bb-saves    # save the open page(s) to data/dumps/
 docker exec puntmore-scraper python -m scraper resume paddypower
-docker exec puntmore-scraper python -m scraper check            # the targets it would run, and from where
+docker exec puntmore-scraper python -m scraper check            # load targets.toml and list the targets
 docker exec puntmore-scraper python -m scraper selfcheck        # what a site sees of the browser (no network)
 ```
 
@@ -108,29 +109,26 @@ Set `SCRAPER_HEALTHCHECK_URL` (e.g. healthchecks.io) for an alert when the
 whole server goes quiet.
 
 ## Targets
-Set on Puntmore's `/scraper` page (`scraper` grant). The box fetches
-`GET /api/scraper/config` with `SAVES_INGEST_KEY` every 5 minutes and applies
-a change without a restart: a removed or changed target's tabs close, a new
-one opens on the next tick. It posts `POST /api/scraper/status` once a minute
-(also written to `data/status.json`, which `status` prints).
+One file: `data/targets.toml` (see `targets.example.toml`), or the file
+`SCRAPER_TARGETS` names. It lives on the Hub and Hermes edits it. The running
+service checks it once a minute and applies an edit without a restart: a
+removed or changed target's tabs close, a new one opens on the next tick. A
+file that will not load (a half-written save, a bad target) is reported in the
+log and the running targets are kept. The service writes its state to
+`data/status.json` once a minute; the Hub reads it and `status` prints it.
 
-Where the targets come from, first that works:
-1. `SCRAPER_TARGETS` set: that toml file, always.
-2. `PUNTMORE_URL` + `SAVES_INGEST_KEY` set: the server, cached to `data/config.json`.
-3. The cache, when the server is unreachable.
-4. `data/targets.toml` (see `targets.example.toml`).
-
-The page's leagues x markets become targets of two kinds:
+Targets are of these kinds:
 - **matches**: a league's listing page, e.g. a Paddy competition, whose match
   links are opened up to `max_tabs` at a time. Each match tab clicks the
   market's tabs once, then stays open. A tab that goes quiet is reloaded once,
-  then retired. Named `pp-<league>-<market>`.
-- **page**: one URL kept open, e.g. the Bookie Bashing saves page (set on the
-  page). It is reloaded every `every_min`, or only when it goes quiet for
-  `stale_min`.
+  then retired.
+- **page**: one URL kept open, e.g. the Bookie Bashing bet builder. It is
+  reloaded every `every_min`, or only when it goes quiet for `stale_min`.
+- **fetch**: a `generic` Bet Finder source, loaded, parsed once and closed
+  (above).
 
-Timings on the page are clamped to the floors in `config._target`, and
-`sites.py` budgets stay the ceiling whatever the page says.
+Timings are clamped to the floors in `config._target`, and `sites.py`
+budgets stay the ceiling whatever the file says.
 
 ## Tests
 ```sh

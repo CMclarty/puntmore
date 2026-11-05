@@ -23,18 +23,20 @@ day-to-day commands are in `README.md`; the boundaries that still apply are in
   the Render deploy and the no-docker-compose rule is untouched (plain
   `docker run`); nothing in it imports the API. One real Chrome on Xvfb keeps
   every target's page OPEN and listens to what the page receives, so after
-  the first load most targets cost no requests. WHAT it reads is config, set
-  on Puntmore's **`/scraper` page** (`scraper` grant, `routers/scraper.py`):
-  leagues (competition listings), markets (in-page tabs, parser, ingest
-  path; a Bookie Bashing market is one page with its own url) and per-site
-  timings. The box GETs `/api/scraper/config` (key-guarded, the saves key)
-  every 5 min and applies a change without a restart; it POSTs
-  `/api/scraper/status` once a minute. The config is the SAME structure
-  `targets.toml` holds (`config._target` reads both); the toml is only the
-  offline fallback, after the cached `data/config.json`. Timings are clamped
-  server-side to the scraper's own floors. HOW each site is treated is code
+  the first load most targets cost no requests. WHAT it reads is config, and
+  the config is ONE file: **`targets.toml` on the Hub** (`data/targets.toml`,
+  or the file `SCRAPER_TARGETS` names), edited by Hermes — nothing on Render
+  configures the Worker (decision 5 Nov 2026; Puntmore's `/scraper` page and
+  its config and status routes are gone). A target is a page, or a
+  competition listing whose match links are opened (in-page tabs, parser,
+  ingest path). The Worker checks the file once a minute and applies an edit
+  without a restart; a file that will not load is reported and the running
+  targets are kept. It writes its state to `data/status.json` once a minute,
+  which the Hub reads; the only thing it sends Render is the prices it posts.
+  Timings are clamped to the scraper's own floors (`config._target`).
+  HOW each site is treated is code
   (`sites.py`: budgets, Paddy quiet hours 01-07, a Paddy block = every Paddy
-  page closed + 24 h cool-off needing `resume`) — no page edit can loosen it.
+  page closed + 24 h cool-off needing `resume`) — no config edit can loosen it.
   It detects challenges and logouts (also on an already-open page: 3+
   refusals in 10 min, Cloudflare, logout) and never answers them — no
   fingerprint spoofing, no solvers, no proxies, no user-agent or navigator

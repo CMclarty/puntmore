@@ -2,7 +2,7 @@
 POST /api/paddy/saves-fair.
 
 The target's page is https://www.bookiebashing.net/tools/betbuilder/ (the
-"Saves fair" market on Puntmore's /scraper page). There is no saves page: the
+`bb-saves` target in targets.toml). There is no saves page: the
 fair is the builder's "BB xSaves" stat, and it is read by DRIVING the builder
 - selecting the game and typing each line - not by scraping a table. Learned
 by hand on 26 Oct 2026:

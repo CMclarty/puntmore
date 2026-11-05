@@ -4,6 +4,8 @@
 > `scraper/`, its targets come from Puntmore's `/scraper` page, and the
 > parsers are `parsers/pp_most.py` and `parsers/bb_saves.py` (both still
 > unwritten). See `README.md`. The boundaries below still apply.
+> **5 Nov 2026:** the `/scraper` page is gone; the targets are
+> `targets.toml` on the Hub.
 
 **Repo:** https://github.com/CMclarty/puntmore. Private; you need to be added as a collaborator.
 **Branch:** [`scraper-v0.1`](https://github.com/CMclarty/puntmore/tree/scraper-v0.1). Not merged to `main`.

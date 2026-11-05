@@ -1,13 +1,13 @@
 """python -m scraper <command>
 
-  run              The service: one Chrome, every target kept open. Targets come
-                   from Puntmore's /scraper page (targets.toml offline). This
-                   is what the container runs.
+  run              The service: one Chrome, every target kept open. Targets are
+                   data/targets.toml on the Hub; an edit applies without a
+                   restart. This is what the container runs.
   status           Budget spent, cool-offs, each target's state, heartbeat age.
   resume <site>    End a cool-off early-ish: it still needs its hours to pass.
   dump <target>    Ask the RUNNING service to save that target's open page(s)
                    (HTML + screenshot) to data/dumps/ - no extra page load.
-  check            Load the targets (server, cache or toml) and print them.
+  check            Load targets.toml and print the targets.
   selfcheck        What a site sees of this browser: navigator.webdriver,
                    userAgent, language, timezone, window, and that Chrome
                    runs without --enable-automation. Asks the running service
@@ -67,9 +67,9 @@ def run(s):
     from . import browser
     from .runner import Runner
 
-    if not s.targets and not s.from_server:
-        sys.exit(f"No targets - set PUNTMORE_URL and SAVES_INGEST_KEY, or put a targets.toml "
-                 f"in {s.data_dir} (see targets.example.toml).")
+    if not s.targets_file.exists():
+        sys.exit(f"No targets - put a targets.toml in {s.data_dir} "
+                 f"(see targets.example.toml).")
     stop = []
 
     def on_signal(signum, _frame):
@@ -87,7 +87,7 @@ def run(s):
         # the other tabs' events (responses, websocket frames) be delivered.
         idle = ctx.pages[0] if ctx.pages else ctx.new_page()
         runner = Runner(s, ctx, guard, alerts, run_dir)
-        print(f"running {len(s.targets)} target(s) from {s.targets_source}: "
+        print(f"running {len(s.targets)} target(s) from {s.targets_file}: "
               + ", ".join(f"{t.name} ({t.site})" for t in s.targets), flush=True)
         last_tick = [time.monotonic()]
         watchdog(last_tick)
@@ -120,7 +120,7 @@ def _prune(root, keep):
 
 def status(s):
     """Per site: budget and cool-off. Per target: the running service's last
-    report (data/status.json) - the same thing it posts to Puntmore."""
+    report (data/status.json) - the same file the Hub reads."""
     from .runner import site_status
     for st in site_status(_guard(s), time.time()):
         line = (f"{st['site']:14} loads {st['loads_hour']}/{st['per_hour']} this hour, "
@@ -133,7 +133,7 @@ def status(s):
     if rep.exists():
         import json
         body = json.loads(rep.read_text())
-        print(f"targets        from {body.get('source')}, reported "
+        print(f"targets        from {body.get('targets_file')}, reported "
               f"{int(time.time() - body['at'])} s ago")
         for t in body["targets"]:
             ago = lambda ts: "never" if ts is None else f"{int(time.time() - ts)} s ago"
@@ -202,7 +202,7 @@ def main(argv=None):
     elif cmd == "selfcheck":
         selfcheck(s)
     elif cmd == "check":
-        print(f"targets from {s.targets_source}")
+        print(f"targets from {s.targets_file}")
         for t in s.targets:
             print(f"{t.name}: {t.site} {t.url}"
                   + (f"  matches(max {t.matches.max_tabs}, tabs {list(t.matches.market_tabs)})" if t.matches else "")
