@@ -75,9 +75,9 @@ class Target:
     min_rows: int = 0                   # fewer parsed rows than this = unhealthy (layout change?)
     trust_weight: float = 1.0           # Bet Finder: sent to the Hub beside the rows
     wait_for: str | None = None         # CSS selector to wait for before parsing (fetch targets)
-    # Stored and shown now; the runner does not act on them yet (TODO(runner)
-    # in runner.py): higher priority wins a site's contended hourly budget,
-    # and outside its window ("HH:MM-HH:MM", local time) a target is not loaded.
+    # Acted on by the runner (schedule.py): higher priority wins a site's
+    # contended hourly budget, and outside its window ("HH:MM-HH:MM", local
+    # time) a target is not loaded and its tabs are closed.
     priority: int = 0
     window: str | None = None
 

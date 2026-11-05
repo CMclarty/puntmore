@@ -12,13 +12,13 @@ Tables:
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .ids import tip_id_for  # noqa: F401  (the one tip id; re-exported)
 from .schemas import new_id
 
 SCHEMA = """
@@ -55,12 +55,6 @@ def parse_iso(s: str | None) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def tip_id_for(source_id: str, event: str, market: str, selection: str, tip_time: str) -> str:
-    """Stable id so the same tip seen twice (or from two sweeps) is stored once."""
-    key = f"{source_id}|{event.strip().lower()}|{market.strip().lower()}|{selection.strip().lower()}|{tip_time[:10]}"
-    return hashlib.sha1(key.encode()).hexdigest()[:16]
-
-
 class Store:
     def __init__(self, path: Path | str = ":memory:"):
         self.path = str(path)
@@ -75,9 +69,11 @@ class Store:
         self.conn.close()
 
     # ---- tips ------------------------------------------------------------------------------------
-    def add_tip(self, tip: dict[str, Any]) -> str | None:
-        """Insert a candidate tip. Returns its tip_id, or None if it was already stored."""
-        tid = tip_id_for(tip["source_id"], tip["event"], tip["market"], tip["selection"], tip["tip_time"])
+    def add_tip(self, tip: dict[str, Any], tip_id: str | None = None) -> str | None:
+        """Insert a candidate tip under `tip_id` (the Scraper's, minted where the tip was
+        first seen), or one minted here when none is given. Returns its tip_id, or None
+        if it was already stored."""
+        tid = tip_id or tip_id_for(tip["source_id"], tip["event"], tip["market"], tip["selection"], tip["tip_time"])
         cur = self.conn.execute(
             """INSERT OR IGNORE INTO tips(tip_id, source_id, event, market, selection, advised_price,
                advised_stake_units, tip_time, expiry, origin, first_seen, extra)

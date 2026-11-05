@@ -7,11 +7,15 @@ This module turns tips into stored, deduplicated candidate tips queued for Rende
 events into escalations for the local AI. Files are moved to `done/` once handled, so a
 crash between the two never loses or doubles anything: a tip is deduplicated by its id,
 an event by its file name.
+
+A tip's id is the Scraper's: each row of a drop carries `tip_id`, minted where the tip
+was first seen (`ids.py`). Only an old drop without one has it minted here.
 """
 from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,6 +28,7 @@ log = logging.getLogger("puntmore.inbox")
 
 PRICE_MIN, PRICE_MAX = 1.01, 1000.0
 KEEP_DONE = 300
+_TIP_ID = re.compile(r"^[0-9a-f]{16,40}$")
 
 
 def _iso(ts: float) -> str:
@@ -40,7 +45,9 @@ def _finish(path: Path, done: Path) -> None:
         old.unlink(missing_ok=True)
 
 
-def _tips_from(body: dict) -> tuple[list[CandidateTip], list[str]]:
+def _tips_from(body: dict) -> tuple[list[tuple[str | None, CandidateTip]], list[str]]:
+    """The drop's good rows as (tip_id or None, tip): None when the row carries no
+    usable tip_id (an old drop), so the store mints it."""
     good, problems = [], []
     at = _iso(float(body.get("at") or utcnow().timestamp()))
     source = str(body.get("source") or "")
@@ -54,14 +61,15 @@ def _tips_from(body: dict) -> tuple[list[CandidateTip], list[str]]:
         if price is not None and not (PRICE_MIN <= float(price) <= PRICE_MAX):
             problems.append(f"price {price} out of range: {row}")
             continue
-        good.append(CandidateTip(
+        tid = row.get("tip_id")
+        good.append((tid if isinstance(tid, str) and _TIP_ID.match(tid) else None, CandidateTip(
             source_id=source, event=str(row["event"]), market=str(row["market"]), selection=str(row["selection"]),
             advised_price=None if price is None else float(price),
             advised_stake_units=row.get("advised_stake_units"),
             tip_time=row.get("tip_time") or at, expiry=row.get("expiry"),
             origin=row.get("origin") or "scrape",
             extra={**(row.get("extra") or {}), "trust_weight": weight},
-        ))
+        )))
     return good, problems
 
 
@@ -82,8 +90,8 @@ def ingest(store: Store, cfg: Settings = default_settings, *, notify: bool = Tru
         counts["rejected"] += len(problems)
         for p in problems[:3]:
             log.warning("inbox %s: rejected %s", body.get("source"), p)
-        for tip in tips:
-            tid = store.add_tip(tip.to_dict())
+        for given, tip in tips:
+            tid = store.add_tip(tip.to_dict(), tip_id=given)
             if tid:
                 counts["new_tips"] += 1
                 store.outbox_add("tip", {"tip_id": tid, **tip.to_dict()})

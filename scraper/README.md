@@ -98,12 +98,15 @@ python -m scraper targets remove racing-tips
   rewritten whole, so comments are lost: the first save keeps the
   hand-written file as `targets.toml.bak`.
 - The running Scraper picks a change up within 60 s (its re-read of the
-  file). A changed target has its tabs closed and reopened on the next tick,
-  whatever the field: today even an `every_min` change costs a fresh load.
-- `priority` (whole number, default 0; higher wins a site's contended hourly
-  budget) and `window` (`"HH:MM-HH:MM"` local time, may wrap midnight; the
-  target is not loaded outside it) are stored, validated and shown, but the
-  runner does not act on them yet (`TODO(runner)` in `runner.py`).
+  file). A change to only `every_min`, `stale_min`, `priority`, `window`,
+  `min_rows` or `trust_weight` is applied in place: the open tabs stay and
+  are rescheduled (a timed reload is redrawn from the last load), so it
+  costs no load. A change to `url`, `site`, `mode`, `parser`, `post`,
+  `wait_for` or `matches` closes the target's tabs and reopens them on the
+  next tick. Disabling or removing a target closes its tabs.
+- `priority` (higher goes first when a site's hourly budget is short) and
+  `window` (`"HH:MM-HH:MM"` local time; outside it the target's tabs close)
+  are acted on by the runner (`schedule.py`).
 
 ## Running on the Hub's desktop (the default)
 Since 5 Nov 2026 the Scraper runs on the Hub's real desktop session, so the
@@ -232,7 +235,8 @@ One file: `data/targets.toml` (see `targets.example.toml`), or the file
 `SCRAPER_TARGETS` names. It lives on the Hub and is changed only through
 `scraper/targets.py` (Changing targets, above). The running
 service checks it once a minute and applies an edit without a restart: a
-removed or changed target's tabs close, a new one opens on the next tick. A
+removed target's tabs close, a new one opens on the next tick, and a changed
+one is rescheduled in place or reopened (Changing targets, above). A
 file that will not load (a half-written save, a bad target) is reported in the
 log and the running targets are kept. The service writes its state to
 `data/status.json` once a minute; the Hub reads it and `status` prints it.
@@ -249,6 +253,24 @@ Targets are of these kinds:
 
 Timings are clamped to the floors in `config._target`, and `sites.py`
 budgets stay the ceiling whatever the file says.
+
+Two fields say when and who first (`schedule.py`):
+- **`window`** (`"HH:MM-HH:MM"`, local time, may wrap midnight as
+  `"22:00-02:00"`; the start minute is inside, the end minute is not): the
+  hours a target may load at all. Outside it nothing is loaded and its open
+  tabs are closed, within a tick of the window's end; `status` shows it
+  `paused`, "outside window". When the window starts it opens again through
+  the normal spacing and guard; a fetch target runs at the start. No window
+  means always. A site's quiet hours and cool-offs still apply inside it.
+- **`priority`** (whole number, default 0): who gets a site's loads when they
+  are short. Loads are spaced, so one goes out at a time, to the first target
+  in the tick's order that wants one. While a site has at least as many
+  loads left (this hour, or today if fewer) as targets wanting one, that
+  order is file order. When more of its targets want a load than it has
+  left, the highest priority goes first, ties to whichever has been waiting
+  longer (overdue the longest). A lower-priority target still gets the loads
+  a higher one does not want: priority orders the queue, it does not reserve
+  budget.
 
 ## Tests
 ```sh

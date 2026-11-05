@@ -276,16 +276,35 @@ def test_running_scraper_applies_a_save_through_its_re_read(path, monkeypatch, c
                run_dir=path.parent / "run")
     closed = []
     monkeypatch.setattr(r, "_close", lambda key: closed.append(key))
-    r.tabs["pp"] = type("Tab", (), {"target": FULL[0]})()      # an open tab for pp
-    T.set(path, "pp", every_min=20)
-    st = path.stat()                                            # make sure the mtime moved
-    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 2_000_000_000))
-    r._reload_targets(time.time() + TARGETS_CHECK_S + 1)
+    tab = type("Tab", (), {"target": FULL[0], "due_at": 123.0})()   # an open tab for pp
+    r.tabs["pp"] = tab
+
+    def save_and_reload(n, **change):
+        T.set(path, "pp", **change)
+        st = path.stat()                                        # make sure the mtime moved
+        os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 2_000_000_000 * n))
+        r._reload_targets(time.time() + n * (TARGETS_CHECK_S + 1))
+
+    # A timing / priority / window / health change is applied in place: the
+    # tab stays open, takes the new definition, and its timed reload is
+    # redrawn with the new every_min. No load.
+    save_and_reload(1, every_min=20, priority=7, window="06:00-23:00", min_rows=1, trust_weight=0.25)
     assert next(t for t in r.targets if t.name == "pp").every_min == 20.0
-    assert "changed pp" in capsys.readouterr().out
-    # Today ANY change to a target closes its tabs, even an every_min-only one:
-    # the next tick reopens it (a fresh load). Runner work to come (PLAN.md 10).
+    assert "changed pp (in place)" in capsys.readouterr().out
+    assert closed == [] and r.tabs["pp"] is tab
+    assert (tab.target.every_min, tab.target.priority, tab.target.window) == (20.0, 7, "06:00-23:00")
+    assert tab.due_at is None
+    # A change to the page itself (here its url) still closes and reopens.
+    save_and_reload(2, url="https://www.paddypower.com/football/championship")
     assert closed == ["pp"]
+    assert "changed pp" in capsys.readouterr().out
+    # Disabling closes too (the target is gone from the running list).
+    r.tabs["pp"] = type("Tab", (), {"target": next(t for t in r.targets if t.name == "pp")})()
+    T.disable(path, "pp")
+    st = path.stat()
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 6_000_000_000))
+    r._reload_targets(time.time() + 3 * (TARGETS_CHECK_S + 1))
+    assert closed == ["pp", "pp"] and "pp" not in [t.name for t in r.targets]
 
 
 def test_cli_file_option(cli, tmp_path):

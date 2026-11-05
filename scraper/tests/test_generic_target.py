@@ -87,7 +87,8 @@ def test_rows_are_handed_to_the_hub_as_one_file_per_run(tmp_path):
     assert len(files) == 1 and not list((tmp_path / "hub" / "tips").glob("*.tmp"))
     body = json.loads(files[0].read_text())
     assert body["source"] == "tips-a" and body["channel"] == "tips" and body["trust_weight"] == 0.5
-    assert body["rows"] == rows
+    assert [{k: v for k, v in row.items() if k != "tip_id"} for row in body["rows"]] == rows
+    assert all(len(row["tip_id"]) == 16 for row in body["rows"])     # minted here (test_ids.py)
 
 
 def test_short_row_count_alerts_once_and_tells_the_hub(tmp_path):

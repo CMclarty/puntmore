@@ -453,8 +453,11 @@ The Hub side of the 2-Up Engine spec. (History: built on branch `home-box`, as
       `scraper-targets`, 5 Nov): the only way `targets.toml` changes; validated
       by `config._target`, atomic save under an flock, `summary()` joins
       `status.json` for the console; new fields `priority` and `window`.
-      [ ] The runner honours `priority` and `window` (`TODO(runner)`), and
-      applies an `every_min`/`stale_min`-only change without closing the tab.
+      [x] The runner (branch `scraper-runner-split`): split into
+      `schedule.py` / `sinks.py` / `status.py` / `runner.py`; honours
+      `priority` and `window`; applies a timing-only change (`every_min`,
+      `stale_min`, `priority`, `window`, `min_rows`, `trust_weight`) without
+      closing the tab; mints `tip_id` where a tip is first seen.
       [x] The Hub Console calls it (branch `console-scraper-tab`): the Scraper
       tab lists `summary()` and adds, edits, enables, disables and removes
       targets through it, behind `PUNTMORE_WEB_TOKEN`.

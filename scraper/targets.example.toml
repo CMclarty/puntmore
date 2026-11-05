@@ -28,12 +28,13 @@
 #   wait_for   CSS selector to wait for before parsing
 #   enabled    false keeps the entry but never runs it
 #
-# Any target, stored and shown now; the runner acts on them in a later
-# change (TODO(runner) in runner.py):
-#   priority   whole number, default 0. Higher wins when a site's hourly
-#              budget cannot cover every due target
+# Any target (scraper/schedule.py):
+#   priority   whole number, default 0. Higher goes first when a site's
+#              hourly budget has fewer loads left than targets want one;
+#              ties go to the more overdue
 #   window     "HH:MM-HH:MM", local time (may wrap midnight, "22:00-02:00").
-#              Outside it the target is not loaded
+#              Outside it the target is not loaded and its tabs are closed;
+#              they reopen when the window starts
 
 # OPEN, Callum to decide (docs/decisions.md, "Scraping conduct"): this one BB
 # target predates the rule that BB is never automated; keep it as the named
