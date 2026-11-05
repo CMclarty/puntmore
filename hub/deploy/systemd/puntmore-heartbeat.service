@@ -1,0 +1,7 @@
+[Unit]
+Description=Puntmore Hub: daily 09:00 heartbeat (silence means broken)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Projects/puntmore/home
+ExecStart=%h/.venvs/puntmore/bin/puntmore heartbeat

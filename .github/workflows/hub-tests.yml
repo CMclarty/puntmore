@@ -1,0 +1,23 @@
+# Tests the home-box package (hub/). Nothing is deployed from here: the Hub pulls
+# its own checkout. Runs on PRs and on main so the contract tests in hub/tests/test_protocol.py
+# gate any change to the Render side that touches the shared schema.
+name: hub tests
+
+on:
+  push:
+    branches: [main]
+    paths: ["hub/**", ".github/workflows/hub-tests.yml"]
+  pull_request:
+    paths: ["hub/**", ".github/workflows/hub-tests.yml"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e 'home[dev]'
+      - run: python -m pytest hub/tests -q

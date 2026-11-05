@@ -1,0 +1,12 @@
+{
+  "type": "escalation_outcome",
+  "client_id": "owner",
+  "msg_id": "c0ffee000000000c",
+  "ts": "2026-11-05T09:30:00+00:00",
+  "body": {
+    "escalation_id": 12,
+    "kind": "failed_bet",
+    "ref": "2026-11-05-00125",
+    "outcome": "Dropped. Market suspended at kick-off; no re-placement. Told Cal."
+  }
+}

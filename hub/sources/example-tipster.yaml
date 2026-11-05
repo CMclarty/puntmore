@@ -1,0 +1,13 @@
+# Worked example wired to the fixture under fixtures/example_tipster/. Disabled: it exists so
+# `puntmore parser-test example_tipster fixtures/example_tipster/page.html` and the tests have a real source.
+name: example-tipster
+enabled: false
+kind: page
+url: https://example.com/tips
+parser: example_tipster
+schedule:
+  every: 6h
+trust_weight: 0.5
+health:
+  min_items: 2
+notes: Example only. Page lists tips as <li class="tip">Event | Market | Selection | Price</li>.

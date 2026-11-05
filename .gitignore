@@ -23,3 +23,7 @@ frontend/dist/
 
 # Frontend build copied into the API image at build time (Dockerfile stage)
 api/static/
+
+# 2-Up Hub runtime state (hub/README.md)
+hub/data/
+hub/sub_clients.yaml

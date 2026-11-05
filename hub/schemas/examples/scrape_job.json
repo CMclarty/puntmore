@@ -1,0 +1,13 @@
+{
+  "type": "scrape_job",
+  "client_id": "owner",
+  "msg_id": "r-00000003",
+  "ts": "2026-11-05T09:30:00+00:00",
+  "body": {
+    "job_id": "job-77",
+    "source": "example-tipster",
+    "params": {
+      "force": true
+    }
+  }
+}

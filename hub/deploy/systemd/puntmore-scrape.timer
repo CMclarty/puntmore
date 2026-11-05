@@ -1,0 +1,11 @@
+[Unit]
+Description=Check every 5 minutes whether a scrape source is due
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=90
+Persistent=true
+
+[Install]
+WantedBy=timers.target
