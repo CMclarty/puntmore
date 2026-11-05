@@ -1,6 +1,6 @@
 # Puntmore
 
-Betting tools: a web app on Render, and a Hub on a residential connection that reads bookmaker pages and, for the 2-Up Engine, places bets. One repo, one directory per deployable. The rules for working here are in `CLAUDE.md`; current work is in `PLAN.md`; design detail is in `SPEC.md`.
+Betting tools: a web app on Render, and a Hub on a residential connection that reads bookmaker pages and, for the 2-Up Engine, places bets. One repo, one directory per deployable, and **one source for everything**: this file says what runs where, `CLAUDE.md` the rules, `PLAN.md` what is decided and what is next, `docs/architecture.md` the architecture, `docs/2up-engine-spec.md` the 2-Up spec, `SPEC.md` the web app's design. Nothing about the system lives outside the repo.
 
 ## What runs where
 
