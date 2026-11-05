@@ -17,13 +17,15 @@ React frontend, behind a shared nginx layer.
 > Win-and-Over off the fitted score grid. OCR **auto-confirms**: rows save and
 > price on upload, with inline edit and re-scan.
 
-```
-bettingtools/
-├── api/              ← FastAPI backend; api/Dockerfile ALSO builds the frontend
-│                       into this one image, and app/asgi.py serves both
-├── frontend/         ← React app (Vite); built into the api image, not deployed alone
-└── render.yaml       ← Render blueprint: ONE Docker web service, deploy on push to main
-```
+What runs where (the full table is in `README.md`; keep the two in step):
+
+| Directory | Runs on | Deployed by | Updated when |
+|---|---|---|---|
+| `api/` + `frontend/` | Render, ONE Docker web service | `render.yaml`; `api/Dockerfile` builds the frontend into the API image, `app/asgi.py` serves both | **every push to `main`** |
+| `scraper/` | home box, Docker | `scraper-image.yml` → GHCR; the box's `update.sh` cron | push to `main` touching `scraper/` |
+| `home/` | home box, systemd user services | `home/deploy/systemd/` on a checkout | `git pull` on the box |
+
+Nothing goes to `main` directly: branch, pull request, path-scoped workflows.
 
 The three tools are routes in one React app (`/`, `/accabonus`, `/cards`), not
 separate builds. The backend serves them all under namespaced routers.
