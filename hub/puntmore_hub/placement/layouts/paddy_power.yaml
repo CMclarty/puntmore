@@ -1,0 +1,69 @@
+# Paddy Power Android app layout configuration
+# Device: Android 10+, Paddy Power app v15+
+# Screen: 1080x2400 (adjust coordinates per device)
+
+bookmaker: paddy_power
+package: com.greentube.mobile.android.pp
+
+# Screen coordinates (relative to 1080x2400)
+screen:
+  width: 1080
+  height: 2400
+
+# UI element positions (x, y) - calibrate per device
+coords:
+  sports_nav: [200, 100]
+  in_play_section: [540, 200]
+  market_selection: [540, 900]
+  bet_builder: [800, 1100]
+  bet_slip_button: [920, 2180]
+  stake_field: [540, 1450]
+  place_bet_btn: [540, 1850]
+  confirm_bet_btn: [540, 2050]
+  dismiss_popup: [900, 280]
+
+# XPath selectors for UI tree parsing
+selectors:
+  stake_field: "//*[@hint='Stake' or @resource-id='com.greentube.mobile.android.pp:id/stakeEditText']"
+  place_bet: "//*[@text='Place Bet' or @resource-id='com.greentube.mobile.android.pp:id/placeBetButton']"
+  bet_slip: "//*[@text='Bet Slip' or contains(@text,'Bets')]"
+  popup_dismiss: "//*[@text='OK' or @resource-id='com.greentube.mobile.android.pp:id/dismissButton']"
+  confirmation_msg: "//*[@contains(@text,'Bet Confirmed') or contains(@text,'Good Luck')]"
+
+# Known popups to dismiss
+popups:
+  - id: "welcome_bonus"
+    selector: "//*[@contains(@text,'Bonus') or contains(@text,'Offer')]"
+    action: "tap"
+  - id: "app_rating"
+    selector: "//*[@resource-id='com.greentube.mobile.android.pp:id/ratingClose']"
+    action: "tap"
+  - id: "responsible_gambling"
+    selector: "//*[@text='Got it' or @resource-id='com.greentube.mobile.android.pp:id/responsibleClose']"
+    action: "tap"
+
+# Timing quirks (milliseconds)
+timing:
+  app_launch_ms: 2500
+  page_load_ms: 1200
+  between_actions_ms: 600
+  confirm_wait_ms: 1800
+  min_bet_interval_ms: 4000  # Paddy Power allows faster placement
+
+# Price format: decimal (e.g., 2.10)
+price_format: decimal
+
+# Known issues
+quirks:
+  - name: "bet_slip_auto_open"
+    description: "Selection auto-adds to slip, no manual open needed"
+    workaround: "skip bet_slip_open step"
+  - name: "quick_bet_mode"
+    description: "Quick bet popup appears for first-time stakes"
+    workaround: "detect 'Quick Bet' → tap 'Regular Bet'"
+  - name: "location_permission"
+    description: "GPS permission requested on first launch"
+    workaround: "detect 'Allow Location' → tap 'Allow'"
+  - name: "price_freeze"
+    description: "Price may freeze during placement"
+    workaround: "detect 'Price Frozen' text, raise PlacementFailed"

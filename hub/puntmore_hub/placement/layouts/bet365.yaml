@@ -1,0 +1,64 @@
+# Bet365 Android app layout configuration
+# Device: Android 10+, Bet365 app v20+
+# Screen: 1080x2400 (adjust coordinates per device)
+
+bookmaker: bet365
+package: com.bet365
+
+# Screen coordinates (relative to 1080x2400)
+# These are approximate - calibrate per device
+screen:
+  width: 1080
+  height: 2400
+
+# UI element positions (x, y) - calibrate with puntmore calibrate <account_id>
+coords:
+  sports_tab: [180, 120]
+  in_play_tab: [540, 120]
+  market_row: [540, 800]
+  selection_button: [800, 1200]
+  bet_slip: [900, 2200]
+  stake_input: [540, 1500]
+  place_bet_button: [540, 1900]
+  confirm_button: [540, 2100]
+  close_popup: [950, 300]
+
+# XPath selectors for UI tree parsing
+selectors:
+  stake_input: "//*[@text='Enter Stake' or @resource-id='com.bet365:id/stakeInput']"
+  confirm_bet: "//*[@text='Place Bet' or @resource-id='com.bet365:id/confirmBet']"
+  bet_slip_open: "//*[@text='Bet Slip' or contains(@text,'Slip')]"
+  popup_close: "//*[@text='Close' or @resource-id='com.bet365:id/closeButton']"
+  confirmation_ref: "//*[@contains(@text,'Reference') or contains(@text,'Bet Placed')]"
+
+# Known popups to dismiss
+popups:
+  - id: "cookie_banner"
+    selector: "//*[@text='Accept' or contains(@text,'Cookie')]"
+    action: "tap"
+  - id: "promo_offer"
+    selector: "//*[@resource-id='com.bet365:id/promoClose']"
+    action: "tap"
+
+# Timing quirks (milliseconds)
+timing:
+  app_launch_ms: 3000
+  page_load_ms: 1500
+  between_actions_ms: 800
+  confirm_wait_ms: 2000
+  min_bet_interval_ms: 5000  # Cool-down between bets
+
+# Price format: decimal (e.g., 2.10)
+price_format: decimal
+
+# Known issues
+quirks:
+  - name: "stake_input_clear"
+    description: "Long press needed to clear existing stake"
+    workaround: "long_press before input"
+  - name: "confirmation_delay"
+    description: "Confirmation screen takes 2-3 seconds to appear"
+    workaround: "wait 3s before reading confirmation"
+  - name: "market_suspension"
+    description: "Market may suspend during placement"
+    workaround: "detect 'Market Suspended' text, raise PlacementFailed"
