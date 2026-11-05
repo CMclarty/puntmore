@@ -111,6 +111,13 @@ class Runner:
         self.snapshots: set = set()                    # (target, why) saved this run
         (settings.data_dir / "latest").mkdir(parents=True, exist_ok=True)
         (settings.data_dir / "requests").mkdir(parents=True, exist_ok=True)
+        # Bet Finder (fetch) targets: next run per target, and the health state
+        # the Hub is told about (min_rows breaches, blocks) so it only wakes
+        # the local AI on a change.
+        self.next_fetch: dict[str, float] = {}
+        self.health_said: dict[str, str] = {}
+        for sub in ("tips", "events"):
+            (settings.data_dir / "hub" / sub).mkdir(parents=True, exist_ok=True)
 
     # --- site-wide state ----------------------------------------------------
     def _paused(self, site, now) -> str | None:
@@ -143,6 +150,7 @@ class Runner:
         st = self.sites[site]
         image = self._block_shot(site, tab) if tab else None
         where = f" on {tab.page.url}" if tab else ""
+        emit_event(self.s.data_dir, "blocked_source", site, f"{reason}{where}", now)
         if SITES[site].block_means_cooloff:
             self.guard.start_cooloff(site, reason, now)
             self._close_site(site)
@@ -235,7 +243,7 @@ class Runner:
         if not self._may_load(site, now):
             return None
         ok, _why = self.guard.can_load(site, now, quiet_applies=SITES[site].quiet_hours)
-        if not ok or not host_allowed(url):
+        if not ok or not host_allowed(url, site):
             return None
         self._spaced(site, now)
         tab = self.tabs.get(key)
@@ -296,7 +304,9 @@ class Runner:
         for t in self.targets:
             if self._paused(t.site, now):
                 continue
-            if t.matches:
+            if t.mode == "fetch":
+                self._tick_fetch(t, now)
+            elif t.matches:
                 self._tick_matches(t, now)
             else:
                 self._tick_page(t, t.name, t.url, now)
@@ -367,6 +377,53 @@ class Runner:
         stale = tab.capture.quiet_for(now) >= t.stale_min * 60 and now - tab.last_load >= t.stale_min * 60
         if due or stale or tab.worn(now):
             self._load(t, key, url, now)
+
+    def _tick_fetch(self, t, now):
+        """A Bet Finder source: load the page, parse it once, close it. Nothing
+        is kept open, so each run is one load against its site's budget. The
+        next run is scheduled before parsing, so a broken parser can never turn
+        into a reload loop; a load that fails backs off five minutes."""
+        due = self.next_fetch.get(t.name)
+        if due is not None and now < due:
+            return
+        ok, _why = self.guard.can_load(t.site, now, quiet_applies=SITES[t.site].quiet_hours)
+        if not ok or not self._may_load(t.site, now):
+            return                                  # budget or spacing: try next tick
+        key = f"fetch:{t.name}"
+        tab = self._load(t, key, t.url, now)
+        if tab is None:
+            self.next_fetch[t.name] = now + 300
+            return
+        every = (t.every_min or 60) * 60
+        self.next_fetch[t.name] = now + every * random.uniform(*RELOAD_JITTER)
+        try:
+            if t.wait_for:
+                try:
+                    tab.page.wait_for_selector(t.wait_for, timeout=20_000)
+                except Exception:
+                    print(f"{t.name}: wait_for {t.wait_for!r} not seen", flush=True)
+            self._parse(tab, now, force=True)
+        finally:
+            self._close(key)
+
+    def _check_rows(self, t, rows, now):
+        """Row-count health for fetch targets: fewer than min_rows is a suspected
+        layout change. Alert and tell the Hub once per change, not per run."""
+        if t.min_rows and len(rows) < t.min_rows:
+            msg = f"only {len(rows)} row(s), expected at least {t.min_rows} - layout change?"
+            if self.health_said.get(t.name) != msg:
+                self.health_said[t.name] = msg
+                self.alerts.send(f"{t.name}: {msg}")
+                emit_event(self.s.data_dir, "unhealthy_source", t.name, msg, now)
+            self.parser_said[t.name] = msg
+        elif t.name in self.health_said:
+            del self.health_said[t.name]
+            self.alerts.send(f"{t.name}: healthy again ({len(rows)} rows)")
+
+    def _deliver(self, t, rows, now) -> bool:
+        if t.post.startswith("hub:"):
+            return deliver_to_hub(self.s.data_dir, t, rows, now)
+        return self._post(t, rows)
 
     def _tick_matches(self, t, now):
         m = t.matches
@@ -482,9 +539,9 @@ class Runner:
             print(f"{t.name}: snapshot failed: {exc}", flush=True)
 
     # --- output -------------------------------------------------------------
-    def _parse(self, tab, now):
+    def _parse(self, tab, now, force=False):
         t = tab.target
-        if not t.parser or now < tab.next_parse:
+        if not t.parser or (not force and now < tab.next_parse):
             return
         tab.next_parse = now + PARSE_EVERY_S
         fn = PARSERS.get(t.parser)
@@ -504,11 +561,12 @@ class Runner:
             self.parser_said[t.name] = f"parser failed: {str(exc).splitlines()[0][:120]}"
             return
         self.parser_said.pop(t.name, None)
+        self._check_rows(t, rows, now)
         out = self.s.data_dir / "latest" / f"{_safe(t.name)}.json"
         out.write_text(json.dumps({"at": now, "url": tab.url, "rows": rows}, indent=1))
         if rows:
             self.last_parse_at[t.name] = now
-        if t.post and rows and self._post(t, rows):
+        if t.post and rows and self._deliver(t, rows, now):
             self.rows_posted[t.name] = self.rows_posted.get(t.name, 0) + len(rows)
 
     def _post(self, t, rows) -> bool:
@@ -546,7 +604,7 @@ class Runner:
                 detail = "; ".join(x for x in (f"{n} tab{'s' if n != 1 else ''} open",
                                                market_tabs_said(mine),
                                                self.parser_said.get(t.name)) if x)
-            targets.append({"name": t.name, "site": t.site, "url": t.url, "state": state,
+            targets.append({"name": t.name, "site": t.site, "url": t.url, "state": state, "mode": t.mode,
                             "detail": detail, "last_load": self.last_load_at.get(t.name),
                             "last_parse": self.last_parse_at.get(t.name),
                             "rows_posted": self.rows_posted.get(t.name, 0)})
@@ -616,6 +674,40 @@ class Runner:
     def close_all(self):
         for key in list(self.tabs):
             self._close(key)
+
+
+def _drop(data_dir, sub, name, body) -> bool:
+    """Write one JSON file atomically into data/hub/<sub>/ for the Hub to ingest."""
+    out = data_dir / "hub" / sub
+    out.mkdir(parents=True, exist_ok=True)
+    final = out / f"{int(body['at'] * 1000)}-{_safe(name)}.json"
+    tmp = out / (final.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(body, indent=1))
+        tmp.rename(final)
+        return True
+    except OSError as exc:
+        print(f"hub drop failed: {exc}", flush=True)
+        return False
+
+
+def deliver_to_hub(data_dir, target, rows, now) -> bool:
+    """Hand a fetch target's rows to the Hub: one file per run, picked up by the
+    Hub's link daemon (`puntmore inbox`) and sent to Render as tips. The channel
+    after `hub:` in the target's post (e.g. `hub:tips`) is passed through."""
+    body = {"source": target.name, "at": now, "url": target.url,
+            "channel": target.post.split(":", 1)[1] or "tips",
+            "trust_weight": target.trust_weight, "rows": rows}
+    ok = _drop(data_dir, "tips", target.name, body)
+    if ok:
+        print(f"{target.name}: {len(rows)} row(s) handed to the Hub", flush=True)
+    return ok
+
+
+def emit_event(data_dir, kind, ref, detail, now) -> bool:
+    """Tell the Hub something needs a decision (a block, an unhealthy source).
+    The Hub turns it into an escalation for the local AI."""
+    return _drop(data_dir, "events", ref, {"kind": kind, "ref": ref, "detail": detail, "at": now})
 
 
 def site_status(guard, now) -> list[dict]:

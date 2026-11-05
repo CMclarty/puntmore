@@ -441,7 +441,7 @@ The Hub side of the 2-Up Engine spec. Branch `home-box`.
       a mock Render for integration tests, `puntmore link-check`.
 - [ ] Render end of the protocol in `api/` (WebSocket endpoint, per-client keys,
       bet lists out, reports in) — the other side of `hub/PROTOCOL.md`.
-- [ ] Unify `hub/`'s request budget with `scraper/guard.py` (per-site, in code).
+- [x] Fold the Bet Finder's sources into the Worker (branch `fold-worker`, 5 Nov): a `generic` site kind under `scraper/guard.py`, fetch-mode targets, tips and events dropped as files for `hub/`'s inbox; `hub/` no longer has a browser, budget or parsers.
 - [ ] Phone placement adapter; IMAP tipster source; kick-off-window sweeps.
 - [ ] Two weeks of dry-run reports before `PUNTMORE_DRY_RUN=0`.
 Definition of Done: a bet list from Render reaches a phone in dry-run and its

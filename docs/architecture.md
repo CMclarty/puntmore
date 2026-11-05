@@ -33,23 +33,21 @@ flowchart LR
     subgraph HERMES["Hermes — owner of the Hub: chief of staff on Telegram + four specialists · live"]
       MODEL["Local model<br/>llama-server, Qwen3.5-122B, two 131k slots; Hermes' brain, never prices a bet<br/><i>live</i>"]
     end
-    WORKER["Worker · scraper/<br/>Paddy Power and Bookie Bashing pages kept open in one real Chrome; budgets in code<br/><i>live</i>"]
-    BFS["Bet Finder sources · hub/<br/>tipster and scrape sources sending tips to Render<br/><i>scaffold → folding into the Worker</i>"]
+    WORKER["Worker · scraper/<br/>one real Chrome: Paddy Power and Bookie Bashing pages kept open, Bet Finder sources loaded-parsed-closed; budgets in code<br/><i>live · tips drop to the Hub</i>"]
     PLACE["Placement bot<br/>bet in → placed / price_changed / failed; no retry<br/><i>placeholder</i>"]
-    LINK["Render link · hub/<br/>outbound WebSocket, durable outbox, idempotent, honours the kill switch<br/><i>scaffold</i>"]
+    LINK["Render link + inbox · hub/<br/>outbound WebSocket, durable outbox, idempotent; ingests the Worker's drops<br/><i>scaffold</i>"]
   end
 
   ODDS["OddsPapi<br/>the only odds source"] --> T365
   ODDS --> PADDY
   WORKER -- "prices, HTTP, live" --> PADDY
-  BFS -- tips --> LINK
+  WORKER -- "tips, events (files)" --> LINK
   LINK <-. "WebSocket v1: bet lists → · reports, tips ←" .-> HEP
   HEP -. bet lists .-> LINK
   LINK --> PLACE
   PLACE --> PHONES["Phones<br/>one bookmaker account each"]
   HERMES --> TG["Telegram<br/>Callum ↔ Hermes"]
   WORKER --> SITES["Bookmaker sites<br/>Paddy, Bookie Bashing, Bet365"]
-  BFS --> SITES
 ```
 
 ## Components
@@ -66,10 +64,9 @@ flowchart LR
 | Private engine | Multi-bookmaker staking that consumes 2-Up as one source | Render · me | to build, to spec separately |
 | Hermes | Owner of the Hub: chief of staff and four specialists | Hub | live (delegation plugin pending) |
 | Local model | llama-server, Qwen3.5-122B, two slots; Hermes' brain, never in the pricing path | Hub, inside Hermes | live |
-| Worker | `scraper/`: Paddy Power and Bookie Bashing pages in one real Chrome | Hub | live (parsers partly written) |
-| Bet Finder sources | `hub/`: tipster and scrape sources sending tips to Render | Hub | scaffold, folding into the Worker |
+| Worker | `scraper/`: one real Chrome; Paddy Power and Bookie Bashing pages kept open, Bet Finder sources as `generic` targets | Hub | live (parsers partly written; sources drop tips to the Hub) |
 | Placement bot | Bet in, placed / price_changed / failed out, on the phones | Hub | placeholder (dry-run adapter only; contract in `hub/puntmore_hub/placement/README.md`) |
-| Render link | `hub/`: outbound WebSocket, durable outbox, client engine | Hub | scaffold, 53 tests; waits on the Hub endpoint |
+| Render link + inbox | `hub/`: outbound WebSocket, durable outbox, client engine, the Worker's drops ingested | Hub | scaffold, 46 tests; waits on the Hub endpoint |
 | Wire contract | `hub/PROTOCOL.md`, JSON Schema, examples, mock Render | both | v1, contract tests |
 
 ## The Render ↔ Hub contract
@@ -93,7 +90,7 @@ flowchart LR
 ## Open decisions and known weaknesses
 
 1. **Placement is a stub.** One phone in dry-run is the next real milestone; everything else on the Hub is scaffolding around it. The local model is building the adapter.
-2. **Two scrapers on the Hub** until the fold lands: Bet Finder sources borrow Chrome from `scraper/` but keep their own budget, alerts and store against the same residential IP.
+2. **Folded (5 Nov):** the Bet Finder's sources are Worker targets; `hub/` no longer scrapes.
 3. **`hub/` has no update mechanism** beyond `git pull`; `scraper/` updates itself from an image.
 4. **The placement service should run as its own Linux user** so no agent can read account credentials, whatever a scraped page says.
 5. **Goalscorers** returns only via OddsPapi, after the open work (PLAN.md, Parked).

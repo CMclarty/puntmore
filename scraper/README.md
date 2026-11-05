@@ -44,6 +44,15 @@ for what the samples hold.
   challenges this server, the scraper stops and tells you. It does not work
   around the challenge.
 
+## Bet Finder sources
+Any other site, as a `generic` target (see `targets.example.toml`): loaded,
+parsed once and closed, under its own budget in `sites.py` (60 loads/h,
+400/day across all generic targets, 20 s+ apart, never Paddy or Bookie
+Bashing). The parser returns tips; `post = "hub:tips"` writes them to
+`data/hub/tips/` for the Hub's `puntmore inbox`, which queues them for Render.
+Too few rows (`min_rows`) or a block raises an alert here and an event in
+`data/hub/events/` that the Hub turns into an escalation for the local AI.
+
 ## Server setup (once)
 Any Linux host with Docker, amd64, about 3 GB RAM free.
 

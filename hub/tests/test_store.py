@@ -1,8 +1,3 @@
-from datetime import timedelta
-
-from puntmore_hub.store import utcnow
-
-
 def test_tip_dedupe(store):
     tip = {"source_id": "s", "event": "A v B", "market": "Match Result", "selection": "A", "tip_time": "2026-11-05T10:00:00+00:00"}
     assert store.add_tip(tip) is not None
@@ -21,13 +16,6 @@ def test_outbox_roundtrip(store):
     assert [r["msg_id"] for r in pending] == [mid]
     store.outbox_mark_sent(mid)
     assert store.outbox_pending() == []
-
-
-def test_page_budget_counts(store):
-    for i in range(3):
-        store.log_page_load("s", f"https://x/{i}", 200)
-    assert store.page_loads_since(utcnow() - timedelta(hours=1)) == 3
-    assert store.page_loads_since(utcnow() + timedelta(seconds=5)) == 0
 
 
 def test_source_record(store):

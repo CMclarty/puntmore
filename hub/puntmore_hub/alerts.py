@@ -54,18 +54,22 @@ def startup(store: Store, what: str, cfg: Settings = default_settings) -> None:
          level="info", cfg=cfg, dedup=False)
 
 
-def heartbeat(store: Store, cfg: Settings = default_settings) -> str:
+def heartbeat(store: Store, cfg: Settings = default_settings, worker: dict | None = None) -> str:
     """Daily summary of the last 24 h. Always sent, never de-duped."""
     s = store.summary_since(utcnow() - timedelta(hours=24))
-    stale = [st["source"] for st in store.all_source_states() if not st.get("healthy", 1)]
+    worker = worker or {}
     lines = [
-        f"heartbeat 24h: runs {s['runs']} (ok {s['runs_ok']}, bad {s['runs_bad']}), tips {s['tips']}, "
-        f"page loads {s['page_loads']}",
-        f"bets: received {s['bets_received']}, placed {s['bets_placed']}, failed {s['bets_failed']}",
+        f"heartbeat 24h: tips {s['tips']}, bets received {s['bets_received']}, placed {s['bets_placed']}, "
+        f"failed {s['bets_failed']}",
         f"open escalations {s['escalations_open']}, outbox pending {s['outbox_pending']}",
     ]
-    if stale:
-        lines.append("unhealthy sources: " + ", ".join(stale))
+    if worker:
+        lines.append(f"worker: {'running' if worker.get('running') else 'NOT RUNNING'}, "
+                     f"{len(worker.get('targets', []))} target(s)")
+        if worker.get("blocked"):
+            lines.append("blocked: " + ", ".join(worker["blocked"]))
+        if worker.get("unhealthy"):
+            lines.append("unhealthy sources: " + ", ".join(worker["unhealthy"]))
     if cfg.kill_switch_on():
         lines.append("KILL SWITCH IS ON")
     if cfg.dry_run:

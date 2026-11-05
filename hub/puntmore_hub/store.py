@@ -2,10 +2,7 @@
 
 One file, plain tables, so any agent can inspect it with ``sqlite3 data/home.sqlite``.
 Tables:
-    runs          one row per scraper run (status, items, error, raw archive path)
-    page_loads    every bookmaker page load, for the request budget
-    source_state  health, cool-off and last-run per source
-    tips          candidate bets from scrapes/tipsters, deduped, with settled outcome for ROI
+    tips          candidate bets from the Worker's sources, deduped, with settled outcome for ROI
     bets          bet lists received from Render and their placement status
     outbox        messages queued for Render (survive restarts, sent at least once)
     inbox_seen    msg_ids already processed (idempotency)
@@ -25,16 +22,6 @@ from typing import Any
 from .schemas import new_id
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS runs(
-    id INTEGER PRIMARY KEY, source TEXT NOT NULL, started TEXT NOT NULL, finished TEXT,
-    status TEXT, items INTEGER DEFAULT 0, error TEXT, raw_path TEXT);
-CREATE INDEX IF NOT EXISTS runs_source ON runs(source, started);
-CREATE TABLE IF NOT EXISTS page_loads(
-    id INTEGER PRIMARY KEY, ts TEXT NOT NULL, source TEXT, url TEXT, status INTEGER);
-CREATE INDEX IF NOT EXISTS page_loads_ts ON page_loads(ts);
-CREATE TABLE IF NOT EXISTS source_state(
-    source TEXT PRIMARY KEY, healthy INTEGER DEFAULT 1, cooloff_until TEXT,
-    last_ok TEXT, last_run TEXT, note TEXT);
 CREATE TABLE IF NOT EXISTS tips(
     tip_id TEXT PRIMARY KEY, source_id TEXT, event TEXT, market TEXT, selection TEXT,
     advised_price REAL, advised_stake_units REAL, tip_time TEXT, expiry TEXT, origin TEXT,
@@ -85,59 +72,6 @@ class Store:
 
     def close(self) -> None:
         self.conn.close()
-
-    # ---- runs -----------------------------------------------------------------------------------
-    def start_run(self, source: str) -> int:
-        now = iso(utcnow())
-        cur = self.conn.execute("INSERT INTO runs(source, started, status) VALUES(?,?,?)", (source, now, "running"))
-        self.conn.execute(
-            "INSERT INTO source_state(source, last_run) VALUES(?,?) ON CONFLICT(source) DO UPDATE SET last_run=excluded.last_run",
-            (source, now))
-        self.conn.commit()
-        return int(cur.lastrowid)
-
-    def finish_run(self, run_id: int, status: str, items: int = 0, error: str | None = None,
-                   raw_path: str | None = None) -> None:
-        self.conn.execute("UPDATE runs SET finished=?, status=?, items=?, error=?, raw_path=? WHERE id=?",
-                          (iso(utcnow()), status, items, error, raw_path, run_id))
-        self.conn.commit()
-
-    def last_run(self, source: str) -> sqlite3.Row | None:
-        return self.conn.execute("SELECT * FROM runs WHERE source=? ORDER BY id DESC LIMIT 1", (source,)).fetchone()
-
-    def recent_runs(self, limit: int = 50) -> list[sqlite3.Row]:
-        return self.conn.execute("SELECT * FROM runs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
-
-    # ---- request budget --------------------------------------------------------------------------
-    def log_page_load(self, source: str, url: str, status: int | None) -> None:
-        self.conn.execute("INSERT INTO page_loads(ts, source, url, status) VALUES(?,?,?,?)",
-                          (iso(utcnow()), source, url, status))
-        self.conn.commit()
-
-    def page_loads_since(self, since: datetime) -> int:
-        row = self.conn.execute("SELECT COUNT(*) FROM page_loads WHERE ts>=?", (iso(since),)).fetchone()
-        return int(row[0])
-
-    # ---- source state ----------------------------------------------------------------------------
-    def source_state(self, source: str) -> dict[str, Any]:
-        row = self.conn.execute("SELECT * FROM source_state WHERE source=?", (source,)).fetchone()
-        if row is None:
-            return {"source": source, "healthy": 1, "cooloff_until": None, "last_ok": None, "last_run": None, "note": None}
-        return dict(row)
-
-    def set_source_state(self, source: str, **fields: Any) -> None:
-        allowed = {"healthy", "cooloff_until", "last_ok", "last_run", "note"}
-        bad = set(fields) - allowed
-        if bad:
-            raise ValueError(f"unknown source_state fields: {bad}")
-        self.conn.execute("INSERT OR IGNORE INTO source_state(source) VALUES(?)", (source,))
-        if fields:
-            sets = ", ".join(f"{k}=?" for k in fields)
-            self.conn.execute(f"UPDATE source_state SET {sets} WHERE source=?", (*fields.values(), source))
-        self.conn.commit()
-
-    def all_source_states(self) -> list[dict[str, Any]]:
-        return [dict(r) for r in self.conn.execute("SELECT * FROM source_state ORDER BY source").fetchall()]
 
     # ---- tips ------------------------------------------------------------------------------------
     def add_tip(self, tip: dict[str, Any]) -> str | None:
@@ -254,14 +188,10 @@ class Store:
         s = iso(since)
         q = lambda sql, *a: self.conn.execute(sql, a).fetchone()[0]  # noqa: E731
         return {
-            "runs": q("SELECT COUNT(*) FROM runs WHERE started>=?", s),
-            "runs_ok": q("SELECT COUNT(*) FROM runs WHERE started>=? AND status='ok'", s),
-            "runs_bad": q("SELECT COUNT(*) FROM runs WHERE started>=? AND status NOT IN ('ok','running')", s),
             "tips": q("SELECT COUNT(*) FROM tips WHERE first_seen>=?", s),
             "bets_received": q("SELECT COUNT(*) FROM bets WHERE received>=?", s),
             "bets_placed": q("SELECT COUNT(*) FROM bets WHERE updated>=? AND status='placed'", s),
             "bets_failed": q("SELECT COUNT(*) FROM bets WHERE updated>=? AND status='failed'", s),
             "escalations_open": q("SELECT COUNT(*) FROM escalations WHERE resolved IS NULL"),
             "outbox_pending": q("SELECT COUNT(*) FROM outbox WHERE sent_at IS NULL"),
-            "page_loads": q("SELECT COUNT(*) FROM page_loads WHERE ts>=?", s),
         }

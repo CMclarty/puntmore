@@ -12,6 +12,7 @@ NotImplementedError is reported once ("capturing only") and its target keeps
 capturing, which is how the samples to write it get collected.
 """
 from .bb_saves import bb_saves
+from .example_tipster import example_tipster
 from .pp_most import pp_most
 
-PARSERS = {"bb_saves": bb_saves, "pp_most": pp_most}
+PARSERS = {"bb_saves": bb_saves, "pp_most": pp_most, "example_tipster": example_tipster}

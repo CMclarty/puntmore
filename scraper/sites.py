@@ -10,6 +10,12 @@ paddypower     Logged out. Budget 15 loads/h, 120/day across ALL its targets.
 bookiebashing  Your subscription, logged in through VNC. Budget 8/h, 120/day.
                No quiet hours. A block or logout alerts once and backs off
                (15 min doubling to 2 h) until you have sorted it over VNC.
+generic        Any other site: the Bet Finder's sources (tipster pages, listings).
+               Never Paddy or Bookie Bashing. Budget 60/h, 400/day across ALL
+               generic targets, 20 s+ between loads. A target is loaded, parsed
+               and closed - nothing kept open. A block (403/429/Cloudflare)
+               starts the 24 h cool-off for every generic target and needs
+               `resume generic`.
 """
 from dataclasses import dataclass
 
@@ -38,6 +44,9 @@ SITES = {
     "bookiebashing": Site(per_hour=8, per_day=120, quiet_hours=False,
                           needs_login=True, block_means_cooloff=False,
                           load_gap_s=60.0),
+    "generic": Site(per_hour=60, per_day=400, quiet_hours=False,
+                    needs_login=False, block_means_cooloff=True,
+                    load_gap_s=20.0),
 }
 
 BACKOFF_MIN = (15, 120)

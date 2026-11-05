@@ -75,8 +75,9 @@ here and nowhere else, and change in the same pull request as the code.
   webhook, auth users + session key) live in `.env` only.
   `.env` is git-ignored; only `.env.example` is committed.
 - The API (`api/`, on Render) never places a bet and no bookmaker-account
-  automation is added to it (`api/AGENTS.md`, API clients). Placement and the
-  engine that produces bet lists live on the Hub (`hub/`, decision 5 Nov 2026).
+  automation is added to it (`api/AGENTS.md`, API clients). The engine that
+  produces bet lists lives on Render; placement lives on the Hub (`hub/`);
+  every page load lives in the Worker (`scraper/`). Decisions 5 Nov 2026.
 - Every directory's own hard rules are in its `AGENTS.md`; they are not
   optional because they live in a different file.
 
