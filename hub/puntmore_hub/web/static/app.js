@@ -51,15 +51,17 @@ function when(isoStr, skew) {
   return isoStr ? el("time", { datetime: isoStr, title: isoStr, text: ago(isoStr, skew) }) : "—";
 }
 
-// cols: [label, key | (row) => Node|string, className?]
-function table(cols, rows, empty) {
+// cols: [label, key | (row) => Node|string, className?]; opts: {cls: table class, rowClass: (row) => class}
+// Every cell carries its column's label (data-label), which a `table.cards` shows on a phone.
+function table(cols, rows, empty, opts) {
   if (!rows || !rows.length) return el("p", { class: "empty", text: empty || "nothing yet" });
+  const o = opts || {};
   const head = el("tr", {}, cols.map(([label]) => el("th", { text: label })));
-  const body = rows.map((r) => el("tr", {}, cols.map(([, key, cls]) => {
+  const body = rows.map((r) => el("tr", { class: o.rowClass ? o.rowClass(r) : null }, cols.map(([label, key, cls]) => {
     const v = typeof key === "function" ? key(r) : show(r[key]);
-    return el("td", { class: cls }, v instanceof Node ? v : String(v));
+    return el("td", { class: cls, "data-label": label }, v instanceof Node ? v : String(v));
   })));
-  return el("table", {}, el("thead", {}, head), el("tbody", {}, body));
+  return el("table", { class: o.cls }, el("thead", {}, head), el("tbody", {}, body));
 }
 function kv(pairs) {
   return el("dl", { class: "kv" }, pairs.map(([k, v]) => [el("dt", { text: k }),
@@ -155,6 +157,7 @@ function renderOverview() {
     b.disabled = !d.actions_enabled;
     if (!d.actions_enabled) b.title = "Actions are disabled: PUNTMORE_WEB_TOKEN is not set on the Hub";
   }
+  for (const b of document.querySelectorAll("form button[type=button]")) b.disabled = false;   // Cancel always works
   tick();
 }
 
@@ -181,17 +184,14 @@ const RENDER = {
       ["heartbeat", d.heartbeat_age_s === null || d.heartbeat_age_s === undefined ? "no heartbeat file" : d.heartbeat_age_s + "s ago"],
       ["status.json written", when(d.status_at, skew)], ["data dir", d.data_dir],
     ]));
-    fill(sec, "targets", table([
-      ["name", (r) => el("button", { class: "link", type: "button", text: show(r.name), onclick: () => showLatest(r.name) })],
-      ["site", "site"], ["mode", "mode"], ["state", (r) => el("span", { class: "st st-" + (TARGET_STATE[r.state] || "warn"), text: show(r.state) })],
-      ["last ok", (r) => when(r.last_ok, skew)], ["last load", (r) => when(r.last_load, skew)],
-      ["rows last parsed", "rows_last_parsed", "n"], ["rows posted", "rows_posted", "n"], ["detail", "detail", "wrap"],
-    ], d.targets, "no targets in status.json"));
+    renderTargets(sec, d, skew);
     fill(sec, "sites", table([
-      ["site", "site"], ["loads/h", (r) => `${show(r.loads_hour)} / ${show(r.per_hour)}`, "n"],
-      ["loads/day", (r) => `${show(r.loads_day)} / ${show(r.per_day)}`, "n"],
-      ["cool-off", "cooloff", "wrap"], ["left (h)", "cooloff_left_h", "n"], ["needs resume", (r) => r.needs_resume ? "YES" : "no"],
-    ], d.sites, "no site budgets in status.json"));
+      ["site", "site"], ["loads this hour", (r) => `${show(r.loads_hour)} / ${show(r.per_hour)}`, "n"],
+      ["loads today", (r) => `${show(r.loads_day)} / ${show(r.per_day)}`, "n"],
+      ["cool-off", "cooloff", "wrap"], ["left (h)", "cooloff_left_h", "n"],
+      ["needs resume", (r) => r.needs_resume ? el("span", { class: "st st-down", text: "YES" }) : "no"],
+      ["to resume, run on the Hub", (r) => r.needs_resume ? el("code", { class: "cmd", text: show(r.resume_command) }) : "—", "wrap"],
+    ], d.sites, "no site budgets in status.json", { cls: "cards" }));
     lines(sec, "alerts", d.alerts, "alerts.log is empty or missing");
   },
 
@@ -294,6 +294,164 @@ const RENDER = {
   },
 };
 
+// ---- the Scraper's targets (targets.toml through scraper/targets.py) -------------------------------
+const EDIT_FIELDS = ["every_min", "stale_min", "priority", "window", "min_rows", "trust_weight", "wait_for", "url"];
+const NUMERIC = new Set(["every_min", "stale_min", "priority", "min_rows", "trust_weight"]);
+let editing = null;          // {name, original: {field: value}}
+let removing = null;         // name
+
+function canAct() { return !!(overview && overview.actions_enabled); }
+
+function renderTargets(sec, d, skew) {
+  const c = d.config || {};
+  fill(sec, "targets-file", c.file || "targets.toml");
+  const rows = c.targets || [];
+  let empty = "no targets in " + (c.file || "targets.toml");
+  if (c.error) empty = "targets.toml could not be read: " + c.error;
+  else if (c.exists === false) empty = "No targets file at " + (c.file || "targets.toml") + " yet. Add the first target below.";
+  const v = (r) => r.view || {};
+  const off = !canAct();
+  fill(sec, "config", table([
+    ["name", (r) => el("button", { class: "link", type: "button", text: show(r.name), onclick: () => showLatest(r.name) })],
+    ["site", "site"], ["mode", "mode"],
+    ["enabled", (r) => r.enabled ? "yes" : el("span", { class: "st st-off", text: "disabled" })],
+    ["every_min", "every_min", "n"], ["stale_min", "stale_min", "n"], ["priority", "priority", "n"], ["window", "window"],
+    ["parser", "parser"], ["post", "post", "mono"],
+    ["state", (r) => v(r).state ? el("span", { class: "st st-" + (TARGET_STATE[v(r).state] || "warn"), text: v(r).state })
+      : (r.enabled ? "not reported" : "—")],
+    ["last ok", (r) => when(v(r).last_ok, skew)],
+    ["next due", (r) => !r.enabled ? "—" : (v(r).next_due ? el("time", { datetime: v(r).next_due, title: v(r).next_due, text: until(v(r).next_due, skew) })
+      : (r.every_min ? "after its first load" : `when quiet ${show(r.stale_min)} min`))],
+    ["rows", (r) => `${show(v(r).rows_last_parsed)} parsed / ${show(v(r).rows_posted)} posted`, "n"],
+    ["detail", (r) => show(v(r).detail), "wrap"],
+    ["", (r) => el("span", { class: "row-actions" },
+      el("button", { type: "button", class: "small", disabled: off, text: r.enabled ? "disable" : "enable",
+        onclick: () => targetAct(`${encodeURIComponent(r.name)}/${r.enabled ? "disable" : "enable"}`, {},
+          `${r.enabled ? "Disable" : "Enable"} ${r.name}`) }),
+      el("button", { type: "button", class: "small", disabled: off, text: "edit", onclick: () => openEdit(r) }),
+      el("button", { type: "button", class: "small", disabled: off, text: "remove", onclick: () => openRemove(r.name) }))],
+  ], rows, empty, { cls: "cards targets", rowClass: (r) => r.enabled ? null : "muted" }));
+  // A target the Scraper still reports but the file no longer has (removed; "retired" until a restart).
+  const named = new Set(rows.map((r) => r.name));
+  const orphans = c.error ? [] : (d.targets || []).filter((t) => !named.has(t.name));
+  fill(sec, "orphans", orphans.length ? el("p", { class: "hint",
+    text: "Reported by the Scraper but not in the file (it drops them within 60 s): " + orphans.map((t) => `${t.name} (${show(t.state)})`).join(", ") }) : "");
+}
+
+function until(isoStr, skew) {
+  const t = Date.parse(isoStr);
+  if (Number.isNaN(t)) return show(isoStr);
+  const s = Math.round((t - Date.now() - (skew || 0)) / 1000);
+  if (s <= 0) return "due now";
+  return "≈ in " + (s < 90 ? s + "s" : Math.round(s / 60) + "m");
+}
+
+function clearErrors(form) { for (const e of form.querySelectorAll(".field-error")) e.textContent = ""; }
+function showError(form, d, status) {
+  const field = d && d.field;
+  const box = (field && form.querySelector(`[data-err="${CSS.escape(field)}"]`)) || form.querySelector('[data-err="_"]');
+  const msg = (d && (d.message || d.detail)) || ("HTTP " + status);
+  if (box) box.textContent = msg + (d && d.retry ? " Try again in a few seconds." : "");
+}
+
+function fieldValue(input) {
+  if (input.type === "checkbox") return input.checked;
+  const raw = input.value.trim();
+  if (raw === "") return null;
+  return NUMERIC.has(input.name) ? Number(raw) : raw;
+}
+
+function openEdit(r) {
+  const form = document.getElementById("target-edit-form");
+  clearErrors(form);
+  editing = { name: r.name, original: {} };
+  document.getElementById("target-edit-name").textContent = r.name;
+  for (const f of EDIT_FIELDS) {
+    const v = r[f];
+    editing.original[f] = v === undefined ? null : v;
+    form.elements[f].value = v === null || v === undefined ? "" : String(v);
+  }
+  document.getElementById("target-remove-form").hidden = true;
+  form.hidden = false;
+  form.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function openRemove(name) {
+  const form = document.getElementById("target-remove-form");
+  clearErrors(form);
+  removing = name;
+  document.getElementById("target-remove-name").textContent = name;
+  form.elements.confirm.value = "";
+  form.elements.confirm.placeholder = name;
+  document.getElementById("target-edit-form").hidden = true;
+  form.hidden = false;
+  form.elements.confirm.focus();
+}
+
+// One write: POST, show the outcome above the table, re-read the tab at once.
+async function targetAct(path, body, label, form) {
+  const out = document.getElementById("targets-result");
+  out.hidden = false;
+  out.className = "action-result";
+  out.textContent = label + "…";
+  if (form) clearErrors(form);
+  const res = await post("scraper/targets/" + path, body);
+  const msg = (res.d && (res.d.message || res.d.detail)) || res.error || ("HTTP " + res.status);
+  out.className = "action-result " + (res.ok ? "ok" : "bad");
+  out.textContent = res.ok ? `${label}: ${msg}`
+    : `${label}: refused (HTTP ${res.status}): ${msg}${res.d && res.d.retry ? " Try again in a few seconds." : ""}`;
+  if (!res.ok && form) showError(form, res.d, res.status);
+  pollOverview();
+  pollTab("scraper");
+  return res.ok;
+}
+
+function wireTargets() {
+  const add = document.getElementById("target-add-form");
+  add.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const body = {};
+    for (const input of add.querySelectorAll("input, select")) {
+      const v = fieldValue(input);
+      if (v !== null && v !== "") body[input.name] = v;
+    }
+    if (await targetAct("add", body, "Add " + (body.name || "?"), add)) {
+      add.reset();
+    }
+  });
+  const edit = document.getElementById("target-edit-form");
+  edit.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if (!editing) return;
+    const body = {};
+    for (const f of EDIT_FIELDS) {
+      const now = fieldValue(edit.elements[f]);
+      const was = editing.original[f];
+      if (now !== was && !(now !== null && was !== null && String(now) === String(was))) body[f] = now;
+    }
+    if (!Object.keys(body).length) { edit.querySelector('[data-err="_"]').textContent = "nothing changed"; return; }
+    if (await targetAct(encodeURIComponent(editing.name) + "/set", body, "Edit " + editing.name, edit)) {
+      edit.hidden = true; editing = null;
+    }
+  });
+  document.getElementById("target-edit-cancel").addEventListener("click", () => { edit.hidden = true; editing = null; });
+  const rm = document.getElementById("target-remove-form");
+  rm.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if (!removing) return;
+    const typed = rm.elements.confirm.value.trim();
+    if (typed !== removing) {
+      rm.querySelector('[data-err="confirm"]').textContent = `type ${removing} exactly to remove it`;
+      rm.elements.confirm.focus();
+      return;
+    }
+    if (await targetAct(encodeURIComponent(removing) + "/remove", { confirm: typed }, "Remove " + removing, rm)) {
+      rm.hidden = true; removing = null;
+    }
+  });
+  document.getElementById("target-remove-cancel").addEventListener("click", () => { rm.hidden = true; removing = null; });
+}
+
 async function showLatest(target) {
   const box = document.getElementById("latest");
   box.hidden = false;
@@ -317,11 +475,8 @@ async function showLatest(target) {
 // ---- actions ------------------------------------------------------------------------------------
 function token() { return document.getElementById("token").value.trim(); }
 
-async function act(path, body, label) {
-  const out = document.getElementById("action-result");
-  out.hidden = false;
-  out.className = "action-result";
-  out.textContent = label + "…";
+// POST an action with the token. -> {ok, status, d (the JSON answer), error (network)}
+async function post(path, body) {
   try {
     const r = await fetch("/api/actions/" + path, {
       method: "POST", cache: "no-store",
@@ -330,17 +485,29 @@ async function act(path, body, label) {
     });
     let d = {};
     try { d = await r.json(); } catch (e) { /* not JSON */ }
-    const msg = d.message || d.detail || ("HTTP " + r.status);
-    out.className = "action-result " + (r.ok && d.ok !== false ? "ok" : "bad");
-    out.textContent = `${label}: ${r.ok && d.ok !== false ? "" : "refused/failed: "}${msg}`;
-    pollOverview();
-    if (active) pollTab(active);
-    return r.ok && d.ok !== false;
+    return { ok: r.ok && d.ok !== false, status: r.status, d };
   } catch (e) {
+    return { ok: false, status: 0, d: {}, error: e.message };
+  }
+}
+
+async function act(path, body, label) {
+  const out = document.getElementById("action-result");
+  out.hidden = false;
+  out.className = "action-result";
+  out.textContent = label + "…";
+  const res = await post(path, body);
+  if (res.error) {
     out.className = "action-result bad";
-    out.textContent = `${label}: ${e.message}`;
+    out.textContent = `${label}: ${res.error}`;
     return false;
   }
+  const msg = res.d.message || res.d.detail || ("HTTP " + res.status);
+  out.className = "action-result " + (res.ok ? "ok" : "bad");
+  out.textContent = `${label}: ${res.ok ? "" : "refused/failed: "}${msg}`;
+  pollOverview();
+  if (active) pollTab(active);
+  return res.ok;
 }
 
 function wireActions() {
@@ -372,6 +539,7 @@ function wireActions() {
 document.addEventListener("DOMContentLoaded", () => {
   buildStrip();
   wireActions();
+  wireTargets();
   let first = "scraper";
   try { first = localStorage.getItem("puntmoreTab") || first; } catch (e) { /* */ }
   if (location.hash.length > 1) first = location.hash.slice(1);     // #escalations etc., for a bookmark

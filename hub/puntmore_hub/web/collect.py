@@ -9,6 +9,9 @@ The rule for the two grey states: ``off`` is a thing that is not configured or n
 allowed not to be (the link before a Render endpoint exists, llama-server not answering); ``unknown``
 is when the console cannot tell (no systemctl, no Scraper data dir).
 
+The Scraper tab's ``config`` is ``scraper.targets.summary()`` (``scraper_targets.view``): targets.toml
+joined to status.json, read through the Scraper's own library.
+
 Nothing here writes, loads a page or talks to a bookmaker. Everything read from the Scraper's files,
 tips, escalations and logs is untrusted text and is returned as data for the page to insert with
 ``textContent``.
@@ -18,7 +21,9 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 import re
+import shlex
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -29,6 +34,7 @@ from typing import Any
 from .. import inbox
 from ..config import Settings
 from ..store import Store, iso, parse_iso, utcnow
+from . import scraper_targets
 
 STATES = ("up", "warn", "down", "off", "unknown")
 HERMES_HOME = Path.home() / ".hermes"
@@ -121,12 +127,24 @@ def latest_rows(cfg: Settings, target: str) -> dict[str, Any] | None:
             "count": len(rows), "truncated": len(rows) > LATEST_ROWS_MAX, "rows": rows[:LATEST_ROWS_MAX]}
 
 
+def _latest_count(cfg: Settings, target: str) -> int | None:
+    lr = latest_rows(cfg, target)
+    return lr["count"] if lr else None
+
+
+def resume_command(cfg: Settings, site: str) -> str:
+    """The exact command that ends a site's cool-off (the Scraper's own CLI; the console never runs it)."""
+    return (f"cd {shlex.quote(str(cfg.scraper_src))} && SCRAPER_DATA_DIR={shlex.quote(str(cfg.scraper_data_dir))} "
+            f"{shlex.quote(sys.executable)} -m scraper resume {shlex.quote(site)}")
+
+
 def scraper(cfg: Settings) -> dict[str, Any]:
     def go():
         d = cfg.scraper_data_dir
+        config = scraper_targets.view(cfg, lambda name: _latest_count(cfg, name), _ts_iso)
         if not d.is_dir():
             return _result("unknown", f"Scraper data dir {d} not found", heartbeat_age_s=None, targets=[], sites=[],
-                           alerts=[], status_at=None, data_dir=str(d))
+                           alerts=[], status_at=None, data_dir=str(d), config=config)
         w = inbox.scraper_status(cfg)
         status_at = None
         try:
@@ -159,9 +177,11 @@ def scraper(cfg: Settings) -> dict[str, Any]:
                                            w["unhealthy"] and "unhealthy: " + ", ".join(w["unhealthy"])) if x)
         else:
             state, detail = "up", f"{n} target{'s' if n != 1 else ''}, heartbeat {age}s ago"
+        sites = [{**s, "resume_command": resume_command(cfg, str(s.get("site")))} if isinstance(s, dict) else s
+                 for s in w.get("sites", [])]
         return _result(state, detail, heartbeat_age_s=age, running=w["running"], blocked=w["blocked"],
-                       unhealthy=w["unhealthy"], targets=targets, sites=w.get("sites", []), alerts=alerts,
-                       status_at=status_at, data_dir=str(d))
+                       unhealthy=w["unhealthy"], targets=targets, sites=sites, alerts=alerts,
+                       status_at=status_at, data_dir=str(d), config=config)
     return _guard("scraper", go)
 
 

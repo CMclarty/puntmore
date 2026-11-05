@@ -27,7 +27,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .. import __version__
 from ..config import Settings, settings as default_settings
 from ..store import Store, iso, utcnow
-from . import actions, collect
+from . import actions, collect, scraper_targets
 
 STATIC = Path(__file__).resolve().parent / "static"
 CACHE_S = {"render": 15.0, "hermes": 4.0, "model": 4.0}   # outside calls: overview and tab share one answer
@@ -146,7 +146,7 @@ def create_app(cfg: Settings | None = None, *, allowed_hosts: list[str] | None =
             out = fn()
         except actions.ActionError as exc:
             actions.log_action(cfg, action, f"refused: {exc.message}", client)
-            return JSONResponse({"ok": False, "message": exc.message}, status_code=exc.status)
+            return JSONResponse({"ok": False, "message": exc.message, **exc.extra}, status_code=exc.status)
         except Exception as exc:  # noqa: BLE001
             actions.log_action(cfg, action, f"error: {exc.__class__.__name__}: {exc}", client)
             return JSONResponse({"ok": False, "message": f"{exc.__class__.__name__}: {exc}"}, status_code=500)
@@ -195,6 +195,38 @@ def create_app(cfg: Settings | None = None, *, allowed_hosts: list[str] | None =
     def heartbeat_now(request: Request):
         authorise(request, "heartbeat now")
         return run(request, "heartbeat now", with_store(actions.heartbeat_now))
+
+    # The Scraper's targets: scraper/targets.py's own functions (scraper_targets.py). A refusal is
+    # the library's message (400, with the field it names); its lock held elsewhere is a 409.
+    @app.post("/api/actions/scraper/targets/add")
+    async def targets_add(request: Request):
+        body = await body_of(request)
+        label = f"scraper targets add {str(body.get('name') or '?')[:80]}"
+        authorise(request, label)
+        return run(request, label, lambda: scraper_targets.add(cfg, body), "scraper")
+
+    @app.post("/api/actions/scraper/targets/{name}/set")
+    async def targets_set(request: Request, name: str):
+        body = await body_of(request)
+        label = f"scraper targets set {name} " + " ".join(f"{k}={v}" for k, v in body.items())
+        authorise(request, label)
+        return run(request, label, lambda: scraper_targets.set_(cfg, name, body), "scraper")
+
+    @app.post("/api/actions/scraper/targets/{name}/enable")
+    def targets_enable(request: Request, name: str):
+        authorise(request, f"scraper targets enable {name}")
+        return run(request, f"scraper targets enable {name}", lambda: scraper_targets.enable(cfg, name), "scraper")
+
+    @app.post("/api/actions/scraper/targets/{name}/disable")
+    def targets_disable(request: Request, name: str):
+        authorise(request, f"scraper targets disable {name}")
+        return run(request, f"scraper targets disable {name}", lambda: scraper_targets.disable(cfg, name), "scraper")
+
+    @app.post("/api/actions/scraper/targets/{name}/remove")
+    async def targets_remove(request: Request, name: str):
+        body = await body_of(request)
+        authorise(request, f"scraper targets remove {name}")
+        return run(request, f"scraper targets remove {name}", lambda: scraper_targets.remove(cfg, name, body), "scraper")
 
     return app
 

@@ -455,7 +455,10 @@ The Hub side of the 2-Up Engine spec. (History: built on branch `home-box`, as
       `status.json` for the console; new fields `priority` and `window`.
       [ ] The runner honours `priority` and `window` (`TODO(runner)`), and
       applies an `every_min`/`stale_min`-only change without closing the tab.
-      [ ] The Hub Console and Hermes's scraper-manager call it.
+      [x] The Hub Console calls it (branch `console-scraper-tab`): the Scraper
+      tab lists `summary()` and adds, edits, enables, disables and removes
+      targets through it, behind `PUNTMORE_WEB_TOKEN`.
+      [ ] Hermes's scraper-manager calls it (the runbook names the CLI).
 - [ ] Two weeks of dry-run reports before `PUNTMORE_DRY_RUN=0`.
 Definition of Done: a bet list from Render reaches a phone in dry-run and its
 `placed` report shows in Render's ledger; a broken source is repaired by the
