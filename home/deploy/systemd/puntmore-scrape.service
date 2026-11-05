@@ -1,0 +1,12 @@
+[Unit]
+Description=Puntmore home box: run every scrape source that is due
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Projects/puntmore/home
+# Headful Chrome needs the desktop session. Adjust if the box runs X11 (DISPLAY=:0) rather than Wayland.
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=DISPLAY=:0
+ExecStart=%h/.venvs/puntmore/bin/puntmore scrape due
+TimeoutStartSec=1800

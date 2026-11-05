@@ -1,0 +1,8 @@
+# Copy to sub_clients.yaml (git-ignored). One entry per device with one bookmaker account on it.
+sub_clients:
+  - account_id: acc-phone-1        # must match account_id on bet lists from Render
+    bookmaker: bet365
+    device: "ADB-SERIAL-OR-NAME"
+    enabled: true
+    price_tolerance: 0.02          # fraction; beyond this the adapter raises PriceChanged instead of placing
+    notes: ""

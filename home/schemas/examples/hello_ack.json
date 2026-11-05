@@ -1,0 +1,10 @@
+{
+  "type": "hello_ack",
+  "client_id": "owner",
+  "msg_id": "r-00000001",
+  "ts": "2026-11-05T09:30:00+00:00",
+  "body": {
+    "protocol_version": 1,
+    "server_time": "2026-11-05T09:30:00+00:00"
+  }
+}

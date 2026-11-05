@@ -23,3 +23,7 @@ frontend/dist/
 
 # Frontend build copied into the API image at build time (Dockerfile stage)
 api/static/
+
+# 2-Up home box runtime state (home/README.md)
+home/data/
+home/sub_clients.yaml

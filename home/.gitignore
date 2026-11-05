@@ -1,0 +1,10 @@
+.env
+sub_clients.yaml
+data/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+*.egg-info/

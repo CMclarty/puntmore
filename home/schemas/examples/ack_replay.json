@@ -1,0 +1,10 @@
+{
+  "type": "ack",
+  "client_id": "owner",
+  "msg_id": "c0ffee0000000003",
+  "ts": "2026-11-05T09:30:00+00:00",
+  "body": {
+    "msg_id": "r-00000002",
+    "replay": true
+  }
+}

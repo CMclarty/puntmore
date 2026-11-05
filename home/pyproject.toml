@@ -1,0 +1,26 @@
+[project]
+name = "puntmore-home"
+version = "0.1.0"
+description = "Home-box side of Puntmore: scraper worker, Render link, placement client engine, local-AI escalation"
+requires-python = ">=3.11"
+dependencies = [
+    "websockets>=12",
+    "pyyaml>=6",
+    "playwright>=1.45",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "jsonschema>=4.20"]
+
+[project.scripts]
+puntmore = "puntmore_home.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["puntmore_home*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -431,6 +431,22 @@ to Discord, just Callum for now.
 
 ---
 
+### 10. 2-Up home box (`home/`) — SCAFFOLD LANDED (Nov 2026)
+The home-box side of the 2-Up Engine spec. Branch `home-box`.
+- [x] Package: Render link (durable outbox, idempotent inbound), client engine
+      (dry-run, phone adapter stub), escalation to the local AI, Bet Finder
+      sources (YAML + parser + fixture), CLI, systemd units, tests.
+- [x] Wire contract: `home/PROTOCOL.md`, JSON Schema, examples, contract tests,
+      a mock Render for integration tests, `puntmore link-check`.
+- [ ] Render end of the protocol in `api/` (WebSocket endpoint, per-client keys,
+      bet lists out, reports in) — the other side of `home/PROTOCOL.md`.
+- [ ] Unify `home/`'s request budget with `scraper/guard.py` (per-site, in code).
+- [ ] Phone placement adapter; IMAP tipster source; kick-off-window sweeps.
+- [ ] Two weeks of dry-run reports before `PUNTMORE_DRY_RUN=0`.
+Definition of Done: a bet list from Render reaches a phone in dry-run and its
+`placed` report shows in Render's ledger; a broken source is repaired by the
+scraper-manager agent from the raw archive without a human.
+
 ## History
 
 Chronological. Original phase IDs preserved.
