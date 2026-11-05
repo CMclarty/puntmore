@@ -4,8 +4,8 @@ For the agent doing the scraper build. Verified against the repo and the
 running box on 26 Oct 2026; nothing here is a guess. Repo
 `/home/callum/bettingtools`, branch `main`. **Every push to `main` is a
 production deploy** (Render) — the agent does NOT push; it commits on its own
-branch and reports. Run `api/.venv/bin/python -m pytest -q` (779 pass at
-`7087e85`) and `cd frontend && npm run lint && npm run test && npm run build`
+branch and reports. Run `render/api/.venv/bin/python -m pytest -q` (779 pass at
+`7087e85`) and `cd render/frontend && npm run lint && npm run test && npm run build`
 before reporting. UI changes get looked at in a browser first
 (`.claude/skills/run/SKILL.md`). CLAUDE.md UI rule: build only what is asked;
 no unrequested pages, labels or decoration.
@@ -58,7 +58,7 @@ container (`ghcr.io/cmclarty/puntmore-scraper:latest` on this PC, data in
 - Tests on the branch: `local/scraper/tests/test_guard_config.py`,
   `test_e2e_fakesite.py` (real browser against a fake localhost site).
 
-**Server side** (`api/app/`):
+**Server side** (`render/api/app/`):
 - Ingest endpoints the scraper posts to, key-guarded by `SAVES_INGEST_KEY`
   (`routers/saves_ingest.py`, `require_ingest_key`): `POST /api/paddy/saves-fair`
   (Bookie Bashing fair saves, `FairSavesIn`) and `POST /api/paddy/most-prices`
@@ -68,7 +68,7 @@ container (`ghcr.io/cmclarty/puntmore-scraper:latest` on this PC, data in
 - Paddy's saves LINES and every corners/cards line come from OddsPapi, not
   the scraper. **The scraper's Paddy job is only the "most" markets**; its
   Bookie Bashing job is the fair saves prices.
-- Page gating: `frontend/src/App.jsx` `protectTool(<Page/>, 'tool')` against
+- Page gating: `render/frontend/src/App.jsx` `protectTool(<Page/>, 'tool')` against
   the user's grant (`"*"` users see everything). Nav "More" sheet lists tools.
 - Daily Paddy health lines (`cards/health.py`, posted under the AW 26 morning
   message) already report `saves`/`most` store sizes — "Scraper: saves 0 ·
@@ -151,7 +151,7 @@ router (key vs session guards, clamping, config shape matches
 targets now come from the page) and the CLAUDE.md scraper entry.
 
 ## Constraints
-- Do not touch the Paddy pricing code (`api/app/cards/`, `pricing/`) or
+- Do not touch the Paddy pricing code (`render/api/app/cards/`, `pricing/`) or
   `CardsPage.jsx`.
 - Work in a worktree on branch `scraper-control`; commit as you go; **never
   push**. Report: what was built, test counts, what was NOT done and why,

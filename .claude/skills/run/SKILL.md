@@ -15,9 +15,9 @@ Playwright/Puppeteer required.
 
 ## Recipe (~1 min)
 
-1. **Harness** — two throwaway files in `frontend/` (delete after use):
+1. **Harness** — two throwaway files in `render/frontend/` (delete after use):
 
-   `frontend/browsertest.html`:
+   `render/frontend/browsertest.html`:
    ```html
    <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
    <meta name="viewport" content="width=device-width, initial-scale=1.0"/></head>
@@ -25,7 +25,7 @@ Playwright/Puppeteer required.
    <script type="module" src="/src/browsertest.jsx"></script></body></html>
    ```
 
-   `frontend/src/browsertest.jsx` — stub `window.fetch` BEFORE importing the page,
+   `render/frontend/src/browsertest.jsx` — stub `window.fetch` BEFORE importing the page,
    render it, and script any interaction with `setTimeout` (a headless screenshot
    is a single frame, so drive it first, then it shoots the result):
    ```jsx
@@ -63,7 +63,7 @@ Playwright/Puppeteer required.
 3. **Read `/tmp/page.png` and look at it.** A blank or error frame is a failed
    launch, not a pass. Fix, let Vite HMR reload, re-shoot with a fresh `?v=`.
 
-4. **Clean up:** `rm frontend/browsertest.html frontend/src/browsertest.jsx` and
+4. **Clean up:** `rm render/frontend/browsertest.html render/frontend/src/browsertest.jsx` and
    kill the Vite process (`pkill -f vite`).
 
 ## Notes

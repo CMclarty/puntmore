@@ -8,7 +8,7 @@ FlashScore stats, with a morning Discord post. Callum retired it and asked for
 the code to be kept in case it comes back.
 
 - **Code:** the `archive/aw26` branch (main as it stood, `05ae31a`), including
-  `api/app/aw26/`, its routers and tests, `frontend/src/pages/Aw26Page.jsx`,
+  `render/api/app/aw26/`, its routers and tests, `render/frontend/src/pages/Aw26Page.jsx`,
   the slip OCR (`providers/slip_ocr.py`, `read_slip`), the desktop scripts
   `local/bookiebashing_tracker.py` and `local/flashscore_results.py` (and its
   systemd units), the Python client's `pm.aw26`, and

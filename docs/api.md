@@ -173,9 +173,9 @@ keeps its v1 behaviour until every caller has moved.
 
 | | |
 |---|---|
-| auth, grants, key resolution | `api/app/security.py` |
-| API clients table / CLI | `api/app/models.py::ApiClient`, `api/app/apikeys.py` |
-| value feed | `api/app/value/service.py`, `api/app/routers/value.py` |
-| per-tool services | `api/app/cards/feed.py`, `api/app/accabonus/feed.py`, `api/app/coupons/service.py`, `api/app/pnl/service.py`, `api/app/shop/service.py` (+ the existing `cards/`, `goalscorers/` packages) |
-| response models | `api/app/schemas.py` |
-| route walk test | `api/tests/test_openapi.py` |
+| auth, grants, key resolution | `render/api/app/security.py` |
+| API clients table / CLI | `render/api/app/models.py::ApiClient`, `render/api/app/apikeys.py` |
+| value feed | `render/api/app/value/service.py`, `render/api/app/routers/value.py` |
+| per-tool services | `render/api/app/cards/feed.py`, `render/api/app/accabonus/feed.py`, `render/api/app/coupons/service.py`, `render/api/app/pnl/service.py`, `render/api/app/shop/service.py` (+ the existing `cards/`, `goalscorers/` packages) |
+| response models | `render/api/app/schemas.py` |
+| route walk test | `render/api/tests/test_openapi.py` |

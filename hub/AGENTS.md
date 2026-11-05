@@ -1,6 +1,6 @@
 # Working in hub/
 
-This is the Hub side of the Puntmore 2-Up Engine. Render (cloud, `api/`) prices and decides; this box scrapes, places, and reports. The repo's `CLAUDE.md` applies here too and wins on any conflict. Read this directory's `README.md` and `PROTOCOL.md` before changing anything.
+This is the Hub side of the Puntmore 2-Up Engine. Render (cloud, `render/api/`) prices and decides; this box scrapes, places, and reports. The repo's `CLAUDE.md` applies here too and wins on any conflict. Read this directory's `README.md` and `PROTOCOL.md` before changing anything.
 
 ## Rules
 - Dry-run is on by default (`PUNTMORE_DRY_RUN`). Do not switch it off. Cal does that after two weeks of clean dry-run reports.
@@ -19,7 +19,7 @@ This is the Hub side of the Puntmore 2-Up Engine. Render (cloud, `api/`) prices 
 | Change budgets, cool-off, paths | `.env` |
 | Add a bookmaker account (sub-client) | `sub_clients.yaml` (see `sub_clients.example.yaml`) |
 | Implement real placement | `puntmore_hub/placement/adapters/phone.py` |
-| Change what Render and the Hub say to each other | `PROTOCOL.md`, `schemas/protocol.schema.json`, an example in `schemas/examples/`, `puntmore_hub/schemas.py`, and the Render side in `api/`, all in ONE pull request |
+| Change what Render and the Hub say to each other | `PROTOCOL.md`, `schemas/protocol.schema.json`, an example in `schemas/examples/`, `puntmore_hub/schemas.py`, and the Render side in `render/api/`, all in ONE pull request |
 
 ## Checks
 ```
@@ -42,14 +42,14 @@ Rules, all from the spec — do not relax any of them:
   escalated. A bet is idempotent on `bet_id`, a message on `msg_id`.
 - **The wire contract is `hub/PROTOCOL.md` + `hub/schemas/`.** A change to
   it touches the schema, an example, `hub/puntmore_hub/schemas.py` and the
-  Render side in `api/` in ONE pull request; `hub/tests/test_protocol.py` is
+  Render side in `render/api/` in ONE pull request; `hub/tests/test_protocol.py` is
   the referee. Bet Finder tips are `source_scope: owner` — never offered to
   another client.
 - **Chrome setup is `scraper/browser.py`**, borrowed, not copied: the realism
   rules (no spoofing, no solvers, a person's Chrome) live in one file.
   Bookmaker pages load only on the Hub. BookieBashing is not a scrape
   source without written permission.
-- Directory ownership when several agents work at once: `api/` + `frontend/`
+- Directory ownership when several agents work at once: `render/api/` + `render/frontend/`
   (Render side) and `hub/` + `scraper/` (home side) are edited by different
   branches; only the protocol files are shared.
 

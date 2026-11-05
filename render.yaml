@@ -3,7 +3,7 @@
 #
 # ONE service, not a static site plus an API. The frontend calls relative
 # /api/... paths and the session cookie is same_site="lax", so both must come
-# from one origin — api/Dockerfile builds the frontend into the API image and
+# from one origin — render/api/Dockerfile builds the frontend into the API image and
 # app/asgi.py serves it. Two services on two hostnames would break login
 # silently rather than loudly.
 #
@@ -19,8 +19,8 @@ services:
     # dashboard. A plan in this file is re-applied on every push, which is how
     # a hand upgrade was silently put back to starter (512 MB) on 25 Oct 2026.
     # (Needs a paid plan: free has no persistent disk, and the DB needs one.)
-    dockerfilePath: ./api/Dockerfile
-    dockerContext: .           # repo root: the build needs api/ AND frontend/
+    dockerfilePath: ./render/api/Dockerfile
+    dockerContext: .           # repo root: the build needs render/api/ AND render/frontend/
     # /ready, NOT /health: /health has no dependencies and answers 200 on a
     # process that cannot serve a single request, which is how a deploy with an
     # uninitialised database once went green. /ready checks that startup

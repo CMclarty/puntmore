@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "clients" / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "clients" / "python"))
 
 from puntmore import AsyncPuntmore, Puntmore, PuntmoreError, ValueSelection  # noqa: E402
 
