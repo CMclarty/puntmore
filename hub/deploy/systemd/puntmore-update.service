@@ -1,0 +1,9 @@
+[Unit]
+Description=Puntmore Hub: fast-forward to origin/main, reinstall, restart (waits for in-flight bets)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Projects/puntmore
+ExecStart=%h/Projects/puntmore/hub/deploy/update.sh

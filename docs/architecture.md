@@ -67,7 +67,7 @@ flowchart LR
 | Local model | llama-server, Qwen3.5-122B, two slots; Hermes' brain, never in the pricing path | Hub, inside Hermes | live |
 | Worker | `scraper/`: one real Chrome; Paddy Power and Bookie Bashing pages kept open, Bet Finder sources as `generic` targets | Hub | live (parsers partly written; sources drop tips to the Hub) |
 | Placement bot | Bet in, placed / price_changed / failed out, on the phones | Hub | placeholder (dry-run adapter only; contract in `hub/puntmore_hub/placement/README.md`) |
-| Render link + inbox | `hub/`: outbound WebSocket, durable outbox, client engine, the Worker's drops ingested | Hub | scaffold, 72 tests with the console; waits on the Hub endpoint |
+| Render link + inbox | `hub/`: outbound WebSocket, durable outbox, client engine, the Worker's drops ingested; updates itself from `origin/main` every 10 min (`puntmore-update.timer`) | Hub | scaffold, 65 tests; waits on the Hub endpoint |
 | Hub Console | `hub/puntmore_hub/web/`, `puntmore web`: what every Hub component is doing, live, and the kill switch; the CLI's actions behind a token | Hub | scaffold (localhost by default; reads what the CLI reads) |
 | Wire contract | `hub/PROTOCOL.md`, JSON Schema, examples, mock Render | both | v1, contract tests |
 
@@ -93,6 +93,6 @@ flowchart LR
 
 1. **Placement is a stub.** One phone in dry-run is the next real milestone; everything else on the Hub is scaffolding around it. The local model is building the adapter.
 2. **Folded (5 Nov):** the Bet Finder's sources are Worker targets; `hub/` no longer scrapes.
-3. **`hub/` has no update mechanism** beyond `git pull`; `scraper/` updates itself from an image.
+3. **Fixed (5 Nov):** `hub/` updates itself. `puntmore-update.timer` fast-forwards the box's checkout to `origin/main` every 10 minutes, reinstalls and restarts, never while a bet is in flight (`hub/README.md`, "Updating the Hub"). `scraper/` updates itself from an image.
 4. **The placement service should run as its own Linux user** so no agent can read account credentials, whatever a scraped page says.
 5. **Goalscorers** returns only via OddsPapi, after the open work (PLAN.md, Parked).
