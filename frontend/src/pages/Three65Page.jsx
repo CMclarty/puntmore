@@ -3,12 +3,11 @@ import styles from './Three65Page.module.css'
 
 /**
  * 365 — the bet365 offers, one tool with a tab per offer. Each tab is its own
- * page with its own permission (the acca boost is the old AccaBonus tool, the
- * goalscorer finder the old Scorers one); this shell only switches between the
- * ones the account can see. 2-Up joins as a tab once its bet365 feed exists.
+ * page with its own permission; this shell only switches between the ones the
+ * account can see. The acca boost returns as a tab on OddsPapi and 2-Up joins
+ * once its feed exists (PLAN.md item 11).
  */
 export const TABS = [
-  { path: 'acca', label: 'Acca boost', tool: 'accabonus' },
   { path: 'scorers', label: 'Goalscorers', tool: 'goalscorers' },
 ]
 

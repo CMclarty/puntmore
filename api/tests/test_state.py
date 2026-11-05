@@ -40,7 +40,6 @@ def override_get_db():
 def setup_db():
     Base.metadata.create_all(bind=test_engine)
     app.dependency_overrides[get_db] = override_get_db
-    app.state.arbs_client = None
     app.state.cards_client = None
     yield
     app.dependency_overrides.pop(get_db, None)
@@ -84,9 +83,8 @@ def test_state_no_session_required(api_key):
 
 def test_state_shape_when_empty(api_key):
     body = client.get("/state", headers={"X-API-Key": api_key}).json()
-    assert set(body) == {"generated_at", "coupons", "accabonus", "cards"}
+    assert set(body) == {"generated_at", "coupons", "cards"}
     assert body["coupons"] == []
-    assert body["accabonus"] == []
     assert body["cards"] == []
 
 

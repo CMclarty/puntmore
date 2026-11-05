@@ -85,7 +85,7 @@ def test_sync_client_reads_value(key):
         assert row.kickoff is not None and row.kickoff.tzinfo is not None
         assert pm.value(source="coupon", bookmaker="bet365").selections == []
         assert pm.paddy.feed() == []
-        assert set(pm.state()) >= {"coupons", "cards", "accabonus"}
+        assert set(pm.state()) >= {"coupons", "cards"}
 
 
 

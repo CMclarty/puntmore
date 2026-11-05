@@ -22,7 +22,6 @@ def _feed(request: Request, db: Session, sources, min_edge, kickoff_within_hours
     rows, errors = service.collect(
         sources, db=db,
         cards_client=getattr(request.app.state, "cards_client", None),
-        arbs_client=getattr(request.app.state, "arbs_client", None),
         min_edge=min_edge, kickoff_within_hours=kickoff_within_hours,
         bookmaker=bookmaker, now=now,
     )

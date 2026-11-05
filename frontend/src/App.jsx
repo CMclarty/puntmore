@@ -19,7 +19,6 @@ const PnlPage = lazy(() => import('./pages/PnlPage'))
 const KellyPage = lazy(() => import('./pages/KellyPage'))
 const BoostPage = lazy(() => import('./pages/BoostPage'))
 const ShopPage = lazy(() => import('./pages/ShopPage'))
-const AccaBonusPage = lazy(() => import('./pages/AccaBonusPage'))
 const Three65Page = lazy(() => import('./pages/Three65Page'))
 const CardsPage = lazy(() => import('./pages/CardsPage'))
 const ScraperPage = lazy(() => import('./pages/ScraperPage'))
@@ -33,10 +32,9 @@ const ENTRY_PATH = window.location.pathname
 const FOCUSED_ROOTS = ['/pnl', '/virtuals']
 const IS_FOCUSED = FOCUSED_ROOTS.some(r => ENTRY_PATH === r || ENTRY_PATH.startsWith(r + '/'))
 
-// AccaBonusPage and CardsPage are surfaced only to a grant that includes them
-// (i.e. "*"), reached via the nav's "More" sheet. Their feeds are empty until
-// ODDS_API_KEY is set / the cards client is rebuilt (docs/provider-verification).
-// tracker below. Re-import and restore the routes to bring them back.
+// CardsPage is surfaced only to a grant that includes it (i.e. "*"), reached
+// via the nav's "More" sheet. The acca boost page was removed with TheOddsApi
+// (PLAN.md item 11); it returns as a 365 tab on OddsPapi.
 
 // Each site shows only its own tools (site.js): Shalgo's four there, the rest
 // on Puntmore. The grant itself is unchanged and shared by both.
@@ -122,14 +120,14 @@ export default function App() {
           <Route path="/scraper" element={protectTool(<ScraperPage />, 'scraper')} />
           {/* AW 26 was retired (docs/retired.md): an old link lands home. */}
           <Route path="/aw26" element={<Navigate to="/" replace />} />
-          {/* 365: the bet365 offers, a tab each. /accabonus and /tennis are
-              the acca boost's old addresses. */}
+          {/* 365: the bet365 offers, a tab each. The acca boost tab returns on
+              OddsPapi (PLAN.md item 11); its old addresses land on the tool. */}
           <Route path="/365" element={<Three65Page tools={user?.tools} />}>
-            <Route path="acca" element={protectTool(<AccaBonusPage />, 'accabonus')} />
+            <Route path="acca" element={<Navigate to="/365" replace />} />
             <Route path="scorers" element={protectTool(<GoalscorersPage />, 'goalscorers')} />
           </Route>
-          <Route path="/accabonus" element={<Navigate to="/365/acca" replace />} />
-          <Route path="/tennis" element={<Navigate to="/365/acca" replace />} />
+          <Route path="/accabonus" element={<Navigate to="/365" replace />} />
+          <Route path="/tennis" element={<Navigate to="/365" replace />} />
           <Route path="/paddy" element={protectTool(<CardsPage />, 'cards')} />
           <Route path="/paddy/acca" element={<Navigate to="/paddy" replace />} />
           {/* Renamed from Cards (Oct 2026): installed shells and bookmarks
