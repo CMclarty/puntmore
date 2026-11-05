@@ -2,7 +2,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # Odds provider — the-odds-api.com. Falls back to MockOddsProvider if absent.
+    # TheOddsApi key — read ONLY by the goalscorers pipeline until it is ported
+    # to OddsPapi, the only odds source (PLAN item 11). Nothing new reads it.
     odds_api_key: str = ""
     # OCR provider keys — set one. GOOGLE_API_KEY takes priority; falls back to
     # ANTHROPIC_API_KEY; falls back to MockOCRProvider if neither is present.
@@ -20,14 +21,12 @@ class Settings(BaseSettings):
     # 512 MB instance. Refusing beats resizing: OCR accuracy on a coupon's small
     # print depends on the full resolution.
     max_upload_mb: int = 25
-    # Odds API in-memory cache TTL (seconds). Default 24 h keeps the free tier
-    # (500 credits/month) safe. Only lower this on a paid Odds API tier —
-    # 1 h would burn ~336 credits/day on a single sport.
+    # TheOddsApi in-memory cache TTL (seconds), goalscorers only. 24 h keeps
+    # its 500 credits/month safe; do not lower it.
     odds_cache_ttl: int = 86400
-    # Minimum edge vs de-vigged Pinnacle to include in the feeds. Stored as an
-    # edge fraction; the UI presents it as %EV (bet odds as a percentage of
+    # Minimum edge vs de-vigged Pinnacle to include in the Paddy feed. Stored as
+    # an edge fraction; the UI presents it as %EV (bet odds as a percentage of
     # fair: %EV = (1 + edge) × 100). Default -0.02 = the 98% EV preset.
-    arb_min_edge: float = -0.02
     cards_min_edge: float = -0.02
 
     # --- Cards & corners (SPEC 1, docs/provider-verification.md) ------------
@@ -105,63 +104,24 @@ class Settings(BaseSettings):
     # a value tool that alerts before anyone has checked its prices trains you
     # to trust it. The coupon tracker's alerts are unaffected.
     cards_discord_alerts: bool = False
-    # Optional comma-separated override of the AccaBonus sport keys. Empty =
-    # keys discovered from the free /v4/sports list, filtered to Acca Boost-
-    # eligible competitions, soccer excluded (accabonus/arbs.py). Set to a
-    # single key (e.g. "tennis_atp") to cap quota burn at ~1 API request per
-    # 24 h while testing live data.
-    accabonus_sport_keys: str = ""
-
-    # How long an AccaBonus h2h pull is reused. SEPARATE from odds_cache_ttl,
-    # which is shared with other consumers and stays at 24h.
-    #
-    # COST: 1 credit per sport key per pull (bookmakers are named, so one
-    # region-equivalent). At 24h that is ~1 credit/key/day; at 1h it is 24.
-    # Discovery typically finds 5-15 live keys, so hourly is roughly
-    # 120-360 credits/DAY — 3.6k-10.8k a month, on top of the cards sweep's
-    # ~17k. Against a 20k plan those do not both fit at the top of that range.
-    #
-    # Two ways to keep it inside: pin `accabonus_sport_keys` to a short list
-    # while testing, or raise this back up once the tool has been eyeballed.
-    # The quota reserve is the backstop either way — AccaBonus stops before the
-    # reserve for the same reason the cards sweep does.
-    accabonus_cache_ttl: int = 3600
-    # Discord alerts for the 365 acca boost: a pick is posted when it first
-    # clears this edge or its value tier changes. The check runs every
-    # `accabonus_alert_minutes` and reads THROUGH the cache above, so it costs
-    # no more than the cache TTL already allows.
-    accabonus_discord_alerts: bool = True
-    accabonus_alert_min_edge: float = 0.02
-    accabonus_alert_minutes: int = 30
     # Coupon tracker odds source (behind the OddsProvider seam).
     # "oddspapi" (default, Oct 2026) prices coupon legs Pinnacle-referenced via
     # OddsPapiCouponProvider (the provider-agnostic GridCouponProvider over an
-    # OddsPapi board). "theoddsapi" is retained as a working fallback but cannot
-    # derive the GG/TTS/Win-and-Over markets off the grid.
-    #
-    # With the default source and no ODDSPAPI_API_KEY, main.py falls back to
-    # TheOddsApi if an ODDS_API_KEY is present, else the mock — a deployed
-    # instance keeps pricing real legs rather than silently serving mock data.
+    # OddsPapi board). It is the ONLY source (5 Nov 2026); without an
+    # ODDSPAPI_API_KEY the tracker runs on the mock and main.py says so.
     coupon_odds_source: str = "oddspapi"
     # Cache TTL (seconds) for the coupon tracker's odds pulls, reused across
     # every leg and the 10-min refresh loop. Independent of odds_cache_ttl
-    # (which the hidden AccaBonus/Cards tools use).
+    # (goalscorers' TheOddsApi pulls).
     #
     # Default 600 = 10 min, matching the refresh cadence. OddsPapi is billed per
     # request, but the whole coupon board is a handful of bulk requests per
     # refresh (one per tournament chunk), well within the daily budget.
     #
-    # ⚠️ If you set COUPON_ODDS_SOURCE=theoddsapi, RAISE this to 86400. That
-    # source is billed 500 credits per MONTH and a 10-min cache would exhaust
-    # the month in well under a day. main.py warns loudly if it sees that
-    # combination.
     coupon_odds_cache_ttl: int = 600
-    # Tool visibility flags. The suite currently surfaces ONLY the coupon
-    # tracker; AccaBonus and Cards/Corners are hidden. Their code stays in the
-    # repo — these flags gate whether their API routers are mounted (main.py)
-    # and, mirrored in the frontend, whether their nav tabs/routes appear.
-    # Flip to True (in .env) to bring a tool back. See PLAN.md v5.
-    enable_accabonus: bool = False
+    # Tool visibility flags: whether a tool's API router is mounted (main.py)
+    # and, mirrored in the frontend, whether its nav tab/route appears. The
+    # acca boost returns as a tab of the 365 tool on OddsPapi (PLAN item 11).
     enable_cards: bool = False
     # First-goalscorer value alerts (bet365 vs de-vigged Pinnacle). Surfaced in
     # the UI when on. The scheduler builds a daily watchlist of major fixtures

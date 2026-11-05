@@ -37,7 +37,6 @@ def real_auth():
     app.dependency_overrides[get_db] = _db
     app.dependency_overrides.pop(require_user, None)
     app.dependency_overrides.pop(user_permissions, None)
-    app.state.arbs_client = None
     app.state.cards_client = None
     yield
     app.dependency_overrides.pop(get_db, None)

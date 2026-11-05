@@ -17,7 +17,7 @@ from ..models import Coupon
 from ..schemas import CouponStateOut, StateOut
 from ..security import require_key_grant
 from ..time_utils import utcnow
-from . import accabonus, cards
+from . import cards
 
 router = APIRouter()
 
@@ -43,8 +43,5 @@ def get_state(request: Request, db: Session = Depends(get_db)):
     return StateOut(
         generated_at=utcnow(),
         coupons=coupon_items,
-        accabonus=accabonus.build_feed(
-            request.app.state.arbs_client, settings.arb_min_edge
-        ),
         cards=cards.build_feed(request.app.state.cards_client, settings.cards_min_edge),
     )

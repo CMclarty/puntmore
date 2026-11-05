@@ -271,10 +271,8 @@ def has_permission(perms: str, tool: str) -> bool:
 
 def enabled_tools() -> list[str]:
     """Tools the server currently surfaces, in nav order. coupons is always on;
-    AccaBonus and Cards are gated by their ENABLE_* flags (PLAN.md v5)."""
+    Cards is gated by its ENABLE_* flag (PLAN.md v5); the acca boost returns inside the 365 tool (item 11)."""
     tools = ["coupons"]
-    if settings.enable_accabonus:
-        tools.append("accabonus")
     if settings.enable_cards:
         tools.append("cards")
     if settings.enable_goalscorers:

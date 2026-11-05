@@ -45,18 +45,6 @@ class _Cards:
         return []
 
 
-ACCA_EVENT = {
-    "id": "b1", "sport_key": "soccer_epl", "sport_title": "EPL",
-    "home_team": "Leeds", "away_team": "Spurs", "commence_time": LATER.isoformat() + "Z",
-    "bookmakers": [
-        {"key": "bet365", "markets": [{"key": "h2h", "outcomes": [
-            {"name": "Leeds", "price": 2.4}, {"name": "Spurs", "price": 1.6}]}]},
-        {"key": "pinnacle", "markets": [{"key": "h2h", "outcomes": [
-            {"name": "Leeds", "price": 2.1}, {"name": "Spurs", "price": 1.8}]}]},
-    ],
-}
-
-
 @pytest.fixture(autouse=True)
 def world(monkeypatch):
     Base.metadata.create_all(bind=engine)
@@ -64,9 +52,7 @@ def world(monkeypatch):
     monkeypatch.setattr("app.cards.feed.price_events", lambda events, edge, book="paddypower": [
         _paddy_row(9.5, 0.08), _paddy_row(10.0, 0.20), _paddy_row(4.5, -0.01, "Under"),
     ])
-    monkeypatch.setattr("app.accabonus.feed._fetch_events", lambda client: [ACCA_EVENT])
     app.state.cards_client = _Cards()
-    app.state.arbs_client = object()
 
     db = Session()
     tts = Coupon(type_code="TTS1", match_day=date.today(), status="confirmed")
@@ -89,7 +75,6 @@ def world(monkeypatch):
     yield
     app.dependency_overrides.pop(get_db, None)
     app.state.cards_client = None
-    app.state.arbs_client = None
     Base.metadata.drop_all(bind=engine)
 
 
@@ -100,10 +85,10 @@ def _get(path, perms="value", **params):
 
 def test_one_shape_across_every_source_best_edge_first():
     body = _get("/value").json()
-    assert body["sources"] == ["paddy", "365", "scorers", "coupon"]
+    assert body["sources"] == ["paddy", "scorers", "coupon"]
     assert body["errors"] == {}
     rows = body["selections"]
-    assert {r["source"] for r in rows} == {"paddy", "365", "scorers", "coupon"}
+    assert {r["source"] for r in rows} == {"paddy", "scorers", "coupon"}
     edges = [r["edge"] for r in rows]
     assert edges == sorted(edges, reverse=True) and min(edges) > 0
     keys = {"source", "bookmaker", "event_id", "event", "home", "away", "kickoff",
@@ -126,12 +111,6 @@ def test_min_edge_can_reach_below_fair():
     assert sorted(r["line"] for r in rows) == [4.5, 9.5]
 
 
-def test_365_row_carries_the_fair_and_side():
-    [r] = _get("/value/365").json()["selections"]
-    assert (r["selection"], r["side"], r["bookmaker"], r["market"]) == ("Leeds", "home", "bet365", "h2h")
-    assert r["fair"] < r["odds"] and r["event_id"] == "b1"
-
-
 def test_coupon_rows_are_live_priced_selections_only():
     rows = _get("/value/coupon").json()["selections"]
     assert [r["selection"] for r in rows] == ["Hull to Score 1"]
@@ -150,13 +129,13 @@ def test_kickoff_window_and_bookmaker_filters():
     soon = _get("/value", kickoff_within_hours=12).json()["selections"]
     assert {r["source"] for r in soon} == {"paddy", "coupon"}
     b365 = _get("/value", bookmaker="bet365").json()["selections"]
-    assert {r["source"] for r in b365} == {"365", "scorers"}
+    assert {r["source"] for r in b365} == {"scorers"}
 
 
 def test_a_failing_source_is_named_and_the_rest_still_answer(monkeypatch):
-    def boom(client):
+    def boom(events, edge, book="paddypower"):
         raise RuntimeError("vendor down")
-    monkeypatch.setattr("app.accabonus.feed._fetch_events", boom)
+    monkeypatch.setattr("app.cards.feed.price_events", boom)
     body = _get("/value").json()
-    assert "365" in body["errors"] and "vendor down" in body["errors"]["365"]
-    assert {r["source"] for r in body["selections"]} == {"paddy", "scorers", "coupon"}
+    assert "paddy" in body["errors"] and "vendor down" in body["errors"]["paddy"]
+    assert {r["source"] for r in body["selections"]} == {"scorers", "coupon"}

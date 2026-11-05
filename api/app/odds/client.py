@@ -140,7 +140,7 @@ class TheOddsApiClient:
         # filtering — so sending a default `regions=eu` alongside a named UK
         # book was at best redundant and at worst the difference between being
         # billed for one region and two. Naming the books is also the cheaper
-        # side of that question (see routers/accabonus.py), and it is the only
+        # side of that question (the acca boost that used to read it is gone; goalscorers remains), and it is the only
         # form whose cost does not depend on which regions the named books
         # happen to span.
         params: dict = {
