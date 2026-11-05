@@ -14,6 +14,7 @@
   }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }   /* .form is display:flex, which would beat the hidden attribute */
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink);
   font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
@@ -97,9 +98,31 @@ pre.log { background: var(--bg); border: 1px solid var(--line); border-radius: 8
 .form label { display: flex; flex-direction: column; gap: 2px; font-size: 0.85rem; color: var(--muted); }
 .form label.wide { flex: 1 1 16em; }
 .form textarea { width: 100%; }
+.form label.check { flex-direction: row; align-items: center; gap: 6px; color: var(--ink); }
+.form select { font: inherit; color: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); }
+.field-error { color: var(--down); font-size: 0.8rem; max-width: 22em; overflow-wrap: anywhere; }
+.field-error:empty { display: none; }
+p.field-error { max-width: none; }
+tr.muted td { color: var(--muted); opacity: 0.7; }
+tr.muted td .row-actions, tr.muted td button { opacity: 1; }
+.row-actions { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+code.cmd { white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
 .latest { margin-top: 10px; }
 .foot { color: var(--muted); font-size: 0.8rem; padding: 0 16px 24px; }
 
+/* On a phone the wide tables become one card per row, each cell labelled. */
+@media (max-width: 700px) {
+  table.cards, table.cards tbody, table.cards tr, table.cards td { display: block; width: 100%; }
+  table.cards thead { display: none; }
+  table.cards tr { border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; margin: 0 0 8px; }
+  table.cards td { display: flex; justify-content: space-between; gap: 12px; border: 0; padding: 3px 0;
+    white-space: normal; text-align: right; overflow-wrap: anywhere; min-width: 0; max-width: none; }
+  table.cards td::before { content: attr(data-label); color: var(--muted); text-align: left; flex: 0 0 auto; }
+  table.cards td[data-label=""]::before { content: none; }
+  table.cards td.n { text-align: right; }
+  .form label, .form label.wide { flex: 1 1 100%; }
+  .form input, .form select { width: 100%; }
+}
 @media (max-width: 560px) {
   body { font-size: 14px; }
   .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }

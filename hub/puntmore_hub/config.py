@@ -72,6 +72,10 @@ class Settings:
                                              default="/opt/puntmore-scraper/data"))
     scraper_stale_minutes: int = int(_env_first("PUNTMORE_SCRAPER_STALE_MINUTES",
                                                 "PUNTMORE_WORKER_STALE_MINUTES", default="10"))
+    # Where the Scraper's code is (the directory holding the `scraper/` package), for the console's
+    # Scraper tab, which changes targets.toml through `scraper.targets` and nothing else. Default:
+    # the repo this package was checked out in, so the console and the library are the same commit.
+    scraper_src: Path = Path(os.environ.get("PUNTMORE_SCRAPER_SRC") or Path(__file__).resolve().parents[2])
 
     # Alerting and the local AI
     discord_webhook: str = os.environ.get("PUNTMORE_DISCORD_WEBHOOK", "")
@@ -101,6 +105,11 @@ class Settings:
     @property
     def inbox_dir(self) -> Path:
         return self.scraper_data_dir / "hub"
+
+    @property
+    def scraper_targets_file(self) -> Path:
+        """What the Scraper reads (scraper/config.py `load`, with SCRAPER_DATA_DIR = our data dir)."""
+        return self.scraper_data_dir / "targets.toml"
 
     @property
     def web_host_port(self) -> tuple[str, int]:

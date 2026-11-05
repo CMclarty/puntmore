@@ -13,7 +13,7 @@ This is the Hub side of the Puntmore 2-Up Engine. Render (cloud, `render/api/`) 
 ## Where to change what
 | Want to... | Change |
 |---|---|
-| Add or pause a Bet Finder source | `targets.toml` on the Hub (`site = "generic"`, see `scraper/targets.example.toml`) |
+| Add or pause a Scraper target (a Bet Finder source is `site = "generic"`) | the console's Scraper tab, or `python -m scraper targets …` (`scraper/README.md`, "Changing targets"); never `targets.toml` by hand |
 | Fix a broken parser | `scraper/parsers/<name>.py` + a fixture under `scraper/tests/fixtures/` |
 | Change where the Scraper's drops are read from | `.env` (`PUNTMORE_SCRAPER_DATA`; the old `PUNTMORE_WORKER_DATA` is still read for one release) |
 | Add a bookmaker account (sub-client) | `sub_clients.yaml` (see `sub_clients.example.yaml`) |

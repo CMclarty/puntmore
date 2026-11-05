@@ -1,8 +1,10 @@
 """The few things the Hub Console can do. Each is the CLI's own function, never a shell-out.
 
-Kill switch on and off, resolve an escalation, one inbox pass, a link-check, a heartbeat. Nothing
-else: no target edits, no Scraper commands, no placement triggers, no ``.env`` writes. Every call,
-done or refused, is one line in ``data/console-actions.log``.
+Kill switch on and off, resolve an escalation, one inbox pass, a link-check, a heartbeat, and the
+Scraper's target edits (add, set, enable, disable, remove), which are ``scraper/targets.py``'s own
+functions (``scraper_targets.py``). Nothing else: no Scraper commands (``resume`` is the Scraper's
+CLI), no placement triggers, no ``.env`` writes. Every call, done or refused, is one line in
+``data/console-actions.log``.
 
 Token checking lives in ``app.py``; these functions assume the caller is allowed.
 """
@@ -25,10 +27,11 @@ MAX_OUTCOME = 2000
 class ActionError(Exception):
     """A refused action: ``status`` is the HTTP status to answer with."""
 
-    def __init__(self, status: int, message: str):
+    def __init__(self, status: int, message: str, **extra: Any):
         super().__init__(message)
         self.status = status
         self.message = message
+        self.extra = extra          # more for the page: the form field a refusal is about, retry
 
 
 def log_action(cfg: Settings, action: str, result: str, client: str | None = None) -> None:
