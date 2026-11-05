@@ -72,10 +72,9 @@ loads it through the directory's `CLAUDE.md`):
 - NEVER commit secrets. All credentials (bettingiscool key, Odds API key, OCR
   key, Discord webhook, auth users + session key) live in `.env` only.
   `.env` is git-ignored; only `.env.example` is committed.
-- The API never places a bet and no bookmaker-account automation is added to
-  it (`api/AGENTS.md`, API clients). **Open conflict (Nov 2026):** the 2-Up
-  spec has Render emitting bet lists to the Hub's client engine. Callum
-  decides which rule wins before the Render end of `hub/PROTOCOL.md` is built.
+- The API (`api/`, on Render) never places a bet and no bookmaker-account
+  automation is added to it (`api/AGENTS.md`, API clients). Placement and the
+  engine that produces bet lists live on the Hub (`hub/`, decision 5 Nov 2026).
 - Every directory's own hard rules are in its `AGENTS.md`; they are not
   optional because they live in a different file.
 
