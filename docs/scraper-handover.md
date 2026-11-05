@@ -1,5 +1,10 @@
 # Scraper → a Puntmore-controlled worker — handover (26 Oct 2026)
 
+> **Superseded, 5 Nov 2026.** The control plane described here (the
+> `/scraper` page, `/api/scraper/config`, `/api/scraper/status`) was removed:
+> the Worker reads `targets.toml` on the Hub (PLAN.md, Decisions and item 11).
+> Kept as the record of what was built.
+
 For the agent doing the scraper build. Verified against the repo and the
 running box on 26 Oct 2026; nothing here is a guess. Repo
 `/home/callum/bettingtools`, branch `main`. **Every push to `main` is a

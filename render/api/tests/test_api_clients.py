@@ -43,7 +43,11 @@ def real_auth():
     Base.metadata.drop_all(bind=engine)
 
 
-def _client(name="bot", tools="shop,scraper"):
+# An ingest write with nothing in it: 200 when the key is admitted.
+EMPTY = {"prices": []}
+
+
+def _client(name="bot", tools="shop,pnl"):
     db = Session()
     try:
         _, key = apikeys.create(db, name, tools)
@@ -62,7 +66,7 @@ def test_key_is_stored_only_as_its_hash():
     row = db.query(ApiClient).one()
     assert row.key_hash == hashlib.sha256(key.encode()).hexdigest()
     assert key not in (row.key_hash, row.name, row.permissions)
-    assert row.permissions == "scraper+shop"
+    assert row.permissions == "pnl+shop"
     db.close()
 
 
@@ -71,13 +75,12 @@ def test_bearer_and_x_api_key_both_admit_a_granted_client():
     api = TestClient(app)
     assert api.get("/shop", headers=bearer(key)).status_code == 200
     assert api.get("/shop", headers={"X-API-Key": key}).status_code == 200
-    assert api.get("/scraper", headers=bearer(key)).status_code == 200
+    assert api.get("/pnl/dogs/bets", headers=bearer(key)).status_code == 200
 
 
 def test_a_client_is_held_to_its_grant():
     key = _client(tools="shop")
     api = TestClient(app)
-    assert api.get("/scraper", headers=bearer(key)).status_code == 403
     assert api.get("/pnl/dogs/bets", headers=bearer(key)).status_code == 403
 
 
@@ -98,7 +101,7 @@ def test_a_client_acts_under_its_own_name():
     assert api.post("/shop/visits", headers=bearer(key)).status_code == 200
     me = api.get("/auth/me", headers=bearer(key)).json()
     assert me["username"] == "api:bot"
-    assert "shop" in me["tools"] and "scraper" in me["tools"]
+    assert "shop" in me["tools"] and "pnl" in me["tools"]
 
 
 def test_last_used_is_recorded():
@@ -112,9 +115,9 @@ def test_last_used_is_recorded():
 def test_static_ingest_key_still_works_and_is_the_ingest_grant(monkeypatch):
     monkeypatch.setattr(settings, "saves_ingest_key", "static-ingest")
     api = TestClient(app)
-    assert api.get("/scraper/config", headers={"X-API-Key": "static-ingest"}).status_code == 200
-    assert api.get("/scraper/config", headers=bearer("static-ingest")).status_code == 200
-    assert api.get("/scraper/config", headers={"X-API-Key": "wrong"}).status_code == 401
+    assert api.post("/paddy/saves-fair", json=EMPTY, headers={"X-API-Key": "static-ingest"}).status_code == 200
+    assert api.post("/paddy/saves-fair", json=EMPTY, headers=bearer("static-ingest")).status_code == 200
+    assert api.post("/paddy/saves-fair", json=EMPTY, headers={"X-API-Key": "wrong"}).status_code == 401
     # The static key is ONLY the ingest grant: it reaches no tool.
     assert api.get("/shop", headers={"X-API-Key": "static-ingest"}).status_code == 403
 
@@ -124,10 +127,10 @@ def test_a_client_can_hold_the_ingest_grant(monkeypatch):
     ingest = _client("scraper-box", tools="ingest")
     other = _client("reader", tools="shop")
     api = TestClient(app)
-    assert api.get("/scraper/config", headers=bearer(ingest)).status_code == 200
-    assert api.get("/scraper/config", headers=bearer(other)).status_code == 403
+    assert api.post("/paddy/saves-fair", json=EMPTY, headers=bearer(ingest)).status_code == 200
+    assert api.post("/paddy/saves-fair", json=EMPTY, headers=bearer(other)).status_code == 403
     # No static key configured and no client admitted: the old 503 stands.
-    assert api.get("/scraper/config", headers={"X-API-Key": "x"}).status_code == 503
+    assert api.post("/paddy/saves-fair", json=EMPTY, headers={"X-API-Key": "x"}).status_code == 503
 
 
 def test_a_client_can_hold_the_state_grant(monkeypatch):

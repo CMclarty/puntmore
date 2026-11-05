@@ -21,7 +21,6 @@ const BoostPage = lazy(() => import('./pages/BoostPage'))
 const ShopPage = lazy(() => import('./pages/ShopPage'))
 const Three65Page = lazy(() => import('./pages/Three65Page'))
 const CardsPage = lazy(() => import('./pages/CardsPage'))
-const ScraperPage = lazy(() => import('./pages/ScraperPage'))
 
 // The path the app was FIRST loaded at, captured once before the router starts
 // navigating. A direct (hard) load of a focused route — e.g. saving /pnl to the
@@ -117,7 +116,6 @@ export default function App() {
           <Route path="/kelly" element={protectTool(<KellyPage />, 'kelly')} />
           <Route path="/boost" element={<Navigate to="/virtuals" replace />} />
           <Route path="/shop" element={protectTool(<ShopPage />, 'shop')} />
-          <Route path="/scraper" element={protectTool(<ScraperPage />, 'scraper')} />
           {/* AW 26 was retired (docs/retired.md): an old link lands home. */}
           <Route path="/aw26" element={<Navigate to="/" replace />} />
           {/* 365: the bet365 offers, a tab each. The acca boost tab returns on
