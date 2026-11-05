@@ -70,7 +70,7 @@ loads it through the directory's `CLAUDE.md`):
 
 `docs/decisions.md` is read first and wins; then `PLAN.md` → **Decisions** (the
 older product decisions) is settled and applies everywhere. The architecture is
-`docs/architecture.md` and the 2-Up spec is `docs/2up-engine-spec.md`; both live
+`docs/architecture.md`, how information moves through it is `docs/dataflow.md`, and the 2-Up spec is `docs/2up-engine-spec.md`; both live
 here and nowhere else, and change in the same pull request as the code.
 
 ## Hard rules (do not violate)
