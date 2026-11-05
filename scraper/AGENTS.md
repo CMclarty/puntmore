@@ -4,6 +4,28 @@
 day-to-day commands are in `README.md`; the boundaries that still apply are in
 `HANDOVER.md`. The Scraper is the ONLY thing on the Hub that loads a page.
 
+## Module map
+- `runner.py` - the loop: wires the modules below, owns the tabs, loads
+  through the guard, applies a targets.toml edit (in place for a timing-only
+  change).
+- `schedule.py` - when each target is due: `every_min`, `stale_min`, jitter
+  drawn once per load, the per-site load gaps, `window`, `priority`.
+- `sinks.py` - where rows go, by `post`: `/api/...` to Render with the
+  ingest key, `hub:<chan>` drop files for the Hub (each row with its
+  `tip_id`); events for the Hub.
+- `status.py` - the heartbeat, `data/status.json`, the per-site budget summary.
+- `ids.py` - the one tip id, minted here when rows reach the Hub sink (a copy
+  of `hub/puntmore_hub/ids.py`; a test in each suite pins the same vector).
+- `parsers/` - one module per page kind; rows only from what the page shows.
+- `targets.py` - the only writer of targets.toml (CLI, console, Hermes).
+- `config.py` - settings and target validation (`_target`, the clamps).
+- `sites.py` - per-site rules in code: budgets, quiet hours, what a block means.
+- `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite).
+- `browser.py` - the one Chrome: launch, block/logout detection, clicks.
+- `capture.py` / `alerts.py` - what a page receives (and its disk samples) /
+  the alert webhook and log.
+
+## Rules
 - **Bet Finder sources are Scraper targets** (5 Nov 2026, Callum: one Chrome,
   one budget, one alert path). `site = "generic"` may name any host except the
   two bookmakers; its budget is in `sites.py` (60/h, 400/day, no quiet hours,

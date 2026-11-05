@@ -89,7 +89,7 @@ ones. Render should order by `ts`, not arrival.
 |---|---|---|
 | `hello` | `{"protocol_version": 1, "dry_run": bool, "kill_switch": bool, "version": "0.1.0"}` | first frame after connect |
 | `report` | Report (below) | placement lifecycle and balances |
-| `tip` | CandidateTip (below) | each new candidate bet a scrape or tipster source produced |
+| `tip` | CandidateTip (below) | each new candidate bet a scrape or tipster source produced; its `tip_id` was minted by the Scraper at first sight |
 | `scrape_result` | `{"job_id", "status", "items", "error"}` | after a `scrape_job` |
 | `escalation` | `{"escalation_id", "kind", "ref", "detail", "created"}` | something was handed to the local AI |
 | `escalation_outcome` | `{"escalation_id", "kind", "ref", "outcome"}` | the local AI (or a human) decided |
@@ -130,6 +130,9 @@ A bet gets at most one of `placed`, `price_changed` or `failed`, then optionally
 ```
 
 - `tip_id` is stable for the same source + event + market + selection + day, so Render can dedupe too.
+  It is minted by the Scraper when it first sees the tip (`scraper/ids.py`, written on each row of its
+  drop file); the Hub forwards it unchanged and mints one (`hub/puntmore_hub/ids.py`, the same function)
+  only for an old drop without it. Render never mints one.
 - `event` is free text as the source printed it. Resolving it to a real `event_id` and a current price is
   Render's job (Bet Finder pipeline step 3).
 - `origin`: `tipster | scrape`. `source_scope` is always `owner` for tips.

@@ -235,7 +235,8 @@ One file: `data/targets.toml` (see `targets.example.toml`), or the file
 `SCRAPER_TARGETS` names. It lives on the Hub and is changed only through
 `scraper/targets.py` (Changing targets, above). The running
 service checks it once a minute and applies an edit without a restart: a
-removed or changed target's tabs close, a new one opens on the next tick. A
+removed target's tabs close, a new one opens on the next tick, and a changed
+one is rescheduled in place or reopened (Changing targets, above). A
 file that will not load (a half-written save, a bad target) is reported in the
 log and the running targets are kept. The service writes its state to
 `data/status.json` once a minute; the Hub reads it and `status` prints it.
@@ -252,6 +253,24 @@ Targets are of these kinds:
 
 Timings are clamped to the floors in `config._target`, and `sites.py`
 budgets stay the ceiling whatever the file says.
+
+Two fields say when and who first (`schedule.py`):
+- **`window`** (`"HH:MM-HH:MM"`, local time, may wrap midnight as
+  `"22:00-02:00"`; the start minute is inside, the end minute is not): the
+  hours a target may load at all. Outside it nothing is loaded and its open
+  tabs are closed, within a tick of the window's end; `status` shows it
+  `paused`, "outside window". When the window starts it opens again through
+  the normal spacing and guard; a fetch target runs at the start. No window
+  means always. A site's quiet hours and cool-offs still apply inside it.
+- **`priority`** (whole number, default 0): who gets a site's loads when they
+  are short. Loads are spaced, so one goes out at a time, to the first target
+  in the tick's order that wants one. While a site has at least as many
+  loads left (this hour, or today if fewer) as targets wanting one, that
+  order is file order. When more of its targets want a load than it has
+  left, the highest priority goes first, ties to whichever has been waiting
+  longer (overdue the longest). A lower-priority target still gets the loads
+  a higher one does not want: priority orders the queue, it does not reserve
+  budget.
 
 ## Tests
 ```sh
