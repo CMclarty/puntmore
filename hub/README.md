@@ -89,7 +89,7 @@ A change merged to `main` reaches the box within 10 minutes. `puntmore-update.ti
 1. `git fetch origin main`. If `origin/main` is not ahead of HEAD, nothing else happens.
 2. `git pull --ff-only origin main`. Never a merge, never a reset.
 3. `uv pip install -e 'hub[web]' --python ~/.venvs/puntmore/bin/python` (plain `hub` while there is no `web` extra; the venv's own pip if uv is not on PATH).
-4. `systemctl --user restart` each of `puntmore-link`, `puntmore-web` and `puntmore-heartbeat.timer` that exists and is enabled.
+4. `systemctl --user restart` each of `puntmore-link`, `puntmore-web` and `puntmore-heartbeat.timer` that exists and is enabled, and the Scraper's `puntmore-scraper` when the pull changed `scraper/` (a restart reopens its pages, out of the sites' budgets; `scraper/requirements.txt` is installed into the venv first when it changed).
 
 Every run, including "up to date", appends one line to `data/update.log`: time, outcome, branch, the commit moved from and to. A failure is also alerted through `alerts.py` (Discord, de-duplicated per kind for `PUNTMORE_ALERT_DEDUP_HOURS`) and is never retried inside the run.
 
@@ -100,7 +100,7 @@ Every run, including "up to date", appends one line to `data/update.log`: time, 
 - **Local edits to tracked files**, or a **detached HEAD**: *alert*, left alone.
 - **Another run** holding `data/update.lock`.
 
-It does not copy unit files. When a pull changes `hub/deploy/systemd/`, the run sends a warning naming the files; copy them to `~/.config/systemd/user/` and `systemctl --user daemon-reload` by hand.
+It does not copy unit files. When a pull changes `hub/deploy/systemd/` or `scraper/deploy/native/puntmore-scraper.service`, the run sends a warning naming the files; run `scraper/deploy/native/install.sh` for the Scraper's, and copy the others to `~/.config/systemd/user/` and `systemctl --user daemon-reload` by hand.
 
 Enable it once, after the first pull that brings `puntmore update` onto the box (that one is by hand):
 ```bash

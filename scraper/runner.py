@@ -160,7 +160,8 @@ class Runner:
                              f"{self.guard.cooloff_hours:g} h. Needs `resume` after that.", image)
             return
         if reason != st.blocked_for:
-            self.alerts.send(f"{site}: {reason}{where} - needs you over VNC. Backing off.", image)
+            where_to = "over VNC" if browser.in_container() else "on the Hub's screen"
+            self.alerts.send(f"{site}: {reason}{where} - needs you {where_to}. Backing off.", image)
         st.blocked_for = reason
         st.retry_at = now + st.backoff * 60 * random.uniform(0.9, 1.2)
         st.backoff = min(st.backoff * 2, BACKOFF_MIN[1])

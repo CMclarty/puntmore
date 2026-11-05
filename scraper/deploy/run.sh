@@ -7,6 +7,12 @@
 set -e
 DIR=${SCRAPER_DIR:-/opt/puntmore-scraper}
 IMAGE=${SCRAPER_IMAGE:-ghcr.io/cmclarty/puntmore-scraper:latest}
+# The desktop Scraper (deploy/native/) shares the profile, budget and data dir.
+if XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)} \
+   systemctl --user is-active --quiet puntmore-scraper.service 2>/dev/null; then
+  echo "puntmore-scraper (the desktop Scraper) is running; not starting the container" >&2
+  exit 1
+fi
 docker rm -f puntmore-scraper >/dev/null 2>&1 || true
 docker run -d --name puntmore-scraper \
   --restart unless-stopped \
