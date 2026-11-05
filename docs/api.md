@@ -23,7 +23,8 @@ Grants use one grammar: `*` (everything) or names joined by `+`. Tool grants:
 `coupons`, `accabonus` (365 acca), `cards` (Paddy), `goalscorers` (365
 scorers), `pnl`, `kelly`, `boost`, `shop`, `scraper`. Machine grants:
 `value` (every source on `/api/value`), `state` (`/api/state`), `ingest` (the
-scraper / Bookie Bashing write paths).
+scraper / Bookie Bashing write paths), `hub` (the Hub link socket
+`/api/2up/ws`; the client's name must be the Hub's `X-Client-Id`).
 
 - A key resolves through the same seam as a session (`security.user_permissions`),
   so every route that admits a user with grant X admits a key with grant X.
@@ -146,6 +147,8 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 | shop (`shop`) | `GET /shop`, `POST /shop/visits`, `DELETE /shop/visits[/{id}]` | per-caller route |
 | scraper (`scraper`) | `GET /scraper`, `PUT /scraper/leagues/{id}`, `/scraper/markets/{key}`, `/scraper/timings/{site}` | control page |
 | scraper box (`ingest`) | `GET /scraper/config`, `POST /scraper/status` | |
+| 2-Up Hub link (`hub`) | WebSocket `/2up/ws` — `hub/PROTOCOL.md`, version 1 | Bearer key + `X-Client-Id` on the handshake |
+| 2-Up Hub operators (`accabonus`) | `GET /2up/hub/clients`, `GET /2up/hub/tips`, `POST /2up/hub/{client_id}/kill_switch`, `POST /2up/hub/{client_id}/scrape_job` | link status, Bet Finder tips, queue a frame |
 | diagnostics (`*`, or `state`) | `GET/DELETE /diagnostics/errors` | error ring buffer |
 | — | `GET /health`, `GET /ready` | probes, unauthenticated |
 

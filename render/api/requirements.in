@@ -20,3 +20,4 @@ apscheduler
 bcrypt
 itsdangerous
 pillow
+jsonschema

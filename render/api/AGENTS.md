@@ -621,7 +621,7 @@ python -m app.apikeys create <name> --tools paddy,value  # prints the key ONCE
 python -m app.apikeys list                              # never shows keys
 python -m app.apikeys revoke <name>                     # disables at once
 ```
-Grants are the tool names plus `value`, `state`, `ingest` (or `*`); `paddy` =
+Grants are the tool names plus `value`, `state`, `ingest`, `hub` (or `*`); `paddy` =
 `cards`, `365` = `accabonus+goalscorers`. In production run it in Render's
 shell (`cd /app`), which has `DATABASE_URL`. Full API docs: `docs/api.md`.
 
@@ -637,3 +637,49 @@ second pricing path). Tool logic lives in services (`cards/feed.py`,
 `clients/python/puntmore`. Nothing in the API places a bet — read and
 report — and no bookmaker-account automation is ever added here.
 
+### Hub endpoint (`routers/hub_ws.py`, `app/hub/`, Nov 2026)
+The Render end of `hub/PROTOCOL.md` (version 1): the Hub opens ONE WebSocket
+to `/api/2up/ws` and Render never connects out. Invariants — each has a test
+in `tests/test_hub_ws.py`:
+- **Auth is on the handshake, before accept.** `Authorization: Bearer <key>`
+  resolves through `security.resolve_api_key` to an API client granted `hub`
+  whose NAME equals `X-Client-Id` (`python -m app.apikeys create owner --tools
+  hub`). Bad, missing or someone else's key → 401; a key without `hub` → 403;
+  static env keys never open it. The refusal is sent as raw ASGI denial
+  messages with no headers (`hub_ws._deny`): uvicorn's websockets-sansio
+  protocol (`--ws auto`) duplicates Content-Length on a Starlette Response and
+  the Hub then sees "invalid HTTP response", not a 401. That protocol also
+  logs a spurious "returned without completing handshake" per refusal — noise,
+  not a fault. `test_a_real_uvicorn_refuses...` runs a real server for this.
+- **One live socket per client id**; a newer connection closes the older (4000).
+- **Idempotent on msg_id.** Every non-control frame is acked `{"msg_id"}`; a
+  msg_id already in `hub_inbox_seen` is acked `"replay": true` and NOT
+  processed again. The seen row commits in the same transaction as the
+  frame's effect. Seen ids are swept after 7 days (`service.sweep`, hourly).
+- **Invalid frames are acked with an `error` field and dropped**, logged once
+  per problem per connection (`LogOnce`), never crashing the socket. A frame
+  whose processing FAILS (the engine raises) is NOT acked and not marked seen,
+  so a redelivery retries it.
+- **Every frame is validated against `app/hub/protocol.schema.json`, a COPY of
+  `hub/schemas/protocol.schema.json`** (the image is built from `render/api/`
+  alone). A test asserts the two are byte-identical: change the Hub's schema,
+  copy it here, same PR. Outbound bets are validated too; a bet that breaks
+  the schema is withheld and logged, never "fixed".
+- **Never resend a failed bet.** A bet_id goes out in exactly ONE frame
+  (`hub_sent_bets`). An unacked frame is re-delivered, same msg_id, after a
+  reconnect (the Hub dedupes msg_id and bet_id); the engine's `mark_sent`
+  runs only on the Hub's ack. However the engine lists a bet again, it is
+  never put in a new frame.
+- **`owner`-scope bets go only to `HUB_OWNER_CLIENT_ID`** (default `owner`).
+- **The API never decides what to bet.** The dispatcher forwards what
+  `app.twoup.ledger.pending_bet_lists` returns and reports what the Hub says
+  (`apply_report`). The engine is reached ONLY through `app/hub/engine.py`,
+  which falls back to in-memory stubs while `app/twoup/` is absent (a deploy
+  without the engine sends no bets). Its docstring is the interface.
+- Tips land in `hub_tips` (unique `tip_id`, first kept) for the Bet Finder;
+  escalations and their outcomes in `hub_escalations`; scrape results are
+  logged. Retention: tips and sent bets 30 days, outbox 7, escalations 90.
+- Operator routes are under the 365 grant (`accabonus`): `GET
+  /api/2up/hub/clients`, `GET /api/2up/hub/tips`, `POST
+  /api/2up/hub/{client_id}/kill_switch` and `/scrape_job` (queued in
+  `hub_outbox`, delivered now or on the next connect).
