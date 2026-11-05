@@ -18,7 +18,7 @@
   </div>
   <div class="actions-bar">
     <button id="btn-kill-on" class="danger" type="button" title="Stops every placement now. Anyone may turn it on.">Kill switch ON</button>
-    <button id="btn-inbox" type="button" title="One pass over the Worker's drops (the link daemon does this every 30 s)">Inbox now</button>
+    <button id="btn-inbox" type="button" title="One pass over the Scraper's drops (the link daemon does this every 30 s)">Inbox now</button>
     <button id="btn-heartbeat" type="button" title="Send the daily summary now (Discord + log)">Heartbeat now</button>
     <button id="btn-link-check" type="button" title="hello → hello_ack against the configured Render">Link-check</button>
     <label class="token">Token <input id="token" type="password" autocomplete="off" placeholder="X-Puntmore-Token"></label>
@@ -29,11 +29,11 @@
 <nav id="strip" class="strip" aria-label="Components"></nav>
 
 <main>
-  <section id="tab-worker" class="tab" hidden>
-    <div class="feedhead"><h2>Worker</h2><span class="feedstate"></span></div>
+  <section id="tab-scraper" class="tab" hidden>
+    <div class="feedhead"><h2>Scraper</h2><span class="feedstate"></span></div>
     <div class="summary" data-slot="summary"></div>
     <h3>Targets</h3>
-    <p class="hint">Tap a target's name to see the rows in its <code>latest/&lt;target&gt;.json</code>. The Worker does not write a next-run time, so there is no column for it.</p>
+    <p class="hint">Tap a target's name to see the rows in its <code>latest/&lt;target&gt;.json</code>. The Scraper does not write a next-run time, so there is no column for it.</p>
     <div class="scroll" data-slot="targets"></div>
     <div id="latest" class="latest" hidden>
       <h3 id="latest-title"></h3>

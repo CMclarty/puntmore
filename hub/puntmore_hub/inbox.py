@@ -1,8 +1,8 @@
-"""Ingest what the Worker (`scraper/`) drops for the Hub.
+"""Ingest what the Scraper (`scraper/`) drops for the Hub.
 
-The Worker is the only thing on the Hub that loads a page. For Bet Finder sources it
-writes one JSON file per run into `<worker data>/hub/tips/` and, when something needs a
-decision (a block, a source parsing too few rows), one into `<worker data>/hub/events/`.
+The Scraper is the only thing on the Hub that loads a page. For Bet Finder sources it
+writes one JSON file per run into `<scraper data>/hub/tips/` and, when something needs a
+decision (a block, a source parsing too few rows), one into `<scraper data>/hub/events/`.
 This module turns tips into stored, deduplicated candidate tips queued for Render, and
 events into escalations for the local AI. Files are moved to `done/` once handled, so a
 crash between the two never loses or doubles anything: a tip is deduplicated by its id,
@@ -66,7 +66,7 @@ def _tips_from(body: dict) -> tuple[list[CandidateTip], list[str]]:
 
 
 def ingest(store: Store, cfg: Settings = default_settings, *, notify: bool = True) -> dict:
-    """One pass over the Worker's drop folders. Safe to call every few seconds."""
+    """One pass over the Scraper's drop folders. Safe to call every few seconds."""
     counts = {"tip_files": 0, "tips": 0, "new_tips": 0, "rejected": 0, "events": 0}
     tips_dir, events_dir, done = cfg.inbox_dir / "tips", cfg.inbox_dir / "events", cfg.inbox_dir / "done"
     for path in sorted(tips_dir.glob("*.json")) if tips_dir.exists() else []:
@@ -92,8 +92,8 @@ def ingest(store: Store, cfg: Settings = default_settings, *, notify: bool = Tru
         try:
             body = json.loads(path.read_text())
             kind = body.get("kind") if body.get("kind") in escalation.KINDS else "other"
-            escalation.raise_escalation(store, kind, str(body.get("ref") or "worker"),
-                                        f"[worker event {path.name}] {body.get('detail') or ''}",
+            escalation.raise_escalation(store, kind, str(body.get("ref") or "scraper"),
+                                        f"[scraper event {path.name}] {body.get('detail') or ''}",
                                         cfg=cfg, notify=notify)
             counts["events"] += 1
         except (OSError, ValueError) as exc:
@@ -102,18 +102,18 @@ def ingest(store: Store, cfg: Settings = default_settings, *, notify: bool = Tru
     return counts
 
 
-def worker_status(cfg: Settings = default_settings) -> dict:
-    """What the Worker last said about itself: heartbeat age and per-target state,
-    read from the files it writes. Stale means the Worker is not running."""
+def scraper_status(cfg: Settings = default_settings) -> dict:
+    """What the Scraper last said about itself: heartbeat age and per-target state,
+    read from the files it writes. Stale means the Scraper is not running."""
     out: dict = {"running": False, "heartbeat_age_s": None, "targets": [], "unhealthy": [], "blocked": []}
-    hb = cfg.worker_data_dir / "heartbeat"
+    hb = cfg.scraper_data_dir / "heartbeat"
     try:
         age = utcnow().timestamp() - float(hb.read_text().strip())
         out["heartbeat_age_s"] = int(age)
-        out["running"] = age < cfg.worker_stale_minutes * 60
+        out["running"] = age < cfg.scraper_stale_minutes * 60
     except (OSError, ValueError):
         pass
-    status = cfg.worker_data_dir / "status.json"
+    status = cfg.scraper_data_dir / "status.json"
     try:
         body = json.loads(status.read_text())
     except (OSError, ValueError):

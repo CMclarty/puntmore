@@ -1,7 +1,7 @@
 """The few things the Hub Console can do. Each is the CLI's own function, never a shell-out.
 
 Kill switch on and off, resolve an escalation, one inbox pass, a link-check, a heartbeat. Nothing
-else: no target edits, no Worker commands, no placement triggers, no ``.env`` writes. Every call,
+else: no target edits, no Scraper commands, no placement triggers, no ``.env`` writes. Every call,
 done or refused, is one line in ``data/console-actions.log``.
 
 Token checking lives in ``app.py``; these functions assume the caller is allowed.
@@ -88,5 +88,5 @@ def link_check(cfg: Settings) -> dict[str, Any]:
 
 
 def heartbeat_now(cfg: Settings, store: Store) -> dict[str, Any]:
-    text = alerts.heartbeat(store, cfg, worker=inbox.worker_status(cfg))
+    text = alerts.heartbeat(store, cfg, scraper=inbox.scraper_status(cfg))
     return {"ok": True, "message": text}

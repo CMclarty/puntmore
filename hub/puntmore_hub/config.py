@@ -4,8 +4,8 @@ Everything comes from environment variables (a ``.env`` in ``hub/`` is loaded if
 Nothing operational is hard-coded, so an agent changes behaviour by editing ``.env``, never
 code. See ``.env.example`` for every variable.
 
-Scraping is not configured here: the Worker (``scraper/``) owns every page load and its
-own settings. The Hub only knows where the Worker's data directory is.
+Scraping is not configured here: the Scraper (``scraper/``) owns every page load and its
+own settings. The Hub only knows where the Scraper's data directory is.
 """
 from __future__ import annotations
 
@@ -38,6 +38,15 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() not in ("0", "false", "no", "off", "")
 
 
+def _env_first(*names: str, default: str) -> str:
+    """The first of ``names`` that is set and non-blank (a renamed variable, then its old name)."""
+    for name in names:
+        raw = os.environ.get(name)
+        if raw is not None and raw.strip():
+            return raw
+    return default
+
+
 @dataclass(frozen=True)
 class Settings:
     # Identity on Render. The Hub is one client of the Render service, with admin scope.
@@ -55,10 +64,14 @@ class Settings:
     db_path: Path = ROOT / "data" / "hub.sqlite"
     sub_clients_file: Path = ROOT / "sub_clients.yaml"
 
-    # The Worker (scraper/) writes its heartbeat, status.json and the hub/ drop folders here.
-    # In the Docker setup that is the container's /data volume on the host.
-    worker_data_dir: Path = Path(os.environ.get("PUNTMORE_WORKER_DATA", "/opt/puntmore-scraper/data"))
-    worker_stale_minutes: int = int(os.environ.get("PUNTMORE_WORKER_STALE_MINUTES", "10"))
+    # The Scraper (scraper/) writes its heartbeat, status.json and the hub/ drop folders here:
+    # the native service's data dir (in the Docker fallback, the container's /data volume).
+    # PUNTMORE_WORKER_DATA / PUNTMORE_WORKER_STALE_MINUTES are the old names, still read for
+    # one release when the new ones are unset.
+    scraper_data_dir: Path = Path(_env_first("PUNTMORE_SCRAPER_DATA", "PUNTMORE_WORKER_DATA",
+                                             default="/opt/puntmore-scraper/data"))
+    scraper_stale_minutes: int = int(_env_first("PUNTMORE_SCRAPER_STALE_MINUTES",
+                                                "PUNTMORE_WORKER_STALE_MINUTES", default="10"))
 
     # Alerting and the local AI
     discord_webhook: str = os.environ.get("PUNTMORE_DISCORD_WEBHOOK", "")
@@ -87,7 +100,7 @@ class Settings:
 
     @property
     def inbox_dir(self) -> Path:
-        return self.worker_data_dir / "hub"
+        return self.scraper_data_dir / "hub"
 
     @property
     def web_host_port(self) -> tuple[str, int]:

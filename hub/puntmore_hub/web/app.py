@@ -112,8 +112,8 @@ def create_app(cfg: Settings | None = None, *, allowed_hosts: list[str] | None =
     for name in collect.COMPONENTS:
         app.get(f"/api/{name}")(tab(name))
 
-    @app.get("/api/worker/latest/{target}")
-    def worker_latest(target: str):
+    @app.get("/api/scraper/latest/{target}")
+    def scraper_latest(target: str):
         try:
             out = collect.latest_rows(cfg, target)
         except (OSError, ValueError) as exc:

@@ -1,4 +1,4 @@
-"""The Worker's drop folders -> stored tips queued for Render, and escalations."""
+"""The Scraper's drop folders -> stored tips queued for Render, and escalations."""
 import json
 import time
 
@@ -51,16 +51,27 @@ def test_unreadable_files_are_moved_aside_not_retried_forever(cfg, store):
     assert counts["tip_files"] == 0 and not list(d.glob("*.json"))
 
 
-def test_worker_status_reads_heartbeat_and_status_file(cfg):
-    cfg.worker_data_dir.mkdir(parents=True)
-    assert inbox.worker_status(cfg)["running"] is False
-    (cfg.worker_data_dir / "heartbeat").write_text(str(int(time.time())))
-    (cfg.worker_data_dir / "status.json").write_text(json.dumps({"targets": [
+def test_scraper_status_reads_heartbeat_and_status_file(cfg):
+    cfg.scraper_data_dir.mkdir(parents=True)
+    assert inbox.scraper_status(cfg)["running"] is False
+    (cfg.scraper_data_dir / "heartbeat").write_text(str(int(time.time())))
+    (cfg.scraper_data_dir / "status.json").write_text(json.dumps({"targets": [
         {"name": "pp-epl", "site": "paddypower", "mode": "keep", "state": "running", "detail": "3 tabs open", "rows_posted": 10},
         {"name": "tips-a", "site": "generic", "mode": "fetch", "state": "running", "detail": "only 0 row(s), expected at least 2 - layout change?", "rows_posted": 0},
         {"name": "bb-saves", "site": "bookiebashing", "mode": "keep", "state": "blocked", "detail": "backing off", "rows_posted": 0},
     ], "sites": []}))
-    w = inbox.worker_status(cfg)
+    w = inbox.scraper_status(cfg)
     assert w["running"] and w["unhealthy"] == ["tips-a"] and w["blocked"] == ["bb-saves"]
-    (cfg.worker_data_dir / "heartbeat").write_text(str(int(time.time()) - 3600))
-    assert inbox.worker_status(cfg)["running"] is False
+    (cfg.scraper_data_dir / "heartbeat").write_text(str(int(time.time()) - 3600))
+    assert inbox.scraper_status(cfg)["running"] is False
+
+
+def test_scraper_data_env_prefers_the_new_name_and_falls_back_to_the_old(monkeypatch):
+    from puntmore_hub.config import _env_first
+    monkeypatch.delenv("PUNTMORE_SCRAPER_DATA", raising=False)
+    monkeypatch.delenv("PUNTMORE_WORKER_DATA", raising=False)
+    assert _env_first("PUNTMORE_SCRAPER_DATA", "PUNTMORE_WORKER_DATA", default="/d") == "/d"
+    monkeypatch.setenv("PUNTMORE_WORKER_DATA", "/old")
+    assert _env_first("PUNTMORE_SCRAPER_DATA", "PUNTMORE_WORKER_DATA", default="/d") == "/old"
+    monkeypatch.setenv("PUNTMORE_SCRAPER_DATA", "/new")
+    assert _env_first("PUNTMORE_SCRAPER_DATA", "PUNTMORE_WORKER_DATA", default="/d") == "/new"
