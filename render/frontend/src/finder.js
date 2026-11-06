@@ -14,8 +14,17 @@ export function stakeLabel(n) {
   return Number.isInteger(n) ? `£${n}` : `£${n.toFixed(2)}`
 }
 
+// The market as the tip names it, and its line when it has one:
+// 'Total Goals 2.5', 'Match Result'.
+export const marketLabel = (r) => (r.line != null ? `${r.market} ${r.line}` : r.market)
+
+// A price to two places; a dash when the tip quotes none (an asked row).
+export const priceLabel = (n) => (n == null ? '—' : n.toFixed(2))
+
 const DONE = new Set(['placed', 'gone', 'expired'])
-const time = (iso) => new Date(iso).getTime()
+// An asked row Hermes could not place on a day and time has no kick-off: it
+// sorts first, with the questions.
+const time = (iso) => (iso ? new Date(iso).getTime() : -8.64e15)
 
 // The board in its four groups: asked, offered and rejected soonest kick-off
 // first; done (placed, price gone, expired) newest first.

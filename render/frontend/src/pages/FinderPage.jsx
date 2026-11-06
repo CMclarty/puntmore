@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getFinderBoard } from '../api'
 import useAutoRefresh from '../hooks/useAutoRefresh'
-import { groupRows, stakeLabel, statusLabel } from '../finder'
+import { groupRows, marketLabel, priceLabel, stakeLabel, statusLabel } from '../finder'
 import { edgePct, kickoffLabel, timeLabel } from '../twoup'
 import styles from './FeedPage.module.css'
 import t from './TwoUpPage.module.css'
@@ -48,12 +48,12 @@ export default function FinderPage() {
               <div key={r.tip_id} className={styles.card}>
                 <div className={styles.cardRow}>
                   <span className={styles.match}>{r.event}</span>
-                  <span className={styles.sub}>{kickoffLabel(r.kickoff)}</span>
+                  <span className={styles.sub}>{r.kickoff ? kickoffLabel(r.kickoff) : 'no time'}</span>
                 </div>
                 <div className={styles.cardRow}>
-                  <span className={styles.pick}>{r.selection}</span>
-                  <span className={`${styles.odds} ${styles.mono}`}>{r.odds.toFixed(2)}</span>
-                  <span className={styles.sub}>fair {r.fair != null ? r.fair.toFixed(2) : '—'}</span>
+                  <span className={styles.pick}>{r.selection} · {marketLabel(r)}</span>
+                  <span className={`${styles.odds} ${styles.mono}`}>{priceLabel(r.odds)}</span>
+                  <span className={styles.sub}>fair {priceLabel(r.fair)}</span>
                   <span className={`${styles.badge} ${styles.mid}`}>{r.edge != null ? edgePct(r.edge) : '—'}</span>
                   {key === 'done' && <span className={`${styles.badge} ${styles.lo}`}>{statusLabel(r.status)}</span>}
                 </div>

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { groupRows, stakeLabel, statusLabel } from './finder'
+import { groupRows, marketLabel, priceLabel, stakeLabel, statusLabel } from './finder'
 
 test('labels and groups', () => {
   expect(statusLabel('gone')).toBe('Price gone')
@@ -34,4 +34,21 @@ test('asked and rejected rows go soonest kick-off first, and an empty board has 
   expect(g.done.map(r => r.tip_id)).toEqual(['g'])
   expect(groupRows([])).toEqual({ asked: [], offered: [], rejected: [], done: [] })
   expect(groupRows(undefined)).toEqual({ asked: [], offered: [], rejected: [], done: [] })
+})
+
+test('the card names the market and, when there is one, the line', () => {
+  expect(marketLabel({ market: 'Match Result', line: null })).toBe('Match Result')
+  expect(marketLabel({ market: 'Total Goals', line: 2.5 })).toBe('Total Goals 2.5')
+  expect(marketLabel({ market: 'Asian Handicap', line: -0.25 })).toBe('Asian Handicap -0.25')
+  expect(marketLabel({ market: 'Goals', line: 0 })).toBe('Goals 0')
+  expect(marketLabel({ market: 'each_way' })).toBe('each_way')
+})
+
+test('an asked row with no price or kick-off shows a dash and goes first', () => {
+  expect(priceLabel(null)).toBe('—'); expect(priceLabel(undefined)).toBe('—'); expect(priceLabel(2.1)).toBe('2.10')
+  const g = groupRows([
+    { tip_id: 'k', status: 'asked', kickoff: '2026-11-07T12:00:00Z', created_at: '2026-11-06T10:00:00Z' },
+    { tip_id: 'n', status: 'asked', kickoff: null, created_at: '2026-11-06T11:00:00Z' },
+  ])
+  expect(g.asked.map(r => r.tip_id)).toEqual(['n', 'k'])
 })
