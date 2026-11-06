@@ -3,8 +3,10 @@
 Render's Finder (docs/finder-spec.md) keeps, serves and expires the bets; the judging is
 Hermes's, here. The intake (the Scraper's drops, inbox.py; tipster emails, mail.py) stores
 each tip once; Hermes reads the ones it has not posted yet (`puntmore finder new`), judges
-each (offer / ask / reject, the spec's step 2) and posts the rows (`puntmore finder post`).
-The placer reports `placed` or `gone` (`puntmore finder status`).
+each (offer / ask / reject, the spec's step 2) and posts the rows (`puntmore finder post`); a tip
+it cannot post at all it skips (`puntmore finder skip`), so the list moves on. The placer reports
+`placed` or `gone` (`puntmore finder status`). What the Hub records for a posted tip is the status
+Render says it stored, never the one Hermes sent.
 
 Both posts go over HTTPS to PUNTMORE_RENDER_HTTP with PUNTMORE_RENDER_API_KEY as a Bearer key:
 a Render API client key carrying `ingest` (`python -m app.apikeys create <name> --tools ingest`,
@@ -28,6 +30,20 @@ Opener = Callable[..., Any]
 def new_tips(store: Store, limit: int = 50) -> list[dict]:
     """Stored tips with no Finder post yet, oldest first, as the dicts Hermes reads."""
     return [dict(r) for r in store.finder_unposted(limit)]
+
+
+def skip(store: Store, tip_id: str, reason: str | None = None) -> dict:
+    """Mark a tip Hermes cannot post (another sport, nothing readable) as `skipped`, so it leaves
+    `new_tips` and never reaches Render. ValueError: an unknown tip, or one already posted (it is
+    on Render; withdraw it there by re-posting it `rejected`). Skipping a skipped tip again
+    replaces its reason."""
+    if not store.tip_exists(tip_id):
+        raise ValueError(f"unknown tip {tip_id}")
+    status = store.finder_status(tip_id)
+    if status not in (None, "skipped"):
+        raise ValueError(f"tip {tip_id} is already posted as {status}")
+    store.finder_mark(tip_id, "skipped", reason)
+    return {"tip_id": tip_id, "status": "skipped"}
 
 
 def _open(req: urllib.request.Request, timeout: float):
@@ -55,16 +71,20 @@ def _post(cfg: Settings, path: str, body: dict, opener: Opener | None) -> tuple[
 
 def post_rows(cfg: Settings, rows: list[dict], *, opener: Opener | None = None,
               store: Store | None = None) -> dict:
-    """POST the rows to /api/finder/rows. On 200 each row is marked posted (with the status it
-    carried) and Render's answer is returned: {stored, updated, refused, duplicates}. Any other
-    answer raises RuntimeError and marks nothing, so the tips stay new."""
+    """POST the rows to /api/finder/rows and return Render's answer: {stored, updated, refused,
+    duplicates, rows}. On 200 each tip in the answer's `rows` is marked with the status Render
+    stored for it (an offer stored as a duplicate is `rejected`, a withdrawal of a placed row is
+    `placed`); a tip the answer leaves out or gives no status (no row on Render) stays new. Any
+    other answer raises RuntimeError and marks nothing, so the tips stay new."""
     code, text = _post(cfg, "/api/finder/rows", {"rows": rows}, opener)
     if code != 200:
         raise RuntimeError(f"finder post: HTTP {code} {text[:200]}")
+    answer = json.loads(text)
     if store is not None:
-        for row in rows:
-            store.finder_mark(row["tip_id"], row.get("status") or "")
-    return json.loads(text)
+        for row in answer.get("rows") or []:
+            if row.get("status"):
+                store.finder_mark(row["tip_id"], row["status"])
+    return answer
 
 
 def post_status(cfg: Settings, tip_id: str, status: str, at: str, *, opener: Opener | None = None,

@@ -7,7 +7,8 @@ Tables:
     outbox        messages queued for Render (survive restarts, sent at least once)
     inbox_seen    msg_ids already processed (idempotency)
     mail_seen     Message-IDs of tipster emails already read (mail.py; idempotency)
-    finder_posted tips Hermes has posted to Render's Finder, with the status it posted (finder.py)
+    finder_posted tips Hermes has posted to Render's Finder, with the status Render stored, or
+                  skipped (with a reason) when Hermes cannot post it (finder.py)
     escalations   things handed to the local AI and what it decided
     alerts        sent alerts, for de-dup
     balances      balance snapshots per account
@@ -40,7 +41,7 @@ CREATE TABLE IF NOT EXISTS escalations(
     outcome TEXT, resolved TEXT, reported INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY, key TEXT, ts TEXT, message TEXT);
 CREATE TABLE IF NOT EXISTS balances(account_id TEXT, balance REAL, ts TEXT);
-CREATE TABLE IF NOT EXISTS finder_posted(tip_id TEXT PRIMARY KEY, status TEXT, ts TEXT);
+CREATE TABLE IF NOT EXISTS finder_posted(tip_id TEXT PRIMARY KEY, status TEXT, ts TEXT, reason TEXT);
 """
 
 
@@ -97,11 +98,20 @@ class Store:
                FROM tips t LEFT JOIN finder_posted f ON f.tip_id = t.tip_id
                WHERE f.tip_id IS NULL ORDER BY t.first_seen, t.rowid LIMIT ?""", (limit,)).fetchall()
 
-    def finder_mark(self, tip_id: str, status: str) -> None:
-        """Record that `tip_id` was posted to Finder with `status` (the latest post wins)."""
-        self.conn.execute("INSERT OR REPLACE INTO finder_posted(tip_id, status, ts) VALUES(?,?,?)",
-                          (tip_id, status, iso(utcnow())))
+    def finder_mark(self, tip_id: str, status: str, reason: str | None = None) -> None:
+        """Record `tip_id`'s Finder status: the one Render stored for it, or `skipped` with the
+        reason Hermes gave (the latest mark wins)."""
+        self.conn.execute("INSERT OR REPLACE INTO finder_posted(tip_id, status, ts, reason) VALUES(?,?,?,?)",
+                          (tip_id, status, iso(utcnow()), reason))
         self.conn.commit()
+
+    def finder_status(self, tip_id: str) -> str | None:
+        """The status `tip_id` was last marked with, or None if it never was."""
+        row = self.conn.execute("SELECT status FROM finder_posted WHERE tip_id=?", (tip_id,)).fetchone()
+        return row["status"] if row else None
+
+    def tip_exists(self, tip_id: str) -> bool:
+        return self.conn.execute("SELECT 1 FROM tips WHERE tip_id=?", (tip_id,)).fetchone() is not None
 
     def settle_tip(self, tip_id: str, outcome: str, settled_return: float) -> None:
         self.conn.execute("UPDATE tips SET outcome=?, settled_return=? WHERE tip_id=?", (outcome, settled_return, tip_id))
@@ -147,6 +157,10 @@ class Store:
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(outbox)").fetchall()}
         if "acked_at" not in cols:
             self.conn.execute("ALTER TABLE outbox ADD COLUMN acked_at TEXT")
+            self.conn.commit()
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(finder_posted)").fetchall()}
+        if "reason" not in cols:
+            self.conn.execute("ALTER TABLE finder_posted ADD COLUMN reason TEXT")
             self.conn.commit()
 
     # ---- outbox / inbox --------------------------------------------------------------------------

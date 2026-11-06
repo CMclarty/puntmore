@@ -207,7 +207,7 @@ def test_an_offered_post_missing_kickoff_or_odds_is_stored_asked():
 def test_a_placed_twin_blocks_the_same_bet_from_another_tipster():
     # FR2 + FR3: A is placed; B, from another tipster in other words, carries the same
     # canonical event_id, so it is the same bet and must not be placed twice.
-    eid = "football:2026-11-07:man-utd-v-spurs"
+    eid = "football:2026-11-07:manchester-united-v-tottenham-hotspur"
     rows.upsert(db, [tip(tip_id="a", origin="tipster-a", event_id=eid, event="Man Utd v Spurs")], NOW)
     rows.set_status(db, "a", "placed", NOW)
     out = rows.upsert(db, [tip(tip_id="b", origin="tipster-b", event_id=eid,

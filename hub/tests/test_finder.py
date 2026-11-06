@@ -28,6 +28,17 @@ class _Resp:
         return self._body.encode()
 
 
+def _answer(**stored):
+    """Render's answer to a rows post, carrying each row's stored status (FR5)."""
+    return {"stored": len(stored), "updated": 0, "refused": [], "duplicates": [],
+            "rows": [{"tip_id": t, "status": s} for t, s in stored.items()]}
+
+
+def _marked(store, tip_id):
+    row = store.conn.execute("SELECT status, reason FROM finder_posted WHERE tip_id=?", (tip_id,)).fetchone()
+    return tuple(row) if row else None
+
+
 @pytest.fixture
 def cfg(cfg):
     return cfg.with_overrides(render_http="https://puntmore.example/", render_api_key="k-ingest")
@@ -61,7 +72,8 @@ def test_post_rows_sends_a_bearer_key_and_marks_on_200(store, cfg):
 
     def opener(req, timeout):
         seen["url"], seen["auth"], seen["body"] = req.full_url, req.get_header("Authorization"), json.loads(req.data)
-        return _Resp(200, {"stored": 1, "updated": 0, "refused": [], "duplicates": []})
+        return _Resp(200, {"stored": 1, "updated": 0, "refused": [], "duplicates": [],
+                           "rows": [{"tip_id": "a", "status": "offered"}]})
     out = finder.post_rows(cfg, [ROW_A], opener=opener, store=store)
     assert seen["url"].endswith("/api/finder/rows") and seen["auth"] == f"Bearer {cfg.render_api_key}"
     assert seen["body"] == {"rows": [ROW_A]} and out["stored"] == 1
@@ -70,7 +82,7 @@ def test_post_rows_sends_a_bearer_key_and_marks_on_200(store, cfg):
 
 def test_a_posted_tip_leaves_the_new_list(store, cfg):
     store.add_tip(TIP_A, tip_id="a"); store.add_tip(TIP_B, tip_id="b")
-    finder.post_rows(cfg, [ROW_A], opener=lambda req, timeout: _Resp(200, {"stored": 1}), store=store)
+    finder.post_rows(cfg, [ROW_A], opener=lambda req, timeout: _Resp(200, _answer(a="offered")), store=store)
     assert [t["tip_id"] for t in finder.new_tips(store)] == ["b"]
     assert store.conn.execute("SELECT status FROM finder_posted WHERE tip_id='a'").fetchone()[0] == "offered"
 
@@ -128,7 +140,7 @@ def test_the_cli_reads_new_tips_and_posts_a_file(store, cfg, monkeypatch, tmp_pa
     [line] = capsys.readouterr().out.strip().splitlines()
     assert json.loads(line)["tip_id"] == "a"
     sent = []
-    monkeypatch.setattr(finder, "_open", lambda req, timeout: sent.append(json.loads(req.data)) or _Resp(200, {"stored": 1}))
+    monkeypatch.setattr(finder, "_open", lambda req, timeout: sent.append(json.loads(req.data)) or _Resp(200, _answer(a="offered")))
     rows = tmp_path / "rows.json"
     rows.write_text(json.dumps([ROW_A]))
     cli.main(["finder", "post", str(rows)])
@@ -156,3 +168,80 @@ def test_the_link_daemon_without_a_socket_polls_the_inbox_in_the_foreground(cfg_
     cli.cmd_link(None)                       # returns only when the loop is stopped
     assert calls == ["", "", ""]             # polled in the foreground, the same process
     assert caplog.text.count("no socket configured") == 1 and "reconnecting" not in caplog.text
+
+
+# --- the final review's fixes (FR5, finder-ledger.md) ---------------------------
+
+def test_the_hub_marks_what_render_stored_not_what_hermes_sent(store, cfg):
+    store.add_tip(TIP_A, tip_id="a"); store.add_tip(TIP_B, tip_id="b"); store.add_tip(TIP_A, tip_id="c")
+    sent = [ROW_A, {**ROW_A, "tip_id": "b"}, {**ROW_A, "tip_id": "c", "fair": None}]
+    answer = {"stored": 3, "updated": 0, "refused": [], "duplicates": ["b"],
+              "rows": [{"tip_id": "a", "status": "offered"}, {"tip_id": "b", "status": "rejected"},
+                       {"tip_id": "c", "status": "asked"}]}
+    out = finder.post_rows(cfg, sent, opener=lambda req, timeout: _Resp(200, answer), store=store)
+    assert out == answer
+    assert [_marked(store, t) for t in "abc"] == [("offered", None), ("rejected", None), ("asked", None)]
+
+
+def test_a_row_render_holds_no_row_for_is_not_marked(store, cfg):
+    # A row the answer leaves out, or reports with no stored status, is not on Render: it stays new.
+    store.add_tip(TIP_A, tip_id="a"); store.add_tip(TIP_B, tip_id="b")
+    answer = {"stored": 0, "updated": 0, "refused": [["a", "status"]], "duplicates": [],
+              "rows": [{"tip_id": "a", "status": None}]}
+    finder.post_rows(cfg, [ROW_A, {**ROW_A, "tip_id": "b"}], opener=lambda req, timeout: _Resp(200, answer), store=store)
+    assert [t["tip_id"] for t in finder.new_tips(store)] == ["a", "b"]
+
+
+def test_a_refused_withdrawal_records_the_placed_status(store, cfg):
+    store.add_tip(TIP_A, tip_id="a")
+    store.finder_mark("a", "offered")
+    answer = {"stored": 0, "updated": 0, "refused": [["a", "final"]], "duplicates": [],
+              "rows": [{"tip_id": "a", "status": "placed"}]}
+    finder.post_rows(cfg, [{**ROW_A, "status": "rejected"}], opener=lambda req, timeout: _Resp(200, answer), store=store)
+    assert _marked(store, "a") == ("placed", None)
+
+
+def test_a_skipped_tip_leaves_the_new_list_with_its_reason(store):
+    store.add_tip(TIP_A, tip_id="a"); store.add_tip(TIP_B, tip_id="b")
+    assert finder.skip(store, "a", "no time and no price: tennis") == {"tip_id": "a", "status": "skipped"}
+    assert [t["tip_id"] for t in finder.new_tips(store)] == ["b"]
+    assert _marked(store, "a") == ("skipped", "no time and no price: tennis")
+    assert finder.skip(store, "a") == {"tip_id": "a", "status": "skipped"}       # again: still skipped
+    assert _marked(store, "a") == ("skipped", None)
+
+
+def test_skip_refuses_an_unknown_tip_and_one_already_on_render(store):
+    store.add_tip(TIP_A, tip_id="a")
+    store.finder_mark("a", "offered")
+    with pytest.raises(ValueError, match="unknown tip"):
+        finder.skip(store, "nope")
+    with pytest.raises(ValueError, match="already posted as offered"):
+        finder.skip(store, "a", "changed my mind")
+    assert _marked(store, "a") == ("offered", None)
+
+
+def test_the_cli_skips_a_tip(store, monkeypatch, capsys):
+    store.add_tip(TIP_A, tip_id="a")
+    monkeypatch.setattr(cli, "_store", lambda: store)
+    cli.main(["finder", "skip", "a", "--reason", "another sport"])
+    assert json.loads(capsys.readouterr().out) == {"tip_id": "a", "status": "skipped"}
+    assert finder.new_tips(store) == [] and _marked(store, "a") == ("skipped", "another sport")
+    with pytest.raises(SystemExit, match="unknown tip"):
+        cli.main(["finder", "skip", "nope"])
+
+
+def test_an_old_finder_posted_table_gains_the_reason_column(tmp_path):
+    import sqlite3
+    from puntmore_hub.store import Store
+    path = tmp_path / "hub.sqlite"
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE finder_posted(tip_id TEXT PRIMARY KEY, status TEXT, ts TEXT)")
+    con.execute("INSERT INTO finder_posted VALUES('old', 'offered', '2026-11-06T10:00:00+00:00')")
+    con.commit(); con.close()
+    s = Store(path)
+    try:
+        assert _marked(s, "old") == ("offered", None)
+        s.finder_mark("new", "skipped", "why")
+        assert _marked(s, "new") == ("skipped", "why")
+    finally:
+        s.close()
