@@ -157,5 +157,7 @@ def scraper_status(cfg: Settings = default_settings) -> dict:
             out["blocked"].append(t["name"])
         elif "layout change" in detail or "parser failed" in detail or "parser not written" in detail:
             out["unhealthy"].append(t["name"])
+        elif "logged out" in detail:
+            out["blocked"].append(t["name"])
     out["sites"] = body.get("sites", [])
     return out
