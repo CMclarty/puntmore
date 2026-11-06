@@ -1,4 +1,4 @@
-"""Finder on the Hub (puntmore_hub/finder.py): the new tips Hermes reads, the rows it posts to
+"""Finder on the Hub (puntmore_hub/finder.py): the new tips HubAI reads, the rows it posts to
 Render's /api/finder/rows on the ingest key, and the Bet Placer's status."""
 import asyncio
 import json

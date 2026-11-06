@@ -219,7 +219,7 @@ def test_the_lock_held_elsewhere_is_a_409_not_a_500(scfg):
     before = toml(scfg)
     held, release = threading.Event(), threading.Event()
 
-    def hold():                        # Hermes or the CLI, mid-change
+    def hold():                        # HubAI or the CLI, mid-change
         with lib.locked(scfg.scraper_targets_file):
             held.set()
             release.wait(5)

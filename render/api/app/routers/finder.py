@@ -1,8 +1,8 @@
-"""/api/finder — Finder, Callum's private Bet Finder (docs/finder-spec.md).
+"""/api/finder — Finder, Callum's tips board (docs/finder-spec.md).
 
 Thin: the logic is app/finder/rows.py. Two POSTs on the ingest key (rows from
-Hermes on the Hub; placed|gone from the placer) and two GETs on the `finder`
-grant (the placer's feed, the me board). No router-level grant: each route
+HubAI on the Hub; placed|gone from the Bet Placer) and two GETs on the `finder`
+grant (the Bet Placer's feed, the me board). No router-level grant: each route
 carries its own guard, because the writers and the readers hold different
 keys. A session never writes here, and nothing here prices a tip, loads a
 page or places a bet.
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/finder", tags=["finder"])
 
 @router.post("/rows", response_model=FinderPostOut, dependencies=[Depends(require_ingest_key)])
 def post_rows(body: FinderRowsIn, db: Session = Depends(get_db)):
-    """Hermes's verdicts: upsert on `tip_id`. A post against a final row, or a
+    """HubAI's verdicts: upsert on `tip_id`. A post against a final row, or a
     move the status machine does not have, is listed under `refused` and
     changes nothing; a second row for a bet already asked, offered or placed
     is stored `rejected` and listed under `duplicates`. `rows` gives every
@@ -38,7 +38,7 @@ def post_rows(body: FinderRowsIn, db: Session = Depends(get_db)):
 @router.post("/rows/{tip_id}/status", response_model=FinderRowOut,
              dependencies=[Depends(require_ingest_key)])
 def post_status(tip_id: str, body: FinderStatusIn, db: Session = Depends(get_db)):
-    """The placer's report on an offered row: `placed` or `gone`. 404 unknown
+    """The Bet Placer's report on an offered row: `placed` or `gone`. 404 unknown
     tip, 409 a final row (or one never offered), 422 any other word."""
     try:
         return rows.set_status(db, tip_id, body.status, body.at)
@@ -50,7 +50,7 @@ def post_status(tip_id: str, body: FinderStatusIn, db: Session = Depends(get_db)
 
 @router.get("/feed", response_model=FinderFeedOut, dependencies=[Depends(require_tool("finder"))])
 def get_feed(db: Session = Depends(get_db)):
-    """What the placer reads: `offered` rows not yet expired, soonest kick-off first."""
+    """What the Bet Placer reads: `offered` rows not yet expired, soonest kick-off first."""
     now = datetime.now(timezone.utc)
     return {"generated_at": now, "rows": rows.feed(db, now)}
 

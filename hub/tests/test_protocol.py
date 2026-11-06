@@ -31,7 +31,7 @@ def test_example_validates(path):
 
 
 def test_wire_types_are_refused():
-    for t in ("bet_list", "report", "tip", "hello", "kill_switch"):
+    for t in ("report", "tip", "hello", "kill_switch", "ack"):
         with pytest.raises(ValidationError):
             validator.validate({"type": t, "client_id": "x", "msg_id": "a" * 32, "ts": "2026-11-05T09:30:00+00:00",
                                 "body": {}})

@@ -1,7 +1,7 @@
 # The Scraper's targets: copy to data/targets.toml on the Hub (or point
 # SCRAPER_TARGETS at a file). Nothing else configures it. After that first
 # copy, change it only with `python -m scraper targets ...` (scraper/targets.py,
-# also behind the Hub Console and Hermes); its first save rewrites the file
+# also behind the Console and HubAI); its first save rewrites the file
 # without these comments and keeps this one as targets.toml.bak. The running service
 # checks the file once a minute and applies an edit without a restart; a file
 # that will not load is logged and the running targets are kept.

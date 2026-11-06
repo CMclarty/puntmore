@@ -34,8 +34,7 @@ const FOCUSED_ROOTS = ['/pnl', '/virtuals']
 const IS_FOCUSED = FOCUSED_ROOTS.some(r => ENTRY_PATH === r || ENTRY_PATH.startsWith(r + '/'))
 
 // CardsPage is surfaced only to a grant that includes it (i.e. "*"), reached
-// via the nav's "More" sheet. The acca boost page was removed with TheOddsApi
-// (PLAN.md item 11); it returns as a 365 tab on OddsPapi.
+// via the nav's "More" sheet. The acca boost returns as a 365 tab on OddsPapi.
 
 // Each site shows only its own tools (site.js): Callum's personal tools on Me,
 // every public tool on the main domain. The grant itself is shared by both.
@@ -119,7 +118,7 @@ export default function App() {
           <Route path="/kelly" element={protectTool(<KellyPage />, 'kelly')} />
           <Route path="/boost" element={<Navigate to="/virtuals" replace />} />
           <Route path="/shop" element={protectTool(<ShopPage />, 'shop')} />
-          {/* Finder, the private Bet Finder: on the me site (site.js). */}
+          {/* Finder, Callum's tips: on me (site.js). */}
           <Route path="/finder" element={protectTool(<FinderPage />, 'finder')} />
           {/* AW 26 was retired (docs/retired.md): an old link lands home. */}
           <Route path="/aw26" element={<Navigate to="/" replace />} />

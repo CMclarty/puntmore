@@ -70,7 +70,7 @@ class Store:
 
     # ---- tips ------------------------------------------------------------------------------------
     def add_tip(self, tip: dict[str, Any], tip_id: str | None = None) -> str | None:
-        """Insert a candidate tip under `tip_id` (the Scraper's, minted where the tip was
+        """Insert a tip under `tip_id` (the Scraper's, minted where the tip was
         first seen), or one minted here when none is given. Returns its tip_id, or None
         if it was already stored."""
         tid = tip_id or tip_id_for(tip["source_id"], tip["event"], tip["market"], tip["selection"], tip["tip_time"])
@@ -86,7 +86,7 @@ class Store:
 
     # ---- Finder (finder.py): which tips HubAI has posted to Render --------------------------------
     def finder_unposted(self, limit: int = 50) -> list[sqlite3.Row]:
-        """Stored tips Hermes has not yet posted to Finder, oldest first."""
+        """Stored tips HubAI has not yet posted to Finder, oldest first."""
         return self.conn.execute(
             """SELECT t.tip_id, t.source_id, t.event, t.market, t.selection, t.advised_price,
                       t.advised_stake_units, t.tip_time, t.expiry, t.origin, t.first_seen
@@ -95,7 +95,7 @@ class Store:
 
     def finder_mark(self, tip_id: str, status: str, reason: str | None = None) -> None:
         """Record `tip_id`'s Finder status: the one Render stored for it, or `skipped` with the
-        reason Hermes gave (the latest mark wins)."""
+        reason HubAI gave (the latest mark wins)."""
         self.conn.execute("INSERT OR REPLACE INTO finder_posted(tip_id, status, ts, reason) VALUES(?,?,?,?)",
                           (tip_id, status, iso(utcnow()), reason))
         self.conn.commit()

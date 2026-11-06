@@ -1,12 +1,12 @@
 """Settings (environment) and targets (targets.toml on the Hub).
 
 WHAT is read is config: a list of targets — pages, any mix of Paddy Power,
-Bookie Bashing and generic (Bet Finder) sources — that changes without a code change. HOW each site is treated
+Bookie Bashing and generic sources (Finder's, and any other page a tool needs) — that changes without a code change. HOW each site is treated
 — its budget, quiet hours, what a block means — is code (sites.py), because
 those are the guarantees, and a config edit must not be able to loosen them.
 
 The targets are ONE file: data/targets.toml, or the file SCRAPER_TARGETS
-names (tests, by hand). It lives on the Hub and Hermes edits it; nothing on
+names (tests, by hand). It lives on the Hub and HubAI edits it (through targets.py); nothing on
 Render configures the Scraper (docs/decisions.md, 5 Nov 2026). The runner
 checks the file every TARGETS_CHECK_S and applies an edit without a restart.
 
@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 HERE = pathlib.Path(__file__).resolve().parent
 
 # The only hosts a paddypower / bookiebashing target may open. localhost is for
-# the tests' fake site. A `generic` target (the Bet Finder's sources) may open
+# the tests' fake site. A `generic` target (Finder's sources) may open
 # any host EXCEPT these two: the bookmakers are read only under their own site
 # rules, never under the looser generic budget.
 ALLOWED_HOSTS = ("paddypower.com", "bookiebashing.net", "localhost", "127.0.0.1")
@@ -73,7 +73,7 @@ class Target:
     mode: str = "keep"                  # keep: page stays open (Paddy/BB) | fetch: load, parse, close
     enabled: bool = True
     min_rows: int = 0                   # fewer parsed rows than this = unhealthy (layout change?)
-    trust_weight: float = 1.0           # Bet Finder: sent to the Hub beside the rows
+    trust_weight: float = 1.0           # Finder: sent to the Hub beside the rows, for HubAI
     wait_for: str | None = None         # CSS selector to wait for before parsing (fetch targets)
     # Acted on by the runner (schedule.py): higher priority wins a site's
     # contended hourly budget, and outside its window ("HH:MM-HH:MM", local

@@ -1,4 +1,4 @@
-"""Tipster emails -> stored tips for Hermes to judge (`puntmore finder new`), through `mail.poll`
+"""Tipster emails -> stored tips for HubAI to judge (`puntmore finder new`), through `mail.poll`
 with a fetcher that hands over messages built here, so no test opens a socket. Nothing is queued
 for Render: the `tip` message was retired with the socket (6 Nov 2026, docs/finder-spec.md)."""
 import imaplib

@@ -45,7 +45,7 @@ def kill_on(cfg: Settings, store: Store) -> dict[str, Any]:
 
 def kill_off(cfg: Settings, body: dict[str, Any]) -> dict[str, Any]:
     if (body or {}).get("confirm") != CONFIRM_OFF:
-        raise ActionError(400, f'kill off needs {{"confirm": "{CONFIRM_OFF}"}}; only Cal turns it off')
+        raise ActionError(400, f'kill off needs {{"confirm": "{CONFIRM_OFF}"}}; only Callum turns it off')
     killswitch.turn_off(cfg)
     return {"ok": True, "kill_switch": False, "message": "kill switch off"}
 

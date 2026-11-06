@@ -1,9 +1,11 @@
-"""Phone adapter: drives a bookmaker app on a sub-client device.
+"""Phone adapter: the Bet Placer's phone interface (docs/placer-spec.md).
 
 Not implemented yet. The contract the real adapter must meet:
 
-* ``account`` is a sub_clients.yaml entry with at least ``account_id``, ``device`` (ADB serial or
-  similar) and ``bookmaker``.
+* The phone is driven through DeviceFarmer at a local port on the Hub; bet365 bets go through the
+  phone's browser, not the app.
+* ``account`` is a sub_clients.yaml entry with at least ``account_id``, ``device`` (the phone, as
+  DeviceFarmer names it) and ``bookmaker``.
 * ``place`` opens the slip for every leg, confirms the stake, reads back the price actually taken
   and the bookmaker's reference, and returns ``PlacedResult``.
 * If the price on the slip differs from ``bet.expected_price`` beyond the tolerance in the

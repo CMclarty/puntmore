@@ -122,8 +122,8 @@ def tip_rows(rows) -> tuple[list, list]:
 
 
 def deliver_to_hub(data_dir, target, rows, now) -> bool:
-    """Hand a fetch target's rows to the Hub: one file per run, picked up by the
-    Hub's link daemon (`puntmore inbox`) and sent to Render as tips. The channel
+    """Hand a fetch target's rows to the Hub: one drop file per run, read by the
+    Hub daemon's inbox pass and stored as tips for HubAI to judge. The channel
     after `hub:` in the target's post (e.g. `hub:tips`) is passed through.
 
     Every row is written with its `tip_id` (ids.py): the tip's one id, minted
@@ -145,5 +145,5 @@ def deliver_to_hub(data_dir, target, rows, now) -> bool:
 
 def emit_event(data_dir, kind, ref, detail, now) -> bool:
     """Tell the Hub something needs a decision (a block, an unhealthy source).
-    The Hub turns it into an escalation for the local AI."""
+    The Hub turns it into an escalation for HubAI."""
     return _drop(data_dir, "events", ref, "scraper_event", {"kind": kind, "ref": ref, "detail": detail, "at": now})

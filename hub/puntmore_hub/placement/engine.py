@@ -1,4 +1,4 @@
-"""The client engine."""
+"""The placement engine (see placement/__init__.py). `ClientEngine` keeps its old name."""
 from __future__ import annotations
 
 import logging
@@ -42,8 +42,8 @@ class ClientEngine:
     def _report(self, rep: schemas.Report) -> None:
         self.enqueue("report", rep.to_dict())
 
-    def handle_bet_list(self, bets: list[Bet]) -> list[str]:
-        """Process a bet list. Returns the status assigned to each bet, in order."""
+    def handle_bets(self, bets: list[Bet]) -> list[str]:
+        """Process several bets. Returns the status assigned to each bet, in order."""
         statuses = []
         for bet in bets:
             statuses.append(self.handle_bet(bet))

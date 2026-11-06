@@ -230,7 +230,7 @@ export async function editLeg(couponId, legId, fields) {
   return res.json()
 }
 
-// Cards & corners
+// Paddy (the cards package)
 // Why the cards screen looks the way it does. An empty feed has several
 // distinct causes that are identical from the outside, and one of them
 // ("nothing cleared the guards") is a SUCCESS.

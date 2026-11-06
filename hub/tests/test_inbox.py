@@ -1,4 +1,4 @@
-"""The Scraper's drop folders -> stored tips for Hermes (never queued for Render), and escalations.
+"""The Scraper's drop folders -> stored tips for HubAI, and escalations.
 
 Every file the Scraper writes is one protocol envelope (schemas/protocol.schema.json, types
 scraper_tips / scraper_event); `_drop` here writes exactly that and checks it against the schema,

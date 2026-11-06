@@ -7,7 +7,7 @@ around ``puntmore update``). One run does each step at most once; a failure is l
 Rules:
   * Fast-forward only. Never merge, never reset. A checkout that has diverged from origin/main,
     has local edits to tracked files, or is on a detached HEAD is reported and left alone.
-  * Never restart while a bet is in flight (status ``received`` or ``placing``: the client engine
+  * Never restart while a bet is in flight (status ``received`` or ``placing``: the placement engine
     moves a bet ``received`` -> ``placing`` -> a final status). A blocked run changes nothing on
     disk and the next tick tries again.
   * If the code has moved but the install or restart did not finish (a failure, or a bet that
@@ -99,7 +99,7 @@ def git_state(repo: Path, fetch: bool = True) -> GitState:
 # ---- the store ----------------------------------------------------------------------------------
 
 def in_flight_bets(db_path: Path) -> list[dict]:
-    """Bets the client engine has not finished with. Read-only; a missing database means none."""
+    """Bets the placement engine has not finished with. Read-only; a missing database means none."""
     if not Path(db_path).exists():
         return []
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10)

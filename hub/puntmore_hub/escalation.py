@@ -1,9 +1,9 @@
-"""Escalation to the local AI.
+"""Escalation to HubAI.
 
-The spec gives the local AI (Hermes on this box) ownership of what happens after a failure:
-a failed bet, an unhealthy source, a kill-switch trigger. Nothing here retries or re-routes.
-We record the escalation, hand it to Hermes with a self-contained brief, and store whatever it
-decides. The outcome is queued for Render as ``escalation_outcome``.
+HubAI (the Hermes layer on this box) owns what happens after a failure: a failed bet, an
+unhealthy source, a kill-switch trigger. Nothing here retries or re-routes. We record the
+escalation, hand it to a Hermes profile with a self-contained brief, and store whatever it
+decides; the outcome stays in the Hub's store.
 
 Hermes is called as a subprocess (``hermes -p <profile> chat -q ...``) so this module has no
 dependency on how the agent is wired. If the binary is missing or disabled, the escalation is
@@ -70,7 +70,7 @@ def brief_for(store: Store, esc_id: int) -> str:
            if row["kind"] in SCRAPER_KINDS else "")
         + "Investigate with the puntmore CLI (status, runs, raw archive) and resolve with:\n"
         f"  puntmore escalation resolve {row['id']} --outcome \"<what you decided and did>\"\n"
-        "If a human decision is needed, say so in the outcome and ask Cal on Telegram."
+        "If a human decision is needed, say so in the outcome and ask Callum on Telegram."
     )
 
 

@@ -1,5 +1,5 @@
 """scraper/targets.py: the only way targets.toml is changed (the CLI, the Hub
-Console, Hermes). Round-trip, atomic save, the lock, each operation, the
+Console, HubAI). Round-trip, atomic save, the lock, each operation, the
 refusals, the status.json join and the CLI's JSON. No browser needed."""
 import json
 import os

@@ -3,17 +3,17 @@ rule, expiry and the 30-day sweep (docs/finder-spec.md, "The row").
 
 Status words, defined in the spec and nowhere else:
     asked   → offered | rejected | expired
-    offered → placed | gone | rejected (Hermes withdraws it) | expired
+    offered → placed | gone | rejected (HubAI withdraws it) | expired
     placed, gone, rejected, expired are final.
-Hermes posts `asked | offered | rejected` (upsert, idempotent on `tip_id`);
-the placer posts `placed | gone` (set_status); Render sets `expired` on its
+HubAI posts `asked | offered | rejected` (upsert, idempotent on `tip_id`);
+the Bet Placer posts `placed | gone` (set_status); Render sets `expired` on its
 own clock (expire). An `offered` row has a kick-off, odds and fair (the route
 refuses one without, 422; posted here without, it is stored `asked`). An
 `asked` or `rejected` row may have none of the three: one with no kick-off
-expires at the tip's own expiry, else 48 h after Hermes last posted it. One
+expires at the tip's own expiry, else 48 h after HubAI last posted it. One
 bet per (event_id or event, market, line, selection): a second row while one
 is `asked`, `offered` or `placed` is stored `rejected`, reason
-`duplicate of <tip_id>`. `event_id` is the canonical key Hermes fills
+`duplicate of <tip_id>`. `event_id` is the canonical key HubAI fills
 (hub/README.md, "Finder"); the event's words are the fallback.
 
 Callers pass aware UTC datetimes; the table holds naive UTC.
@@ -29,7 +29,7 @@ FINAL = frozenset({"rejected", "placed", "gone", "expired"})
 LIVE = ("asked", "offered")
 TWINS = ("asked", "offered", "placed")         # rows a second post of the same bet runs into
 HERMES = ("asked", "offered", "rejected")      # the words a post may carry
-PLACER = ("placed", "gone")                    # the words the placer may report
+PLACER = ("placed", "gone")                    # the words the Bet Placer may report
 
 # Legal moves of a re-post. Same status is an update (a new reason, a new
 # price); a final row is refused before this is read.
@@ -80,7 +80,7 @@ def upsert(db: Session, rows: list[dict], now: datetime) -> dict:
     what the Hub marks.
 
     Refused, the row unchanged: a post against a final row ("final"), a word
-    Hermes may not post ("status"), and a move the machine does not have
+    HubAI may not post ("status"), and a move the machine does not have
     ("offered → asked"). Rows past their expiry are expired first, so a
     post arriving after kick-off finds a final row and changes nothing."""
     at = _naive(now)
@@ -143,7 +143,7 @@ def upsert(db: Session, rows: list[dict], now: datetime) -> dict:
 
 
 def set_status(db: Session, tip_id: str, status: str, at: datetime) -> FinderRow:
-    """The placer's report: `placed` or `gone`, on an offered row only.
+    """The Bet Placer's report: `placed` or `gone`, on an offered row only.
     KeyError: unknown tip. ValueError("status"): any other word.
     ValueError("final"): the row is final. ValueError("asked"): the row was
     never offered."""
@@ -173,7 +173,7 @@ def expire(db: Session, now: datetime) -> int:
 
 
 def feed(db: Session, now: datetime) -> list[FinderRow]:
-    """What the placer reads: offered rows not yet expired, soonest kick-off first."""
+    """What the Bet Placer reads: offered rows not yet expired, soonest kick-off first."""
     return (db.query(FinderRow)
             .filter(FinderRow.status == "offered", FinderRow.expires_at > _naive(now))
             .order_by(FinderRow.kickoff, FinderRow.tip_id).all())

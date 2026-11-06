@@ -25,7 +25,7 @@ def engine(store, **kw):
 
 def test_dry_run_places_and_reports(cfg, store):
     eng = engine(store, cfg=cfg)
-    assert eng.handle_bet_list([bet()]) == ["placed"]
+    assert eng.handle_bets([bet()]) == ["placed"]
     rep = reports(store)
     assert rep[0]["kind"] == "placed" and rep[0]["dry_run"] is True and rep[0]["actual_price"] == 2.1
     assert store.open_exposure("acc1") == 10.0

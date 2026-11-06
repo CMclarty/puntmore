@@ -76,7 +76,7 @@
     },
     "scraper_tip_row": {
       "type": "object",
-      "description": "One parsed row of a Bet Finder source; tip_id is minted here (scraper/ids.py) and travels unchanged",
+      "description": "One parsed row of a Finder source; tip_id is minted here (scraper/ids.py) and travels unchanged",
       "required": [
         "event",
         "market",

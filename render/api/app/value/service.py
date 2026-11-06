@@ -1,13 +1,16 @@
 """What value is on offer right now, across every tool — ONE row shape.
 
-A future bet-placer asks one question here and gets `ValueSelection` rows
+A cross-tool view: one question, `ValueSelection` rows
 (schemas.py), sorted by edge. Every row comes from the tool's OWN feed builder
 (cards/feed.py, the goalscorer rows the scheduler stores,
 the coupon tracker's priced legs), so this file prices nothing itself and
 cannot drift from what the pages show. It reads through the same caches as
 the pages: polling it costs no vendor quota beyond what the pages cost.
 
-Read-only. Nothing here places, or prepares to place, a bet.
+Read-only. Nothing here places, or prepares to place, a bet. The Bet Placer
+reads each board's own feed (/api/paddy/feed, /api/2up/feed, /api/finder/feed),
+which carries the full status; this view reports a board that cannot price
+only as an `errors` note (docs/placer-spec.md).
 """
 import logging
 from dataclasses import dataclass
@@ -44,7 +47,7 @@ SOURCES: tuple[Source, ...] = (
     # The 2-Up engine (app/twoup/): part of the 365 tool, so the 365 grant,
     # but switched by its own flag (ENABLE_TWOUP), not ENABLE_ACCABONUS.
     Source("2up", "accabonus", "bet365"),
-    # Finder (app/finder/, docs/finder-spec.md): Callum's tips as Hermes
+    # Finder (app/finder/, docs/finder-spec.md): Callum's tips as HubAI
     # judged them. The bookmaker is each tip's own.
     Source("finder", "finder", "", private=True),
 )
@@ -190,7 +193,7 @@ def collect(
     """Every value row from `sources`, filtered, best edge first.
 
     `min_edge` None means edge > 0 (value at all) — except Finder, whose
-    every offered row is served (the offer is Hermes's verdict on the tip);
+    every offered row is served (the offer is HubAI's verdict on the tip);
     a number means edge >= it for every source, and may be negative to see
     near-value rows. A source that raises is left
     out and named in the returned errors — the rest still answer. A source

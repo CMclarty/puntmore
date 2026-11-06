@@ -31,7 +31,7 @@ def test_the_inbox_keeps_the_scrapers_tip_id(cfg, store):
     _drop(cfg, [{"event": "A v B", "market": "Match Result", "selection": "A", "tip_id": "0123456789abcdef"}])
     inbox.ingest(store, cfg, notify=False)
     queued = finder.new_tips(store)[0]
-    assert queued["tip_id"] == "0123456789abcdef"            # handed to Hermes as given, not re-minted
+    assert queued["tip_id"] == "0123456789abcdef"            # handed to HubAI as given, not re-minted
     assert store.conn.execute("SELECT tip_id FROM tips").fetchone()[0] == "0123456789abcdef"
 
 

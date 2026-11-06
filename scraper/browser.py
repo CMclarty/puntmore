@@ -1,5 +1,5 @@
 """One real Chrome, one persistent profile, shared by every site (Paddy Power,
-Bookie Bashing and the generic Bet Finder sources).
+Bookie Bashing, Finder's generic sources and any other page a tool needs).
 
 Nothing here fakes a fingerprint: spoofed values that disagree with the real
 browser are what bot checks look for. The profile is a real, ordinary Chrome

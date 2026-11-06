@@ -333,8 +333,8 @@ app.include_router(shop_router.router, dependencies=[Depends(require_tool("shop"
 # not ENABLE_ACCABONUS: the acca page can stay hidden while 2-Up runs dry.
 if settings.enable_twoup:
     app.include_router(twoup_router.router, dependencies=[Depends(require_tool("accabonus"))])
-# Finder, Callum's private Bet Finder (docs/finder-spec.md). No router-level
-# grant: its POSTs take the ingest key (Hermes, the placer) and its GETs the
+# Finder, Callum's tips board (docs/finder-spec.md). No router-level
+# grant: its POSTs take the ingest key (HubAI, the Bet Placer) and its GETs the
 # `finder` grant, each on the route itself.
 if settings.enable_finder:
     app.include_router(finder_router.router)

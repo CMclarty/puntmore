@@ -7,8 +7,8 @@ import styles from './FeedPage.module.css'
 import t from './TwoUpPage.module.css'
 
 /**
- * Finder — Callum's private Bet Finder on me (docs/finder-spec.md): the tips
- * Hermes judged on the Hub over the last 3 days, as asked, offered, rejected
+ * Finder — Callum's tips board on me (docs/finder-spec.md): the tips
+ * HubAI judged on the Hub over the last 3 days, as asked, offered, rejected
  * and done (placed, price gone, expired). A read of /api/finder/board; nothing
  * here judges, stakes or places a bet.
  */
@@ -67,7 +67,7 @@ export default function FinderPage() {
           </section>
         ))}
         {!loading && board && rows.length === 0 && !error && (
-          <p className={styles.empty}>Nothing from Hermes in the last 3 days.</p>
+          <p className={styles.empty}>Nothing from HubAI in the last 3 days.</p>
         )}
       </div>
     </div>

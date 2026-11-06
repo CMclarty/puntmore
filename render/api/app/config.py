@@ -158,16 +158,16 @@ class Settings(BaseSettings):
     # prices to POST /api/paddy/saves-fair. Blank = endpoint disabled (503).
     saves_ingest_key: str = ""
 
-    # --- 2-Up engine (app/twoup/, docs/2up-engine-spec.md) -------------------
+    # --- 2-Up (app/twoup/, docs/2up-engine-spec.md) --------------------------
     # Part of the 365 tool, behind the `accabonus` grant. Prices bet365's 2 Goals
     # Ahead Early Payout off OddsPapi (bet365 + Pinnacle 1X2) and serves the value
-    # bets as a one-way feed. It NEVER places a bet, keeps no account and never
-    # connects to a Hub (Render has no Hub endpoint).
+    # bets as a one-way feed, read by the Bet Placer. It NEVER places a bet and
+    # keeps no account.
     # Mounts /api/2up. Off = no router.
     enable_twoup: bool = True
     # --- Finder (app/finder/, docs/finder-spec.md) ----------------------------
-    # Callum's private Bet Finder on the me site, behind the `finder` grant.
-    # Keeps, serves and expires the bets Hermes posts from the Hub; never loads
+    # Callum's tips board on `me`, behind the `finder` grant.
+    # Keeps, serves and expires the rows HubAI posts from the Hub; never loads
     # a page, never prices a tip, never places a bet. Off = no router, no jobs,
     # no `finder` tool in the nav.
     enable_finder: bool = True
