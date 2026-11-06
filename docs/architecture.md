@@ -1,22 +1,20 @@
 # Puntmore architecture
 
-Two physical boxes. **Render** finds, prices and decides bets, holds the ledger and serves the app. The **Hub**, on a home connection and owned by Hermes, does only what needs a home IP, the phones or the GPU: bookmaker pages, placement, and the judgement calls when something goes wrong.
+Two physical boxes. **Render** prices and serves the 2-Up value feed (a one-way HTTP feed; it keeps no ledger and places nothing) and serves the app. The **Hub**, on a home connection and owned by Hermes, does only what needs a home IP, the phones or the GPU: bookmaker pages, placement, and the judgement calls when something goes wrong.
 
 This is the one source for the architecture. The spec it implements is `docs/2up-engine-spec.md`; decisions are settled in `docs/decisions.md` (read first; it wins), then `PLAN.md` → Decisions; rules are in `CLAUDE.md` and each directory's `AGENTS.md`. Update this file in the same pull request as the change it describes.
 
-*As of 5 Nov 2026. State legend: **live** built and running · **scaffold** built, tested with fakes · **placeholder** a contract and a stub · **to build** specified, not started · **parked** code kept, switched off.*
+*As of 6 Nov 2026. State legend: **live** built and running · **scaffold** built, tested with fakes · **placeholder** a contract and a stub · **to build** specified, not started · **parked** code kept, switched off.*
 
 ## What runs where
 
 ```mermaid
 flowchart LR
-  subgraph RENDER["RENDER — finds, prices, decides; holds the ledger; always on; one deploy, three subdomains"]
+  subgraph RENDER["RENDER — prices and serves the 2-Up value feed; always on; one deploy, three subdomains"]
     direction TB
-    APP["Puntmore app<br/>FastAPI + React, one origin; SQLite ledger on disk<br/><i>live</i>"]
-    subgraph TWOUP["2up.puntmore.com — the 2-Up product, serves every client"]
-      T365["365 tool<br/>2-Up engine (acca boost returns on OddsPapi; goalscorers parked)<br/><i>scaffold · engine landed, dry-run</i>"]
-      BFO["Bet Finder orchestrator<br/>turns the Hub's tips into candidate bets<br/><i>scaffold</i>"]
-      HEP["Hub endpoint<br/>Render end of the WebSocket, /api/2up/ws: bet lists down, reports up<br/><i>scaffold · landed</i>"]
+    APP["Puntmore app<br/>FastAPI + React, one origin; SQLite on disk<br/><i>live</i>"]
+    subgraph TWOUP["2up.puntmore.com — the 2-Up product, a one-way feed read by every client"]
+      T365["365 tool<br/>2-Up value feed (acca boost returns on OddsPapi; goalscorers parked)<br/><i>live</i>"]
     end
     subgraph SHALGO["shalgo.puntmore.com — Paddy Power tools, fed by the Scraper"]
       COUP["Coupon tracker<br/>photographed coupons priced off Pinnacle<br/><i>live</i>"]
@@ -33,9 +31,9 @@ flowchart LR
     subgraph HERMES["Hermes — owner of the Hub: chief of staff on Telegram + four specialists · live"]
       MODEL["Local model<br/>llama-server, Qwen3.5-122B, two 131k slots; Hermes' brain, never prices a bet<br/><i>live</i>"]
     end
-    SCRAPER["Scraper · scraper/<br/>native service, one real Chrome on the desktop (Docker the fallback): Paddy Power pages kept open, Bet Finder sources loaded-parsed-closed; one BB page, an open exception; budgets in code<br/><i>live · tips drop to the Hub</i>"]
+    SCRAPER["Scraper · scraper/<br/>native service, one real Chrome on the desktop (Docker the fallback): Paddy Power pages kept open, tip sources loaded-parsed-closed; one BB page, an open exception; budgets in code<br/><i>live · tips drop to the Hub</i>"]
     PLACE["Placement bot<br/>bet in → placed / price_changed / failed; no retry<br/><i>placeholder</i>"]
-    LINK["Render link + inbox · hub/<br/>outbound WebSocket, durable outbox, idempotent; ingests the Scraper's drops<br/><i>scaffold</i>"]
+    LINK["Render link + inbox · hub/<br/>outbound WebSocket, durable outbox, idempotent; ingests the Scraper's drops. No Render end since 6 Nov 2026 — the betting agent brings its own<br/><i>scaffold</i>"]
     CONSOLE["Hub Console · hub/web<br/>what every Hub component is doing, live, and the kill switch<br/><i>scaffold</i>"]
   end
 
@@ -43,50 +41,42 @@ flowchart LR
   ODDS --> PADDY
   SCRAPER -- "prices, HTTP, live" --> PADDY
   SCRAPER -- "tips, events (files)" --> LINK
-  LINK <-. "WebSocket v1: bet lists → · reports, tips ←" .-> HEP
-  HEP -. bet lists .-> LINK
   LINK --> PLACE
   PLACE --> PHONES["Phones<br/>one bookmaker account each"]
   HERMES --> TG["Telegram<br/>Callum ↔ Hermes"]
-  SCRAPER --> SITES["Sites<br/>Paddy Power, Bet Finder sources; one Bookie Bashing page (open item)"]
+  SCRAPER --> SITES["Sites<br/>Paddy Power, tip sources; one Bookie Bashing page (open item)"]
 ```
 
 ## Components
 
 | Component | What it is | Where | State |
 |---|---|---|---|
-| Puntmore app | One FastAPI + React deploy serving the three hostnames; SQLite ledger on disk | Render | live |
-| 365 tool | Bet365 offers as one tool: the 2-Up engine (`render/api/app/twoup/`); acca boost returns on OddsPapi; goalscorers parked | Render · 2up | scaffold (engine landed, dry-run; no 2-Up tab yet) |
-| Bet Finder orchestrator | Turns the Hub's tips into owner-only candidate bets: Match Result priced off the 2-Up feed, the rest quarantined; fetches nothing (`render/api/app/betfinder/`) | Render · 2up | scaffold (tested with fakes; no live tips yet) |
-| Hub endpoint | The Render end of the WebSocket, `/api/2up/ws` (`render/api/app/hub/`) | Render · 2up | scaffold (landed; contract in `hub/PROTOCOL.md`) |
+| Puntmore app | One FastAPI + React deploy serving the three hostnames; SQLite on disk | Render | live |
+| 365 tool | Bet365 offers as one tool: the 2-Up value feed (`render/api/app/twoup/`): a served board refreshed by the `twoup_refresh` job, read at `GET /api/2up/feed` and on the 2-Up tab (Feed alone, with "updated" and "priced" times); acca boost returns on OddsPapi; goalscorers parked | Render · 2up | live |
 | Coupon tracker | Photographed coupons priced off Pinnacle via the score grid | Render · shalgo | live |
 | Paddy | Corners, cards, goals and saves against Paddy Power; its own setup, fed by the Scraper | Render · shalgo | live |
 | Personal tools | Dogs, Virtuals, P&L, Kelly, shop | Render · me | live, owner only |
 | Private engine | Multi-bookmaker staking that consumes 2-Up as one source | Render · me | to build, to spec separately |
 | Hermes | Owner of the Hub: chief of staff and four specialists | Hub | live (delegation plugin pending) |
 | Local model | llama-server, Qwen3.5-122B, two slots; Hermes' brain, never in the pricing path | Hub, inside Hermes | live |
-| Scraper | `scraper/`: user service `puntmore-scraper`, one real Chrome on the desktop session (Docker the fallback for a box with no screen); Paddy Power pages kept open, the one Bookie Bashing page (`bb-saves`) an open exception (`docs/decisions.md`), Bet Finder sources as `generic` targets; what it reads is `targets.toml` on the Hub, nothing on Render | Hub | live (sources drop tips to the Hub) |
+| Scraper | `scraper/`: user service `puntmore-scraper`, one real Chrome on the desktop session (Docker the fallback for a box with no screen); Paddy Power pages kept open, the one Bookie Bashing page (`bb-saves`) an open exception (`docs/decisions.md`), tip sources as `generic` targets; what it reads is `targets.toml` on the Hub, nothing on Render | Hub | live (sources drop tips to the Hub) |
 | Placement bot | Bet in, placed / price_changed / failed out, on the phones | Hub | placeholder (dry-run adapter only; contract in `hub/puntmore_hub/placement/README.md`) |
-| Render link + inbox | `hub/`: outbound WebSocket, durable outbox, client engine, the Scraper's drops ingested; updates itself from `origin/main` every 10 min (`puntmore-update.timer`) | Hub | scaffold |
+| Render link + inbox | `hub/`: outbound WebSocket, durable outbox, client engine, the Scraper's drops ingested (no Render end since 6 Nov 2026); updates itself from `origin/main` every 10 min (`puntmore-update.timer`) | Hub | scaffold |
 | Hub Console | `hub/puntmore_hub/web/`, `puntmore web`: what every Hub component is doing, live, and the kill switch; the CLI's actions behind a token | Hub | scaffold (localhost by default; reads what the CLI reads) |
-| Wire contract | `hub/PROTOCOL.md`, JSON Schema, examples, mock Render | both | v1, contract tests |
+| Wire contract | `hub/PROTOCOL.md`, JSON Schema, examples, mock Render | the Hub only | v1, contract tests; no Render end until the betting agent defines its own |
 
 ## The Render ↔ Hub contract
 
-| Direction | Messages |
-|---|---|
-| Render → Hub | `bet_list`, `scrape_job`, `kill_switch`, `ping`, `ack` |
-| Hub → Render | `hello`, `report` (placed, price_changed, failed, settled, balance), `tip`, `scrape_result`, `escalation`, `escalation_outcome`, `pong`, `ack` |
-| Rules | outbound from the Hub only · bearer key · every message idempotent on `msg_id`, every bet on `bet_id` · a failed bet is never resent |
+There is none since 6 Nov 2026. Render's end of the WebSocket (`/api/2up/ws`, `app/hub/`, the `hub` grant) is removed; the 2-Up module is a one-way feed that the betting agent reads over HTTP, and the betting agent defines its own Hub endpoint in its own spec. `hub/PROTOCOL.md` describes the Hub's side as it was built and has no Render end until then.
 
 ## Fixed by the spec
 
-1. **Dry-run by default.** Two weeks of clean reports before real money.
+1. **Dry-run by default** (the betting agent's and the Hub's placement). Two weeks of clean reports before real money.
 2. **Kill switch is a file**, `hub/data/KILL`; no code change to flip.
-3. **No retry, no re-route.** Failures go to the local AI.
+3. **No retry, no re-route** on the Hub's placement. Failures go to the local AI.
 4. **Real Chrome, no stealth.** Budgets in code, 24 h cool-off on a challenge.
-5. **Bet Finder tips are owner-only.** Never offered to other clients.
-6. **OddsPapi is the only odds source.** Render never loads a bookmaker page and never places a bet.
+5. ~~Bet Finder tips are owner-only on Render~~ (removed 6 Nov 2026): Bet Finder is not a Render instance; tip finding is the client's.
+6. **OddsPapi is the only odds source.** Render never loads a bookmaker page, never places a bet and keeps no record of any client's bets.
 7. **Three subdomains, one deploy**, by design; not expected to scale beyond this.
 
 ## Open decisions and known weaknesses

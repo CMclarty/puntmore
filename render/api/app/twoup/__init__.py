@@ -1,9 +1,11 @@
-"""The 2-Up engine (part of the 365 tool): prices bet365's 2 Goals Ahead Early
-Payout off OddsPapi. It never places a bet and never connects to the Hub;
-staking lives in the client.
+"""The 2-Up module (part of the 365 tool): prices bet365's 2 Goals Ahead Early
+Payout off OddsPapi and serves the value bets as a one-way feed. It never
+places a bet, keeps no account and has no Hub endpoint; staking, placement and
+the books belong to the client.
 
-- model.py     pure maths: de-vig, rescue table, edge, filters
-- feed.py      today's candidates from OddsPapi (bet365 + Pinnacle 1X2)
+- model.py     pure maths: de-vig, rescue table, edge, filters, the row
+- feed.py      the served board from OddsPapi (bet365 + Pinnacle 1X2),
+               refreshed by the `twoup_refresh` job
 
-Spec: docs/2up-engine-spec.md. Wire contract: hub/PROTOCOL.md.
+Spec: docs/2up-engine-spec.md, "Decisions, 6 Nov 2026".
 """

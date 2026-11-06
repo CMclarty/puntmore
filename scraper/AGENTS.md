@@ -28,7 +28,7 @@ day-to-day commands are in `README.md`; the boundaries that still apply are in
   the alert webhook and log.
 
 ## Rules
-- **Bet Finder sources are Scraper targets** (5 Nov 2026, Callum: one Chrome,
+- **The client's tip-finding sources are Scraper targets** (5 Nov 2026, Callum: one Chrome,
   one budget, one alert path). `site = "generic"` may name any host except the
   two bookmakers; its budget is in `sites.py` (60/h, 400/day, no quiet hours,
   a block = 24 h cool-off + `resume generic`). A generic target is `fetch`

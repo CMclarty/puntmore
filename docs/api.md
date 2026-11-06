@@ -23,8 +23,9 @@ Grants use one grammar: `*` (everything) or names joined by `+`. Tool grants:
 `coupons`, `accabonus` (365 acca), `cards` (Paddy), `goalscorers` (365
 scorers), `pnl`, `kelly`, `boost`, `shop`. Machine grants:
 `value` (every source on `/api/value`), `state` (`/api/state`), `ingest` (the
-scraper / Bookie Bashing write paths), `hub` (the Hub link socket
-`/api/2up/ws`; the client's name must be the Hub's `X-Client-Id`).
+scraper / Bookie Bashing write paths). (`hub`, the Hub link socket
+`/api/2up/ws`, was a fourth until 6 Nov 2026; the 2-Up module has no Hub
+endpoint, and a key still holding the name is granted nothing.)
 
 - A key resolves through the same seam as a session (`security.user_permissions`),
   so every route that admits a user with grant X admits a key with grant X.
@@ -139,16 +140,63 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 | coupons (`coupons`) | `GET /coupons/types`, `/coupons/types/{type}/selections`, `/coupons/types/{type}/bundles`, `/coupons/periods`, `/coupons/upload-options`, `/coupons`, `/coupons/{id}/legs` | tracker reads |
 | coupons (`coupons`) | `POST /coupons/{id}/refresh`, `PATCH /coupons/{id}/legs/{leg}`, `POST /upload`, `POST /upload/{id}/rescan` | re-price, correct, upload a photo |
 | 365 scorers (`goalscorers`) | `GET /goalscorers/feed` — PARKED, not mounted (`ENABLE_GOALSCORERS=false`) | |
-| 365 2-Up (`accabonus`) | `GET /2up/feed`, `/2up/ledger/{client_id}`, `/2up/diagnostics`; `POST /2up/clients/{client_id}/kill`, `/resume` | priced candidates, a client's bets/balances/exposure, the kill switch |
+| 365 2-Up (`accabonus`) | `GET /2up/feed` (`?value_only=`), `GET /2up/diagnostics` | the served board of priced candidates; what the feed last saw, the rescue table and the dials |
 | Paddy (`cards`) | `GET /paddy/feed`, `/paddy/diagnostics`, `/paddy/shadow`, `/paddy/oddspapi-check` | |
 | Paddy ingest (`ingest`) | `POST /paddy/saves-fair`, `POST /paddy/most-prices` | scraper writes |
 | P&L (`pnl`) | `GET/POST /pnl/{dogs\|virtuals}/bets`, `GET /pnl/{c}/bets.csv`, `DELETE /pnl/{c}/bets/{id}` | per-caller ledger |
 | shop (`shop`) | `GET /shop`, `POST /shop/visits`, `DELETE /shop/visits[/{id}]` | per-caller route |
-| 365 Bet Finder (`accabonus`) | `GET /2up/betfinder/sources`, `PATCH /2up/betfinder/sources/{name}`, `GET /2up/betfinder/stats`, `/2up/betfinder/tips` (`?status=&source=&limit=`), `/2up/betfinder/quarantine`, `/2up/betfinder/candidates`; `POST /2up/betfinder/run` | the source registry (trust weight, active, stake mode, set by hand) with each source's strike rate and level-stake ROI; the pipeline's tips (the ingested rows of the one `tips` table that `/2up/hub/tips` also reads) and its quarantine with reasons (tip text is untrusted, returned as text); what the owner's decision would be offered now; one pipeline pass (fetches nothing) |
-| 2-Up Hub link (`hub`) | WebSocket `/2up/ws` — `hub/PROTOCOL.md`, version 1 | Bearer key + `X-Client-Id` on the handshake |
-| 2-Up Hub operators (`accabonus`) | `GET /2up/hub/clients`, `GET /2up/hub/tips`, `POST /2up/hub/{client_id}/kill_switch`, `POST /2up/hub/{client_id}/scrape_job` | link status, Bet Finder tips as they arrived (the wire columns of the one `tips` table), queue a frame; `kill_switch` turns a Hub's kill switch ON only (`on: false` is a 422: only Callum turns it off, on the box) |
 | diagnostics (`*`, or `state`) | `GET/DELETE /diagnostics/errors` | error ring buffer |
 | — | `GET /health`, `GET /ready` | probes, unauthenticated |
+
+### 365 2-Up feed (`GET /api/2up/feed`)
+
+A one-way feed: the module takes nothing back, keeps no client or account and
+has no Hub endpoint (6 Nov 2026; `docs/2up-engine-spec.md`). Every reader gets
+the same rows. The board is priced by the scheduler job `twoup_refresh` every
+`TWOUP_FEED_TTL` seconds (5 min by default) and the route only reads it; a
+request never fetches. `value_only=true` drops rows outside the price band or
+under the edge floor (each row also carries the `value` flag).
+
+```
+{
+  "generated_at": "...",        // when the served board was priced; now if there is none
+  "available": true,            // false only with no OddsPapi key
+  "status": {
+    "provider": "oddspapi",
+    "degraded": false,          // something could not be priced (see cannot_price)
+    "cannot_price": [],
+    "stale": false,             // the last pass failed; an older board is being served
+    "served_at": "...",         // ISO time of the served board, null before the first pass
+    "not_yet_refreshed": false, // no pass since boot: the list is empty
+    "last_pass": {...},         // counts, errors and cannot_price of the last pass
+    "killed": false             // TWOUP_KILL_SWITCH: candidates is empty
+  },
+  "candidates": [{
+    "event_id", "event", "home", "away", "kickoff", "competition",
+    "selection", "side",        // "home" | "away"; event_id + side identify a row
+    "market", "price",          // bet365's decimal price at priced_at
+    "p_win", "rescue", "fair_price", "edge", "ev", "value",
+    "priced_at"                 // when the prices behind this row were fetched
+  }]
+}
+```
+
+On a total fetch failure the last good board is kept with its old `priced_at`
+and `status.stale` is true; before the first pass and with the kill switch on
+the list is empty. With no OddsPapi key `status` is just `degraded: true`,
+`killed` and `cannot_price: ["ALL — ODDSPAPI_API_KEY unset"]`. The kill switch
+also empties the `2up` source of `GET /api/value`.
+
+`GET /api/2up/diagnostics` returns `{feed, rescue_table, global_kill_switch,
+settings}`: `feed` is the same `status` block as above (without `killed`),
+`rescue_table` the path, `loaded`, `default`, `key` and the buckets in use,
+`global_kill_switch` the flag, and `settings` the dials (`twoup_min_edge`,
+`twoup_min_price`, `twoup_max_price`, `twoup_min_lead_minutes`,
+`twoup_tournament_ids`, `twoup_feed_ttl`, `twoup_horizon_hours`). No secrets.
+
+Removed on 6 Nov 2026, with no replacement on Render: `/2up/ledger/{client_id}`,
+`/2up/clients/{id}/kill|resume`, `/2up/betfinder/*`, `/2up/hub/*` and the
+WebSocket `/2up/ws`.
 
 `kelly` and `boost` are client-side calculators with no routes. The legacy
 aliases (`/cards/*`, `/tennis/*`) still answer and are hidden from the schema.

@@ -1,5 +1,7 @@
 # hub/ — the Hub
 
+> **6 Nov 2026:** Render's end of this protocol (`/api/2up/ws`) is removed; the 2-Up module is a one-way feed; the betting agent tool defines its own Hub endpoint. The Hub code below is unchanged and has no Render end until then.
+
 Hub side of the Puntmore 2-Up Engine, in the same repo as the Render service it talks to (`render/api/`) and the Scraper (`scraper/`), which does every page load on the Hub. Read `docs/decisions.md` first; it wins over this file. The wire contract between this and Render is `PROTOCOL.md` + `schemas/`; change them together. One machine on a residential connection that owns everything touching a bookmaker site or a phone. The cloud side (Render) owns pricing, the 2-up decision model and the per-client ledgers, and never loads a bookmaker page.
 
 ```

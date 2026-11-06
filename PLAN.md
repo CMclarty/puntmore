@@ -39,6 +39,9 @@ stays provisional until the calibration backtest (item 3) measures it.
   orchestrator are Render code beside the ledger. The Hub does only what
   needs a residential IP, the phones or the GPU: bookmaker pages, placement,
   Hermes and the local model. The model is never in the pricing path.
+  (Superseded 6 Nov 2026 for bet finding, decision and the ledger: they are
+  the client's, and Render serves a one-way feed; see item 11 and
+  `docs/2up-engine-spec.md`.)
 - **OddsPapi is the only odds source.** The coupon tracker already runs on
   it and bettingiscool is gone; the remaining TheOddsApi code was deleted in
   item 11 (5 Nov 2026). No new code against any other odds API.
@@ -484,7 +487,8 @@ The Hub side of the 2-Up Engine spec. (History: built on branch `home-box`, as
       `scraper_event`, tests on both sides), and the link re-sends `hello`
       when the kill-switch file flips.
 - [ ] Two weeks of dry-run reports before `PUNTMORE_DRY_RUN=0`.
-Definition of Done: a bet list from Render reaches a phone in dry-run and its
+Definition of Done (6 Nov 2026: Render has no bet list or ledger now; read "Render"
+as the betting agent's endpoint once it exists): a bet list from Render reaches a phone in dry-run and its
 `placed` report shows in Render's ledger; a broken source is repaired by the
 scraper-manager agent from the raw archive without a human.
 
@@ -503,7 +507,8 @@ and `/state`. AccaBonus is not live (`enable_accabonus` False).
       Callum's call). `odds/client.py` and its key are gone; `goalscorers/`
       stays in the tree behind `ENABLE_GOALSCORERS=false` with no client.
 - [x] **Merge 365 and 2-Up into one tool** (6 Nov 2026): `/365/2up` is the
-      first tab of the 365 page (`TwoUpPage.jsx`, `accabonus` grant): Feed
+      first tab of the 365 page (`TwoUpPage.jsx`, `accabonus` grant; the Ledger
+      below was removed 6 Nov 2026, see "The 2-Up module is a one-way value feed" below): Feed
       (every side passing the band and the floor, best edge first) and
       Ledger (one client's bets newest first, exposure and P&L, the
       per-client kill switch; resuming asks), behind one switch, auto-
@@ -520,7 +525,8 @@ and `/state`. AccaBonus is not live (`enable_accabonus` False).
       tracker is never scraped by the engine or the Scraper
       (`docs/decisions.md`; the Scraper's one BB target, `bb-saves`, is an
       open item there).
-- [x] **Render end of the Hub link landed** (Nov 2026, branch `hub-endpoint`):
+- [x] **Render end of the Hub link landed** (Nov 2026, branch `hub-endpoint`;
+      REMOVED 6 Nov 2026, see "The 2-Up module is a one-way value feed" below):
       `/api/2up/ws` per `hub/PROTOCOL.md` v1 — key auth on the handshake
       (`hub` grant), acks/replay on `hub_inbox_seen`, schema-validated frames,
       tips/escalations stored, bet lists dispatched from the 2-Up engine and
@@ -540,7 +546,20 @@ and `/state`. AccaBonus is not live (`enable_accabonus` False).
       staked (OPEN in `docs/decisions.md`, Callum's call), and the first real
       rescue-table tune. (The Hub endpoint and the Bet Finder candidates have
       landed.)
-- [x] **Bet Finder orchestrator** (branch `betfinder`, Nov 2026): `render/api/app/betfinder/` fills `decision.extra_candidates` from `hub_tips` — Match Result tips matched and priced off the 2-Up feed, everything else quarantined, owner-only, sources as data with hand-set trust, per-source strike rate / ROI off the ledger (`render/api/AGENTS.md`, "Bet Finder"); IMAP is a seam only.
+- [x] **Bet Finder orchestrator** (branch `betfinder`, Nov 2026; REMOVED 6 Nov 2026, Bet Finder is not a Render instance): `render/api/app/betfinder/` fills `decision.extra_candidates` from `hub_tips` — Match Result tips matched and priced off the 2-Up feed, everything else quarantined, owner-only, sources as data with hand-set trust, per-source strike rate / ROI off the ledger (`render/api/AGENTS.md`, "Bet Finder"); IMAP is a seam only.
+- [x] **The 2-Up module is a one-way value feed** (6 Nov 2026, branch
+      `integration-2`; `docs/2up-engine-spec.md`, "Decisions, 6 Nov 2026"):
+      removed staking and the decision pass, the ledger (clients, accounts,
+      bets, balances, `/2up/ledger`, `/2up/clients/*`), Bet Finder on Render
+      (`app/betfinder/`, its routes, `tips`, `betfinder_sources`) and Render's
+      Hub endpoint (`/2up/ws`, `app/hub/`, `/2up/hub/*`, the `hub` grant);
+      the dead tables stay on the disk. Added: `priced_at` on every row, a
+      served board refreshed by the `twoup_refresh` job (never on a request),
+      the last good board kept with `status.stale` on a failed pass, the
+      global `TWOUP_KILL_SWITCH` emptying the feed and the `2up` source of
+      `/api/value`, and a 2-Up tab that is the Feed alone with "updated" and
+      "priced" times. The Hub code is unchanged and has no Render end until
+      the betting agent defines its own.
 - [x] **Remove the `/scraper` control page** and its routes; the Scraper reads
       `targets.toml` on the Hub, edited by Hermes. Done 5 Nov 2026: the page,
       its nav tab, `/api/scraper*`, the `scraper` grant and the

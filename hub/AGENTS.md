@@ -1,6 +1,6 @@
 # Working in hub/
 
-This is the Hub side of the Puntmore 2-Up Engine. Render (cloud, `render/api/`) prices and decides; this box places and reports. Every page load on the Hub is the Scraper's (`scraper/`), including the Bet Finder's sources; `hub/` reads what the Scraper drops. `docs/decisions.md` is read first and wins; the repo's `CLAUDE.md` applies here too and wins on any other conflict. Read this directory's `README.md` and `PROTOCOL.md` before changing anything.
+This is the Hub side of the Puntmore 2-Up Engine. Render (cloud, `render/api/`) prices and serves a one-way value feed, and has no Hub endpoint since 6 Nov 2026; this box places and reports. Every page load on the Hub is the Scraper's (`scraper/`), including the sources of the client's tip finding; `hub/` reads what the Scraper drops. `docs/decisions.md` is read first and wins; the repo's `CLAUDE.md` applies here too and wins on any other conflict. Read this directory's `README.md` and `PROTOCOL.md` before changing anything.
 
 ## Rules
 - Dry-run is on by default (`PUNTMORE_DRY_RUN`). Do not switch it off. Cal does that after two weeks of clean dry-run reports.

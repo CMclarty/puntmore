@@ -1,5 +1,7 @@
 # Hub ↔ Render protocol, version 1
 
+> **6 Nov 2026:** Render's end of this protocol (`/api/2up/ws`) is removed; the 2-Up module is a one-way feed; the betting agent tool defines its own Hub endpoint. The Hub code below is unchanged and has no Render end until then.
+
 This is the complete wire contract between the Puntmore Hub (this repo) and the Render
 service. It is written so that a separate team or a separate AI can build the Render end from
 this file alone. The machine-readable form is `schemas/protocol.schema.json`; every example in
