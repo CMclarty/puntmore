@@ -1,6 +1,6 @@
 # Working in hub/
 
-This is the Hub side of the Puntmore 2-Up Engine. Render (cloud, `render/api/`) prices and serves a one-way value feed, and has no Hub endpoint since 6 Nov 2026; this box places and reports. Every page load on the Hub is the Scraper's (`scraper/`), including the sources of the client's tip finding; `hub/` reads what the Scraper drops. `docs/decisions.md` is read first and wins; the repo's `CLAUDE.md` applies here too and wins on any other conflict. Read this directory's `README.md` and `PROTOCOL.md` before changing anything.
+This is the Hub side of the Puntmore 2-Up Engine. Render (cloud, `render/api/`) prices and serves a one-way value feed, and has no Hub endpoint since 6 Nov 2026; this box places and reports. Every page load on the Hub is the Scraper's (`scraper/`), including Finder's tip sources; `hub/` reads what the Scraper drops and the tipster mailbox, stores each tip once, and hands it to Hermes, who judges it and posts the verdict to Finder on Render (`puntmore_hub/finder.py`, `docs/finder-spec.md`). `docs/decisions.md` is read first and wins; the repo's `CLAUDE.md` applies here too and wins on any other conflict. Read this directory's `README.md` and `PROTOCOL.md` before changing anything.
 
 ## Rules
 - Dry-run is on by default (`PUNTMORE_DRY_RUN`). Do not switch it off. Cal does that after two weeks of clean dry-run reports.
@@ -14,7 +14,7 @@ This is the Hub side of the Puntmore 2-Up Engine. Render (cloud, `render/api/`) 
 ## Where to change what
 | Want to... | Change |
 |---|---|
-| Add or pause a Scraper target (a Bet Finder source is `site = "generic"`) | the console's Scraper tab, or `python -m scraper targets …` (`scraper/README.md`, "Changing targets"); never `targets.toml` by hand |
+| Add or pause a Scraper target (a Finder source is `site = "generic"`) | the console's Scraper tab, or `python -m scraper targets …` (`scraper/README.md`, "Changing targets"); never `targets.toml` by hand |
 | Fix a broken parser | `scraper/parsers/<name>.py` + a fixture under `scraper/tests/fixtures/` |
 | Add an email tipster | an entry in `data/tipsters.toml` (see `tipsters.example.toml`) + a parser in `puntmore_hub/tipsters/<name>.py` registered in `PARSERS`, written from a real email; `puntmore mail --dry-run` shows what it reads |
 | Change where the Scraper's drops are read from | `.env` (`PUNTMORE_SCRAPER_DATA`; the old `PUNTMORE_WORKER_DATA` is still read for one release) |
@@ -47,12 +47,14 @@ Rules, all from the spec — do not relax any of them:
 - **The wire contract is `hub/PROTOCOL.md` + `hub/schemas/`.** A change to
   it touches the schema, an example, `hub/puntmore_hub/schemas.py` and the
   Render side in `render/api/` in ONE pull request; `hub/tests/test_protocol.py` is
-  the referee. Bet Finder tips are `source_scope: owner` — never offered to
-  another client.
+  the referee. Tips no longer travel on the wire (the `tip` message was
+  retired with the socket, 6 Nov 2026): Hermes posts its verdicts to Finder
+  over HTTP (`puntmore finder post`, the ingest key), and Finder rows are
+  Callum's only — never offered to another client.
 - **One Chrome on the Hub, the Scraper's.** `hub/` has no browser and no
-  budget; the Bet Finder's sources are Scraper targets (`site = "generic"`)
+  budget; Finder's sources are Scraper targets (`site = "generic"`)
   and reach `hub/` as files under `<scraper data>/hub/`. Bookie Bashing is not
-  a Bet Finder source; the Scraper's one BB target (`bb-saves`) is an OPEN
+  a Finder source; the Scraper's one BB target (`bb-saves`) is an OPEN
   item for Callum in `docs/decisions.md`.
 - Directory ownership when several agents work at once: `render/api/` + `render/frontend/`
   (Render side) and `hub/` + `scraper/` (Hub side) are edited by different

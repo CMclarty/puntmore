@@ -23,17 +23,18 @@ flowchart LR
     subgraph ME["me.puntmore.com — Cal's personal tools, owner only"]
       PERS["Personal tools<br/>dogs, Virtuals, P&amp;L, Kelly, shop<br/><i>live</i>"]
       PRIV["Private engine<br/>multi-bookmaker staking; consumes 2-Up as one source<br/><i>to build</i>"]
+      FINDER["Finder<br/>tips judged on the Hub by Hermes; Render keeps, serves and expires the rows<br/><i>live</i>"]
     end
   end
 
   subgraph HUB["HUB — only what needs a home IP, the phones or the GPU"]
     direction TB
-    subgraph HERMES["Hermes — owner of the Hub: chief of staff on Telegram + four specialists · live"]
-      MODEL["Local model<br/>llama-server, Qwen3.5-122B, two 131k slots; Hermes' brain, never prices a bet<br/><i>live</i>"]
+    subgraph HERMES["Hermes — owner of the Hub: chief of staff on Telegram + four specialists; judges tips, posts to Finder · live"]
+      MODEL["Local model<br/>llama-server, Qwen3.5-122B, two 131k slots; Hermes' brain, judges Finder's tips (never prices the boards)<br/><i>live</i>"]
     end
     SCRAPER["Scraper · scraper/<br/>native service, one real Chrome on the desktop (Docker the fallback): Paddy Power pages kept open, tip sources loaded-parsed-closed; one BB page, an open exception; budgets in code<br/><i>live · tips drop to the Hub</i>"]
     PLACE["Placement bot<br/>bet in → placed / price_changed / failed; no retry<br/><i>placeholder</i>"]
-    LINK["Render link + inbox · hub/<br/>outbound WebSocket, durable outbox, idempotent; ingests the Scraper's drops. No Render end since 6 Nov 2026 — the betting agent brings its own<br/><i>scaffold</i>"]
+    LINK["Link daemon + inbox · hub/<br/>inbox + mail; no socket since 6 Nov 2026 — stores each tip once for Hermes (`puntmore finder new`)<br/><i>scaffold</i>"]
     CONSOLE["Hub Console · hub/web<br/>what every Hub component is doing, live, and the kill switch<br/><i>scaffold</i>"]
   end
 
@@ -41,6 +42,8 @@ flowchart LR
   ODDS --> PADDY
   SCRAPER -- "prices, HTTP, live" --> PADDY
   SCRAPER -- "tips, events (files)" --> LINK
+  LINK -- "new tips (hub.sqlite)" --> HERMES
+  HERMES -- "rows, HTTPS, ingest key" --> FINDER
   LINK --> PLACE
   PLACE --> PHONES["Phones<br/>one bookmaker account each"]
   HERMES --> TG["Telegram<br/>Callum ↔ Hermes"]
@@ -57,17 +60,18 @@ flowchart LR
 | Paddy | Corners, cards, goals and saves against Paddy Power; its own setup, fed by the Scraper | Render · shalgo | live |
 | Personal tools | Dogs, Virtuals, P&L, Kelly, shop | Render · me | live, owner only |
 | Private engine | Multi-bookmaker staking that consumes 2-Up as one source | Render · me | to build, to spec separately |
+| Finder | Callum's private Bet Finder (`render/api/app/finder/`, `docs/finder-spec.md`): `finder_rows`, the status machine, `/api/finder/*` (rows and `placed`\|`gone` in on the ingest key, feed and board out on the `finder` grant), a private `finder` value source, the `/finder` page on me | Render · me | live, owner only |
 | Hermes | Owner of the Hub: chief of staff and four specialists | Hub | live (delegation plugin pending) |
-| Local model | llama-server, Qwen3.5-122B, two slots; Hermes' brain, never in the pricing path | Hub, inside Hermes | live |
+| Local model | llama-server, Qwen3.5-122B, two slots; Hermes' brain; judges Finder's tips (the register struck "never prices a bet", 6 Nov 2026), never in the boards' pricing path | Hub, inside Hermes | live |
 | Scraper | `scraper/`: user service `puntmore-scraper`, one real Chrome on the desktop session (Docker the fallback for a box with no screen); Paddy Power pages kept open, the one Bookie Bashing page (`bb-saves`) an open exception (`docs/decisions.md`), tip sources as `generic` targets; what it reads is `targets.toml` on the Hub, nothing on Render | Hub | live (sources drop tips to the Hub) |
 | Placement bot | Bet in, placed / price_changed / failed out, on the phones | Hub | placeholder (dry-run adapter only; contract in `hub/puntmore_hub/placement/README.md`) |
-| Render link + inbox | `hub/`: outbound WebSocket, durable outbox, client engine, the Scraper's drops ingested (no Render end since 6 Nov 2026); updates itself from `origin/main` every 10 min (`puntmore-update.timer`) | Hub | scaffold |
+| Link daemon + inbox | `hub/`, `puntmore link`: the inbox (the Scraper's drops) and the tipster mailbox, stored as tips for Hermes; no socket since 6 Nov 2026 (`PUNTMORE_RENDER_WS` blank: the inbox loop runs in the foreground); `puntmore finder new\|post\|status` is Hermes's and the placer's way to Finder; updates itself from `origin/main` every 10 min (`puntmore-update.timer`) | Hub | scaffold |
 | Hub Console | `hub/puntmore_hub/web/`, `puntmore web`: what every Hub component is doing, live, and the kill switch; the CLI's actions behind a token | Hub | scaffold (localhost by default; reads what the CLI reads) |
 | Wire contract | `hub/PROTOCOL.md`, JSON Schema, examples, mock Render | the Hub only | v1, contract tests; no Render end until the betting agent defines its own |
 
 ## The Render ↔ Hub contract
 
-There is none since 6 Nov 2026. Render's end of the WebSocket (`/api/2up/ws`, `app/hub/`, the `hub` grant) is removed; the 2-Up module is a one-way feed that the betting agent reads over HTTP, and the betting agent defines its own Hub endpoint in its own spec. `hub/PROTOCOL.md` describes the Hub's side as it was built and has no Render end until then.
+There is no socket since 6 Nov 2026. Render's end of the WebSocket (`/api/2up/ws`, `app/hub/`, the `hub` grant) is removed; a Hub endpoint is per tool. The 2-Up module has none: it is a one-way feed that the betting agent reads over HTTP, and the betting agent defines its own Hub endpoint in its own spec. Finder's is a pair of key-authenticated HTTP routes (`POST /api/finder/rows` from Hermes, `POST /api/finder/rows/{tip_id}/status` from the placer, both on the `ingest` grant; `docs/api.md`). `hub/PROTOCOL.md` describes the socket's Hub side as it was built; its `tip` message is retired.
 
 ## Fixed by the spec
 
@@ -75,7 +79,7 @@ There is none since 6 Nov 2026. Render's end of the WebSocket (`/api/2up/ws`, `a
 2. **Kill switch is a file**, `hub/data/KILL`; no code change to flip.
 3. **No retry, no re-route** on the Hub's placement. Failures go to the local AI.
 4. **Real Chrome, no stealth.** Budgets in code, 24 h cool-off on a challenge.
-5. ~~Bet Finder tips are owner-only on Render~~ (removed 6 Nov 2026): Bet Finder is not a Render instance; tip finding is the client's.
+5. **Finder rows are Callum's only** (6 Nov 2026, `docs/finder-spec.md`): judged on the Hub by Hermes, kept on Render behind the `finder` grant, never in the combined value feed and never offered to a third-party client.
 6. **OddsPapi is the only odds source.** Render never loads a bookmaker page, never places a bet and keeps no record of any client's bets.
 7. **Three subdomains, one deploy**, by design; not expected to scale beyond this.
 

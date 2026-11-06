@@ -177,6 +177,40 @@ Invariants — do not relax:
   you exported from Bookie Bashing's tracker; `--merge` writes a new table).
   Nothing here or on the Hub ever fetches the tracker.
 
+## Finder (`app/finder/`, Nov 2026)
+Callum's private Bet Finder, on the me site (`docs/finder-spec.md`; the
+register's "Finder rows are Callum's only"). The tips are judged on the Hub by
+Hermes; Render only keeps, serves and expires what Hermes decided. It never
+loads a page, never prices a tip (no OddsPapi request) and never places a bet.
+- **One table, `finder_rows`** (`models.FinderRow`, `app/finder/rows.py`),
+  keyed on the Hub's `tip_id`; `odds` and `fair` are the prices the TIP
+  quotes, `edge = odds / fair - 1` (null with no fair). Kept 30 days from
+  `created_at` (`finder_sweep`, daily).
+- **The status machine is the spec's, and nothing else**: `asked → offered |
+  rejected | expired`, `offered → placed | gone | expired`; `placed`, `gone`,
+  `rejected`, `expired` are final. A re-post against a final row is refused
+  (409 at the status route, `refused` in the rows answer), and so is a move
+  the machine lacks (`offered → rejected`). A row with no `fair` is never
+  `offered` (posted so, it is stored `asked`). `expires_at` is the earlier of
+  kick-off and the tip's own `expiry`; `finder_expire` sets `expired` every
+  minute, on `asked` rows too, and the rows route runs it first, so an answer
+  after kick-off changes nothing.
+- **One live bet per (event_id or event, market, line, selection)**, compared
+  case- and space-folded: a second row while one is `asked` or `offered` is
+  stored `rejected`, reason `duplicate of <tip_id>`. `tip_id` alone (a hash of
+  the tip's words and day) cannot stop a reworded tip being placed twice.
+- **Two keys, never a session for writes.** `POST /finder/rows` (Hermes) and
+  `POST /finder/rows/{tip_id}/status` (the placer: `placed | gone`) take the
+  `ingest` grant (`require_ingest_key`). `GET /finder/feed` (offered, soonest
+  first) and `GET /finder/board` (every status, `?days=3`) take the `finder`
+  grant on the route itself; the router has no router-level grant.
+- **A private value source.** `GET /api/value/finder` serves the offered rows
+  in the `ValueSelection` shape to the `finder` grant only: Finder is never in
+  the combined `GET /api/value` ("*" included) and the `value` grant does not
+  reach it (`Source.private`, `value/service.py`).
+- `ENABLE_FINDER` (default on) switches the routes, the two jobs and the
+  `finder` tool off together.
+
 ## Hard rules (do not violate)
 - The provider seams MUST stay behind their interfaces (see Provider guide
   below). Never call external APIs directly from core logic.
@@ -644,7 +678,10 @@ python -m app.apikeys list                              # never shows keys
 python -m app.apikeys revoke <name>                     # disables at once
 ```
 Grants are the tool names plus `value`, `state`, `ingest` (or `*`); `paddy` =
-`cards`, `365` = `accabonus+goalscorers`. (`hub` was a fourth machine grant, for
+`cards`, `365` = `accabonus+goalscorers`. `finder` (Nov 2026) is Callum's
+private Bet Finder: the placer's key carries `finder+ingest`, Hermes's on the
+Hub `ingest`. `*` includes `finder` as it includes every tool, so **a key or
+account issued to anyone but Callum never carries `*`**, only named grants. (`hub` was a fourth machine grant, for
 the 2-Up link socket, until 6 Nov 2026; a key still holding it is granted
 nothing.) In production run it in Render's
 shell (`cd /app`), which has `DATABASE_URL`. Full API docs: `docs/api.md`.

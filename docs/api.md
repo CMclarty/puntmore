@@ -21,7 +21,10 @@ Two ways in, one permission model:
 
 Grants use one grammar: `*` (everything) or names joined by `+`. Tool grants:
 `coupons`, `accabonus` (365 acca), `cards` (Paddy), `goalscorers` (365
-scorers), `pnl`, `kelly`, `boost`, `shop`. Machine grants:
+scorers), `pnl`, `kelly`, `boost`, `shop`, `finder` (Finder, Callum's private
+Bet Finder on me: Callum's account and the placer's key only). `*` includes
+`finder`, so a key or account issued to anyone but Callum never carries `*`,
+only named grants. Machine grants:
 `value` (every source on `/api/value`), `state` (`/api/state`), `ingest` (the
 scraper / Bookie Bashing write paths). (`hub`, the Hub link socket
 `/api/2up/ws`, was a fourth until 6 Nov 2026; the 2-Up module has no Hub
@@ -67,7 +70,7 @@ above are the only env-configured ones.
 
 ```
 GET /api/value?min_edge=&kickoff_within_hours=&bookmaker=
-GET /api/value/{source}            # paddy | scorers | coupon | 2up
+GET /api/value/{source}            # paddy | scorers | coupon | 2up | finder
 ```
 
 Grant `value` (or `*`) sees every source; a tool grant sees that tool's
@@ -76,6 +79,13 @@ source only (`cards` → paddy, `goalscorers` → scorers (parked),
 tool is switched off on the server (`ENABLE_*`; 2up has `ENABLE_TWOUP`) is not
 listed. On `2up` rows `fair` is the 2-up-adjusted fair price
 1 / (P(win) + P(rescue)), so `edge` keeps its meaning (odds / fair − 1).
+
+`finder` is a **private** source: only the `finder` grant reads it, and only
+at `GET /api/value/finder`. It is never part of the combined `GET /api/value`
+(for `*` neither) and the `value` grant does not reach it. Its rows are
+Finder's `offered` rows: `odds` and `fair` are the prices the tip quotes
+(`basis: "tip"`), `bookmaker` is the tip's own, `sport` is `football` or
+`horse`, and with no `min_edge` every offered row is served.
 
 | Param | Meaning |
 |---|---|
@@ -108,7 +118,7 @@ part of the pass failed. Selections are sorted by edge, best first.
 
 | Field | |
 |---|---|
-| `source` | `paddy` \| `scorers` \| `coupon` \| `2up` |
+| `source` | `paddy` \| `scorers` \| `coupon` \| `2up` \| `finder` |
 | `bookmaker` | `paddypower` \| `bet365` \| `williamhill` |
 | `event_id` | the source's own fixture id, or null |
 | `event`, `home`, `away` | the fixture as the source names it |
@@ -150,6 +160,8 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 | 365 2-Up (`accabonus`) | `GET /2up/feed` (`?value_only=`), `GET /2up/diagnostics` | the served board of priced candidates; what the feed last saw, the rescue table and the dials |
 | Paddy (`cards`) | `GET /paddy/feed`, `/paddy/diagnostics`, `/paddy/shadow`, `/paddy/oddspapi-check` | |
 | Paddy ingest (`ingest`) | `POST /paddy/saves-fair`, `POST /paddy/most-prices` | scraper writes |
+| Finder writes (`ingest`, key only) | `POST /finder/rows`, `POST /finder/rows/{tip_id}/status` | Hermes's rows; the placer's `placed`\|`gone` |
+| Finder reads (`finder`) | `GET /finder/feed`, `GET /finder/board` (`?days=3`), `GET /value/finder` | the offered rows; the me board |
 | P&L (`pnl`) | `GET/POST /pnl/{dogs\|virtuals}/bets`, `GET /pnl/{c}/bets.csv`, `DELETE /pnl/{c}/bets/{id}` | per-caller ledger |
 | shop (`shop`) | `GET /shop`, `POST /shop/visits`, `DELETE /shop/visits[/{id}]` | per-caller route |
 | diagnostics (`*`, or `state`) | `GET/DELETE /diagnostics/errors` | error ring buffer |
@@ -210,6 +222,40 @@ Removed on 6 Nov 2026, with no replacement on Render: `/2up/ledger/{client_id}`,
 `/2up/clients/{id}/kill|resume`, `/2up/betfinder/*`, `/2up/hub/*` and the
 WebSocket `/2up/ws`.
 
+### Finder (`/api/finder/*`, Nov 2026)
+
+Callum's private Bet Finder (`docs/finder-spec.md`). Hermes on the Hub judges
+each tip and posts the verdict; Render keeps, serves and expires it, and never
+prices a tip or loads a page.
+
+- `POST /finder/rows` — ingest key (Hermes). Body `{"rows": [FinderRowIn, …]}`
+  (at most 500): `tip_id, origin, sport (football|horse), bookmaker, event,
+  home?, away?, event_id?, kickoff, market, selection, line?, side?, odds,
+  fair?, advised_stake?, reason?, status (asked|offered|rejected), expiry?`.
+  Upsert on `tip_id`. Answers `{stored, updated, refused: [[tip_id, reason]],
+  duplicates: [tip_id]}`: `refused` is a post against a final row (`final`)
+  or a move the status machine lacks (`offered → rejected`, `duplicate of
+  <tip_id>` for an offered row re-posted onto another live bet), the row left
+  unchanged; `duplicates` are new rows for a bet already live, stored
+  `rejected` with reason `duplicate of <tip_id>`. A row with no `fair` is
+  stored `asked`, never `offered`.
+- `POST /finder/rows/{tip_id}/status` — ingest key (the placer). Body
+  `{"status": "placed"|"gone", "at": <ISO>}` → the row; `404` unknown tip,
+  `409` a final row or one never offered, `422` any other word.
+- `GET /finder/feed` — `finder` grant. `{generated_at, rows}`: `offered`
+  rows not yet expired, soonest kick-off first.
+- `GET /finder/board?days=3` — `finder` grant (`days` 1–30). Every row
+  created in the window, all statuses, newest first.
+
+A row (`FinderRowOut`) carries every column: the tip fields above, `edge`
+(`odds / fair - 1`, null with no fair), `status`, `expires_at` (the earlier
+of `kickoff` and `expiry`), `asked_at`, `answered_at`, `seen_at` (Hermes's
+latest post), `created_at`, `updated_at`, all UTC. Status words: `asked →
+offered | rejected | expired`, `offered → placed | gone | expired`; `placed`,
+`gone`, `rejected` and `expired` are final. Render expires rows every
+minute; rows are kept 30 days. One live bet per (event_id or event, market,
+line, selection). `ENABLE_FINDER=false` removes the routes.
+
 `kelly` and `boost` are client-side calculators with no routes. The legacy
 aliases (`/cards/*`, `/tennis/*`) still answer and are hidden from the schema.
 
@@ -244,6 +290,7 @@ clients, hub and betfinder routes and `source_scope` were removed without a
 | auth, grants, key resolution | `render/api/app/security.py` |
 | API clients table / CLI | `render/api/app/models.py::ApiClient`, `render/api/app/apikeys.py` |
 | value feed | `render/api/app/value/service.py`, `render/api/app/routers/value.py` |
+| Finder | `render/api/app/finder/rows.py`, `render/api/app/routers/finder.py` |
 | per-tool services | `render/api/app/cards/feed.py`, `render/api/app/twoup/feed.py`, `render/api/app/coupons/service.py`, `render/api/app/pnl/service.py`, `render/api/app/shop/service.py` (+ the existing `cards/`, `goalscorers/` packages) |
 | response models | `render/api/app/schemas.py` |
 | route walk test | `render/api/tests/test_openapi.py` |

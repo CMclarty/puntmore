@@ -1,5 +1,7 @@
 # Finder — the private Bet Finder (design, 6 Nov 2026)
 
+Built: 6 Nov 2026, plan `docs/superpowers/plans/2026-11-06-finder.md`.
+
 Written 6 Nov 2026 from a conversation with Callum; his decisions are marked **(Callum)**, the author's defaults **(call)**. `docs/decisions.md` wins over this file. It is the design a builder plans from; it changes in the same pull request as the code.
 
 ## What it is and why

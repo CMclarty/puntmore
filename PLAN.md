@@ -570,6 +570,14 @@ Definition of Done: `grep -ri "theoddsapi\|bettingiscool\|odds_api_key" render/a
 is empty, the coupon feed is unchanged, and the Scraper runs a day from local
 config.
 
+### 12. Finder (Nov 2026)
+- [x] **Finder, Callum's private Bet Finder on me** — `docs/finder-spec.md`,
+      built from `docs/superpowers/plans/2026-11-06-finder.md` (6 Nov 2026):
+      `finder_rows` and its status machine on Render, `/api/finder/*` on the
+      ingest key and the `finder` grant, a private `finder` value source, the
+      `/finder` page on the me site; on the Hub, tips go to Hermes
+      (`puntmore finder new|post|status`) and the link runs without a socket.
+
 ## Parked (after the open work is done)
 
 ### Goalscorers on OddsPapi
