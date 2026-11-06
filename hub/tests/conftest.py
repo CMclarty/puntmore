@@ -20,7 +20,7 @@ def cfg(tmp_path: Path) -> Settings:
         data_dir=tmp_path, db_path=tmp_path / "hub.sqlite",
         sub_clients_file=tmp_path / "sub_clients.yaml",
         scraper_data_dir=tmp_path / "scraper",
-        discord_webhook="", hermes_bin="", escalate_to_local_ai=False,
+        discord_webhook="", hermes_bin="", escalate_to_hubai=False,
         hermes_home=tmp_path / "hermes",
     )
 

@@ -38,8 +38,8 @@ def raise_escalation(store: Store, kind: str, ref: str, detail: str, *, cfg: Set
         raise ValueError(f"unknown escalation kind {kind!r}")
     esc_id = store.add_escalation(kind, ref, detail)
     alerts.send(store, f"escalation:{kind}:{ref}", f"escalation #{esc_id} {kind} {ref}: {detail}", level="error", cfg=cfg)
-    if notify and cfg.escalate_to_local_ai:
-        notify_local_ai(store, esc_id, cfg=cfg)
+    if notify and cfg.escalate_to_hubai:
+        notify_hubai(store, esc_id, cfg=cfg)
     return esc_id
 
 
@@ -74,7 +74,7 @@ def brief_for(store: Store, esc_id: int) -> str:
     )
 
 
-def notify_local_ai(store: Store, esc_id: int, *, cfg: Settings = default_settings) -> bool:
+def notify_hubai(store: Store, esc_id: int, *, cfg: Settings = default_settings) -> bool:
     """Start Hermes on the escalation in the background. Returns True if it was launched."""
     binary = Path(cfg.hermes_bin) if cfg.hermes_bin else None
     if binary is None or not binary.is_file():

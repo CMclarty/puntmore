@@ -38,6 +38,14 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() not in ("0", "false", "no", "off", "")
 
 
+def _env_bool_first(*names: str, default: bool) -> bool:
+    """``_env_bool`` over the first of ``names`` that is set (a renamed variable, then its old name)."""
+    for name in names:
+        if os.environ.get(name) is not None:
+            return _env_bool(name, default)
+    return default
+
+
 def _env_first(*names: str, default: str) -> str:
     """The first of ``names`` that is set and non-blank (a renamed variable, then its old name)."""
     for name in names:
@@ -77,7 +85,7 @@ class Settings:
     # the repo this package was checked out in, so the console and the library are the same commit.
     scraper_src: Path = Path(os.environ.get("PUNTMORE_SCRAPER_SRC") or Path(__file__).resolve().parents[2])
 
-    # Alerting and the local AI
+    # Alerting and HubAI (the Hermes layer: its binary, profiles and home)
     discord_webhook: str = os.environ.get("PUNTMORE_DISCORD_WEBHOOK", "")
     hermes_bin: str = os.environ.get("PUNTMORE_HERMES_BIN", str(Path.home() / ".local" / "bin" / "hermes"))
     hermes_profile: str = os.environ.get("PUNTMORE_HERMES_PROFILE", "default")
@@ -85,7 +93,9 @@ class Settings:
     # the runbook hub/deploy/hermes-skills/puntmore-scraper-ops; everything else goes to hermes_profile.
     hermes_scraper_profile: str = os.environ.get("PUNTMORE_HERMES_SCRAPER_PROFILE", "scraper-manager")
     hermes_home: Path = Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
-    escalate_to_local_ai: bool = _env_bool("PUNTMORE_ESCALATE_TO_LOCAL_AI", True)
+    # PUNTMORE_ESCALATE_TO_LOCAL_AI is the old name, still read when the new one is unset.
+    escalate_to_hubai: bool = _env_bool_first("PUNTMORE_ESCALATE_TO_HUBAI", "PUNTMORE_ESCALATE_TO_LOCAL_AI",
+                                              default=True)
     alert_dedup_hours: float = float(os.environ.get("PUNTMORE_ALERT_DEDUP_HOURS", "6"))
 
     timezone: str = os.environ.get("PUNTMORE_TZ", "Europe/London")
