@@ -66,8 +66,17 @@ class Settings(BaseSettings):
     # defaults: 2 min inside 45 min, 5 min inside 2h, 15 min inside 6h, then
     # hourly — ~15k requests/month on the 13 competitions x 2 books.
     oddspapi_ttl_tiers: str = "2700:120,7200:300,21600:900,inf:3600"
-    # A ceiling, not a target: ~146/day is the planned spend, so this only
-    # bites on a runaway. Keep it below (monthly plan / 30).
+    # A ceiling, not a target, so this only bites on a runaway. Keep it below
+    # (monthly plan / 30). ~146/day was the planned spend before the 2-Up
+    # feed. Its `twoup_refresh` job runs 24/7 every `twoup_feed_ttl` (5 min)
+    # and asks bet365 for two chunks a pass, billed only when the tiered cache
+    # above has expired: ~48/day while neither chunk has a kick-off within 6h,
+    # rising towards a ceiling of ~576/day (both chunks re-billed every pass)
+    # through a run of kick-offs. Its Pinnacle chunks are the coupon
+    # tracker's and Paddy's, so mostly cache hits; when nothing else keeps
+    # them warm they bill at the same tiered rate. Not measured yet: read
+    # `feed.last_pass.requests_today` on /api/2up/diagnostics before
+    # trusting a figure.
     # Plan: 100,000/month (Oct 2026) = 3,333/day. The cap sits under that so
     # one runaway day cannot spend the month.
     oddspapi_daily_request_budget: int = 3000
@@ -156,8 +165,10 @@ class Settings(BaseSettings):
     # connects to a Hub (Render has no Hub endpoint).
     # Mounts /api/2up. Off = no router.
     enable_twoup: bool = True
-    # Global kill switch, reported by GET /api/2up/diagnostics. An .env change,
-    # no code change.
+    # Global kill switch: GET /api/2up/feed returns no rows (status.killed)
+    # and the `2up` source of /api/value returns none (errors["2up"] says
+    # killed); /api/2up/diagnostics reports it. An .env change, no code
+    # change. The refresh job keeps pricing, so lifting it serves a fresh board.
     twoup_kill_switch: bool = False
     # Qualifying competitions (ids or names, as `oddspapi_tournament_ids`).
     # bet365's early payout runs on the major leagues and the European club
@@ -167,8 +178,9 @@ class Settings(BaseSettings):
     # nothing extra and bet365 adds 2 requests per refresh (tiered, cached by
     # the client like every other OddsPapi call).
     twoup_tournament_ids: str = "17,18,24,8,23,35,34,238,7,679"
-    # How long one priced feed is reused by GET /2up/feed.
-    # The OddsPapi client's own tiered cache decides what is actually billed.
+    # The `twoup_refresh` job's interval (seconds): how often the served board
+    # is re-priced. The OddsPapi client's own tiered cache decides what is
+    # actually billed.
     twoup_feed_ttl: int = 300
     # Which fixtures are candidates: kicking off within this many hours and at
     # least this many minutes from now (a bet must have time to be placed).
