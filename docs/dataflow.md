@@ -10,7 +10,7 @@ change, not a bug fix, and needs a line in the register.
 | # | Stage | Record produced | Owner, where it lives | Id | Status words |
 |---|---|---|---|---|---|
 | 1 | A page is loaded | nothing durable: a page load, counted against the site's budget | Scraper service, `guard.sqlite3` | — | per target: `running`, `paused`, `blocked`, `retired` (`status.json`) |
-| 2 | A parser reads rows | **prices** (a Paddy page: raw rows the Paddy board turns into value bets) or **tips** (an external source's bets): event, market, selection, optional advised price, stake units, tip time, expiry, origin. A tipster's email is parsed the same way on the Hub (`hub/puntmore_hub/mail.py`, one parser per tipster in `tipsters/`) | Scraper service, `latest/<target>.json`; an email: the Hub, in memory (the message recorded in `mail_seen`) | **`tip_id`**, minted here: sha1 of source, normalised event, market, selection, day (`scraper/ids.py` = `hub/puntmore_hub/ids.py`) | — |
+| 2 | A parser reads rows | **prices** (raw rows the Paddy board turns into value bets: Paddy Power's lines off a Paddy page, and the fair saves prices read from Bookie Bashing, `bb-saves`) or **tips** (an external source's bets): event, market, selection, optional advised price, stake units, tip time, expiry, origin. A tipster's email is parsed the same way on the Hub (`hub/puntmore_hub/mail.py`, one parser per tipster in `tipsters/`) | Scraper service, `latest/<target>.json`; an email: the Hub, in memory (the message recorded in `mail_seen`) | **`tip_id`**, minted here: sha1 of source, normalised event, market, selection, day (`scraper/ids.py` = `hub/puntmore_hub/ids.py`) | — |
 | 3 | Rows leave the Scraper service | a **drop file** per run under `<data>/hub/tips/` (`scraper_tips`), problems as **event** files under `<data>/hub/events/` (`scraper_event`): `hub/PROTOCOL.md`. Paddy's prices are the exception for now: POSTed straight to Render (`/api/paddy/*`, ingest key) | Scraper service writes; the Hub reads and moves each file to `done/` | `tip_id` on every row; `msg_id` per file | event kinds: `unhealthy_source`, `blocked_source` |
 | 4 | Scraper control takes them in | a **tip** row in the Hub store, deduplicated on `tip_id` (`inbox.ingest_rows`, the one storage path, also for an email's rows); an event becomes an **escalation** for HubAI | the Hub daemon (`hub/puntmore_hub/inbox.py`, `mail.py`), `hub.sqlite` (`tips`, `escalations`) | `tip_id` | escalation: open, resolved |
 | 5 | HubAI judges the tip | a **tip on Finder**: the tip's event, market, selection, the price and fair price it quotes, origin, advised stake, a one-line reason and a verdict, posted by `puntmore finder post` to `POST /api/finder/rows`; the tip is marked in `finder_posted` with the status Render stored. `puntmore finder skip` marks a tip HubAI cannot post | HubAI (`hub/puntmore_hub/finder.py`); Callum asked on Telegram when HubAI is unsure | `tip_id` | `asked`, `offered`, `rejected` |
@@ -33,8 +33,8 @@ change, not a bug fix, and needs a line in the register.
    id is `event_id` + `side`, stable across refreshes. `msg_id` belongs to one drop file only.
    Nobody down the chain recomputes any of them.
 3. **One lifecycle per object, defined once.** The status words above are the whole vocabulary:
-   a feed's in `twoup/feed.py:TwoUpFeed.status`, a target's in `scraper/status.py`, a Finder
-   row's in `app/finder/rows.py` (from `docs/finder-spec.md`). The Console, the CLI, the docs and
+   a feed's in `twoup/feed.py:TwoUpFeed.status`, a target's in `scraper/status.py`, a tip on
+   Finder's in `app/finder/rows.py` (from `docs/finder-spec.md`). The Console, the CLI, the docs and
    the tests use those words; a new state is a change to this page.
 4. **Config flows down, data flows up, never on the same path.** Decisions in the register,
    targets through `scraper/targets.py`, Render settings in its config: all of that moves down

@@ -63,9 +63,11 @@ names and no other; older names appear only in `docs/retired.md`.
   line). A **tip** is a bet from an external source (a tipster's email, a
   page, WhatsApp, or Callum asking for one by hand), which may carry its own
   fair price, the one HubAI judges it on. A **price** is a raw row the Scraper
-  service reads off a Paddy page, which the Paddy board turns into value bets.
-  The Scraper service hands up two kinds of row, prices and tips, and Scraper
-  control routes them. Finder is the tips board: the tips HubAI has judged,
+  service reads for the Paddy board, which turns prices into value bets: a
+  Paddy Power line off a Paddy page, or a fair price the Scraper reads from
+  Bookie Bashing for Paddy's saves (`bb-saves`, posted to
+  `/api/paddy/saves-fair`). The Scraper service hands up two kinds of row,
+  prices and tips, and Scraper control routes them. Finder is the tips board: the tips HubAI has judged,
   its feed the ones it offered; a row there is "a tip on Finder". The Bet
   Placer places bets from all three feeds whatever their kind. (6 Nov 2026,
   Callum)
@@ -87,8 +89,9 @@ names and no other; older names appear only in `docs/retired.md`.
 
 - **Hub** is Callum's Strix Halo box on a residential connection; **Render** is
   the cloud service. (5 Nov 2026, Callum)
-- **HubAI runs the Hub.** It is the Hermes layer: profiles chief of staff
-  (default), betting-supervisor, scraper-manager, betting-client-manager and
+- **HubAI is the Hub's AI**, a peer of the Hub's other four sub-components.
+  It is the Hermes layer: profiles chief of staff (default),
+  betting-supervisor, scraper-manager, betting-client-manager and
   software-supervisor, all on one model, Qwen3.5-122B under llama-server
   (alias `qwen`); no second, cheaper model. (4–5 Nov 2026, Callum)
 - **Render is one Docker web service**; every push to `main` deploys it. It

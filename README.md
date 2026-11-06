@@ -46,7 +46,8 @@ One program on Callum's box, in five parts:
 
 - **Scraper service** (`scraper/`): the one real Chrome on the desktop; reads every page any
   tool needs and fills what OddsPapi lacks. It hands up two kinds of row: **prices** (raw rows
-  off a Paddy page, which the Paddy board turns into value bets) and **tips** (bets from an
+  for the Paddy board, which turns them into value bets: Paddy Power's lines off a Paddy page,
+  and the fair prices for Paddy's saves read from Bookie Bashing) and **tips** (bets from an
   external source).
 - **Scraper control**: rules, routing and switches for every source's rows (pages and the
   tipster mailbox), driven from the Console; rows go from the Scraper service to Scraper control

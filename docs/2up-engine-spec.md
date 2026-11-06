@@ -42,8 +42,8 @@ and it does nothing else: sizing, placing and the books are the Bet Placer's
   carries `generated_at`, every row carries `priced_at`, and `status` says what happened:
   - `stale: true` when the last pass failed and the last good board is being served, with its
     old `priced_at` and `served_at`; a transient fetch error never empties the feed;
-  - `degraded: true` when the board is partly priced, with `cannot_price` naming each missing
-    book, held chunk or quota;
+  - `degraded: true` when the board is partly priced, or when the rescue table is unreadable,
+    with `cannot_price` naming each missing book, held chunk or quota, and the unreadable table;
   - `not_yet_refreshed: true` before the first pass after a deploy;
   - `killed: true` when the global `TWOUP_KILL_SWITCH` is on, which empties the feed.
 - **Transport is HTTP pull.** `GET /api/2up/feed` is the whole API. *Call:* no push, no per-reader
