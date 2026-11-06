@@ -1,7 +1,8 @@
 """GET /api/value — what value is on offer right now, across every tool.
 
-Grant `value` (or "*") sees every source; any tool grant sees that tool's
-rows only. The logic is app/value/service.py; this router only resolves who
+Grant `value` (or "*") sees every shared source; any tool grant sees that
+tool's rows only. Finder is a private source: only its own grant reads it, and
+only at /api/value/finder, never in the combined feed. The logic is app/value/service.py; this router only resolves who
 is asking and reads the query. Read-only: nothing here places a bet.
 """
 from datetime import datetime, timezone
@@ -47,11 +48,13 @@ def get_value(
     perms: str = Depends(user_permissions),
     db: Session = Depends(get_db),
 ):
-    """Every value selection this caller may see, best edge first."""
+    """Every value selection this caller may see, best edge first. A private
+    source (finder) is never part of it: read it at /api/value/{source}."""
     sources = service.visible_sources(perms)
     if not sources:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
-    return _feed(request, db, sources, min_edge, kickoff_within_hours, bookmaker)
+    shared = [s for s in sources if not s.private]
+    return _feed(request, db, shared, min_edge, kickoff_within_hours, bookmaker)
 
 
 @router.get("/{source}", response_model=ValueFeedOut)
@@ -64,7 +67,8 @@ def get_value_for(
     perms: str = Depends(user_permissions),
     db: Session = Depends(get_db),
 ):
-    """One source's value selections (paddy | scorers | coupon | 2up)."""
+    """One source's value selections (paddy | scorers | coupon | 2up | finder;
+    finder only with the `finder` grant, never the `value` grant)."""
     if source not in service.BY_NAME or not service.source_enabled(service.BY_NAME[source]):
         raise HTTPException(status_code=404, detail=f"Unknown source: {source}")
     allowed = [s for s in service.visible_sources(perms) if s.name == source]

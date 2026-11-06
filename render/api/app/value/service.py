@@ -29,7 +29,11 @@ logger = logging.getLogger("uvicorn.error")
 class Source:
     name: str        # what a row's `source` says, and the /api/value/{source} path
     tool: str        # the grant (and enable flag) that owns it
-    bookmaker: str
+    bookmaker: str   # "" = each row names its own
+    # A private source is read only through its own grant, at
+    # /api/value/{source}: never in the combined GET /api/value, and never
+    # through the `value` grant (machine keys that may belong to others).
+    private: bool = False
 
 
 # Feed order. A source is listed only while its tool is enabled on the server.
@@ -40,6 +44,9 @@ SOURCES: tuple[Source, ...] = (
     # The 2-Up engine (app/twoup/): part of the 365 tool, so the 365 grant,
     # but switched by its own flag (ENABLE_TWOUP), not ENABLE_ACCABONUS.
     Source("2up", "accabonus", "bet365"),
+    # Finder (app/finder/, docs/finder-spec.md): Callum's tips as Hermes
+    # judged them. The bookmaker is each tip's own.
+    Source("finder", "finder", "", private=True),
 )
 BY_NAME = {s.name: s for s in SOURCES}
 
@@ -55,11 +62,14 @@ def source_enabled(src: Source, on: list[str] | None = None) -> bool:
 
 def visible_sources(perms: str) -> list[Source]:
     """Sources this caller may read: all of them with the `value` grant (or
-    "*"), otherwise those whose tool it holds — and only enabled tools."""
+    "*"), otherwise those whose tool it holds — and only enabled tools. A
+    private source only through its own tool's grant ("*" holds every tool)."""
     on = list(enabled_tools())
     everything = has_permission(perms, "value")
     return [s for s in SOURCES
-            if source_enabled(s, on) and (everything or has_permission(perms, s.tool))]
+            if source_enabled(s, on)
+            and (has_permission(perms, s.tool) if s.private
+                 else everything or has_permission(perms, s.tool))]
 
 
 def _utc(value) -> datetime | None:
@@ -152,6 +162,18 @@ def twoup_rows(twoup_feed, floor: float,
     return value_rows(twoup_feed, floor, now)
 
 
+def finder_rows(db: Session, now: datetime) -> list[ValueSelection]:
+    """Finder's `offered` rows (app/finder/rows.feed) in the shared shape:
+    `odds` and `fair` are the prices the tip quotes, `basis` "tip"."""
+    from ..finder.rows import feed
+    return [ValueSelection(
+        source="finder", bookmaker=r.bookmaker, event_id=r.event_id, event=r.event,
+        home=r.home, away=r.away, kickoff=_utc(r.kickoff), sport=r.sport,
+        market=r.market, selection=r.selection, line=r.line, side=r.side,
+        odds=r.odds, fair=r.fair, edge=r.edge, basis="tip", seen_at=_utc(r.seen_at),
+    ) for r in feed(db, now)]
+
+
 # --- the feed -----------------------------------------------------------------
 
 def collect(
@@ -167,8 +189,10 @@ def collect(
 ) -> tuple[list[ValueSelection], dict[str, str]]:
     """Every value row from `sources`, filtered, best edge first.
 
-    `min_edge` None means edge > 0 (value at all); a number means edge >= it,
-    and may be negative to see near-value rows. A source that raises is left
+    `min_edge` None means edge > 0 (value at all) — except Finder, whose
+    every offered row is served (the offer is Hermes's verdict on the tip);
+    a number means edge >= it for every source, and may be negative to see
+    near-value rows. A source that raises is left
     out and named in the returned errors — the rest still answer. A source
     may also answer with a note (2up: killed, stale, not yet refreshed,
     cannot price, partly priced),
@@ -182,12 +206,13 @@ def collect(
         "scorers": lambda: (scorer_rows(db, floor, now), None),
         "coupon": lambda: (coupon_rows(db, floor, now), None),
         "2up": lambda: twoup_rows(twoup_feed, floor, now),
+        "finder": lambda: (finder_rows(db, now), None),
     }
     rows: list[ValueSelection] = []
     errors: dict[str, str] = {}
     want_book = (bookmaker or "").strip().lower() or None
     for src in sources:
-        if want_book and src.bookmaker != want_book:
+        if want_book and src.bookmaker and src.bookmaker != want_book:
             continue
         try:
             got, note = builders[src.name]()
@@ -198,8 +223,11 @@ def collect(
             logger.error("value feed: %s failed: %s", src.name, exc)
             errors[src.name] = f"{type(exc).__name__}: {exc}"[:300]
 
+    if want_book:
+        # A source whose rows each name their own bookmaker (Finder).
+        rows = [r for r in rows if r.bookmaker.lower() == want_book]
     if min_edge is None:
-        rows = [r for r in rows if r.edge > 0]
+        rows = [r for r in rows if r.edge > 0 or r.source == "finder"]
     else:
         rows = [r for r in rows if r.edge >= min_edge]
     if kickoff_within_hours is not None:
