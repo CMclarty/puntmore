@@ -41,5 +41,11 @@ def test_escalate_to_hubai_reads_the_new_name_and_still_the_old(monkeypatch):
     assert _env_bool_first(*names, default=True) is False
     monkeypatch.setenv("PUNTMORE_ESCALATE_TO_HUBAI", "1")          # the new name wins
     assert _env_bool_first(*names, default=True) is True
+    # A blank new name counts as unset, as in _env_first: the old name is read.
+    monkeypatch.setenv("PUNTMORE_ESCALATE_TO_HUBAI", "")
+    monkeypatch.setenv("PUNTMORE_ESCALATE_TO_LOCAL_AI", "1")
+    assert _env_bool_first(*names, default=False) is True
+    monkeypatch.setenv("PUNTMORE_ESCALATE_TO_LOCAL_AI", " ")
+    assert _env_bool_first(*names, default=True) is True
     from puntmore_hub.config import Settings
     assert "escalate_to_hubai" in {f.name for f in __import__("dataclasses").fields(Settings)}

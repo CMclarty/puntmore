@@ -3,7 +3,8 @@
 The placement engine here is where the Bet Placer starts (`docs/placer-spec.md`, which holds
 everything else: what it reads, how it sizes, its open work). The engine is real and tested; the
 part that touches a bookmaker account is a stub (`adapters/phone.py`) that refuses every bet, so
-the Hub runs in dry-run.
+the Hub runs in dry-run. **Nothing calls the engine yet**: it has no caller in production until
+the Bet Placer exists to read the feeds and hand it bets; only the tests drive it today.
 
 ## The engine
 

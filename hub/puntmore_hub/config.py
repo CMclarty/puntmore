@@ -39,9 +39,11 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def _env_bool_first(*names: str, default: bool) -> bool:
-    """``_env_bool`` over the first of ``names`` that is set (a renamed variable, then its old name)."""
+    """``_env_bool`` over the first of ``names`` that is set and non-blank (a renamed variable, then
+    its old name). A blank value counts as unset, as in ``_env_first``."""
     for name in names:
-        if os.environ.get(name) is not None:
+        raw = os.environ.get(name)
+        if raw is not None and raw.strip():
             return _env_bool(name, default)
     return default
 
