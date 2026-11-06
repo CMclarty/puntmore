@@ -11,24 +11,12 @@ export function kickoffLabel(iso, now = new Date()) {
   return `${d.toLocaleDateString([], { weekday: 'short' })} ${time}`
 }
 
-// A bet's one line: its legs as "selection @ price", joined for a multiple.
-export const betLabel = (bet) =>
-  (bet.legs || []).map(l => `${l.selection} @ ${Number(l.price).toFixed(2)}`).join(' / ')
-
-// What the bet is worth saying after its status: the price it went on at, the
-// new price it was re-run at, why it failed, or how it settled.
-export function betNote(bet) {
-  switch (bet.status) {
-    case 'placed': return bet.actual_price != null ? `@ ${bet.actual_price.toFixed(2)}` : ''
-    case 'price_changed': return bet.new_price != null ? `now ${bet.new_price.toFixed(2)}` : ''
-    case 'failed': return bet.fail_reason || ''
-    case 'settled': return bet.outcome
-      ? `${bet.outcome}${bet.return_amount != null ? ` £${bet.return_amount.toFixed(2)}` : ''}` : ''
-    default: return ''
-  }
+// "14:05" in the viewer's zone, for when the board or a row was priced; a dash
+// for a missing or unparseable time (an older API mid-deploy sends none).
+// hourCycle keeps it 24-hour in a 12-hour locale too.
+export function timeLabel(iso) {
+  if (typeof iso !== 'string' || !iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
 }
-
-export const gbp = (n) => `£${Number(n || 0).toFixed(2)}`
-
-// A signed P&L: "+£12.50" / "-£3.00".
-export const signedGbp = (n) => `${n < 0 ? '-' : '+'}£${Math.abs(Number(n || 0)).toFixed(2)}`

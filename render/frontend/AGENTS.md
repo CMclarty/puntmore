@@ -33,14 +33,18 @@ screen is for finding a bet and placing it in seconds.
   "improve" the rest of the page alongside it.
 
 ## The 2-Up tab (`pages/TwoUpPage.jsx`, 6 Nov 2026)
-Two lists behind the one floating switch the Paddy page uses: **Feed**, every
-side the engine would stake (`/api/2up/feed?value_only=true`), best edge
-down, price and edge as % of fair; **Ledger**, one client's bets newest first
-in the ledger's own status words, its open exposure, staked, returned and
-P&L on one line, and the per-client kill switch (one tap on; resuming asks).
-Nothing on it places a bet or configures the engine: the dials are `.env` on
-Render, the Hub's switch is the Hub's. Helpers in `twoup.js`, pinned by
-`twoup.test.js`.
+The Feed alone: every value side on the server's scheduled board
+(`/api/2up/feed?value_only=true`), best edge down, price and edge as % of
+fair, with the board's **updated** time beside the refresh button and each
+row's **priced** time. A line in the error style says when the board is stale
+(an older board kept while OddsPapi is not answering), stopped by the kill
+switch (`TWOUP_KILL_SWITCH`, global, `.env`) or not yet refreshed since boot.
+An older API mid-deploy may send no `generated_at`, `priced_at` or `status`
+keys: the page shows "—" and never throws. Nothing on it places a bet, keeps
+an account or configures the engine: the dials are `.env` on Render. (History:
+until 6 Nov 2026 a **Ledger** view sat behind a Feed / Ledger switch with a
+per-client kill switch; the ledger left Render with the accounts.) Helpers in
+`twoup.js`, pinned by `twoup.test.js`.
 
 ## The acca maths (client-side, pinned by vitest)
 - **Acca insurance** (`frontend/src/accaInsurance.js`, Oct 2026): the Acca Min

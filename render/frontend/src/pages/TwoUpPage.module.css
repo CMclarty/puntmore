@@ -1,38 +1,8 @@
-/* The 2-Up tab's own bits; the lists are FeedPage.module.css and the
-   Feed / Ledger switch is CardsPage.module.css's offer switch. */
-.client {
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink);
-  background: none;
-  border: none;
-  padding: 0;
-}
+/* The 2-Up tab's own bits; the list is FeedPage.module.css. */
 
+/* The header's right side: the board's "updated" time beside the refresh button. */
 .actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-
-.kill {
-  background: none;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  color: var(--ink);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1;
-  padding: 4px 8px;
-  cursor: pointer;
-}
-.kill:disabled { opacity: 0.5; cursor: default; }
-.killOn { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-
-/* One shade per bet status, the ledger's own words (twoup/ledger.py STATUSES). */
-.queued, .sent { color: var(--muted); background: var(--zebra); }
-.placed { color: var(--ink); background: var(--zebra); }
-.price_changed { color: var(--amber); background: var(--amber-dim); }
-.failed { color: var(--red); background: transparent; }
-.settled { color: var(--accent); background: var(--accent-soft); }
