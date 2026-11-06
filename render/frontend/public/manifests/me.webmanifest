@@ -1,0 +1,32 @@
+{
+  "id": "/",
+  "name": "Me",
+  "short_name": "Me",
+  "description": "Me — Callum's own tools: Finder",
+  "display": "standalone",
+  "orientation": "portrait",
+  "start_url": "/",
+  "scope": "/",
+  "theme_color": "#1A1A18",
+  "background_color": "#FCFBF8",
+  "icons": [
+    {
+      "src": "/icons/me.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/me-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/me-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

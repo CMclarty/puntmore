@@ -23,7 +23,11 @@ from .time_utils import utcnow
 # Every tool the suite knows about. "*" in a permission string means all of
 # these plus any added later (so an admin never needs their entry edited when a
 # tool ships). Keep in sync with the routers mounted in main.py.
-ALL_TOOLS = ("coupons", "accabonus", "cards", "hills", "goalscorers", "pnl", "kelly", "boost", "shop")
+# `finder` (Nov 2026) is Callum's private Bet Finder on the me site
+# (docs/finder-spec.md): owner-only, so a key or account issued to anyone but
+# Callum never carries "*", only named grants.
+ALL_TOOLS = ("coupons", "accabonus", "cards", "hills", "goalscorers", "pnl", "kelly", "boost", "shop",
+             "finder")
 
 # Grants that name no page — they exist for machine callers. `value` reads the
 # cross-tool value feed (GET /api/value); `state` is the whole-app snapshot
@@ -278,6 +282,10 @@ def enabled_tools() -> list[str]:
     # Hills (the Paddy tool against William Hill): no flag of its own — the
     # grant alone gates it, and its source exists whenever OddsPapi does.
     tools.append("hills")
+    # Finder (the private Bet Finder, on me): rows come from the Hub's
+    # Hermes; ENABLE_FINDER switches the routes, jobs and page off together.
+    if settings.enable_finder:
+        tools.append("finder")
     return tools
 
 

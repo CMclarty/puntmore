@@ -256,7 +256,7 @@ def test_login_success_then_me():
     expected = {
         "username": "alice",
         "permissions": "*",
-        "tools": ["coupons", "cards", "pnl", "kelly", "boost", "shop", "hills"],
+        "tools": ["coupons", "cards", "pnl", "kelly", "boost", "shop", "hills", "finder"],
     }
     assert resp.json() == expected
     # session cookie now set on the client → /auth/me works
@@ -327,6 +327,31 @@ def test_me_reports_only_granted_and_enabled_tools():
     assert body["tools"] == ["coupons"]  # accabonus granted but no longer a tool; cards not granted
 
 
+def test_finder_is_a_grant_and_a_tool_the_server_surfaces():
+    from app.security import ALL_TOOLS, enabled_tools, parse_permissions
+    assert "finder" in ALL_TOOLS and "finder" in enabled_tools()
+    assert "finder" in parse_permissions("*")
+    assert not has_permission("value", "finder") and not has_permission("coupons+cards", "finder")
+
+
+def test_finder_is_off_with_its_flag(monkeypatch):
+    from app.config import settings
+    from app.security import enabled_tools
+    monkeypatch.setattr(settings, "enable_finder", False)
+    assert "finder" not in enabled_tools()
+
+
+def test_a_finder_only_account_signs_in_on_me_only():
+    _seed_user("cal", "finderpass", permissions="finder")
+    _use_real_auth()
+    body = {"username": "cal", "password": "finderpass"}
+    assert TestClient(app).post("/auth/login", json=body).status_code == 403
+    assert TestClient(app, base_url="http://shalgo.puntmore.com").post("/auth/login", json=body).status_code == 403
+    me = TestClient(app, base_url="http://me.puntmore.com")
+    assert me.post("/auth/login", json=body).status_code == 200
+    assert me.get("/auth/me").json()["tools"] == ["finder"]
+
+
 def test_seed_users_persists_the_grant():
     db = TestSession()
     try:
@@ -351,7 +376,7 @@ def test_has_permission_wildcard_and_explicit():
 
 def test_granted_tools_intersects_grant_with_enabled(monkeypatch):
     # Both flags on in the test env, so "*" yields every tool in nav order.
-    assert granted_tools("*") == ["coupons", "cards", "pnl", "kelly", "boost", "shop", "hills"]
+    assert granted_tools("*") == ["coupons", "cards", "pnl", "kelly", "boost", "shop", "hills", "finder"]
     assert granted_tools("coupons") == ["coupons"]
     # A grant for a disabled tool yields nothing for it.
     from app import security

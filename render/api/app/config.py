@@ -165,6 +165,12 @@ class Settings(BaseSettings):
     # connects to a Hub (Render has no Hub endpoint).
     # Mounts /api/2up. Off = no router.
     enable_twoup: bool = True
+    # --- Finder (app/finder/, docs/finder-spec.md) ----------------------------
+    # Callum's private Bet Finder on the me site, behind the `finder` grant.
+    # Keeps, serves and expires the bets Hermes posts from the Hub; never loads
+    # a page, never prices a tip, never places a bet. Off = no router, no jobs,
+    # no `finder` tool in the nav.
+    enable_finder: bool = True
     # Global kill switch: GET /api/2up/feed returns no rows (status.killed)
     # and the `2up` source of /api/value returns none (errors["2up"] says
     # killed); /api/2up/diagnostics reports it. An .env change, no code

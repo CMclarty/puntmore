@@ -1,4 +1,4 @@
-import { PUNTMORE, SHALGO, SITE } from './site'
+import { ME, PUNTMORE, SHALGO, SITE } from './site'
 
 // Home-screen identity per tool. The icon and title are read when "Add to
 // Home Screen" is tapped, but iOS reads the MANIFEST (start_url, id) at page
@@ -20,8 +20,8 @@ import { PUNTMORE, SHALGO, SITE } from './site'
 // "wrong page half the time". Only routes that render a page are listed; a
 // route that redirects (battles, /pnl/virtuals, /boost) takes its target's.
 //
-// Two sites share the shell (site.js): Paddy and Hills carry Shalgo's
-// name, and a path with no tool of its own (/login, Shalgo's
+// Three sites share the shell (site.js): Paddy and Hills carry Shalgo's
+// name, and a path with no tool of its own (/login, Shalgo's or Me's
 // landing "/") takes the identity of the site it is on.
 const IDENTITIES = [
   { match: (p) => p === '/' || p.startsWith('/t/'), title: 'Puntmore — Coupon', icon: 'coupons' },
@@ -39,11 +39,12 @@ const IDENTITIES = [
 const DEFAULTS = {
   [PUNTMORE]: { title: 'Puntmore', icon: 'puntmore' },
   [SHALGO]: { title: 'Shalgo', icon: 'shalgo' },
+  [ME]: { title: 'Me', icon: 'me' },
 }
 
 // The identity for a path on a site: title plus the three files the head points at.
 export function identityFor(pathname, site = SITE) {
-  const rows = site === SHALGO && pathname === '/' ? [] : IDENTITIES
+  const rows = site !== PUNTMORE && pathname === '/' ? [] : IDENTITIES
   const { title, icon, manifest = icon } = rows.find((i) => i.match(pathname)) || DEFAULTS[site]
   return {
     title,

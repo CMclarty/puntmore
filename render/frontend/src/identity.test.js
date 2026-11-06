@@ -32,6 +32,13 @@ describe('identityFor', () => {
     expect(identityFor('/hills', 'shalgo').title).toBe('Shalgo — Hills')
   })
 
+  it('gives me its own default, landing included', () => {
+    expect(identityFor('/login', 'me')).toEqual({
+      title: 'Me', svg: '/icons/me.svg', png: '/icons/me-180.png', manifest: '/manifests/me.webmanifest',
+    })
+    expect(identityFor('/', 'me').title).toBe('Me')
+  })
+
   it('falls back to the Puntmore identity elsewhere', () => {
     expect(identityFor('/login')).toEqual({
       title: 'Puntmore', svg: '/icon.svg', png: '/icons/puntmore-180.png', manifest: '/manifest.webmanifest',
