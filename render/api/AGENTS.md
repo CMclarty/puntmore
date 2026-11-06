@@ -205,7 +205,7 @@ loads a page, never prices a tip (no OddsPapi request) and never places a bet.
   `placed` is stored `rejected`, reason `duplicate of <tip_id>` (a placed bet
   is the one most worth not repeating). `event_id` is the canonical key
   Hermes fills (`football:<YYYY-MM-DD>:<home>-v-<away>`,
-  `horse:<course>:<HH:MM>`; `hub/README.md`, "Finder"), the event's words the
+  `horse:<YYYY-MM-DD>:<course>:<HH:MM>`; `hub/README.md`, "Finder"), the event's words the
   fallback. `tip_id` alone (a hash of the tip's words and day) cannot stop a
   reworded tip being placed twice.
 - **Two keys, never a session for writes.** `POST /finder/rows` (Hermes) and

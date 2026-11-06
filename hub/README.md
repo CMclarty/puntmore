@@ -57,7 +57,7 @@ The Hermes contract (the spec's step 2, which Callum tightens in use): **offer**
 
 **`event_id`, the canonical fixture key.** Render's duplicate rule matches the fixture on `event_id` (the event's words, folded, only when a row has none), so two tipsters' wordings of one fixture must give the same key. Hermes fills it on every row it can place on a day and time:
 - football: `football:<YYYY-MM-DD>:<home>-v-<away>`, the date of kick-off in UK time, home side first;
-- racing: `horse:<course>:<HH:MM>`, the off in UK time, 24-hour clock;
+- racing: `horse:<YYYY-MM-DD>:<course>:<HH:MM>`, the date and the off in UK time, 24-hour clock;
 - each name is the club's or the course's full common name, not the tip's nickname ("Man Utd" and "Spurs" are `manchester-united` and `tottenham-hotspur`; "FC"/"AFC" left off), in lower-case ASCII (accents dropped: "Atlético" is `atletico`), words joined by hyphens, no punctuation ("St. Mirren" is `st-mirren`, "Brighton & Hove Albion" is `brighton-hove-albion`).
 
 Examples: `football:2026-11-07:manchester-united-v-tottenham-hotspur`, `horse:cheltenham:13:30`. A key spelt two ways makes a duplicate look like a new bet, so this is the part of the contract to get right; leave `event_id` out of an asked row that has no day and time.
