@@ -214,6 +214,13 @@ docker exec puntmore-scraper python -m scraper check            # load targets.t
 docker exec puntmore-scraper python -m scraper selfcheck        # what a site sees of the browser (no network)
 ```
 
+## Credentials (none in the repo)
+
+In `/opt/puntmore-scraper/.env`: `SCRAPER_ALERT_WEBHOOK` (Discord), `SCRAPER_HEALTHCHECK_URL`
+(optional), `SAVES_INGEST_KEY`, which must match the value set on Render, and `VNC_PASSWORD` on
+a box with no screen. The Bookie Bashing login lives in the Chrome profile in the data
+directory; never share `data/profile/`: it holds the login cookies.
+
 ## Each tab's state
 Each match tab's status says what its market-tab clicks did (`loaded`,
 `clicked, nothing new`, `not found`, ...). A tab that is not found saves the

@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # fair: %EV = (1 + edge) × 100). Default -0.02 = the 98% EV preset.
     cards_min_edge: float = -0.02
 
-    # --- Cards & corners (SPEC 1, docs/provider-verification.md) ------------
+    # --- Paddy (the `cards` settings) ----------------------------------------
     # PADDY POWER VIA ODDSPAPI (Sept 2026). No other vendor carries Paddy's
     # corners/cards (probe, 28 Sept: one book with corners, none with cards,
     # no Paddy). With a key set, Paddy's side comes from OddsPapi instead —

@@ -21,8 +21,7 @@ For an event carrying both books' first-goalscorer prices:
 lands in outcome["description"] or outcome["name"]) has NOT been verified
 against live data — first-goalscorer only posts near kickoff for major events,
 so there was no in-season fixture to probe. _player_prices reads both fields;
-verify against a real response before trusting the numbers (docs/
-provider-verification.md).
+verify against a real OddsPapi response before trusting the numbers.
 """
 import difflib
 from dataclasses import dataclass

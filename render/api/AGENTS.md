@@ -708,3 +708,16 @@ second pricing path). Tool logic lives in services (`cards/feed.py`,
 `shop/service.py`); routers stay thin. The Python client is
 `clients/python/puntmore`. Nothing in the API places a bet — read and
 report — and no bookmaker-account automation is ever added here.
+
+## Lessons kept from the earlier plan
+
+- **The acca boost's eligibility (R8, June 2026). Do not redo this research.** Verified against
+  bet365's published terms: tennis all ATP/WTA/Challenger, MMA any event; basketball only
+  NBA/Euroleague/EuroBasket/FIBA/Olympics, American football NFL only, baseball MLB/NPB/KBO, ice
+  hockey NHL/Worlds/Olympics. **Cricket and rugby are NOT eligible.** Soccer IS eligible but was
+  deliberately excluded (the coupon tracker and Paddy cover it). Pre-season, exhibition and
+  All-Star games are excluded. Re-verify only if bet365 changes the offer; it applies when the
+  acca boost returns on OddsPapi.
+- **State the direction of a known bias, not just its existence (R10).** A note once called the
+  un-de-vigged coupon prices "slightly conservative". That was backwards: with no de-vig the fair
+  odds are too low, so value was overstated and Discord fired on non-value legs until July 2026.
