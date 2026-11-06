@@ -356,3 +356,40 @@ class HillsBet(Base):
     settled_by = Column(String, nullable=True)            # "oddspapi" or the user who set it
     placed_by = Column(String, nullable=False)
     placed_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class FinderRow(Base):
+    """One tip on Finder, Callum's private Bet Finder (docs/finder-spec.md,
+    app/finder/rows.py): what Hermes posted from the Hub, and where it is in
+    the status machine. Owner-only; kept 30 days from `created_at`.
+
+    `odds` and `fair` are the prices the TIP quotes (nothing here looks one
+    up); `edge` = odds / fair - 1, null with no fair. Times are naive UTC
+    like the rest of this file."""
+    __tablename__ = "finder_rows"
+
+    tip_id = Column(String, primary_key=True)          # minted once on the Hub (ids.py)
+    origin = Column(String, nullable=False)            # the tipster or page
+    sport = Column(String, nullable=False)             # football | horse
+    bookmaker = Column(String, nullable=False)         # as the tip names it
+    event = Column(String, nullable=False)             # "Home v Away" or "Course HH:MM"
+    home = Column(String, nullable=True)
+    away = Column(String, nullable=True)
+    event_id = Column(String, nullable=True)
+    kickoff = Column(DateTime, nullable=False)         # kick-off or the off
+    market = Column(String, nullable=False)            # as the tip names it; win | each_way for a horse
+    selection = Column(String, nullable=False)
+    line = Column(Float, nullable=True)
+    side = Column(String, nullable=True)
+    odds = Column(Float, nullable=False)
+    fair = Column(Float, nullable=True)
+    edge = Column(Float, nullable=True)
+    advised_stake = Column(Float, nullable=True)       # pounds; Hermes's advice, the placer decides
+    reason = Column(String, nullable=True)             # one line
+    status = Column(String, nullable=False, index=True)  # asked | offered | rejected | placed | gone | expired
+    expires_at = Column(DateTime, nullable=False, index=True)  # earlier of kickoff and the tip's expiry
+    asked_at = Column(DateTime, nullable=True)         # first posted as asked
+    answered_at = Column(DateTime, nullable=True)      # posted as offered or rejected
+    seen_at = Column(DateTime, nullable=False)         # last posted by Hermes
+    created_at = Column(DateTime, nullable=False, index=True)
+    updated_at = Column(DateTime, nullable=False)
