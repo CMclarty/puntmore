@@ -73,6 +73,16 @@ const TOOLS = [
       </svg>
     ),
   },
+  {
+    // The private Bet Finder: on the me site only (site.js).
+    tool: 'finder', name: 'Finder', to: '/finder', sub: 'Tips', priv: true,
+    matches: (p) => p.startsWith('/finder'),
+    icon: (
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="9.5" cy="9.5" r="5.5"/><line x1="13.5" y1="13.5" x2="19" y2="19"/>
+      </svg>
+    ),
+  },
 ]
 
 /**

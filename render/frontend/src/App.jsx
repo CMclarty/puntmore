@@ -21,6 +21,7 @@ const BoostPage = lazy(() => import('./pages/BoostPage'))
 const ShopPage = lazy(() => import('./pages/ShopPage'))
 const Three65Page = lazy(() => import('./pages/Three65Page'))
 const TwoUpPage = lazy(() => import('./pages/TwoUpPage'))
+const FinderPage = lazy(() => import('./pages/FinderPage'))
 const CardsPage = lazy(() => import('./pages/CardsPage'))
 
 // The path the app was FIRST loaded at, captured once before the router starts
@@ -117,6 +118,8 @@ export default function App() {
           <Route path="/kelly" element={protectTool(<KellyPage />, 'kelly')} />
           <Route path="/boost" element={<Navigate to="/virtuals" replace />} />
           <Route path="/shop" element={protectTool(<ShopPage />, 'shop')} />
+          {/* Finder, the private Bet Finder: on the me site (site.js). */}
+          <Route path="/finder" element={protectTool(<FinderPage />, 'finder')} />
           {/* AW 26 was retired (docs/retired.md): an old link lands home. */}
           <Route path="/aw26" element={<Navigate to="/" replace />} />
           {/* 365: the bet365 offers, a tab each. The acca boost tab returns on
