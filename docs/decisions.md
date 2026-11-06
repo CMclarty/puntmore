@@ -8,6 +8,53 @@ by Callum saying so, in a dated edit to this file in the same pull request as
 the code. Older product decisions (coupon tracker, pricing, design) stay in
 `PLAN.md` → Decisions and are not repeated here.
 
+## Names and structure (6 Nov 2026, Callum)
+
+Settled in conversation on 6 Nov 2026. Every document and comment uses these
+names and no other; older names appear only in `docs/retired.md`.
+
+- **Puntmore** is the project. **Render** is the cloud service, one deploy.
+  **Hub** is Callum's box and the one program that runs on it; nothing on the
+  box sits outside it. **Callum**, never "Cal", in writing.
+- **Render serves boards.** A **board** is a tool page with a one-way HTTP
+  **feed** of value rows: **Paddy** (corners, cards, goals, saves against
+  Paddy Power), **2-Up** (bet365's early-payout value, inside the **365
+  tool**), **Finder** (Callum's tips, judged on the Hub). Plus the coupon
+  tracker, Hills and Callum's personal tools, which are not boards. No
+  ledger, no account, no Hub endpoint on Render. `2up`, `twoup`, `cards`,
+  `accabonus` and `finder` are identifiers only, never prose.
+- **Two product hosts.** `shalgo` serves every public tool: the coupon
+  tracker, Paddy, Hills and 365 with 2-Up inside it. `me` serves Callum's
+  personal tools: Finder, dogs, Virtuals, P&L, Kelly, the shop. The main
+  domain is the front door, the login and the API. The `2up` host is dropped.
+- **The Hub has five sub-components.** **Scraper service**: the one real
+  Chrome on the desktop, reads pages, hands rows up. **Scraper control**: the
+  layer above it: rules, routing and switches for every source's rows (pages
+  and the tipster mailbox), driven from the Console's control page; rows go
+  from the Scraper service to Scraper control and from there to a board or to
+  HubAI, never from the service straight to a board (the Paddy price posts
+  go direct today and move behind Scraper control as the next Scraper work).
+  **HubAI**: the Hub's AI, the whole Hermes layer (the chief of staff on
+  Telegram and its specialist profiles, one Qwen model under llama-server);
+  it judges tips for Finder and may drive Scraper control. **Bet Placer**:
+  reads the three feeds, sizes, places on the phones through DeviceFarmer
+  (bet365 through the phone's browser), keeps the only book, posts
+  `placed` / `gone` to Finder; a black box for now, with a **phone
+  interface** and a **staking logic** inside it. **Console**: the page that
+  shows every sub-component and carries the control page.
+- **The Console is the one control surface**, reachable from anywhere
+  through a private tunnel; `me` links to it. Render holds no Hub config and
+  no Hub commands (the 5 Nov rule stands).
+- **A phone holds one or more bookmaker accounts**, in the bookmaker's app
+  and in the phone's browser.
+- **Third-party clients run the same Bet Placer on 2-Up only.** Paddy and
+  Finder are Callum's. The Bet Placer's key on the Hub carries `accabonus`,
+  `cards`, `finder` and `ingest`; a third party's carries `accabonus`.
+- Dropped names: Worker, betting agent, client engine, placement bot,
+  placement service, bet-placing service, private engine, local AI, local
+  model (except for llama-server itself), sub-client, Bet Finder
+  orchestrator, candidate tip, link daemon, the `2up` host.
+
 ## The two boxes
 
 - **Hub** is Callum's Strix Halo box on a residential connection; **Render** is
