@@ -8,10 +8,12 @@ yet, and hands every message from a tipster to that tipster's parser
 (`tipsters/<parser>.py`). The rows go down the same storage path as the Scraper's drops,
 `inbox.ingest_rows`, so a tip is one thing wherever it came from.
 
-Two things make a message idempotent. The mailbox's `\\Seen` flag, set once a poll has
-downloaded a message, keeps a poll from re-reading the whole folder (the search is UNSEEN).
-The store's `mail_seen` table, keyed on Message-ID, is the record that a message was read,
-so one is never turned into tips or an escalation twice even if the flag is lost. The
+Two things make a message idempotent. The mailbox's `\\Seen` flag keeps a poll from
+re-reading the whole folder (the search is UNSEEN); it is set per message, AFTER that
+message has been processed and recorded, so a poll that dies half way leaves the rest
+unseen for the next one, never flagged-but-unread. The store's `mail_seen` table, keyed on
+Message-ID, is the record that a message was read, so one is never turned into tips or an
+escalation twice even if the flag is lost. The
 `tip_id` of a mail tip is minted here, at first sight, with the same function the Scraper
 uses, and travels unchanged from here on.
 
@@ -21,9 +23,11 @@ body. A message from no configured tipster is ignored and counted. A mailbox tha
 reached is one alert (de-duplicated), not an escalation, and the poll stops there. A
 tipsters file that will not load is reported the same way and that poll does nothing.
 
-The fetch is a callable (`imap_fetch` is the real one, on `imaplib`) so the rest can be run
-on messages built in a test without a socket, and so `--dry-run` can read a real mailbox
-without flagging anything.
+The fetch is a callable (`imap_fetch` is the real one, on `imaplib`) returning a `Batch`:
+the messages as raw bytes, `mark(i)` to flag one of them once it is processed, `close()` to
+let the connection go. So the rest can be run on messages built in a test without a socket
+(a plain list of bytes is accepted as a batch that marks nothing), and `--dry-run` can read a
+real mailbox without flagging anything.
 """
 from __future__ import annotations
 
@@ -49,9 +53,28 @@ from .tipsters import PARSERS
 
 log = logging.getLogger("puntmore.mail")
 
-# fetcher(cfg, mark_seen=bool) -> the new messages as raw RFC822 bytes. With mark_seen the
-# mailbox flags them \Seen once downloaded; a dry-run passes False and leaves it untouched.
-Fetcher = Callable[..., list[bytes]]
+# fetcher(cfg, mark_seen=bool) -> a Batch (or a plain list of raw RFC822 bytes). With
+# mark_seen, Batch.mark(i) flags message i \Seen in the mailbox; a dry-run passes False and
+# nothing is flagged.
+Fetcher = Callable[..., "Batch | list[bytes]"]
+
+
+class Batch:
+    """The messages one fetch brought back, and how to flag each one read once it has been
+    processed. The plain version (no connection) is what a list of bytes becomes."""
+
+    def __init__(self, messages: list[bytes]):
+        self.messages = messages
+
+    def mark(self, i: int) -> None:   # noqa: ARG002 - nothing to flag
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+def as_batch(fetched) -> Batch:
+    return fetched if isinstance(fetched, Batch) else Batch(list(fetched))
 
 DETAIL_MAX = 300           # an escalation's detail: the subject and the error, never the body
 COUNT_KEYS = ("messages", "tips", "new_tips", "rejected", "ignored", "seen", "escalations")
@@ -201,34 +224,54 @@ def _rows_for(tipster: Tipster, m: Message) -> list[dict]:
 
 # ---- the mailbox ---------------------------------------------------------------------------------
 
-def imap_fetch(cfg: Settings, *, mark_seen: bool = True) -> list[bytes]:
-    """The real fetcher: every UNSEEN message in the folder as raw bytes. BODY.PEEK leaves
-    the flags alone; the batch is flagged \\Seen afterwards (not under a dry-run, which opens
-    the folder read-only) so the next poll's search starts after it."""
-    conn = imaplib.IMAP4_SSL(cfg.imap_host, cfg.imap_port, timeout=60)
-    try:
-        conn.login(cfg.imap_user, cfg.imap_password)
-        typ, _ = conn.select(cfg.imap_folder, readonly=not mark_seen)
-        if typ != "OK":
-            raise imaplib.IMAP4.error(f"cannot open folder {cfg.imap_folder!r}")
-        typ, data = conn.uid("SEARCH", None, "UNSEEN")
-        if typ != "OK":
-            raise imaplib.IMAP4.error("search failed")
-        uids = data[0].split() if data and data[0] else []
-        out = []
-        for uid in uids:
-            typ, data = conn.uid("FETCH", uid, "(BODY.PEEK[])")
-            if typ != "OK" or not data or not isinstance(data[0], tuple):
-                raise imaplib.IMAP4.error(f"fetch of uid {uid!r} failed")
-            out.append(data[0][1])
-        if mark_seen and uids:
-            conn.uid("STORE", b",".join(uids), "+FLAGS", r"(\Seen)")
-        return out
-    finally:
+class ImapBatch(Batch):
+    """The real batch: one IMAP connection held open until close(). Every UNSEEN message is
+    fetched with BODY.PEEK (flags untouched); mark(i) flags that one message \\Seen, so the
+    next poll's search starts after what was actually processed. Under a dry-run the folder
+    is opened read-only and mark() does nothing."""
+
+    def __init__(self, cfg: Settings, *, mark_seen: bool):
+        self._conn = imaplib.IMAP4_SSL(cfg.imap_host, cfg.imap_port, timeout=60)
+        self._mark = mark_seen
+        self._uids: list[bytes] = []
         try:
-            conn.logout()
-        except (imaplib.IMAP4.error, OSError):
-            pass
+            conn = self._conn
+            conn.login(cfg.imap_user, cfg.imap_password)
+            typ, _ = conn.select(cfg.imap_folder, readonly=not mark_seen)
+            if typ != "OK":
+                raise imaplib.IMAP4.error(f"cannot open folder {cfg.imap_folder!r}")
+            typ, data = conn.uid("SEARCH", None, "UNSEEN")
+            if typ != "OK":
+                raise imaplib.IMAP4.error("search failed")
+            uids = data[0].split() if data and data[0] else []
+            out = []
+            for uid in uids:
+                typ, data = conn.uid("FETCH", uid, "(BODY.PEEK[])")
+                if typ != "OK" or not data or not isinstance(data[0], tuple):
+                    raise imaplib.IMAP4.error(f"fetch of uid {uid!r} failed")
+                out.append(data[0][1])
+            self._uids = uids
+            super().__init__(out)
+        except BaseException:
+            self.close()
+            raise
+
+    def mark(self, i: int) -> None:
+        if self._mark and self._conn is not None:
+            self._conn.uid("STORE", self._uids[i], "+FLAGS", r"(\Seen)")
+
+    def close(self) -> None:
+        conn, self._conn = self._conn, None
+        if conn is not None:
+            try:
+                conn.logout()
+            except (imaplib.IMAP4.error, OSError):
+                pass
+
+
+def imap_fetch(cfg: Settings, *, mark_seen: bool = True) -> Batch:
+    """The real fetcher (see ImapBatch)."""
+    return ImapBatch(cfg, mark_seen=mark_seen)
 
 
 # ---- the poll ------------------------------------------------------------------------------------
@@ -267,12 +310,31 @@ def poll(store: Store, cfg: Settings = default_settings, *, fetcher: Fetcher | N
     except TipstersError as exc:
         return stop(f"tipsters file not loaded, nothing polled: {exc}", "mail:tipsters")
     try:
-        raws = (fetcher or imap_fetch)(cfg, mark_seen=not dry_run)
+        batch = as_batch((fetcher or imap_fetch)(cfg, mark_seen=not dry_run))
     except (imaplib.IMAP4.error, OSError) as exc:
         return stop(f"IMAP {cfg.imap_host}:{cfg.imap_port} {cfg.imap_folder}: {exc!r}", "mail:imap")
+    try:
+        _process(store, cfg, tipsters, batch, counts, dry_run=dry_run, notify=notify)
+    finally:
+        batch.close()
+    if not dry_run:
+        _write_status(cfg, counts)
+    return counts
 
+
+def _flag(batch: Batch, i: int) -> None:
+    """Flag message i read in the mailbox, after it is recorded here. A flag that fails
+    costs one re-read next poll (mail_seen skips it), never a lost message."""
+    try:
+        batch.mark(i)
+    except (imaplib.IMAP4.error, OSError) as exc:
+        log.warning("mail: could not flag message %d as seen: %s", i, exc)
+
+
+def _process(store: Store, cfg: Settings, tipsters, batch: Batch, counts: dict, *,
+             dry_run: bool, notify: bool) -> None:
     now = iso(utcnow())
-    for raw in raws:
+    for i, raw in enumerate(batch.messages):
         counts["messages"] += 1
         try:
             m = read_message(raw, default_date=now)
@@ -281,9 +343,12 @@ def poll(store: Store, cfg: Settings = default_settings, *, fetcher: Fetcher | N
             counts["ignored"] += 1
             if not dry_run:
                 store.mail_mark_seen("sha1:" + hashlib.sha1(raw).hexdigest())
+                _flag(batch, i)
             continue
         if store.mail_seen(m.message_id):
             counts["seen"] += 1
+            if not dry_run:
+                _flag(batch, i)
             continue
         tipster = tipster_for(tipsters, m.sender)
         if tipster is None or not tipster.enabled:
@@ -319,9 +384,7 @@ def poll(store: Store, cfg: Settings = default_settings, *, fetcher: Fetcher | N
                     log.warning("mail %s: rejected %s", tipster.name, p)
         if not dry_run:
             store.mail_mark_seen(m.message_id)
-    if not dry_run:
-        _write_status(cfg, counts)
-    return counts
+            _flag(batch, i)
 
 
 def status(cfg: Settings = default_settings) -> dict:

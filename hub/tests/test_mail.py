@@ -251,8 +251,8 @@ def test_a_message_without_a_date_takes_the_poll_time(mcfg, store):
 
 
 def test_the_real_fetcher_against_a_fake_imap_server(mcfg, monkeypatch):
-    """imap_fetch on a fake IMAP4_SSL: UNSEEN search, BODY.PEEK fetch, \\Seen only when asked,
-    read-only folder under a dry-run, logout always."""
+    """imap_fetch on a fake IMAP4_SSL: UNSEEN search, BODY.PEEK fetch, \\Seen per message and
+    only when asked (mark), read-only folder under a dry-run, logout on close and on failure."""
     raw1, raw2 = _mail(), _mail(message_id="<two@example.com>")
     log = []
 
@@ -282,12 +282,22 @@ def test_the_real_fetcher_against_a_fake_imap_server(mcfg, monkeypatch):
             log.append(("logout",))
 
     monkeypatch.setattr(imaplib, "IMAP4_SSL", FakeImap)
-    assert mail.imap_fetch(mcfg, mark_seen=True) == [raw1, raw2]
+    b = mail.imap_fetch(mcfg, mark_seen=True)
+    assert b.messages == [raw1, raw2]
     assert ("select", "INBOX", False) in log and ("uid", "SEARCH", None, "UNSEEN") in log
     assert ("uid", "FETCH", b"7", "(BODY.PEEK[])") in log
-    assert ("uid", "STORE", b"7,9", "+FLAGS", r"(\Seen)") in log and log[-1] == ("logout",)
+    assert not [e for e in log if e[1:2] == ("STORE",)]          # nothing flagged until processed
+    b.mark(1)
+    assert log[-1] == ("uid", "STORE", b"9", "+FLAGS", r"(\Seen)")
+    b.close()
+    assert log[-1] == ("logout",)
+    b.close()                                                    # idempotent
+    assert log[-1] == ("logout",) and log.count(("logout",)) == 1
     log.clear()
-    assert mail.imap_fetch(mcfg, mark_seen=False) == [raw1, raw2]
+    b = mail.imap_fetch(mcfg, mark_seen=False)
+    assert b.messages == [raw1, raw2]
+    b.mark(0)
+    b.close()
     assert ("select", "INBOX", True) in log and not [e for e in log if e[1:2] == ("STORE",)]
     log.clear()
     with pytest.raises(imaplib.IMAP4.error):
@@ -322,3 +332,25 @@ def test_cli_mail_and_health(mcfg, store, monkeypatch, capsys):
     assert "mail: last poll" in capsys.readouterr().out
     cli.main(["status"])
     assert "mail: last poll" in capsys.readouterr().out
+
+
+def test_a_message_is_flagged_read_only_after_it_is_recorded(mcfg, store):
+    """The poll that dies half way: what it had processed is flagged and in mail_seen; what
+    it had not is still UNSEEN for the next poll. So mark(i) follows mail_mark_seen, one
+    message at a time, and close() comes last."""
+    raws = [_mail(), _mail(message_id="<two@example.com>")]
+    events = []
+
+    class B(mail.Batch):
+        def mark(self, i):
+            events.append(("mark", i, store.mail_seen(mail.read_message(raws[i], default_date="x").message_id)))
+
+        def close(self):
+            events.append(("close",))
+
+    r = mail.poll(store, mcfg, fetcher=lambda cfg, *, mark_seen: B(raws))
+    assert r["messages"] == 2
+    assert events == [("mark", 0, True), ("mark", 1, True), ("close",)]
+    events.clear()
+    mail.poll(store, mcfg, fetcher=lambda cfg, *, mark_seen: B(raws), dry_run=True)
+    assert events == [("close",)]                                 # a dry-run flags nothing
