@@ -38,7 +38,7 @@ under it.)
 `/365/<tab>`: `acca` (the acca boost, removed 5 Nov 2026 and returning on OddsPapi, `accabonus` grant) and `scorers`
 (the goalscorer finder, `goalscorers` grant, PARKED 5 Nov 2026 behind `ENABLE_GOALSCORERS=false`) and `2up`
 (the 2-Up engine, `app/twoup/`, Nov 2026, `ENABLE_TWOUP`, the `accabonus` grant: the live part of it, its
-Feed and Ledger on `TwoUpPage.jsx` since 6 Nov 2026). `/accabonus`, `/tennis` and `/goalscorers` redirect into it; the
+a one-way value feed, the Feed alone on `TwoUpPage.jsx` since 6 Nov 2026). `/accabonus`, `/tennis` and `/goalscorers` redirect into it; the
 grants, flags and API paths keep their old names.
 The cards & corners tool is now **Paddy** (Oct 2026: corners, cards, goals and
 saves, all against Paddy Power): page `/paddy`, API `/api/paddy/*`. `/cards`
@@ -80,7 +80,7 @@ here and nowhere else, and change in the same pull request as the code.
   `.env` is git-ignored; only `.env.example` is committed.
 - The API (`render/api/`, on Render) never places a bet and no bookmaker-account
   automation is added to it (`render/api/AGENTS.md`, API clients). The engine that
-  produces bet lists lives on Render; placement lives on the Hub (`hub/`);
+  produces value feeds lives on Render; staking and placement live on the Hub (`hub/`);
   every page load lives in the Scraper (`scraper/`). Decisions 5 Nov 2026.
 - Every directory's own hard rules are in its `AGENTS.md`; they are not
   optional because they live in a different file.

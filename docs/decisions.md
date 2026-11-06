@@ -31,9 +31,25 @@ the code. Older product decisions (coupon tracker, pricing, design) stay in
 
 ## Where the logic lives
 
-- **Bet finding, pricing and decision live on Render; placement lives on the
-  Hub; every page load lives in the Scraper** (`scraper/`). Render never loads a
-  bookmaker page and never places a bet. (5 Nov 2026, Callum)
+- **Pricing and the value boards live on Render; staking, decision and
+  placement live on the Hub; every page load lives in the Scraper**
+  (`scraper/`). Render never loads a bookmaker page and never places a bet.
+  (5 Nov 2026, Callum; "decision" moved to the Hub 6 Nov 2026, "The 2-Up
+  engine and placement")
+- **The private Bet Finder (Finder, `docs/finder-spec.md`) is judged on the
+  Hub by Hermes.** Tips (email, pages, WhatsApp) have no fair line; Hermes
+  matches and assesses each one, infers a stake or asks Callum, and posts the
+  bet to Render through the Finder tool; the Bet Placer sizes it. The line
+  "the local model never prices a bet" is **struck**. Finder rows are
+  Callum's only. (6 Nov 2026, Callum)
+- **OddsPapi prices what it covers; the Scraper fills the markets it does
+  not**, and the Scraper is the Hub-side route for every page any tool
+  needs, so the sites see a residential IP and a real browser. (6 Nov 2026,
+  Callum)
+- **Three boards, one placer.** Paddy, 2-Up and Finder are the sources of
+  bet value; the Bet Placer (a separate tool, to spec) sizes across all of
+  them, runs the phones and keeps the records, on the Hub and on third-party
+  clients; its console gets a sizing page. (6 Nov 2026, Callum)
 - **OddsPapi is the only odds source.** TheOddsApi is removed entirely, not
   gated. Goalscorers is parked; if it returns it uses OddsPapi. (5 Nov 2026,
   Callum)
