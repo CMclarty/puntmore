@@ -1,20 +1,14 @@
-"""Tipster emails -> stored tips queued for Render, through `mail.poll` with a fetcher that
-hands over messages built here, so no test opens a socket. The `tip` messages it queues are
-checked against schemas/protocol.schema.json, the same referee as test_protocol.py."""
+"""Tipster emails -> stored tips for Hermes to judge (`puntmore finder new`), through `mail.poll`
+with a fetcher that hands over messages built here, so no test opens a socket. Nothing is queued
+for Render: the `tip` message was retired with the socket (6 Nov 2026, docs/finder-spec.md)."""
 import imaplib
 import json
 from email.message import EmailMessage
-from pathlib import Path
 
 import pytest
-from jsonschema import Draft202012Validator
 
-from puntmore_hub import mail
+from puntmore_hub import finder, mail
 from puntmore_hub.ids import tip_id_for
-from puntmore_hub.schemas import Envelope
-
-SCHEMA = Draft202012Validator(json.loads((Path(__file__).resolve().parent.parent / "schemas" / "protocol.schema.json").read_text()),
-                              format_checker=Draft202012Validator.FORMAT_CHECKER)
 
 TIPSTERS = """
 [[tipster]]
@@ -80,20 +74,20 @@ def test_not_configured_is_a_no_op(cfg, store):
     assert mail.status(cfg)["state"] == "off"
 
 
-def test_a_tipster_mail_becomes_tips_queued_for_render(mcfg, store):
+def test_a_tipster_mail_becomes_tips_for_hermes(mcfg, store):
     r = mail.poll(store, mcfg, fetcher=fetcher_of(_mail()))
     assert r["error"] is None
     assert {k: r[k] for k in ("messages", "tips", "new_tips", "rejected", "ignored", "escalations")} == \
         {"messages": 1, "tips": 2, "new_tips": 2, "rejected": 0, "ignored": 0, "escalations": 0}
-    queued = [json.loads(row["body"]) for row in store.outbox_pending()]
-    assert [row["type"] for row in store.outbox_pending()] == ["tip", "tip"]
-    for body in queued:
-        SCHEMA.validate(json.loads(Envelope(type="tip", client_id="owner", body=body).to_json()))
+    # Nothing is queued for Render (the `tip` message is retired): the tips are Hermes's to judge.
+    assert store.outbox_pending() == []
+    queued = finder.new_tips(store)
     first = queued[0]
     assert first["tip_id"] == tip_id_for("example-tipster", "Arsenal v Chelsea", "Match Result", "Arsenal", "2026-11-07T08:00:00+00:00")
-    assert first["source_id"] == "example-tipster" and first["origin"] == "tipster" and first["source_scope"] == "owner"
+    assert first["source_id"] == "example-tipster" and first["origin"] == "tipster"
     assert first["advised_price"] == 2.1 and first["tip_time"] == "2026-11-07T08:00:00+00:00"
-    assert first["extra"]["trust_weight"] == 0.7
+    extra = json.loads(store.conn.execute("SELECT extra FROM tips WHERE tip_id=?", (first["tip_id"],)).fetchone()[0])
+    assert extra["trust_weight"] == 0.7
     stored = store.conn.execute("SELECT tip_id, source_id FROM tips ORDER BY first_seen").fetchall()
     assert {s["tip_id"] for s in stored} == {q["tip_id"] for q in queued}
     # the status file says what happened
@@ -109,7 +103,7 @@ def test_the_same_message_twice_stores_nothing_new(mcfg, store):
     r = mail.poll(store, mcfg, fetcher=fetcher_of(raw))   # the \\Seen flag lost: the mailbox hands it over again
     assert r["messages"] == 1 and r["seen"] == 1 and r["new_tips"] == 0 and r["tips"] == 0
     assert store.conn.execute("SELECT COUNT(*) FROM tips").fetchone()[0] == 2
-    assert store.conn.execute("SELECT COUNT(*) FROM outbox").fetchone()[0] == 2
+    assert store.conn.execute("SELECT COUNT(*) FROM outbox").fetchone()[0] == 0
     # the same tips in a second email (another send of the same list) are deduplicated on tip_id
     r = mail.poll(store, mcfg, fetcher=fetcher_of(_mail(message_id="<def456@example.com>", subject="Tips again")))
     assert r["tips"] == 2 and r["new_tips"] == 0

@@ -14,7 +14,7 @@ import sys
 import threading
 from datetime import timedelta
 
-from . import __version__, alerts, escalation, inbox, killswitch, mail
+from . import __version__, alerts, escalation, finder, inbox, killswitch, mail
 from .config import settings
 from .store import Store, utcnow
 
@@ -140,8 +140,10 @@ def cmd_heartbeat(a):
 
 
 def cmd_link(a):
-    """Run the Render link daemon: bet lists -> client engine, Scraper drops and tipster emails -> tips
-    and escalations."""
+    """Run the link daemon: Scraper drops and tipster emails -> tips (for Hermes, `finder new`) and
+    escalations, and, only when PUNTMORE_RENDER_WS is set, the socket (bet lists -> client engine).
+    Render has no Hub socket since 6 Nov 2026, so blank is the normal case: the inbox loop then
+    runs in the foreground and keeps the process up."""
     from .link.client import RenderLink, bets_from
     from .placement.engine import ClientEngine
 
@@ -187,14 +189,35 @@ def cmd_link(a):
                 log.exception("mail poll failed: %s", exc)
             time.sleep(max(1, settings.imap_every_min) * 60)
 
-    threading.Thread(target=ingest_loop, name="inbox", daemon=True).start()
     if settings.mail_configured:
         threading.Thread(target=mail_loop, name="mail", daemon=True).start()
     alerts.startup(st, "link")
     try:
+        if not settings.render_ws_url:
+            asyncio.run(link.run())          # says "no socket configured" once and returns
+            ingest_loop()                    # the inbox in the foreground; the process stays up
+            return
+        threading.Thread(target=ingest_loop, name="inbox", daemon=True).start()
         asyncio.run(link.run())
     except KeyboardInterrupt:
         pass
+
+
+def cmd_finder(a):
+    """Finder (docs/finder-spec.md): the new tips Hermes judges, the rows it posts to Render,
+    and the placer's placed|gone."""
+    if a.which == "new":
+        for tip in finder.new_tips(_store(), limit=a.limit):
+            print(json.dumps(tip))
+    elif a.which == "post":
+        raw = sys.stdin.read() if a.file == "-" else open(a.file).read()
+        rows = json.loads(raw)
+        if not isinstance(rows, list):
+            sys.exit("finder post: the file must hold a JSON list of rows")
+        print(json.dumps(finder.post_rows(settings, rows, store=_store())))
+    else:
+        at = utcnow().isoformat(timespec="seconds")
+        print(json.dumps(finder.post_status(settings, a.tip_id, a.status, at, store=_store())))
 
 
 def cmd_link_check(a):
@@ -243,6 +266,13 @@ def build_parser() -> argparse.ArgumentParser:
     rs = es.add_parser("resolve"); rs.add_argument("id", type=int); rs.add_argument("--outcome", required=True); rs.set_defaults(fn=cmd_escalation)
 
     t = sub.add_parser("tips", help="recent candidate tips"); t.add_argument("--limit", type=int, default=30); t.set_defaults(fn=cmd_tips)
+    fd = sub.add_parser("finder", help="Finder: new tips for Hermes, its rows to Render, the placer's status").add_subparsers(dest="which", required=True)
+    fn = fd.add_parser("new", help="tips not yet posted to Finder, one JSON object per line")
+    fn.add_argument("--limit", type=int, default=50); fn.set_defaults(fn=cmd_finder)
+    fp = fd.add_parser("post", help="POST a JSON list of rows (a file, or - for stdin) to /api/finder/rows")
+    fp.add_argument("file"); fp.set_defaults(fn=cmd_finder)
+    fs = fd.add_parser("status", help="the placer's report on an offered row")
+    fs.add_argument("tip_id"); fs.add_argument("status", choices=["placed", "gone"]); fs.set_defaults(fn=cmd_finder)
     sub.add_parser("heartbeat", help="send the daily summary").set_defaults(fn=cmd_heartbeat)
     sub.add_parser("link", help="run the Render link daemon").set_defaults(fn=cmd_link)
     lc = sub.add_parser("link-check", help="handshake with a Render build (hello -> hello_ack)")

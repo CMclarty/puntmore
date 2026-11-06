@@ -3,7 +3,7 @@ Scraper's copy (scraper/ids.py), which mints it: change both or neither."""
 import json
 import time
 
-from puntmore_hub import inbox
+from puntmore_hub import finder, inbox
 from puntmore_hub.ids import tip_id_for
 from puntmore_hub.store import tip_id_for as store_tip_id_for
 
@@ -30,8 +30,8 @@ def _drop(cfg, rows):
 def test_the_inbox_keeps_the_scrapers_tip_id(cfg, store):
     _drop(cfg, [{"event": "A v B", "market": "Match Result", "selection": "A", "tip_id": "0123456789abcdef"}])
     inbox.ingest(store, cfg, notify=False)
-    queued = json.loads(store.outbox_pending()[0]["body"])
-    assert queued["tip_id"] == "0123456789abcdef"            # forwarded as given, not re-minted
+    queued = finder.new_tips(store)[0]
+    assert queued["tip_id"] == "0123456789abcdef"            # handed to Hermes as given, not re-minted
     assert store.conn.execute("SELECT tip_id FROM tips").fetchone()[0] == "0123456789abcdef"
 
 
@@ -40,6 +40,6 @@ def test_an_old_drop_without_tip_id_is_minted_here(cfg, store):
                  "tip_time": "2026-11-05T08:00:00+00:00"},
                 {"event": "C v D", "market": "Match Result", "selection": "C", "tip_id": "not an id"}])
     inbox.ingest(store, cfg, notify=False)
-    ids = [json.loads(r["body"])["tip_id"] for r in store.outbox_pending()]
+    ids = [t["tip_id"] for t in finder.new_tips(store)]
     assert ids[0] == tip_id_for("tips-a", "A v B", "Match Result", "A", "2026-11-05")
     assert ids[1] != "not an id" and len(ids[1]) == 16

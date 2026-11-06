@@ -85,17 +85,17 @@ def tips_from_rows(source: str, rows: list[dict], *, at: str, trust_weight: floa
 
 def ingest_rows(store: Store, source: str, rows: list[dict], *, at: str, trust_weight: float) -> dict:
     """The one storage path for a source's rows, whoever parsed them (the Scraper's drops here,
-    a tipster's email in `mail.py`): the good rows become stored tips, deduplicated on `tip_id`,
-    each new one queued for Render as a `tip` message. `at` (ISO) is the tip_time of a row that
-    has none. The row's own `tip_id`, minted where the tip was first seen, is kept; only a row
-    without one has it minted by the store. Returns the counts and the problems."""
+    a tipster's email in `mail.py`): the good rows become stored tips, deduplicated on `tip_id`.
+    A new tip waits for Hermes (`puntmore finder new`, finder.py), who judges it and posts the
+    verdict to Render's Finder; nothing is queued for Render here (the `tip` message was
+    retired with the socket, 6 Nov 2026). `at` (ISO) is the tip_time of a row that has none.
+    The row's own `tip_id`, minted where the tip was first seen, is kept; only a row without
+    one has it minted by the store. Returns the counts and the problems."""
     tips, problems = tips_from_rows(source, rows, at=at, trust_weight=trust_weight)
     out = {"tips": len(tips), "new_tips": 0, "rejected": len(problems), "problems": problems}
     for given, tip in tips:
-        tid = store.add_tip(tip.to_dict(), tip_id=given)
-        if tid:
+        if store.add_tip(tip.to_dict(), tip_id=given):
             out["new_tips"] += 1
-            store.outbox_add("tip", {"tip_id": tid, **tip.to_dict()})
     return out
 
 

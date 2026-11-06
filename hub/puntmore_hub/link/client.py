@@ -101,6 +101,11 @@ class RenderLink:
     async def run(self) -> None:
         import websockets
 
+        if not self.cfg.render_ws_url:
+            # Render has no Hub socket since 6 Nov 2026 (a Hub endpoint is per tool): say so
+            # once and return, never a reconnect loop. The inbox and mail loops run without it.
+            log.info("Render link: no socket configured (a Hub endpoint is per tool; Finder posts over HTTP)")
+            return
         if not self.cfg.link_configured:
             log.warning("Render link not configured (PUNTMORE_RENDER_WS / PUNTMORE_RENDER_API_KEY); running offline")
             await self._stop.wait()

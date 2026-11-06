@@ -7,6 +7,7 @@ Tables:
     outbox        messages queued for Render (survive restarts, sent at least once)
     inbox_seen    msg_ids already processed (idempotency)
     mail_seen     Message-IDs of tipster emails already read (mail.py; idempotency)
+    finder_posted tips Hermes has posted to Render's Finder, with the status it posted (finder.py)
     escalations   things handed to the local AI and what it decided
     alerts        sent alerts, for de-dup
     balances      balance snapshots per account
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS escalations(
     outcome TEXT, resolved TEXT, reported INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY, key TEXT, ts TEXT, message TEXT);
 CREATE TABLE IF NOT EXISTS balances(account_id TEXT, balance REAL, ts TEXT);
+CREATE TABLE IF NOT EXISTS finder_posted(tip_id TEXT PRIMARY KEY, status TEXT, ts TEXT);
 """
 
 
@@ -85,6 +87,21 @@ class Store:
              iso(utcnow()), json.dumps(tip.get("extra") or {})))
         self.conn.commit()
         return tid if cur.rowcount else None
+
+    # ---- Finder (finder.py): which tips Hermes has posted to Render -------------------------------
+    def finder_unposted(self, limit: int = 50) -> list[sqlite3.Row]:
+        """Stored tips Hermes has not yet posted to Finder, oldest first."""
+        return self.conn.execute(
+            """SELECT t.tip_id, t.source_id, t.event, t.market, t.selection, t.advised_price,
+                      t.advised_stake_units, t.tip_time, t.expiry, t.origin, t.first_seen
+               FROM tips t LEFT JOIN finder_posted f ON f.tip_id = t.tip_id
+               WHERE f.tip_id IS NULL ORDER BY t.first_seen, t.rowid LIMIT ?""", (limit,)).fetchall()
+
+    def finder_mark(self, tip_id: str, status: str) -> None:
+        """Record that `tip_id` was posted to Finder with `status` (the latest post wins)."""
+        self.conn.execute("INSERT OR REPLACE INTO finder_posted(tip_id, status, ts) VALUES(?,?,?)",
+                          (tip_id, status, iso(utcnow())))
+        self.conn.commit()
 
     def settle_tip(self, tip_id: str, outcome: str, settled_return: float) -> None:
         self.conn.execute("UPDATE tips SET outcome=?, settled_return=? WHERE tip_id=?", (outcome, settled_return, tip_id))
