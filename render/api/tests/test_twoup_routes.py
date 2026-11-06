@@ -74,14 +74,76 @@ def test_fixtures_on_but_no_bet365_is_degraded():
     assert st["degraded"] and "bet365 1X2 missing" in st["cannot_price"][0]
 
 
-def test_every_request_failing_is_degraded_not_stale():
+def test_every_request_failing_keeps_the_last_good_board_and_says_stale():
     feed, client = _feed()
+    good = feed.refresh(NOW)
+    assert good
 
     def boom(ids, bookmaker="x"):
         raise RuntimeError("HTTP 500")
     client.odds_by_tournaments = boom
-    assert feed.candidates(NOW) == []
-    assert feed.status()["cannot_price"] == ["ALL — every OddsPapi odds request failed"]
+    feed.refresh(NOW + timedelta(minutes=5))
+    at, rows = feed.served()
+    assert rows == good and at == NOW
+    st = feed.status()
+    assert st["stale"] is True and st["degraded"] is True
+    assert st["cannot_price"] == ["ALL — every OddsPapi odds request failed"]
+
+
+def test_every_request_failing_with_no_good_board_serves_nothing():
+    feed, client = _feed()
+    client.odds_by_tournaments = lambda ids, bookmaker="x": (_ for _ in ()).throw(RuntimeError("HTTP 500"))
+    feed.refresh(NOW)
+    assert feed.served() == (None, []) and feed.status()["stale"] is False
+
+
+def test_a_good_pass_after_a_failure_replaces_the_board_and_clears_stale():
+    feed, client = _feed()
+    real = client.odds_by_tournaments
+    client.odds_by_tournaments = lambda ids, bookmaker="x": (_ for _ in ()).throw(RuntimeError("HTTP 500"))
+    feed.refresh(NOW)
+    client.odds_by_tournaments = real
+    later = NOW + timedelta(minutes=5)
+    rows = feed.refresh(later)
+    assert feed.served() == (later, rows) and rows
+    assert feed.status()["stale"] is False and feed.status()["served_at"] == later.isoformat()
+
+
+def test_a_partly_failed_pass_that_prices_nothing_keeps_the_board_and_says_why():
+    feed, client = _feed()
+    good = feed.refresh(NOW)
+    real = client.odds_by_tournaments
+
+    def half(ids, bookmaker="x"):
+        if bookmaker.startswith("pinnacle"):
+            raise RuntimeError("HTTP 500")
+        return []                              # bet365 answers, with nothing on
+    client.odds_by_tournaments = half
+    feed.refresh(NOW + timedelta(minutes=5))
+    assert feed.served() == (NOW, good)
+    st = feed.status()
+    assert st["stale"] is True and st["degraded"] is True
+    assert st["cannot_price"] == ["ALL — 1 OddsPapi odds request(s) failed and nothing was priced"]
+    client.odds_by_tournaments = real
+
+
+def test_an_honest_empty_pass_replaces_the_board():
+    feed, client = _feed()
+    assert feed.refresh(NOW)
+    client.boards["bet365"] = []               # no error: bet365 simply prices nothing
+    feed.refresh(NOW + timedelta(minutes=5))
+    assert feed.served() == (NOW + timedelta(minutes=5), [])
+    st = feed.status()
+    assert st["stale"] is False and st["degraded"] is True
+
+
+def test_a_served_row_leaves_at_the_min_lead_before_kickoff():
+    feed, _ = _feed()
+    rows = feed.refresh(NOW)
+    ko = rows[0].kickoff
+    lead = timedelta(minutes=feed.params.min_lead_minutes)
+    assert feed.served(ko - lead - timedelta(minutes=1))[1] == rows
+    assert feed.served(ko - lead + timedelta(minutes=1)) == (NOW, [])
 
 
 def test_kickoffs_outside_the_horizon_are_not_candidates():
@@ -98,9 +160,101 @@ def test_feed_route_without_a_client_says_so():
     assert body["available"] is False and body["candidates"] == []
 
 
+def test_feed_route_before_the_first_refresh_is_empty_and_says_so():
+    feed, client = _feed()
+    app.state.twoup_feed = feed
+    body = TestClient(app).get("/2up/feed").json()
+    assert body["available"] is True and body["candidates"] == []
+    assert body["status"]["not_yet_refreshed"] is True and client.calls == []
+    assert body["status"]["killed"] is False
+
+
+def test_feed_route_serves_the_board_without_fetching():
+    feed, client = _feed()
+    feed.refresh(NOW)
+    app.state.twoup_feed = feed
+    n = len(client.calls)
+    body = TestClient(app).get("/2up/feed?value_only=true").json()
+    assert body["generated_at"].startswith(NOW.strftime("%Y-%m-%dT%H:%M")) and len(client.calls) == n
+    assert [c["selection"] for c in body["candidates"]] == ["Arsenal"]
+    st = body["status"]
+    assert (st["stale"], st["not_yet_refreshed"], st["killed"]) == (False, False, False)
+    assert st["served_at"] == NOW.isoformat()
+
+
+def test_feed_route_serves_the_last_good_board_when_every_request_fails():
+    feed, client = _feed()
+    feed.refresh(NOW)
+    client.odds_by_tournaments = lambda ids, bookmaker="x": (_ for _ in ()).throw(RuntimeError("HTTP 500"))
+    feed.refresh(NOW + timedelta(minutes=5))
+    app.state.twoup_feed = feed
+    body = TestClient(app).get("/2up/feed").json()
+    assert len(body["candidates"]) == 4
+    assert all(c["priced_at"].startswith(NOW.strftime("%Y-%m-%dT%H:%M")) for c in body["candidates"])
+    assert body["status"]["stale"] is True
+    assert body["status"]["cannot_price"] == ["ALL — every OddsPapi odds request failed"]
+
+
+def test_kill_switch_empties_the_feed(monkeypatch):
+    feed, _ = _feed()
+    feed.refresh(NOW)
+    app.state.twoup_feed = feed
+    monkeypatch.setattr(settings, "twoup_kill_switch", True)
+    body = TestClient(app).get("/2up/feed").json()
+    assert body["candidates"] == [] and body["status"]["killed"] is True
+
+
+def test_kill_switch_empties_the_2up_source_of_the_value_feed(monkeypatch):
+    feed, _ = _feed()
+    feed.refresh(NOW)
+    app.state.twoup_feed = feed
+    monkeypatch.setattr(settings, "twoup_kill_switch", True)
+    app.dependency_overrides[user_permissions] = lambda: "value"
+    try:
+        body = TestClient(app).get("/value/2up").json()
+    finally:
+        app.dependency_overrides[user_permissions] = lambda: "*"
+    assert body["selections"] == []
+
+
+def test_diagnostics_and_ready_never_fetch():
+    feed, client = _feed()
+    app.state.twoup_feed = feed
+    api = TestClient(app)
+    assert api.get("/2up/diagnostics").json()["feed"]["not_yet_refreshed"] is True
+    assert api.get("/ready").json()["providers"]["twoup_detail"]["not_yet_refreshed"] is True
+    assert client.calls == []
+
+
+def test_scheduler_adds_the_refresh_job_only_with_a_feed():
+    from app.scheduler import start_scheduler
+    without = start_scheduler(odds_provider=None)
+    try:
+        assert without.get_job("twoup_refresh") is None
+    finally:
+        without.shutdown(wait=False)
+    feed, _ = _feed()
+    with_feed = start_scheduler(odds_provider=None, twoup_feed=feed)
+    try:
+        assert with_feed.get_job("twoup_refresh") is not None
+    finally:
+        with_feed.shutdown(wait=False)
+
+
+def test_refresh_job_swallows_a_failing_pass(caplog):
+    from app.scheduler import refresh_twoup
+
+    class Broken:
+        def refresh(self):
+            raise RuntimeError("boom")
+    with caplog.at_level(logging.ERROR, logger="uvicorn.error"):
+        refresh_twoup(Broken())                # logged, never raised into the scheduler
+    assert "2up refresh failed" in caplog.text
+
+
 def test_feed_route_lists_priced_sides(monkeypatch):
     feed, _ = _feed()
-    feed.candidates(NOW)                       # prime at the fixed clock
+    feed.refresh(NOW)                       # prime at the fixed clock
     app.state.twoup_feed = feed
     body = TestClient(app).get("/2up/feed").json()
     assert body["available"] and len(body["candidates"]) == 4
@@ -113,7 +267,7 @@ def test_feed_route_lists_priced_sides(monkeypatch):
 
 def test_rows_carry_the_time_their_prices_were_fetched():
     feed, client = _feed()
-    rows = feed.candidates(NOW)
+    rows = feed.refresh(NOW)
     assert rows and all(c.priced_at == client.fetched_at([17, 18], "bet365") for c in rows)
     app.state.twoup_feed = feed
     body = TestClient(app).get("/2up/feed").json()
@@ -156,7 +310,7 @@ def test_routes_need_the_365_grant():
 
 def test_value_feed_carries_2up_rows():
     feed, _ = _feed()
-    feed.candidates(NOW)
+    feed.refresh(NOW)
     app.state.twoup_feed = feed
     app.dependency_overrides[user_permissions] = lambda: "value"
     try:
@@ -174,7 +328,7 @@ def test_ready_reports_the_2up_feed():
     detail = TestClient(app).get("/ready").json()["providers"]["twoup_detail"]
     assert detail["degraded"] is True and detail["cannot_price"]
     feed, _ = _feed()
-    feed.candidates(NOW)
+    feed.refresh(NOW)
     app.state.twoup_feed = feed
     detail = TestClient(app).get("/ready").json()["providers"]["twoup_detail"]
     assert detail["degraded"] is False and detail["last_pass"]["priced_fixtures"] == 2

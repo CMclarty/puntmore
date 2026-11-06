@@ -1,5 +1,6 @@
 """APScheduler setup: 10-min odds refresh + daily 30-day cleanup + the daily
-first-goalscorer watchlist that schedules each fixture's pre-kickoff scan."""
+first-goalscorer watchlist that schedules each fixture's pre-kickoff scan +
+the 2-Up board's refresh."""
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -350,6 +351,16 @@ def paddy_health(notifier=None) -> list[str]:
     return lines
 
 
+def refresh_twoup(feed) -> None:
+    """Price the 2-Up board the feed serves (TwoUpFeed.refresh). A fetch
+    failure is already the feed's to report (stale, degraded); anything that
+    escapes is logged here rather than alerted every `twoup_feed_ttl`."""
+    try:
+        feed.refresh()
+    except Exception:
+        logger.exception("2up refresh failed")
+
+
 def start_scheduler(
     odds_provider, notifier=None, odds_client=None, cards_client=None,
     twoup_feed=None,
@@ -408,6 +419,22 @@ def start_scheduler(
                 "cards_client": cards_client,
                 "notifier": notifier,
             },
+        )
+
+    # The 2-Up board: refreshed on a schedule, never on a request, and once
+    # now so a restart is serving again within one pass.
+    if settings.enable_twoup and twoup_feed is not None:
+        scheduler.add_job(
+            refresh_twoup,
+            trigger="interval",
+            seconds=settings.twoup_feed_ttl,
+            id="twoup_refresh",
+            replace_existing=True,
+            next_run_time=datetime.now(),
+            # A pass that overruns skips the next tick rather than queueing it.
+            coalesce=True,
+            max_instances=1,
+            kwargs={"feed": twoup_feed},
         )
 
     # Hand freed heap back to the OS between sweeps (diagnostics.trim_memory):

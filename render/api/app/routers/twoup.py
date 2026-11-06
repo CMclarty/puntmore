@@ -26,18 +26,25 @@ def _feed(request: Request):
 
 @router.get("/feed", response_model=TwoUpFeedOut)
 def get_feed(request: Request, value_only: bool = Query(default=False)):
-    """Every priced side of every qualifying fixture in the horizon (or only
-    those passing the price band and edge floor), best edge first."""
+    """The served board (refreshed by the `twoup_refresh` job, never fetched
+    here): every priced side of every qualifying fixture in the horizon (or
+    only those passing the price band and edge floor), best edge first.
+    `generated_at` is when the served board was priced; before the first pass
+    there is none, the list is empty and `status.not_yet_refreshed` says so."""
     feed = _feed(request)
     now = datetime.now(timezone.utc)
     if feed is None:
         return TwoUpFeedOut(generated_at=now, available=False,
-                            status={"degraded": True,
+                            status={"degraded": True, "killed": settings.twoup_kill_switch,
                                     "cannot_price": ["ALL — ODDSPAPI_API_KEY unset"]},
                             candidates=[])
-    rows = sorted(feed.candidates(now), key=lambda c: c.edge, reverse=True)
+    status = {**feed.status(), "killed": settings.twoup_kill_switch}
+    if status["killed"]:
+        # The global kill switch empties the feed: no rows, never the board.
+        return TwoUpFeedOut(generated_at=now, available=True, status=status, candidates=[])
+    at, served = feed.served(now)
     out = []
-    for c in rows:
+    for c in sorted(served, key=lambda c: c.edge, reverse=True):
         ok = model.passes_filters(c, feed.params) is None
         if value_only and not ok:
             continue
@@ -48,7 +55,7 @@ def get_feed(request: Request, value_only: bool = Query(default=False)):
             fair_price=c.fair_price, edge=round(c.edge, 6), ev=round(c.ev, 6), value=ok,
             priced_at=c.priced_at,
         ))
-    return TwoUpFeedOut(generated_at=now, available=True, status=feed.status(), candidates=out)
+    return TwoUpFeedOut(generated_at=at or now, available=True, status=status, candidates=out)
 
 
 @router.get("/diagnostics", response_model=TwoUpDiagnosticsOut)

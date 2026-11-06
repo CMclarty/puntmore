@@ -19,10 +19,16 @@ are de-vigged in `model.fair_1x2`; a fixture missing any of them, or missing
 bet365's price for a side, is not priced — counted, never approximated.
 
 One log line per pass, never one per fixture.
+
+The served board: the scheduler's `twoup_refresh` job calls `refresh()` every
+`twoup_feed_ttl`; the route and the `2up` value source read `served()`, which
+never fetches. A pass in which every request failed (errors, nothing priced)
+keeps the last good board and marks it stale; any other pass replaces it.
 """
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import datetime, timedelta, timezone
 
 from ..cards.oddspapi import (
@@ -73,8 +79,10 @@ def book_1x2(fx: dict, book: str, ml: dict[str, dict[str, int]]) -> tuple | None
 
 
 class TwoUpFeed:
-    """Priced 2-up candidates, cached `twoup_feed_ttl`. `last_pass` says what
-    the last refresh saw; `status()` is what /api/ready reports."""
+    """Priced 2-up candidates. `refresh()` (the scheduled job) prices a board
+    and `served()` hands out the last good one; `candidates()` is the lazy,
+    TTL-cached read the tests and `value()` use. `last_pass` says what the
+    last pass saw; `status()` is what /api/ready and /diagnostics report."""
 
     def __init__(self, client, *, table: RescueTable | None = None,
                  params: Params | None = None):
@@ -83,6 +91,11 @@ class TwoUpFeed:
         self.params = params or Params.from_settings()
         self._cache = TTLCache(ttl=settings.twoup_feed_ttl, maxsize=1)
         self.last_pass: dict = {}
+        # The refresh job writes on a scheduler thread while requests read:
+        # (generated_at, rows) is swapped whole under the lock, never mutated.
+        self._lock = threading.Lock()
+        self._served: tuple[datetime | None, list[Candidate]] = (None, [])
+        self._stale = False
 
     # --- public -------------------------------------------------------------
 
@@ -92,16 +105,35 @@ class TwoUpFeed:
             hit = self._cache.get("feed")
             if hit is not MISS:
                 return hit
-        rows = self._refresh(now or datetime.now(timezone.utc))
-        self._cache.set("feed", rows)
+        return self.refresh(now)
+
+    def refresh(self, now: datetime | None = None) -> list[Candidate]:
+        """One pass, always fetching (through the client's own cache): what
+        the `twoup_refresh` job calls. Returns this pass's rows. A pass with
+        errors and nothing priced (every request failed, reference data
+        down) leaves the served board as it was and marks it stale; any
+        other pass, an honest empty one included, replaces it."""
+        now = now or datetime.now(timezone.utc)
+        rows, lp = self._refresh(now)
+        with self._lock:
+            self.last_pass = lp
+            if lp["errors"] and not lp["priced_fixtures"]:
+                self._stale = self._served[0] is not None
+            else:
+                self._served = (now, list(rows))
+                self._stale = False
+            self._cache.set("feed", rows)
         return rows
 
-    def cached(self) -> list[Candidate] | None:
-        """The last priced feed if it is still inside its TTL, else None.
-        Never refreshes, so a caller that must not spend a request (the Bet
-        Finder pass) reads only what the 2-Up pass already paid for."""
-        hit = self._cache.get("feed")
-        return None if hit is MISS else hit
+    def served(self, now: datetime | None = None) -> tuple[datetime | None, list[Candidate]]:
+        """(generated_at, rows) of the board being served; (None, []) before
+        the first good pass. Never fetches. A row leaves at the minimum lead
+        before kick-off even while its board is still served (a stale board
+        through an outage, or the minutes between refreshes)."""
+        with self._lock:
+            at, rows = self._served
+        cutoff = (now or datetime.now(timezone.utc)) + timedelta(minutes=self.params.min_lead_minutes)
+        return at, [c for c in rows if c.kickoff >= cutoff]
 
     def value(self, now: datetime | None = None) -> list[Candidate]:
         """Candidates that pass the price band and the edge floor, best first."""
@@ -109,13 +141,19 @@ class TwoUpFeed:
         return sorted(rows, key=lambda c: c.edge, reverse=True)
 
     def status(self) -> dict:
-        lp = self.last_pass
+        """`stale`: the last pass failed and an older board is being served.
+        `not_yet_refreshed`: no pass has run since boot. Never fetches."""
+        with self._lock:
+            lp, (at, _), stale = self.last_pass, self._served, self._stale
         cannot = list(lp.get("cannot_price") or [])
         return {
             "provider": "oddspapi",
             "degraded": bool(cannot) or not self.table.loaded,
             "cannot_price": cannot + ([] if self.table.loaded
                                       else [f"rescue table unreadable: {self.table.path}"]),
+            "stale": stale,
+            "served_at": at.isoformat() if at is not None else None,
+            "not_yet_refreshed": not lp,
             "last_pass": lp or None,
         }
 
@@ -127,7 +165,9 @@ class TwoUpFeed:
             return [int(e) for e in entries], []
         return resolve_tournaments(entries, known)
 
-    def _refresh(self, now: datetime) -> list[Candidate]:
+    def _refresh(self, now: datetime) -> tuple[list[Candidate], dict]:
+        """One pass: (rows, what it saw). Touches no shared state; `refresh`
+        publishes the result."""
         lp: dict = {"at": now.isoformat(), "fixtures_listed": 0, "in_horizon": 0,
                     "no_pinnacle": 0, "no_bet365": 0, "unnamed": 0, "priced_fixtures": 0,
                     "candidates": 0, "value": 0, "errors": [], "cannot_price": []}
@@ -138,12 +178,10 @@ class TwoUpFeed:
         except Exception as exc:
             lp["errors"].append(f"reference data: {exc}")
             lp["cannot_price"].append("ALL — OddsPapi reference data failed")
-            self._finish(lp)
-            return []
+            return self._finish(lp, [])
         if not ml:
             lp["cannot_price"].append("ALL — the catalogue has no full-time 1X2 market")
-            self._finish(lp)
-            return []
+            return self._finish(lp, [])
 
         ids, unresolved = self._ids(known)
         lp["tournaments"] = len(ids)
@@ -159,18 +197,22 @@ class TwoUpFeed:
         priced_at: dict[int, datetime] = {}
         for i in range(0, len(ids), per):
             chunk = ids[i:i + per]
+            times = []
             for book in (pin, b365):
                 try:
                     boards[book].extend(_as_list(self._client.odds_by_tournaments(chunk, bookmaker=book)))
                     fetched += 1
                 except Exception as exc:
                     lp["errors"].append(f"{book} {chunk}: {exc}"[:300])
-            at = self._chunk_fetched_at(chunk, (pin, b365), now)
+                    continue
+                # Read right after this book's own call, so another thread's
+                # later fetch of the same chunk cannot make it look newer.
+                times.append(self._book_fetched_at(chunk, book, now))
+            at = min(times, default=now)
             priced_at.update({tid: at for tid in chunk})
         if fetched == 0:
             lp["cannot_price"].append("ALL — every OddsPapi odds request failed")
-            self._finish(lp)
-            return []
+            return self._finish(lp, [])
 
         horizon = timedelta(hours=settings.twoup_horizon_hours)
         lead = timedelta(minutes=self.params.min_lead_minutes)
@@ -217,22 +259,23 @@ class TwoUpFeed:
                     f"is '{b365}' on the OddsPapi plan?")
             if lp["no_pinnacle"]:
                 lp["cannot_price"].append(f"Pinnacle 1X2 missing on {lp['no_pinnacle']} fixture(s)")
-        self._finish(lp)
-        return rows
+        # Requests failed and nothing priced: `refresh` keeps the last good
+        # board, and the reason must say so even when no fixture was listed.
+        if lp["errors"] and not lp["priced_fixtures"] and not lp["cannot_price"]:
+            lp["cannot_price"].append(f"ALL — {len(lp['errors'])} OddsPapi odds request(s) "
+                                      "failed and nothing was priced")
+        return self._finish(lp, rows)
 
-    def _chunk_fetched_at(self, chunk: list[int], books: tuple[str, str],
-                          now: datetime) -> datetime:
-        """The earlier of the books' recorded fetch times for `chunk` — a read,
-        never a request. A book with no recorded time (None, or a client that
-        records none, e.g. an old fake) counts as `now`."""
+    def _book_fetched_at(self, chunk: list[int], book: str, now: datetime) -> datetime:
+        """One book's recorded fetch time for `chunk` — a read, never a
+        request. No recorded time (None, or a client that records none, e.g.
+        an old fake) counts as `now`. A chunk's time is the earlier of its
+        books'."""
         read = getattr(self._client, "fetched_at", None)
-        if read is None:
-            return now
-        return min((read(chunk, b) or now) for b in books)
+        return (read(chunk, book) if read is not None else None) or now
 
-    def _finish(self, lp: dict) -> None:
+    def _finish(self, lp: dict, rows: list[Candidate]) -> tuple[list[Candidate], dict]:
         lp["requests_today"] = getattr(self._client, "requests_today", None)
-        self.last_pass = lp
         log = logger.warning if (lp["errors"] or lp["cannot_price"]) else logger.info
         log("2up feed: %d fixture(s) in horizon, %d priced, %d candidate(s), %d value; "
             "no_pinnacle=%d no_bet365=%d unnamed=%d; %d error(s)%s",
@@ -240,6 +283,7 @@ class TwoUpFeed:
             lp.get("value", 0), lp.get("no_pinnacle", 0), lp.get("no_bet365", 0),
             lp.get("unnamed", 0), len(lp["errors"]),
             (" — cannot price: " + "; ".join(lp["cannot_price"])) if lp["cannot_price"] else "")
+        return rows, lp
 
 
 def value_rows(feed: TwoUpFeed | None, floor: float, now: datetime):
@@ -254,8 +298,13 @@ def value_rows(feed: TwoUpFeed | None, floor: float, now: datetime):
         # No OddsPapi key on this deploy: no rows, like the other sources
         # without a client. /api/ready's twoup_detail names it as degraded.
         return []
+    if settings.twoup_kill_switch:
+        # The global kill switch empties the feed, and so this source too:
+        # /api/value must not show rows /api/2up/feed withholds.
+        return []
     out = []
-    for c in feed.candidates(now):
+    _, served = feed.served(now)            # the scheduled board; never a fetch
+    for c in served:
         if model.passes_filters(c, feed.params.but(min_edge=-1.0)) is not None:
             continue
         if c.ev < floor:
