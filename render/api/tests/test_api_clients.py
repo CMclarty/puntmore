@@ -174,3 +174,30 @@ def test_a_key_issued_with_the_dead_hub_grant_still_loads_and_is_refused():
     from app.security import has_permission, parse_permissions
     assert parse_permissions("hub") == {"hub"}
     assert has_permission("hub", "accabonus") is False
+
+
+def _legacy_hub_key(name="oldhub"):
+    """A key issued before the grant was removed: `hub`, written straight to the row."""
+    key = apikeys.generate_api_key()
+    db = Session()
+    try:
+        db.add(ApiClient(name=name, key_hash=apikeys.hash_api_key(key),
+                         permissions="hub", enabled=True))
+        db.commit()
+    finally:
+        db.close()
+    return key
+
+
+def test_a_dead_hub_key_is_refused_on_every_route_including_the_docs_gate():
+    key = _legacy_hub_key()
+    api = TestClient(app)
+    for path in ("/docs", "/openapi.json", "/shop", "/2up/feed", "/value"):
+        assert api.get(path, headers=bearer(key)).status_code == 403, path
+
+
+def test_the_docs_gate_still_admits_a_real_grant_and_the_star():
+    api = TestClient(app)
+    assert api.get("/openapi.json", headers=bearer(_client("a", "shop"))).status_code == 200
+    assert api.get("/openapi.json", headers=bearer(_client("b", "value"))).status_code == 200
+    assert api.get("/openapi.json", headers=bearer(_client("c", "*"))).status_code == 200

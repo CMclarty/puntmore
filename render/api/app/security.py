@@ -331,8 +331,9 @@ def require_tool(tool: str):
 
 
 def require_any_grant(perms: str = Depends(user_permissions)) -> str:
-    """Any authenticated caller with at least one grant — the docs gate."""
-    if not parse_permissions(perms):
+    """Any authenticated caller with at least one KNOWN grant — the docs gate.
+    A name that is no longer a grant (the dead `hub`) counts for nothing."""
+    if not parse_permissions(perms) & set(ALL_GRANTS):
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     return perms
 
