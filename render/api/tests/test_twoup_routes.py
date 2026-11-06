@@ -111,6 +111,22 @@ def test_feed_route_lists_priced_sides(monkeypatch):
     assert [c["selection"] for c in only["candidates"]] == ["Arsenal"]
 
 
+def test_rows_carry_the_time_their_prices_were_fetched():
+    feed, client = _feed()
+    rows = feed.candidates(NOW)
+    assert rows and all(c.priced_at == client.fetched_at([17, 18], "bet365") for c in rows)
+    app.state.twoup_feed = feed
+    body = TestClient(app).get("/2up/feed").json()
+    assert body["candidates"][0]["priced_at"].startswith(NOW.strftime("%Y-%m-%d"))
+
+
+def test_a_rows_priced_at_is_the_staler_of_its_two_books():
+    feed, client = _feed()
+    stale = NOW - timedelta(minutes=7)
+    client.fetched_at = lambda ids, book: stale if book.startswith("pinnacle") else NOW
+    assert {c.priced_at for c in feed.candidates(NOW)} == {stale}
+
+
 def test_diagnostics_route_reports_the_feed_and_the_dials():
     feed, _ = _feed()
     feed.candidates(NOW)

@@ -433,6 +433,7 @@ class TwoUpCandidateOut(BaseModel):
     edge: float
     ev: float
     value: bool                      # passes the price band and the edge floor
+    priced_at: Optional[datetime] = None   # when the prices behind the row were fetched
 
 
 class TwoUpFeedOut(BaseModel):

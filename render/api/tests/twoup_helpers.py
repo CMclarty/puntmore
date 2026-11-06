@@ -51,6 +51,7 @@ class FakeOddsPapi:
         self.boards = boards
         self.grants = grants
         self.calls: list[tuple] = []
+        self.fetched: dict[tuple, datetime] = {}
         self.requests_today = 0
 
     def catalogue(self):
@@ -71,7 +72,11 @@ class FakeOddsPapi:
     def odds_by_tournaments(self, ids, bookmaker="paddypower"):
         self.calls.append((tuple(ids), bookmaker))
         self.requests_today += 1
+        self.fetched[(tuple(ids), bookmaker)] = NOW
         return self.boards.get(bookmaker, [])
+
+    def fetched_at(self, ids, bookmaker):
+        return self.fetched.get((tuple(ids), bookmaker))
 
 
 def standard_boards(now=NOW):

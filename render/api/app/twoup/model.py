@@ -81,6 +81,7 @@ class Candidate:
     competition: str = ""
     fair_price: float | None = None   # 1 / p_win
     source: str = "2up"
+    priced_at: datetime | None = None # when the prices behind the row were fetched
     extra: dict = field(default_factory=dict, compare=False, hash=False)
 
     @property
@@ -208,7 +209,8 @@ def edge(p_win: float, rescue: float, price: float) -> float:
 
 def price_fixture(*, event_id: str, home: str, away: str, kickoff: datetime,
                   pinnacle: tuple[float, float, float], bet365: tuple[float, float, float],
-                  table: RescueTable, competition: str = "") -> list[Candidate]:
+                  table: RescueTable, competition: str = "",
+                  priced_at: datetime | None = None) -> list[Candidate]:
     """Both sides of one fixture priced as 2-up candidates (the draw has no
     2-up and is never one). Returns [] when Pinnacle's 1X2 is incomplete.
     Every side is returned whatever its edge; filtering is the caller's."""
@@ -226,7 +228,7 @@ def price_fixture(*, event_id: str, home: str, away: str, kickoff: datetime,
             event_id=str(event_id), event=f"{home} v {away}", home=home, away=away,
             kickoff=kickoff, selection=team, side=side, price=float(price),
             p_win=p, rescue=r, edge=edge(p, r, price), competition=competition,
-            fair_price=1.0 / p if p > 0 else None,
+            fair_price=1.0 / p if p > 0 else None, priced_at=priced_at,
         ))
     return out
 

@@ -154,6 +154,9 @@ class TwoUpFeed:
         per = max(1, settings.oddspapi_tournaments_per_request)
         boards: dict[str, list] = {pin: [], b365: []}
         fetched = 0
+        # tournamentId -> when its chunk's prices were fetched: the EARLIER of
+        # the two books', the stalest price behind a row.
+        priced_at: dict[int, datetime] = {}
         for i in range(0, len(ids), per):
             chunk = ids[i:i + per]
             for book in (pin, b365):
@@ -162,6 +165,8 @@ class TwoUpFeed:
                     fetched += 1
                 except Exception as exc:
                     lp["errors"].append(f"{book} {chunk}: {exc}"[:300])
+            at = self._chunk_fetched_at(chunk, (pin, b365), now)
+            priced_at.update({tid: at for tid in chunk})
         if fetched == 0:
             lp["cannot_price"].append("ALL — every OddsPapi odds request failed")
             self._finish(lp)
@@ -194,6 +199,9 @@ class TwoUpFeed:
                 event_id=str(_first(fx, "fixtureId", "id")), home=str(home), away=str(away),
                 kickoff=start, pinnacle=p, bet365=b, table=self.table,
                 competition=known.get(tid, "") if tid is not None else "",
+                # A fixture whose tournament is not one asked for (or absent):
+                # the stalest chunk, never a fresher time than any price had.
+                priced_at=priced_at.get(tid) or min(priced_at.values(), default=now),
             )
             if priced:
                 lp["priced_fixtures"] += 1
@@ -211,6 +219,16 @@ class TwoUpFeed:
                 lp["cannot_price"].append(f"Pinnacle 1X2 missing on {lp['no_pinnacle']} fixture(s)")
         self._finish(lp)
         return rows
+
+    def _chunk_fetched_at(self, chunk: list[int], books: tuple[str, str],
+                          now: datetime) -> datetime:
+        """The earlier of the books' recorded fetch times for `chunk` — a read,
+        never a request. A book with no recorded time (None, or a client that
+        records none, e.g. an old fake) counts as `now`."""
+        read = getattr(self._client, "fetched_at", None)
+        if read is None:
+            return now
+        return min((read(chunk, b) or now) for b in books)
 
     def _finish(self, lp: dict) -> None:
         lp["requests_today"] = getattr(self._client, "requests_today", None)

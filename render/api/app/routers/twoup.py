@@ -46,6 +46,7 @@ def get_feed(request: Request, value_only: bool = Query(default=False)):
             competition=c.competition, selection=c.selection, side=c.side, market=c.market,
             price=c.price, p_win=round(c.p_win, 6), rescue=c.rescue,
             fair_price=c.fair_price, edge=round(c.edge, 6), ev=round(c.ev, 6), value=ok,
+            priced_at=c.priced_at,
         ))
     return TwoUpFeedOut(generated_at=now, available=True, status=feed.status(), candidates=out)
 
