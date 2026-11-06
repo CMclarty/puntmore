@@ -339,7 +339,8 @@ class ValueFeedOut(BaseModel):
     # A source that FAILED (as opposed to having no value) is named here with
     # the reason, so an empty list is never mistaken for "nothing on offer".
     # So is one answering but not fresh: "2up" is "killed: ...", "not yet
-    # refreshed", or "stale: prices from HH:MM UTC ..." beside the last good
+    # refreshed", "cannot price: ...", "partly priced: ..." beside its rows,
+    # or "stale: prices from HH:MM UTC ..." beside the last good
     # board's rows (each row's `seen_at` is when its prices were fetched).
     errors: dict[str, str] = Field(default_factory=dict)
     selections: list[ValueSelection]

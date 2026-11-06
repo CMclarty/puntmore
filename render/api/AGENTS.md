@@ -152,8 +152,11 @@ Settings are `twoup_*` in `config.py`, each with a default and a reason.
   `cannot_price` (`<book> chunk [ids]: <error>`), so it is degraded; the failed
   chunk's rows are not carried forward.
 - **The `2up` value source says when it is not fresh.** Its rows' `seen_at`
-  is their `priced_at`, never now; killed, stale and not yet refreshed are
-  named in `/api/value`'s `errors["2up"]` (stale beside the last good rows).
+  is their `priced_at`, never now; killed, stale, not yet refreshed, cannot
+  price (no board since boot: every pass failed or raised, named by the first
+  `cannot_price` entry) and partly priced (a board with a failed chunk, every
+  gap named, beside its rows) are named in `/api/value`'s `errors["2up"]`
+  (stale beside the last good rows).
 - `status()` (`/api/ready` → `providers.twoup_detail`, the feed's `status`,
   and `diagnostics.feed`) reports `provider`, `degraded`, `cannot_price`,
   `stale`, `served_at`, `not_yet_refreshed` and `last_pass`; a deploy that

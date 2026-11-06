@@ -145,7 +145,8 @@ def coupon_rows(db: Session, floor: float, now: datetime) -> list[ValueSelection
 
 def twoup_rows(twoup_feed, floor: float,
                now: datetime) -> tuple[list[ValueSelection], str | None]:
-    """2-Up's rows and its note (killed, stale, not yet refreshed) — see
+    """2-Up's rows and its note (killed, stale, not yet refreshed, cannot
+    price, partly priced) — see
     `twoup.feed.value_rows`."""
     from ..twoup.feed import value_rows
     return value_rows(twoup_feed, floor, now)
@@ -169,7 +170,8 @@ def collect(
     `min_edge` None means edge > 0 (value at all); a number means edge >= it,
     and may be negative to see near-value rows. A source that raises is left
     out and named in the returned errors — the rest still answer. A source
-    may also answer with a note (2up: killed, stale, not yet refreshed),
+    may also answer with a note (2up: killed, stale, not yet refreshed,
+    cannot price, partly priced),
     named in the errors beside whatever rows it did return.
     """
     now = now or datetime.now(timezone.utc)

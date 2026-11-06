@@ -463,3 +463,45 @@ def test_no_configured_tournament_resolving_keeps_the_last_good_board(monkeypatc
     assert st["stale"] is True and st["degraded"] is True
     assert st["cannot_price"] == ["ALL — no configured tournament resolved (Atlantis Cup)"]
     assert "every OddsPapi odds request failed" not in " ".join(st["cannot_price"])
+
+
+# --- Finder plan, Task 1 (6 Nov 2026): a board that could not price says so ----
+
+def test_value_source_names_a_board_that_never_priced():
+    feed, client = _feed()
+    client.odds_by_tournaments = lambda ids, bookmaker="x": (_ for _ in ()).throw(RuntimeError("HTTP 500"))
+    feed.refresh(NOW)
+    app.state.twoup_feed = feed
+    app.dependency_overrides[user_permissions] = lambda: "value"
+    try:
+        body = TestClient(app).get("/value/2up").json()
+    finally:
+        app.dependency_overrides[user_permissions] = lambda: "*"
+    assert body["selections"] == [] and body["errors"]["2up"].startswith("cannot price: ALL")
+
+
+def test_value_source_names_a_board_that_raised_before_any_good_pass():
+    feed, _ = _feed(_malformed(standard_boards()))
+    feed.refresh(NOW)
+    app.state.twoup_feed = feed
+    body = _value_2up()
+    assert body["selections"] == []
+    assert body["errors"]["2up"].startswith("cannot price: ALL — the pricing pass raised: ")
+
+
+def test_value_source_a_partly_priced_board_keeps_its_rows_and_names_the_gap(monkeypatch):
+    monkeypatch.setattr(settings, "oddspapi_tournaments_per_request", 1)   # chunks [17], [18]
+    feed, client = _feed()
+    real = client.odds_by_tournaments
+
+    def chunk_18_fails(ids, bookmaker="x"):
+        if list(ids) == [18]:
+            raise RuntimeError("HTTP 503 held")
+        return real(ids, bookmaker=bookmaker)
+    client.odds_by_tournaments = chunk_18_fails
+    feed.refresh(NOW)
+    app.state.twoup_feed = feed
+    body = _value_2up()
+    assert body["selections"]
+    assert body["errors"]["2up"] == ("partly priced: pinnacle+30 chunk [18]: HTTP 503 held; "
+                                     "bet365 chunk [18]: HTTP 503 held")

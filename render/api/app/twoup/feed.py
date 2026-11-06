@@ -324,7 +324,9 @@ def value_rows(feed: TwoUpFeed | None, floor: float,
     """The feed as the cross-tool `ValueSelection` shape (value/service.py),
     and a note for `ValueFeedOut.errors` when the source is not answering
     fresh: killed (no rows), stale (the last good board's rows, each with
-    its own `seen_at`), or not yet refreshed (no rows).
+    its own `seen_at`), not yet refreshed (no rows), cannot price (no board:
+    every pass since boot failed or raised), or partly priced (a board with
+    a named gap).
 
     `fair` there is the 2-up-ADJUSTED fair price, 1 / (P(win) + P(rescue)),
     so `edge` keeps that shape's meaning — odds / fair - 1, the expected
@@ -346,11 +348,20 @@ def value_rows(feed: TwoUpFeed | None, floor: float,
     out = []
     at, served = feed.served(now)           # the scheduled board; never a fetch
     note = None
+    cannot = status["cannot_price"]
     if status["stale"]:
         # The oldest price behind the board, not just when it was built.
         oldest = min((c.priced_at for c in served if c.priced_at), default=at)
         when = f"{oldest.astimezone(timezone.utc):%H:%M} UTC" if oldest else "an earlier pass"
         note = f"stale: prices from {when} — OddsPapi not answering"
+    elif at is None or (status["degraded"] and not served):
+        # Every pass since boot failed or raised, so there is no board to
+        # serve: an empty list here is "could not price", not "no value".
+        note = "cannot price: " + (cannot[0] if cannot else "no board since boot")
+    elif status["degraded"]:
+        # A board, but part of it could not be priced (a failed chunk, an
+        # unreadable rescue table): its rows stand, the gap is named.
+        note = "partly priced: " + "; ".join(cannot)
     for c in served:
         if model.passes_filters(c, feed.params.but(min_edge=-1.0)) is not None:
             continue
