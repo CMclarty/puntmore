@@ -160,17 +160,16 @@ def test_a_respelt_coded_user_is_renamed_not_doubled():
         db.close()
 
 
-def test_a_shalgo_only_account_signs_in_on_shalgo_only():
+def test_a_paddy_and_hills_account_signs_in_on_the_main_domain_not_on_me():
     db = TestSession()
     try:
         seed_coded_users(db, [("gina", hash_password("a-long-test-password"), "cards+hills")])
     finally:
         db.close()
     body = {"username": "gina", "password": "a-long-test-password"}
-    assert TestClient(app).post("/auth/login", json=body).status_code == 403
-    shalgo = TestClient(app, base_url="http://shalgo.puntmore.com")
-    r = shalgo.post("/auth/login", json=body)
+    r = TestClient(app).post("/auth/login", json=body)
     assert r.status_code == 200 and r.json()["tools"]
+    assert TestClient(app, base_url="http://me.puntmore.com").post("/auth/login", json=body).status_code == 403
 
 
 def test_the_coded_user_list_holds_hashes_not_passwords():
@@ -346,7 +345,6 @@ def test_a_finder_only_account_signs_in_on_me_only():
     _use_real_auth()
     body = {"username": "cal", "password": "finderpass"}
     assert TestClient(app).post("/auth/login", json=body).status_code == 403
-    assert TestClient(app, base_url="http://shalgo.puntmore.com").post("/auth/login", json=body).status_code == 403
     me = TestClient(app, base_url="http://me.puntmore.com")
     assert me.post("/auth/login", json=body).status_code == 200
     assert me.get("/auth/me").json()["tools"] == ["finder"]

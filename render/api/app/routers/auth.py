@@ -60,10 +60,10 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
     _throttle.reset(body.username, ip)
-    # Sign in only on a site holding one of the user's tools: a Shalgo-only
-    # account (cards, hills) is refused on Puntmore and Me, a Finder-only one
-    # everywhere but Me, and the reverse. The session cookie is per host, so
-    # this keeps them to their own site.
+    # Sign in only on a site holding one of the user's tools: an account of
+    # Callum's personal tools only (finder, pnl, …) is refused on the main
+    # domain, and one of public tools only is refused on Me. The session
+    # cookie is per host, so this keeps them to their own site.
     tools = _user_out(user).tools
     site = site_for(request.headers.get("host"))
     on_site = [t for t in tools if tool_site(t) == site]

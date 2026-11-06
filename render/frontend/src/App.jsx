@@ -37,8 +37,8 @@ const IS_FOCUSED = FOCUSED_ROOTS.some(r => ENTRY_PATH === r || ENTRY_PATH.starts
 // via the nav's "More" sheet. The acca boost page was removed with TheOddsApi
 // (PLAN.md item 11); it returns as a 365 tab on OddsPapi.
 
-// Each site shows only its own tools (site.js): Shalgo's four there, the rest
-// on Puntmore. The grant itself is unchanged and shared by both.
+// Each site shows only its own tools (site.js): Callum's personal tools on Me,
+// every public tool on the main domain. The grant itself is shared by both.
 const forSite = u => u && { ...u, tools: siteTools(u.tools) }
 
 export default function App() {
@@ -83,8 +83,9 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginRoute user={user} onLogin={adopt} />} />
           {/* The tracker opens on its landing page; /t/<code> is one coupon.
-              Shalgo and Me have no tracker: "/" lands on the first tool granted. */}
-          <Route path="/" element={SITE === PUNTMORE
+              Me has no tracker, and an account without the tracker (Paddy and
+              Hills only) has none either: "/" lands on the first tool granted. */}
+          <Route path="/" element={SITE === PUNTMORE && (!user || user.tools?.includes('coupons'))
             ? protectTool(<TrackerPage />, 'coupons')
             : <SiteHome user={user} onLogout={handleLogout} />} />
           <Route path="/t/:code" element={protectTool(<TrackerPage />, 'coupons')} />
@@ -181,7 +182,8 @@ function OtherSite({ path, site }) {
   return <div className={styles.boot}>Opening…</div>
 }
 
-// Shalgo's and Me's "/": the first of the site's tools the account has.
+// "/" on Me, or on the main domain for an account without the tracker: the
+// first of the site's tools the account has.
 function SiteHome({ user, onLogout }) {
   if (!user) return <Navigate to="/login" replace />
   const to = landingFor(user.tools)

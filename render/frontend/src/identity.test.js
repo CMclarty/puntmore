@@ -4,7 +4,7 @@ import { identityFor } from './identity'
 describe('identityFor', () => {
   it('gives each tool its own PNG home-screen icon, SVG favicon and manifest', () => {
     expect(identityFor('/paddy')).toEqual({
-      title: 'Shalgo — Paddy', svg: '/icons/paddy.svg', png: '/icons/paddy-180.png',
+      title: 'Puntmore — Paddy', svg: '/icons/paddy.svg', png: '/icons/paddy-180.png',
       manifest: '/manifests/paddy.webmanifest',
     })
   })
@@ -23,13 +23,9 @@ describe('identityFor', () => {
     expect(identityFor('/365/acca').png).toBe('/icons/accabonus-180.png')
   })
 
-  it('gives Shalgo its own default, landing included', () => {
-    expect(identityFor('/login', 'shalgo')).toEqual({
-      title: 'Shalgo', svg: '/icons/shalgo.svg', png: '/icons/shalgo-180.png',
-      manifest: '/manifests/shalgo.webmanifest',
-    })
-    expect(identityFor('/', 'shalgo').title).toBe('Shalgo')
-    expect(identityFor('/hills', 'shalgo').title).toBe('Shalgo — Hills')
+  it('has no Shalgo identity: Paddy and Hills are Puntmore tools', () => {
+    expect(identityFor('/hills').title).toBe('Puntmore — Hills')
+    expect(identityFor('/login', 'shalgo')).toEqual(identityFor('/login'))
   })
 
   it('gives me its own default, landing included', () => {

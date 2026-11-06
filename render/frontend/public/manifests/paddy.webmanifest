@@ -1,8 +1,8 @@
 {
   "id": "/paddy",
-  "name": "Shalgo — Paddy",
+  "name": "Puntmore — Paddy",
   "short_name": "Paddy",
-  "description": "Shalgo — props tools",
+  "description": "Puntmore — Paddy Power props",
   "display": "standalone",
   "orientation": "portrait",
   "start_url": "/paddy",
