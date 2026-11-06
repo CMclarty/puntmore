@@ -176,7 +176,7 @@ Invariants — do not relax:
   Nothing here or on the Hub ever fetches the tracker.
 
 ## Finder (`app/finder/`, Nov 2026)
-Callum's tips, on `me` (`docs/finder-spec.md`; the register's "Finder rows are
+Callum's tips, on `me` (`docs/finder-spec.md`; the register's "Tips on Finder are
 Callum's only"). The tips are judged on the Hub by HubAI; Render only keeps,
 serves and expires what HubAI decided. It never
 loads a page, never prices a tip (no OddsPapi request) and never places a bet.

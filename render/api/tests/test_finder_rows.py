@@ -1,4 +1,4 @@
-"""Finder rows (app/finder/rows.py): the table, the status machine, the
+"""Tips on Finder (app/finder/rows.py): the table, the status machine, the
 duplicate rule, expiry and the sweep — against an in-memory database."""
 from datetime import datetime, timedelta, timezone
 

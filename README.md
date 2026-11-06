@@ -28,7 +28,7 @@ It serves **boards**: tool pages, each with a one-way HTTP **feed** of value row
 |---|---|---|
 | **Paddy** | corners, cards, goals and saves against Paddy Power | `GET /api/paddy/feed` |
 | **2-Up** | bet365's early-payout value, inside the **365 tool** | `GET /api/2up/feed` |
-| **Finder** | Callum's tips, judged on the Hub by HubAI | `GET /api/finder/feed` |
+| **Finder** | the tips board: the tips HubAI has judged; the feed is the ones it offered | `GET /api/finder/feed` |
 
 Beside the boards: the coupon tracker, Hills, and Callum's personal tools (dogs, Virtuals, P&L,
 Kelly, the shop). No ledger, no account and no Hub endpoint on Render.
@@ -42,7 +42,9 @@ Two hosts from the one deploy: the **main domain** (`puntmore.com`) serves every
 One program on Callum's box, in five parts:
 
 - **Scraper service** (`scraper/`): the one real Chrome on the desktop; reads every page any
-  tool needs and fills what OddsPapi lacks.
+  tool needs and fills what OddsPapi lacks. It hands up two kinds of row: **prices** (raw rows
+  off a Paddy page, which the Paddy board turns into value bets) and **tips** (bets from an
+  external source).
 - **Scraper control**: rules, routing and switches for every source's rows (pages and the
   tipster mailbox), driven from the Console; rows go from the Scraper service to Scraper control
   and on to a board or to HubAI. Built today: the targets file and its library
@@ -50,8 +52,9 @@ One program on Callum's box, in five parts:
   (`hub/`). Paddy's prices still post straight to Render; moving them behind Scraper control is
   the next Scraper work.
 - **HubAI**: the Hub's AI, the whole Hermes layer (a chief of staff on Telegram and its
-  specialist profiles, one Qwen model under llama-server). It judges tips for Finder and takes
-  every escalation.
+  specialist profiles, one Qwen model under llama-server). It takes every escalation and judges
+  tips for Finder, including a tip Callum asks for on Telegram; that Finder skill is the next
+  HubAI work.
 - **Bet Placer**: reads the three feeds, sizes, places on the phones through DeviceFarmer,
   keeps the only book, and posts `placed` / `gone` to Finder. A black box for now
   (`docs/placer-spec.md`); the placement engine in `hub/puntmore_hub/placement/` is its start.

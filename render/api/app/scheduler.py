@@ -362,7 +362,7 @@ def refresh_twoup(feed) -> None:
 
 
 def expire_finder() -> int:
-    """Finder rows past kick-off (or the tip's own expiry) → `expired`, on
+    """Tips on Finder past kick-off (or the tip's own expiry) → `expired`, on
     Render's clock: every minute, so a row leaves the feed on time."""
     from .finder import rows
     db = SessionLocal()
@@ -376,7 +376,7 @@ def expire_finder() -> int:
 
 
 def sweep_finder() -> int:
-    """Finder rows older than 30 days are deleted (docs/finder-spec.md)."""
+    """Tips on Finder older than 30 days are deleted (docs/finder-spec.md)."""
     from .finder import rows
     db = SessionLocal()
     try:

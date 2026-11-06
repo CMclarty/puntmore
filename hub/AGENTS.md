@@ -17,8 +17,8 @@ anything, and `PROTOCOL.md` before touching the drop files.
 - **Email tipsters are polled here** (`mail.py`: one IMAP mailbox, `PUNTMORE_IMAP_*`; senders and
   parsers in `data/tipsters.toml`), never by Render and never by the Scraper. A parser never
   guesses: one that cannot read an email returns nothing and the tipster is escalated.
-- **Finder rows go to Render over HTTP only**: HubAI posts them with `puntmore finder post` on the
-  ingest key; Finder rows are Callum's only, never offered to a third party.
+- **Tips go to Finder over HTTP only**: HubAI posts them with `puntmore finder post` on the
+  ingest key; tips on Finder are Callum's only, never offered to a third party.
 - **The drop files are `PROTOCOL.md` + `schemas/protocol.schema.json`.** A change touches the
   Scraper's sink and the Hub's inbox in ONE pull request; `tests/test_protocol.py` and
   `scraper/tests/test_sinks_schema.py` are the referees.

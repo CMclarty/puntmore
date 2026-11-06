@@ -505,7 +505,7 @@ class FinderRowsIn(BaseModel):
 
 
 class FinderRowOut(BaseModel):
-    """A Finder row: every column of `finder_rows`, datetimes in UTC."""
+    """A tip on Finder: every column of `finder_rows`, datetimes in UTC."""
     model_config = ConfigDict(from_attributes=True)
 
     tip_id: str

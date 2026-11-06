@@ -48,8 +48,8 @@ so old links and home-screen icons keep working. The `2up` host was planned and 
 The register's "Names and structure" lists the names no longer used: Worker (the Scraper
 service), betting agent, client engine, placement bot, placement service, bet-placing service and
 private engine (the Bet Placer), local AI and local model (HubAI), sub-client (a phone and its
-accounts), Bet Finder orchestrator, candidate tip (a tip), link daemon (the Hub daemon), the
-`2up` host, shalgo. Old commits, branches (`native-worker`, `home-box`) and environment variables
+accounts), Bet Finder orchestrator, candidate (a tip or a bet), Finder row (a tip on Finder),
+link daemon (the Hub daemon), the `2up` host, shalgo. Old commits, branches (`native-worker`, `home-box`) and environment variables
 read as fallbacks (`PUNTMORE_WORKER_DATA`, `PUNTMORE_ESCALATE_TO_LOCAL_AI`) still carry them.
 
 ## Handover and verification documents — deleted 6 Nov 2026

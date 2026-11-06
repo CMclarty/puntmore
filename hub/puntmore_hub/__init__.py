@@ -10,7 +10,7 @@ Modules:
     daemon      `puntmore daemon`: the inbox pass and the mailbox poll, no socket
     inbox       ingests the Scraper's drop files (tips and events)
     mail        polls the tipster mailbox
-    finder      the tips HubAI judges and the Finder rows it posts to Render
+    finder      the tips HubAI judges and posts to Finder on Render
     schemas     the drop files' types, the tip, and the placement engine's bet and report
     store       SQLite state: tips, bets, escalations, Finder posts
     placement   the placement engine: dry-run, kill switch, placement adapters

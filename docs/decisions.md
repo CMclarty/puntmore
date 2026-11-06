@@ -44,6 +44,22 @@ names and no other; older names appear only in `docs/retired.md`.
   `placed` / `gone` to Finder; a black box for now, with a **phone
   interface** and a **staking logic** inside it. **Console**: the page that
   shows every sub-component and carries the control page.
+  - **HubAI's Finder role is one Hermes skill**: read the new tips
+    (`puntmore finder new`), judge each from its price and fair, ask Callum
+    when unsure, post the verdict (`puntmore finder post`), and take a tip
+    Callum types to it. A tip Callum requests by hand comes in on Telegram to
+    HubAI. That skill is the next HubAI work. (6 Nov 2026, Callum)
+- **The vocabulary.** A **bet** is a selection and a price. A **value bet** is
+  a bet an internal tool found (Paddy or 2-Up pricing a market against a fair
+  line). A **tip** is a bet from an external source (a tipster's email, a
+  page, WhatsApp, or Callum asking for one by hand), which may carry its own
+  fair price, the one HubAI judges it on. A **price** is a raw row the Scraper
+  service reads off a Paddy page, which the Paddy board turns into value bets.
+  The Scraper service hands up two kinds of row, prices and tips, and Scraper
+  control routes them. Finder is the tips board: the tips HubAI has judged,
+  its feed the ones it offered; a row there is "a tip on Finder". The Bet
+  Placer places bets from all three feeds whatever their kind. (6 Nov 2026,
+  Callum)
 - **The Console is the one control surface**, reachable from anywhere
   through a private tunnel; `me` links to it. Render holds no Hub config and
   no Hub commands (the 5 Nov rule stands).
@@ -55,7 +71,8 @@ names and no other; older names appear only in `docs/retired.md`.
 - Dropped names: Worker, betting agent, client engine, placement bot,
   placement service, bet-placing service, private engine, local AI, local
   model (except for llama-server itself), sub-client, Bet Finder
-  orchestrator, candidate tip, link daemon, the `2up` host, shalgo.
+  orchestrator, candidate (tip or bet), Finder row, link daemon, the `2up`
+  host, shalgo.
 
 ## The two boxes
 
@@ -83,8 +100,9 @@ names and no other; older names appear only in `docs/retired.md`.
 - **Finder is judged on the Hub by HubAI** (`docs/finder-spec.md`). A tip
   (email, page, WhatsApp) has no fair line of ours: HubAI judges it from the
   tip's own price and fair price, advises a stake or asks Callum, and posts the
-  Finder row to Render; the Bet Placer sizes it. The old line "the model never
-  prices a bet" is struck. Finder rows are Callum's only, through the `finder`
+  verdict to Render as a tip on Finder; the Bet Placer sizes it. The old line
+  "the model never prices a bet" is struck. Tips on Finder are Callum's only,
+  through the `finder`
   grant and the `me` host. (6 Nov 2026, Callum)
 - **OddsPapi prices what it covers; the Scraper service reads every page any
   tool needs and fills what OddsPapi lacks**, so the sites see a residential
@@ -153,7 +171,7 @@ names and no other; older names appear only in `docs/retired.md`.
   control of any phone the same way. (6 Nov 2026, Callum)
 - **How a Finder tip is staked: HubAI advises, the Bet Placer decides.** HubAI
   judges from the tip's own price and fair price and puts its advised stake on
-  the Finder row; the Bet Placer sizes every bet itself. (6 Nov 2026, Callum)
+  the tip on Finder; the Bet Placer sizes every bet itself. (6 Nov 2026, Callum)
 - **Dry-run is the default** in every Bet Placer; Callum switches it off after
   two weeks of clean dry-run, nobody else. **The kill switch is a file**
   (`hub/data/KILL`); anyone may turn it on, only Callum turns it off. (spec)

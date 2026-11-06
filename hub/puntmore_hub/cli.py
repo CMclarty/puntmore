@@ -1,7 +1,7 @@
 """``puntmore`` command line. Every operation an agent or a human needs, with plain text output.
 
 Scraping is the Scraper's (`python -m scraper ...` in `scraper/`); this CLI reads what the
-Scraper drops and reports, polls the tipster mailbox, runs the daemon, hands Finder rows to
+Scraper drops and reports, polls the tipster mailbox, runs the daemon, hands tips to Finder on
 Render for HubAI, and owns placement and escalations.
 """
 from __future__ import annotations

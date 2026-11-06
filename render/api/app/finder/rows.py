@@ -1,4 +1,4 @@
-"""Finder rows: the table `finder_rows`, the status machine, the duplicate
+"""Tips on Finder: the table `finder_rows`, the status machine, the duplicate
 rule, expiry and the 30-day sweep (docs/finder-spec.md, "The row").
 
 Status words, defined in the spec and nowhere else:

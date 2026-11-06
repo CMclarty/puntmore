@@ -44,7 +44,7 @@ of that specification described a stack that no longer exists (`docs/retired.md`
     either direction — on one real board the 8-fold beat the 3-fold; on another
     the 3-fold won.
   - Break-even on an even N-way split is `payout^(1/N)`. Recorded as arithmetic
-    only: the screen is a **shortlist of candidates**, not a set meant to be
+    only: the screen is a **shortlist of fixtures**, not a set meant to be
     combined with itself. A selection near the threshold can be a filler
     alongside shorter ones, so do NOT treat 1.80 as mispecified or propose
     tuning it. Betting parameters are Callum's call.
@@ -247,7 +247,7 @@ scoreline h–a.
   refusal threshold. An unpriced leg beats a confidently wrong one.
 
 **GG Bonus is not a priced leg — it is a fixture screen.** Rather than valuing
-a selection the syndicate already made, it surfaces candidates:
+a selection the syndicate already made, it surfaces fixtures:
 
 - Compute P(BTTS) per fixture, fair odds = 1/p.
 - **Include the fixture when fair odds ≤ 1.80** (i.e. P(BTTS) ≥ 0.5556).

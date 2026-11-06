@@ -57,7 +57,7 @@ def _env_first(*names: str, default: str) -> str:
 
 @dataclass(frozen=True)
 class Settings:
-    # The key the Hub posts Finder rows to Render with (the `ingest` grant; finder.py).
+    # The key the Hub posts tips to Finder on Render with (the `ingest` grant; finder.py).
     render_api_key: str = os.environ.get("PUNTMORE_RENDER_API_KEY", "")
 
     # Safety. Dry-run is ON unless explicitly switched off; the kill switch is a file so it can be

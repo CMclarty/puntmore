@@ -8,7 +8,7 @@ The tool that sizes, places and records bets from the three boards (Paddy, 2-Up,
 - **Phones are driven through DeviceFarmer** at a local port on the Hub: real phones, each holding one or more bookmaker accounts, in the bookmaker's app and in the phone's browser. Callum can take manual control of any phone the same way.
 - **bet365 bets go through the phone's browser**, not the app.
 - **Keys.** The Bet Placer's machine key on Render carries `accabonus` (2-Up), `cards` (Paddy), `finder` and `ingest` (the Finder status post). A third party's carries `accabonus` only. Keys are minted with `python -m app.apikeys` (`docs/api.md`).
-- **HubAI advises, the Bet Placer decides.** A Finder row's `advised_stake` is advice; the sizing across all sources is the Bet Placer's own, set on a sizing page in the Console.
+- **HubAI advises, the Bet Placer decides.** A tip's `advised_stake` on Finder is advice; the sizing across all sources is the Bet Placer's own, set on a sizing page in the Console.
 
 ## What it reads, and the rules that bind it
 
@@ -36,7 +36,7 @@ The tool that sizes, places and records bets from the three boards (Paddy, 2-Up,
 
 These were written for a 2-Up engine that sized its own bets on Render. They are the starting point for the staking logic, not decisions.
 
-**Decision model.** Constrained optimisation: maximise expected log bankroll growth (Kelly) on the pooled bankroll, the stake spread across the accounts. Hard constraints: (1) bankroll: total stake bounded by the pooled balance, each account's share by its own balance less open exposure; (2) availability: only what is in today's feeds, no turnover target; (3) account preservation: the rules below. Per account, per day: rank candidates by edge, size with fractional Kelly, apply constraints 3 → 1 → 2, drop what fails. Open exposure is tracked per account so pending bets are never double-counted. Bet types: singles, doubles, trebles, occasional fourfolds.
+**Decision model.** Constrained optimisation: maximise expected log bankroll growth (Kelly) on the pooled bankroll, the stake spread across the accounts. Hard constraints: (1) bankroll: total stake bounded by the pooled balance, each account's share by its own balance less open exposure; (2) availability: only what is in today's feeds, no turnover target; (3) account preservation: the rules below. Per account, per day: rank the bets by edge, size with fractional Kelly, apply constraints 3 → 1 → 2, drop what fails. Open exposure is tracked per account so pending bets are never double-counted. Bet types: singles, doubles, trebles, occasional fourfolds.
 
 **Account-preservation rules.**
 
