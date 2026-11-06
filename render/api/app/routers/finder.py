@@ -27,8 +27,10 @@ router = APIRouter(prefix="/finder", tags=["finder"])
 def post_rows(body: FinderRowsIn, db: Session = Depends(get_db)):
     """Hermes's verdicts: upsert on `tip_id`. A post against a final row, or a
     move the status machine does not have, is listed under `refused` and
-    changes nothing; a second live row for the same bet is stored `rejected`
-    and listed under `duplicates`."""
+    changes nothing; a second row for a bet already asked, offered or placed
+    is stored `rejected` and listed under `duplicates`. `rows` gives every
+    posted row's stored status, which is what the Hub records. An `offered`
+    row without kickoff, odds and fair is a 422 (the schema)."""
     now = datetime.now(timezone.utc)
     return rows.upsert(db, [r.model_dump() for r in body.rows], now)
 

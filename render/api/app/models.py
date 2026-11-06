@@ -364,7 +364,9 @@ class FinderRow(Base):
     the status machine. Owner-only; kept 30 days from `created_at`.
 
     `odds` and `fair` are the prices the TIP quotes (nothing here looks one
-    up); `edge` = odds / fair - 1, null with no fair. Times are naive UTC
+    up); `edge` = odds / fair - 1, null with no fair. An `offered` row always
+    has `kickoff`, `odds` and `fair`; an `asked` (or `rejected`) row may lack
+    all three. Times are naive UTC
     like the rest of this file."""
     __tablename__ = "finder_rows"
 
@@ -376,18 +378,18 @@ class FinderRow(Base):
     home = Column(String, nullable=True)
     away = Column(String, nullable=True)
     event_id = Column(String, nullable=True)
-    kickoff = Column(DateTime, nullable=False)         # kick-off or the off
+    kickoff = Column(DateTime, nullable=True)          # kick-off or the off; null on an asked row Hermes cannot place on a day
     market = Column(String, nullable=False)            # as the tip names it; win | each_way for a horse
     selection = Column(String, nullable=False)
     line = Column(Float, nullable=True)
     side = Column(String, nullable=True)
-    odds = Column(Float, nullable=False)
+    odds = Column(Float, nullable=True)                # null on an asked row whose tip quotes none
     fair = Column(Float, nullable=True)
     edge = Column(Float, nullable=True)
     advised_stake = Column(Float, nullable=True)       # pounds; Hermes's advice, the placer decides
     reason = Column(String, nullable=True)             # one line
     status = Column(String, nullable=False, index=True)  # asked | offered | rejected | placed | gone | expired
-    expires_at = Column(DateTime, nullable=False, index=True)  # earlier of kickoff and the tip's expiry
+    expires_at = Column(DateTime, nullable=False, index=True)  # earlier of kickoff and the tip's expiry; neither: seen_at + 48 h
     asked_at = Column(DateTime, nullable=True)         # first posted as asked
     answered_at = Column(DateTime, nullable=True)      # posted as offered or rejected
     seen_at = Column(DateTime, nullable=False)         # last posted by Hermes

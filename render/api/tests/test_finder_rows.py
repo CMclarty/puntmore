@@ -108,10 +108,10 @@ def test_an_unknown_status_and_an_unknown_tip():
         rows.set_status(db, "nope", "gone", NOW)
 
 
-def test_an_offered_row_does_not_go_back_to_asked_or_rejected():
+def test_an_offered_row_does_not_go_back_to_asked():
     rows.upsert(db, [tip(tip_id="o", status="offered")], NOW)
-    out = rows.upsert(db, [tip(tip_id="o", status="rejected"), tip(tip_id="o", fair=None)], NOW)
-    assert out["refused"] == [("o", "offered → rejected"), ("o", "offered → asked")]
+    out = rows.upsert(db, [tip(tip_id="o", fair=None)], NOW)
+    assert out["refused"] == [("o", "offered → asked")]
     assert rows.feed(db, NOW)[0].tip_id == "o"
 
 
@@ -176,3 +176,83 @@ def test_an_offered_row_reposted_onto_another_live_bet_is_refused_and_unchanged(
     assert out["refused"] == [("b", "duplicate of a")] and out["duplicates"] == []
     b = next(r for r in _board() if r.tip_id == "b")
     assert (b.status, b.selection, b.reason) == ("offered", "B", None)
+
+
+# --- the final review's fixes (FR1–FR5, finder-ledger.md) ----------------------
+
+def test_an_asked_row_may_come_with_no_kickoff_odds_or_fair_and_lives_48_hours():
+    # FR1: Hermes asks when it cannot place a tip on a day and time.
+    out = rows.upsert(db, [tip(tip_id="q", status="asked", kickoff=None, odds=None, fair=None,
+                               reason="which day is Arsenal?")], NOW)
+    assert out["stored"] == 1 and out["rows"] == [{"tip_id": "q", "status": "asked"}]
+    q = _board()[0]
+    assert (q.kickoff, q.odds, q.fair, q.edge) == (None, None, None, None)
+    assert q.expires_at == (NOW + timedelta(hours=48)).replace(tzinfo=None)
+    assert rows.expire(db, NOW + timedelta(hours=47)) == 0
+    assert rows.expire(db, NOW + timedelta(hours=48)) == 1
+
+
+def test_an_asked_row_with_no_kickoff_expires_at_the_tips_own_expiry():
+    rows.upsert(db, [tip(tip_id="q", status="asked", kickoff=None, odds=None, fair=None,
+                         expiry=NOW + timedelta(hours=3))], NOW)
+    assert _board()[0].expires_at == (NOW + timedelta(hours=3)).replace(tzinfo=None)
+
+
+def test_an_offered_post_missing_kickoff_or_odds_is_stored_asked():
+    # The route refuses it (422); rows.upsert, called directly, never offers it.
+    rows.upsert(db, [tip(tip_id="k", kickoff=None), tip(tip_id="o", selection="B", odds=None)], NOW)
+    assert rows.feed(db, NOW) == [] and {r.status for r in _board()} == {"asked"}
+
+
+def test_a_placed_twin_blocks_the_same_bet_from_another_tipster():
+    # FR2 + FR3: A is placed; B, from another tipster in other words, carries the same
+    # canonical event_id, so it is the same bet and must not be placed twice.
+    eid = "football:2026-11-07:man-utd-v-spurs"
+    rows.upsert(db, [tip(tip_id="a", origin="tipster-a", event_id=eid, event="Man Utd v Spurs")], NOW)
+    rows.set_status(db, "a", "placed", NOW)
+    out = rows.upsert(db, [tip(tip_id="b", origin="tipster-b", event_id=eid,
+                               event="Manchester United vs Tottenham")], NOW)
+    assert out["duplicates"] == ["b"] and out["rows"] == [{"tip_id": "b", "status": "rejected"}]
+    b = next(r for r in _board() if r.tip_id == "b")
+    assert (b.status, b.reason) == ("rejected", "duplicate of a")
+    assert rows.feed(db, NOW) == []
+
+
+def test_gone_rejected_and_expired_twins_do_not_block():
+    rows.upsert(db, [tip(tip_id="g")], NOW)
+    rows.set_status(db, "g", "gone", NOW)
+    rows.upsert(db, [tip(tip_id="r", status="rejected")], NOW)
+    rows.upsert(db, [tip(tip_id="x", status="asked", fair=None, expiry=NOW + timedelta(minutes=1))], NOW)
+    rows.expire(db, NOW + timedelta(minutes=2))
+    out = rows.upsert(db, [tip(tip_id="n")], NOW + timedelta(minutes=3))
+    assert out["duplicates"] == [] and rows.feed(db, NOW + timedelta(minutes=3))[0].tip_id == "n"
+
+
+def test_hermes_withdraws_an_offered_row_by_reposting_it_rejected():
+    # FR4: offered → rejected; the row leaves the feed with Hermes's reason.
+    rows.upsert(db, [tip(tip_id="w")], NOW)
+    later = NOW + timedelta(minutes=5)
+    out = rows.upsert(db, [tip(tip_id="w", status="rejected", reason="tipster withdrew it")], later)
+    assert out["refused"] == [] and out["rows"] == [{"tip_id": "w", "status": "rejected"}]
+    w = _board()[0]
+    assert (w.status, w.reason, w.answered_at) == ("rejected", "tipster withdrew it", later.replace(tzinfo=None))
+    assert rows.feed(db, later) == []
+
+
+def test_a_placed_row_cannot_be_withdrawn():
+    rows.upsert(db, [tip(tip_id="p")], NOW)
+    rows.set_status(db, "p", "placed", NOW)
+    out = rows.upsert(db, [tip(tip_id="p", status="rejected", reason="tipster withdrew it")], NOW)
+    assert out["refused"] == [("p", "final")] and out["rows"] == [{"tip_id": "p", "status": "placed"}]
+    assert (_board()[0].status, _board()[0].reason) == ("placed", None)
+
+
+def test_the_answer_carries_each_rows_stored_status():
+    # FR5: the Hub marks what Render stored, not what Hermes sent.
+    rows.upsert(db, [tip(tip_id="a")], NOW)
+    out = rows.upsert(db, [tip(tip_id="nofair", selection="X", fair=None),       # offered → stored asked
+                           tip(tip_id="dup"),                                       # twin of a → rejected
+                           tip(tip_id="bad", status="placed"),                      # not Hermes's word, no row
+                           tip(tip_id="a", reason="again")], NOW)                   # an update
+    assert out["rows"] == [{"tip_id": "nofair", "status": "asked"}, {"tip_id": "dup", "status": "rejected"},
+                           {"tip_id": "bad", "status": None}, {"tip_id": "a", "status": "offered"}]

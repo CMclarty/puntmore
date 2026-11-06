@@ -230,15 +230,22 @@ prices a tip or loads a page.
 
 - `POST /finder/rows` — ingest key (Hermes). Body `{"rows": [FinderRowIn, …]}`
   (at most 500): `tip_id, origin, sport (football|horse), bookmaker, event,
-  home?, away?, event_id?, kickoff, market, selection, line?, side?, odds,
+  home?, away?, event_id?, kickoff?, market, selection, line?, side?, odds?,
   fair?, advised_stake?, reason?, status (asked|offered|rejected), expiry?`.
+  An `offered` row must carry `kickoff`, `odds` and `fair`, or the whole post
+  is a `422`; an `asked` or `rejected` row may leave all three out.
+  `event_id` is the canonical fixture key (`football:<YYYY-MM-DD>:<home>-v-<away>`
+  or `horse:<course>:<HH:MM>`, defined in `hub/README.md`, "Finder").
   Upsert on `tip_id`. Answers `{stored, updated, refused: [[tip_id, reason]],
-  duplicates: [tip_id]}`: `refused` is a post against a final row (`final`)
-  or a move the status machine lacks (`offered → rejected`, `duplicate of
-  <tip_id>` for an offered row re-posted onto another live bet), the row left
-  unchanged; `duplicates` are new rows for a bet already live, stored
-  `rejected` with reason `duplicate of <tip_id>`. A row with no `fair` is
-  stored `asked`, never `offered`.
+  duplicates: [tip_id], rows: [{tip_id, status}]}`: `refused` is a post
+  against a final row (`final`) or a move the status machine lacks
+  (`offered → asked`; `duplicate of <tip_id>` for an offered row re-posted
+  onto another live or placed bet), the row left unchanged; `duplicates` are
+  rows for a bet already `asked`, `offered` or `placed`, stored `rejected`
+  with reason `duplicate of <tip_id>`; `rows` is every posted row, in order,
+  with the status it holds after the post (null when there is no row), which
+  is what the Hub records. Re-posting an `offered` row as `rejected`
+  withdraws it; a `placed` row cannot be withdrawn (`final`).
 - `POST /finder/rows/{tip_id}/status` — ingest key (the placer). Body
   `{"status": "placed"|"gone", "at": <ISO>}` → the row; `404` unknown tip,
   `409` a final row or one never offered, `422` any other word.
@@ -247,14 +254,16 @@ prices a tip or loads a page.
 - `GET /finder/board?days=3` — `finder` grant (`days` 1–30). Every row
   created in the window, all statuses, newest first.
 
-A row (`FinderRowOut`) carries every column: the tip fields above, `edge`
-(`odds / fair - 1`, null with no fair), `status`, `expires_at` (the earlier
-of `kickoff` and `expiry`), `asked_at`, `answered_at`, `seen_at` (Hermes's
-latest post), `created_at`, `updated_at`, all UTC. Status words: `asked →
-offered | rejected | expired`, `offered → placed | gone | expired`; `placed`,
-`gone`, `rejected` and `expired` are final. Render expires rows every
-minute; rows are kept 30 days. One live bet per (event_id or event, market,
-line, selection). `ENABLE_FINDER=false` removes the routes.
+A row (`FinderRowOut`) carries every column: the tip fields above (`kickoff`
+and `odds` null on an asked row that has none), `edge` (`odds / fair - 1`,
+null without both), `status`, `expires_at` (the earlier of `kickoff` and
+`expiry`; with neither, `seen_at` + 48 h), `asked_at`, `answered_at`,
+`seen_at` (Hermes's latest post), `created_at`, `updated_at`, all UTC.
+Status words: `asked → offered | rejected | expired`, `offered → placed |
+gone | rejected | expired`; `placed`, `gone`, `rejected` and `expired` are
+final. Render expires rows every minute; rows are kept 30 days. One bet per
+(event_id or event, market, line, selection), held by an `asked`, `offered`
+or `placed` row. `ENABLE_FINDER=false` removes the routes.
 
 `kelly` and `boost` are client-side calculators with no routes. The legacy
 aliases (`/cards/*`, `/tennis/*`) still answer and are hidden from the schema.

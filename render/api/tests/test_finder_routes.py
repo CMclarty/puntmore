@@ -124,7 +124,10 @@ def test_the_post_reports_refusals_and_duplicates_and_the_board_carries_every_co
     twin = {**TIP, "tip_id": "t2", "origin": "tipster-b"}
     out = api.post("/finder/rows", json={"rows": [TIP, {**TIP, "tip_id": "t3"}, {**twin, "tip_id": "t4"}]},
                    headers=ingest_headers).json()
-    assert out == {"stored": 2, "updated": 0, "refused": [["t1", "final"]], "duplicates": ["t4"]}
+    # t1 is placed, so t3 and t4 (the same bet) are duplicates of it (FR2).
+    assert out == {"stored": 2, "updated": 0, "refused": [["t1", "final"]], "duplicates": ["t3", "t4"],
+                   "rows": [{"tip_id": "t1", "status": "placed"}, {"tip_id": "t3", "status": "rejected"},
+                            {"tip_id": "t4", "status": "rejected"}]}
     with grant("finder"):
         rows = {r["tip_id"]: r for r in api.get("/finder/board").json()["rows"]}
     t1 = rows["t1"]
@@ -136,7 +139,7 @@ def test_the_post_reports_refusals_and_duplicates_and_the_board_carries_every_co
                 "advised_stake", "reason", "status", "expires_at", "asked_at", "answered_at",
                 "seen_at", "created_at", "updated_at"):
         assert col in t1, col
-    assert rows["t4"]["status"] == "rejected" and rows["t4"]["reason"] == "duplicate of t3"
+    assert rows["t4"]["status"] == "rejected" and rows["t4"]["reason"] == "duplicate of t1"
 
 
 def test_a_bad_row_is_refused_whole(api, ingest_headers):
@@ -168,3 +171,41 @@ def test_the_routes_are_mounted_with_the_flag_on():
     from tests.test_removed_modules import _paths
     assert sorted(p for p in set(_paths(app.routes)) if p.startswith("/finder")) == [
         "/finder/board", "/finder/feed", "/finder/rows", "/finder/rows/{tip_id}/status"]
+
+
+# --- the final review's fixes (FR1, FR4, FR5) ---------------------------------
+
+ASK = {k: v for k, v in TIP.items() if k not in ("kickoff", "odds", "fair")}
+
+
+def test_an_asked_row_needs_no_kickoff_odds_or_fair(api, ingest_headers):
+    r = api.post("/finder/rows", json={"rows": [{**ASK, "status": "asked", "reason": "which day?"}]},
+                 headers=ingest_headers)
+    assert r.status_code == 200 and r.json()["rows"] == [{"tip_id": "t1", "status": "asked"}]
+    with grant("finder"):
+        [row] = api.get("/finder/board").json()["rows"]
+    assert (row["kickoff"], row["odds"], row["fair"], row["edge"]) == (None, None, None, None)
+    expires = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
+    seen = datetime.fromisoformat(row["seen_at"].replace("Z", "+00:00"))
+    assert expires - seen == timedelta(hours=48)
+
+
+def test_an_offered_row_without_kickoff_odds_or_fair_is_a_422(api, ingest_headers):
+    for missing in ("kickoff", "odds", "fair"):
+        bad = {k: v for k, v in TIP.items() if k != missing}
+        r = api.post("/finder/rows", json={"rows": [bad]}, headers=ingest_headers)
+        assert r.status_code == 422, missing
+        assert api.post("/finder/rows", json={"rows": [{**TIP, missing: None}]},
+                        headers=ingest_headers).status_code == 422, missing
+
+
+def test_a_withdrawal_rejects_an_offered_row_and_a_placed_row_stays_placed(api, ingest_headers):
+    api.post("/finder/rows", json={"rows": [TIP, {**TIP, "tip_id": "t2", "selection": "B"}]}, headers=ingest_headers)
+    api.post("/finder/rows/t2/status", json={"status": "placed", "at": NOW.isoformat()}, headers=ingest_headers)
+    out = api.post("/finder/rows", json={"rows": [{**TIP, "status": "rejected", "reason": "withdrawn"},
+                                                  {**TIP, "tip_id": "t2", "selection": "B", "status": "rejected"}]},
+                   headers=ingest_headers).json()
+    assert out["refused"] == [["t2", "final"]]
+    assert out["rows"] == [{"tip_id": "t1", "status": "rejected"}, {"tip_id": "t2", "status": "placed"}]
+    with grant("finder"):
+        assert api.get("/finder/feed").json()["rows"] == []

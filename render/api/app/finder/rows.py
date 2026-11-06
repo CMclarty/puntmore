@@ -3,14 +3,18 @@ rule, expiry and the 30-day sweep (docs/finder-spec.md, "The row").
 
 Status words, defined in the spec and nowhere else:
     asked   → offered | rejected | expired
-    offered → placed | gone | expired
+    offered → placed | gone | rejected (Hermes withdraws it) | expired
     placed, gone, rejected, expired are final.
 Hermes posts `asked | offered | rejected` (upsert, idempotent on `tip_id`);
 the placer posts `placed | gone` (set_status); Render sets `expired` on its
-own clock (expire). A row with no `fair` is never `offered` (posted so, it
-is stored `asked`; a `rejected` post stays rejected). One live bet
-per (event_id or event, market, line, selection): a second row while one is
-`asked` or `offered` is stored `rejected`, reason `duplicate of <tip_id>`.
+own clock (expire). An `offered` row has a kick-off, odds and fair (the route
+refuses one without, 422; posted here without, it is stored `asked`). An
+`asked` or `rejected` row may have none of the three: one with no kick-off
+expires at the tip's own expiry, else 48 h after Hermes last posted it. One
+bet per (event_id or event, market, line, selection): a second row while one
+is `asked`, `offered` or `placed` is stored `rejected`, reason
+`duplicate of <tip_id>`. `event_id` is the canonical key Hermes fills
+(hub/README.md, "Finder"); the event's words are the fallback.
 
 Callers pass aware UTC datetimes; the table holds naive UTC.
 """
@@ -23,12 +27,16 @@ from ..models import FinderRow
 STATUSES = ("asked", "offered", "rejected", "placed", "gone", "expired")
 FINAL = frozenset({"rejected", "placed", "gone", "expired"})
 LIVE = ("asked", "offered")
+TWINS = ("asked", "offered", "placed")         # rows a second post of the same bet runs into
 HERMES = ("asked", "offered", "rejected")      # the words a post may carry
 PLACER = ("placed", "gone")                    # the words the placer may report
 
 # Legal moves of a re-post. Same status is an update (a new reason, a new
 # price); a final row is refused before this is read.
-_MOVES = {"asked": {"asked", "offered", "rejected"}, "offered": {"offered"}}
+_MOVES = {"asked": {"asked", "offered", "rejected"}, "offered": {"offered", "rejected"}}
+
+# How long an asked row with no kick-off and no expiry of its own stays live.
+NO_KICKOFF_TTL = timedelta(hours=48)
 
 # The columns a post may set.
 _FIELDS = ("origin", "sport", "bookmaker", "event", "home", "away", "event_id", "market",
@@ -53,9 +61,10 @@ def _key(event_id, event, market, line, selection) -> tuple:
 
 
 def _live_twin(db: Session, row: FinderRow) -> FinderRow | None:
-    """Another live row for the same bet, if there is one (the oldest)."""
+    """Another row for the same bet that is live or already placed, if there is
+    one (the oldest). A placed bet is the one most worth not repeating."""
     key = _key(row.event_id, row.event, row.market, row.line, row.selection)
-    for other in (db.query(FinderRow).filter(FinderRow.status.in_(LIVE),
+    for other in (db.query(FinderRow).filter(FinderRow.status.in_(TWINS),
                                              FinderRow.tip_id != row.tip_id)
                   .order_by(FinderRow.created_at, FinderRow.tip_id)):
         if _key(other.event_id, other.event, other.market, other.line, other.selection) == key:
@@ -65,23 +74,26 @@ def _live_twin(db: Session, row: FinderRow) -> FinderRow | None:
 
 def upsert(db: Session, rows: list[dict], now: datetime) -> dict:
     """Store or update each posted row (on `tip_id`). Returns
-    {"stored": n, "updated": n, "refused": [(tip_id, reason)], "duplicates": [tip_id]}.
+    {"stored": n, "updated": n, "refused": [(tip_id, reason)], "duplicates": [tip_id],
+     "rows": [{"tip_id", "status"}]}: `rows` is every posted row, in order, with
+    the status it holds after the post (None when there is no row), which is
+    what the Hub marks.
 
     Refused, the row unchanged: a post against a final row ("final"), a word
     Hermes may not post ("status"), and a move the machine does not have
-    ("offered → rejected"). Rows past their expiry are expired first, so a
+    ("offered → asked"). Rows past their expiry are expired first, so a
     post arriving after kick-off finds a final row and changes nothing."""
     at = _naive(now)
     expire(db, now)
-    out = {"stored": 0, "updated": 0, "refused": [], "duplicates": []}
+    out = {"stored": 0, "updated": 0, "refused": [], "duplicates": [], "rows": []}
     for posted in rows:
         tip_id = posted["tip_id"]
         status = posted.get("status")
         if status not in HERMES:
             out["refused"].append((tip_id, "status"))
             continue
-        if posted.get("fair") is None and status == "offered":
-            status = "asked"               # no fair price: never offered (a "no" stays rejected)
+        if status == "offered" and any(posted.get(f) is None for f in ("fair", "kickoff", "odds")):
+            status = "asked"               # not offerable: never offered (a "no" stays rejected)
         row = db.get(FinderRow, tip_id)
         if row is not None:
             if row.status in FINAL:
@@ -97,10 +109,11 @@ def upsert(db: Session, rows: list[dict], now: datetime) -> dict:
             out["stored"] += 1
         for field in _FIELDS:
             setattr(row, field, posted.get(field))
-        row.kickoff = _naive(posted["kickoff"])
+        row.kickoff = _naive(posted.get("kickoff"))
         expiry = _naive(posted.get("expiry"))
-        row.expires_at = min(row.kickoff, expiry) if expiry is not None else row.kickoff
-        row.edge = (row.odds / row.fair - 1) if row.fair else None
+        ends = [t for t in (row.kickoff, expiry) if t is not None]
+        row.expires_at = min(ends) if ends else at + NO_KICKOFF_TTL
+        row.edge = (row.odds / row.fair - 1) if row.fair and row.odds else None
         row.seen_at = row.updated_at = at
         if status in LIVE:
             twin = _live_twin(db, row)
@@ -123,6 +136,9 @@ def upsert(db: Session, rows: list[dict], now: datetime) -> dict:
         db.flush()
     expire(db, now)
     db.commit()
+    for posted in rows:
+        row = db.get(FinderRow, posted["tip_id"])
+        out["rows"].append({"tip_id": posted["tip_id"], "status": row.status if row else None})
     return out
 
 

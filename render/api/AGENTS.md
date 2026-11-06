@@ -187,18 +187,27 @@ loads a page, never prices a tip (no OddsPapi request) and never places a bet.
   quotes, `edge = odds / fair - 1` (null with no fair). Kept 30 days from
   `created_at` (`finder_sweep`, daily).
 - **The status machine is the spec's, and nothing else**: `asked → offered |
-  rejected | expired`, `offered → placed | gone | expired`; `placed`, `gone`,
-  `rejected`, `expired` are final. A re-post against a final row is refused
-  (409 at the status route, `refused` in the rows answer), and so is a move
-  the machine lacks (`offered → rejected`). A row with no `fair` is never
-  `offered` (posted so, it is stored `asked`). `expires_at` is the earlier of
-  kick-off and the tip's own `expiry`; `finder_expire` sets `expired` every
-  minute, on `asked` rows too, and the rows route runs it first, so an answer
-  after kick-off changes nothing.
-- **One live bet per (event_id or event, market, line, selection)**, compared
-  case- and space-folded: a second row while one is `asked` or `offered` is
-  stored `rejected`, reason `duplicate of <tip_id>`. `tip_id` alone (a hash of
-  the tip's words and day) cannot stop a reworded tip being placed twice.
+  rejected | expired`, `offered → placed | gone | rejected | expired`;
+  `placed`, `gone`, `rejected`, `expired` are final. `offered → rejected` is
+  Hermes withdrawing a row; a `placed` row cannot be withdrawn. A re-post
+  against a final row is refused (409 at the status route, `refused` in the
+  rows answer), and so is a move the machine lacks (`offered → asked`). An
+  `offered` row has `kickoff`, `odds` and `fair` (the schema 422s one
+  without); an `asked` or `rejected` row may lack all three (Hermes asks when
+  it cannot place a tip on a day and time). `expires_at` is the earlier of
+  kick-off and the tip's own `expiry`, with neither `seen_at` + 48 h;
+  `finder_expire` sets `expired` every minute, on `asked` rows too, and the
+  rows route runs it first, so an answer after kick-off changes nothing. The
+  rows answer carries each posted row's STORED status (`rows`), and the Hub
+  records that, never what Hermes sent.
+- **One bet per (event_id or event, market, line, selection)**, compared
+  case- and space-folded: a second row while one is `asked`, `offered` or
+  `placed` is stored `rejected`, reason `duplicate of <tip_id>` (a placed bet
+  is the one most worth not repeating). `event_id` is the canonical key
+  Hermes fills (`football:<YYYY-MM-DD>:<home>-v-<away>`,
+  `horse:<course>:<HH:MM>`; `hub/README.md`, "Finder"), the event's words the
+  fallback. `tip_id` alone (a hash of the tip's words and day) cannot stop a
+  reworded tip being placed twice.
 - **Two keys, never a session for writes.** `POST /finder/rows` (Hermes) and
   `POST /finder/rows/{tip_id}/status` (the placer: `placed | gone`) take the
   `ingest` grant (`require_ingest_key`). `GET /finder/feed` (offered, soonest

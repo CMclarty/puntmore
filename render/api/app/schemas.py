@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 from typing import Annotated, Any, Literal, Optional
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 
 class LegOut(BaseModel):
@@ -468,7 +468,10 @@ UTCDatetime = Annotated[datetime, AfterValidator(_as_utc)]
 
 class FinderRowIn(BaseModel):
     """One tip as Hermes posts it: the tip's own prices, never looked up.
-    `status` is Hermes's verdict; a row with no `fair` is stored `asked`."""
+    `status` is Hermes's verdict. An `asked` or `rejected` row may leave out
+    `kickoff`, `odds` and `fair` (Hermes asks when it cannot place a tip on a
+    day and time, or the tip quotes no price); an `offered` row must carry all
+    three, or the post is a 422."""
     tip_id: str = Field(min_length=1, max_length=128)
     origin: str = Field(min_length=1, max_length=120)
     sport: Literal["football", "horse"]
@@ -477,17 +480,24 @@ class FinderRowIn(BaseModel):
     home: Optional[str] = Field(default=None, max_length=100)
     away: Optional[str] = Field(default=None, max_length=100)
     event_id: Optional[str] = Field(default=None, max_length=100)
-    kickoff: UTCDatetime                               # kick-off or the off; UTC if no offset
+    kickoff: Optional[UTCDatetime] = None              # kick-off or the off; UTC if no offset
     market: str = Field(min_length=1, max_length=120)  # win | each_way for a horse
     selection: str = Field(min_length=1, max_length=200)
     line: Optional[float] = None
     side: Optional[str] = Field(default=None, max_length=20)
-    odds: float = Field(gt=1, lt=10000)
+    odds: Optional[float] = Field(default=None, gt=1, lt=10000)
     fair: Optional[float] = Field(default=None, gt=1, lt=10000)
     advised_stake: Optional[float] = Field(default=None, ge=0, lt=100000)   # pounds
     reason: Optional[str] = Field(default=None, max_length=500)
     status: Literal["asked", "offered", "rejected"]
     expiry: Optional[UTCDatetime] = None               # the tip's own, if it has one
+
+    @model_validator(mode="after")
+    def _offered_is_priced(self):
+        missing = [f for f in ("kickoff", "odds", "fair") if getattr(self, f) is None]
+        if self.status == "offered" and missing:
+            raise ValueError(f"an offered row needs {', '.join(missing)}")
+        return self
 
 
 class FinderRowsIn(BaseModel):
@@ -506,18 +516,18 @@ class FinderRowOut(BaseModel):
     home: Optional[str] = None
     away: Optional[str] = None
     event_id: Optional[str] = None
-    kickoff: UTCDatetime
+    kickoff: Optional[UTCDatetime] = None              # null on an asked row with no day and time
     market: str
     selection: str
     line: Optional[float] = None
     side: Optional[str] = None
-    odds: float
+    odds: Optional[float] = None                       # null on an asked row whose tip quotes none
     fair: Optional[float] = None
     edge: Optional[float] = None                       # odds / fair - 1
     advised_stake: Optional[float] = None
     reason: Optional[str] = None
     status: str          # asked | offered | rejected | placed | gone | expired
-    expires_at: UTCDatetime
+    expires_at: UTCDatetime                               # earlier of kickoff and expiry; neither: seen_at + 48 h
     asked_at: Optional[UTCDatetime] = None
     answered_at: Optional[UTCDatetime] = None
     seen_at: UTCDatetime                                  # Hermes's latest post of it
@@ -525,11 +535,17 @@ class FinderRowOut(BaseModel):
     updated_at: UTCDatetime
 
 
+class FinderPostedRow(BaseModel):
+    tip_id: str
+    status: Optional[str] = None                       # as stored after the post; null: no row
+
+
 class FinderPostOut(BaseModel):
     stored: int
     updated: int
     refused: list[tuple[str, str]]                     # [tip_id, "final" | "status" | "<from> → <to>" | "duplicate of <tip_id>"]
     duplicates: list[str]                              # stored `rejected`, reason "duplicate of <tip_id>"
+    rows: list[FinderPostedRow] = []                   # every posted row, in order, with its stored status
 
 
 class FinderStatusIn(BaseModel):
