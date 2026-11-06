@@ -6,7 +6,8 @@ import pytest
 
 
 @pytest.mark.parametrize("name", ["app.twoup.decision", "app.hub", "app.routers.hub_ws",
-                                  "app.betfinder", "app.tip_migration", "app.routers.betfinder"])
+                                  "app.betfinder", "app.tip_migration", "app.routers.betfinder",
+                                  "app.twoup.ledger"])
 def test_removed_modules_do_not_import(name):
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module(name)
@@ -36,3 +37,11 @@ def test_no_betfinder_routes():
     paths = set(_paths(app.routes))
     assert "/2up/feed" in paths
     assert not [p for p in paths if p.startswith("/2up/betfinder")]
+
+
+def test_no_ledger_or_client_routes():
+    from app.main import app
+
+    paths = set(_paths(app.routes))
+    assert "/2up/feed" in paths
+    assert not [p for p in paths if p.startswith(("/2up/ledger", "/2up/clients"))]

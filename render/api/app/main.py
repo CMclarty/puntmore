@@ -63,11 +63,6 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed(db)
-        # 2-Up clients named in TWOUP_CLIENTS that do not exist yet (dry-run
-        # on, kill switch off). Existing rows are never touched.
-        from .twoup.ledger import ensure_clients
-        if ensure_clients(db):
-            logger.info("2up: seeded client(s)/account(s) from TWOUP_CLIENTS")
         created, regranted = seed_users(db, settings.auth_users)
         if created:
             logger.info("Seeded %d user(s) from AUTH_USERS", created)

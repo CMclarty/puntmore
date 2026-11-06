@@ -4,7 +4,6 @@ staking lives in the client.
 
 - model.py     pure maths: de-vig, rescue table, edge, filters
 - feed.py      today's candidates from OddsPapi (bet365 + Pinnacle 1X2)
-- ledger.py    clients, accounts, bets, balances; the Hub endpoint's functions
 
 Spec: docs/2up-engine-spec.md. Wire contract: hub/PROTOCOL.md.
 """

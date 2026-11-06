@@ -24,7 +24,6 @@ import math
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
 
 from ..odds.utils import devigd_multi
 
@@ -34,8 +33,6 @@ DEFAULT_TABLE_PATH = Path(__file__).with_name("rescue_table.json")
 # per-match base rate (~1.8%) split between two sides, rounded up slightly
 # because a side backed at value is more often the stronger one.
 FALLBACK_RESCUE = 0.012
-
-SourceScope = Literal["shared", "owner"]
 
 
 # --- parameters ---------------------------------------------------------------
@@ -68,9 +65,7 @@ class Params:
 
 @dataclass(frozen=True)
 class Candidate:
-    """One bettable selection, priced. The decision layer's only input type.
-
-    2-up rows come from `feed.py` with `source_scope="shared"`."""
+    """One bettable selection, priced. Rows come from `feed.py`."""
     event_id: str
     event: str                     # "Home v Away"
     home: str
@@ -86,7 +81,6 @@ class Candidate:
     competition: str = ""
     fair_price: float | None = None   # 1 / p_win
     source: str = "2up"
-    source_scope: SourceScope = "shared"
     extra: dict = field(default_factory=dict, compare=False, hash=False)
 
     @property

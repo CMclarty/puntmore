@@ -148,26 +148,17 @@ class Settings(BaseSettings):
     # Key the local Bookie Bashing script sends (X-API-Key) with fair saves
     # prices to POST /api/paddy/saves-fair. Blank = endpoint disabled (503).
     saves_ingest_key: str = ""
-    # The client id whose bets may carry source_scope "owner": such a bet is
-    # never offered to any other client. (Read by the ledger, which goes next.)
-    hub_owner_client_id: str = "owner"
 
     # --- 2-Up engine (app/twoup/, docs/2up-engine-spec.md) -------------------
     # Part of the 365 tool, behind the `accabonus` grant. Prices bet365's 2 Goals
-    # Ahead Early Payout off OddsPapi (bet365 + Pinnacle 1X2), decides stakes per
-    # client and queues bet lists in its ledger. It NEVER places a bet and never
+    # Ahead Early Payout off OddsPapi (bet365 + Pinnacle 1X2) and serves the value
+    # bets as a one-way feed. It NEVER places a bet, keeps no account and never
     # connects to a Hub (Render has no Hub endpoint).
-    # Mounts /api/2up and runs the decision job. Off = neither.
+    # Mounts /api/2up. Off = no router.
     enable_twoup: bool = True
-    # Global kill switch: no bet lists are produced or handed out for ANY
-    # client while true. Per-client switches live in the ledger (POST
-    # /api/2up/clients/{id}/kill). An .env change, no code change.
+    # Global kill switch, reported by GET /api/2up/diagnostics. An .env change,
+    # no code change.
     twoup_kill_switch: bool = False
-    # Clients and their sub-client accounts, created on startup if missing and
-    # NEVER modified once they exist (bankroll, flags and balances are the
-    # ledger's): "client_id[:owner]=acc1+acc2;other=acc3". Every client
-    # created here starts in DRY-RUN with the kill switch off.
-    twoup_clients: str = ""
     # Qualifying competitions (ids or names, as `oddspapi_tournament_ids`).
     # bet365's early payout runs on the major leagues and the European club
     # cups. The default is the first ten entries of the shared list ON
@@ -176,7 +167,7 @@ class Settings(BaseSettings):
     # nothing extra and bet365 adds 2 requests per refresh (tiered, cached by
     # the client like every other OddsPapi call).
     twoup_tournament_ids: str = "17,18,24,8,23,35,34,238,7,679"
-    # How long one priced feed is reused by the decision job and GET /2up/feed.
+    # How long one priced feed is reused by GET /2up/feed.
     # The OddsPapi client's own tiered cache decides what is actually billed.
     twoup_feed_ttl: int = 300
     # Which fixtures are candidates: kicking off within this many hours and at
@@ -192,8 +183,6 @@ class Settings(BaseSettings):
     twoup_max_price: float = 8.0
     # Where the rescue-rate table lives. Blank = app/twoup/rescue_table.json.
     twoup_rescue_table_path: str = ""
-    # The London day the ledger counts in. (Read by the ledger, which goes next.)
-    twoup_timezone: str = "Europe/London"
 
     # Session cookie signing key. If blank, a random key is generated at startup
     # (sessions reset on restart — fine for dev; set a fixed value in prod).

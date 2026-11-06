@@ -1,5 +1,5 @@
 """2-Up feed off a stubbed OddsPapi client (never live), the /api/2up routes,
-the value-feed source, /api/ready's twoup_detail and the ledger routes."""
+the value-feed source and /api/ready's twoup_detail."""
 import logging
 from datetime import timedelta
 
@@ -10,7 +10,6 @@ from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 from app.security import user_permissions
-from app.twoup import ledger
 from app.twoup.feed import TwoUpFeed
 from app.twoup.model import Params
 
@@ -112,46 +111,18 @@ def test_feed_route_lists_priced_sides(monkeypatch):
     assert [c["selection"] for c in only["candidates"]] == ["Arsenal"]
 
 
-def _seed_owner():
-    s = Session()
-    ledger.ensure_clients(s, "owner:owner=acc-1")
-    ledger.apply_report(s, "owner", {"kind": "balance", "account_id": "acc-1",
-                                     "balance": 400.0, "ts": NOW.isoformat()})
-    s.close()
-
-
-def test_ledger_kill_resume_and_diagnostics_routes():
-    _seed_owner()
+def test_diagnostics_route_reports_the_feed_and_the_dials():
     feed, _ = _feed()
     feed.candidates(NOW)
     app.state.twoup_feed = feed
-    s = Session()
-    ledger.record_bet_list(s, "owner", [{
-        "bet_id": "b1", "account_id": "acc-1", "stake": 10.0, "expected_price": 2.05,
-        "legs": [{"event_id": "f1", "selection": "Arsenal"}],
-        "not_before": NOW.isoformat(), "not_after": (NOW + timedelta(hours=2)).isoformat(),
-    }])
-    s.close()
-
     api = TestClient(app)
-    body = api.get("/2up/ledger/owner").json()
-    assert body["client"]["dry_run"] is True and body["client"]["pooled_bankroll"] == 400
-    [acc] = body["accounts"]
-    assert acc["open_exposure"] == body["open_exposure"] > 0
-    [bet] = body["bets"]
-    assert bet["legs"][0]["selection"] == "Arsenal" and bet["status"] == "queued"
-    assert body["balances"][0]["balance"] == 400
-    assert api.get("/2up/ledger/nobody").status_code == 404
-
-    assert api.post("/2up/clients/owner/kill").json()["kill_switch"] is True
-    assert api.post("/2up/clients/owner/resume").json()["kill_switch"] is False
-    assert api.post("/2up/clients/nobody/kill").status_code == 404
-
     diag = api.get("/2up/diagnostics").json()
     assert diag["rescue_table"]["loaded"] is True and diag["rescue_table"]["buckets"]
-    assert set(diag) == {"feed", "rescue_table", "global_kill_switch", "settings"}
+    assert diag["global_kill_switch"] is False
     assert diag["settings"]["twoup_min_edge"] == settings.twoup_min_edge
-    assert not any("kelly" in k or "stake" in k for k in diag["settings"])
+    assert "clients" not in diag and "last_decision" not in diag
+    assert api.get("/2up/ledger/owner").status_code == 404
+    assert api.post("/2up/clients/owner/kill").status_code in (404, 405)
 
 
 def test_routes_need_the_365_grant():

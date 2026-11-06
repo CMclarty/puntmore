@@ -433,7 +433,6 @@ class TwoUpCandidateOut(BaseModel):
     edge: float
     ev: float
     value: bool                      # passes the price band and the edge floor
-    source_scope: str
 
 
 class TwoUpFeedOut(BaseModel):
@@ -441,68 +440,6 @@ class TwoUpFeedOut(BaseModel):
     available: bool                  # False: no OddsPapi client on this deploy
     status: dict[str, Any]
     candidates: list[TwoUpCandidateOut]
-
-
-class TwoUpClientOut(BaseModel):
-    client_id: str
-    name: Optional[str] = None
-    bankroll: float
-    pooled_bankroll: float
-    kill_switch: bool
-    dry_run: bool
-    is_owner: bool
-
-
-class TwoUpAccountOut(BaseModel):
-    account_id: str
-    balance: float
-    balance_at: Optional[datetime] = None
-    enabled: bool
-    open_exposure: float
-    bets_today: int
-
-
-class TwoUpBetOut(BaseModel):
-    bet_id: str
-    account_id: str
-    legs: list[dict[str, Any]]
-    stake: float
-    expected_price: float
-    bet_type: str
-    source_scope: str
-    not_before: Optional[datetime] = None
-    not_after: Optional[datetime] = None
-    day: date
-    edge: Optional[float] = None
-    status: str
-    dry_run: bool
-    hub_dry_run: Optional[bool] = None
-    actual_price: Optional[float] = None
-    new_price: Optional[float] = None
-    fail_reason: Optional[str] = None
-    outcome: Optional[str] = None
-    return_amount: Optional[float] = None
-    created_at: datetime
-    sent_at: Optional[datetime] = None
-    placed_at: Optional[datetime] = None
-    settled_at: Optional[datetime] = None
-
-
-class TwoUpBalanceOut(BaseModel):
-    account_id: str
-    balance: float
-    ts: datetime
-
-
-class TwoUpLedgerOut(BaseModel):
-    client: TwoUpClientOut
-    accounts: list[TwoUpAccountOut]
-    open_exposure: float
-    staked: float                    # settled bets
-    returned: float
-    pnl: float
-    bets: list[TwoUpBetOut]
-    balances: list[TwoUpBalanceOut]
 
 
 class TwoUpDiagnosticsOut(OpenModel):

@@ -2,7 +2,6 @@ import json
 
 from sqlalchemy import (
     Boolean, Column, Integer, String, Float, DateTime, Date, ForeignKey, Text,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -357,100 +356,3 @@ class HillsBet(Base):
     settled_by = Column(String, nullable=True)            # "oddspapi" or the user who set it
     placed_by = Column(String, nullable=False)
     placed_at = Column(DateTime, nullable=False, default=utcnow)
-
-
-# --- 2-Up engine ledger (app/twoup/ledger.py) --------------------------------
-# Every row is keyed client_id -> account_id (spec, "Tenancy model"): a client
-# is a separate customer with its own pooled bankroll, an account one phone
-# with one bet365 account on it. Nothing here places a bet; the Hub endpoint
-# sends what is queued and reports come back through ledger.apply_report.
-
-class TwoUpClient(Base):
-    """A 2-Up client. Dry-run is ON for every new client: its bet lists are
-    produced and recorded but never handed to the Hub endpoint."""
-    __tablename__ = "twoup_clients"
-
-    client_id = Column(String, primary_key=True)
-    name = Column(String, nullable=True)
-    # The pooled bankroll Kelly sizes on. 0 = the sum of the client's enabled
-    # accounts' reported balances.
-    bankroll = Column(Float, nullable=False, default=0.0)
-    kill_switch = Column(Boolean, nullable=False, default=False)
-    dry_run = Column(Boolean, nullable=False, default=True)
-    # Only the owner client ever receives `owner`-scope bets.
-    is_owner = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow)
-
-
-class TwoUpAccount(Base):
-    """A sub-client: one phone, one bookmaker account."""
-    __tablename__ = "twoup_accounts"
-    __table_args__ = (UniqueConstraint("client_id", "account_id"),)
-
-    id = Column(Integer, primary_key=True)
-    client_id = Column(String, ForeignKey("twoup_clients.client_id"), nullable=False, index=True)
-    account_id = Column(String, nullable=False)
-    balance = Column(Float, nullable=False, default=0.0)
-    balance_at = Column(DateTime, nullable=True)          # ts of the report it came from
-    enabled = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-
-
-class TwoUpBet(Base):
-    """One bet in the PROTOCOL.md Bet shape plus its lifecycle.
-
-    status: queued -> sent -> placed -> settled, or price_changed / failed
-    (terminal: a failed bet_id is never resent). Times are naive UTC."""
-    __tablename__ = "twoup_bets"
-
-    bet_id = Column(String, primary_key=True)
-    client_id = Column(String, ForeignKey("twoup_clients.client_id"), nullable=False, index=True)
-    account_id = Column(String, nullable=False, index=True)
-    list_id = Column(String, nullable=False, index=True)  # the record_bet_list call it came in
-    legs = Column(Text, nullable=False, default="[]")     # JSON, PROTOCOL.md bet_leg list
-    stake = Column(Float, nullable=False)
-    expected_price = Column(Float, nullable=False)
-    bet_type = Column(String, nullable=False, default="single")
-    source_scope = Column(String, nullable=False, default="shared")
-    not_before = Column(DateTime, nullable=True)
-    not_after = Column(DateTime, nullable=True)
-    # The London day the bet belongs to, and the first leg's event/selection —
-    # what the daily cap and the "never bet the same selection twice" check read.
-    day = Column(Date, nullable=False, index=True)
-    event_id = Column(String, nullable=True)
-    selection = Column(String, nullable=True)
-    edge = Column(Float, nullable=True)                   # model edge when decided
-    status = Column(String, nullable=False, default="queued")
-    dry_run = Column(Boolean, nullable=False, default=True)   # Render's dry-run: never sent
-    hub_dry_run = Column(Boolean, nullable=True)          # the Hub's `placed.dry_run`
-    actual_price = Column(Float, nullable=True)
-    new_price = Column(Float, nullable=True)              # price_changed
-    fail_reason = Column(String, nullable=True)
-    outcome = Column(String, nullable=True)               # won | lost | void | partial
-    return_amount = Column("return", Float, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    sent_at = Column(DateTime, nullable=True)
-    placed_at = Column(DateTime, nullable=True)
-    settled_at = Column(DateTime, nullable=True)
-    updated_at = Column(DateTime, nullable=False, default=utcnow)
-
-    @property
-    def legs_list(self) -> list:
-        try:
-            return json.loads(self.legs or "[]")
-        except ValueError:
-            return []
-
-
-class TwoUpBalance(Base):
-    """Every balance report, as history. The account row holds the latest."""
-    __tablename__ = "twoup_balances"
-    __table_args__ = (UniqueConstraint("client_id", "account_id", "ts"),)
-
-    id = Column(Integer, primary_key=True)
-    client_id = Column(String, nullable=False, index=True)
-    account_id = Column(String, nullable=False)
-    balance = Column(Float, nullable=False)
-    ts = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
