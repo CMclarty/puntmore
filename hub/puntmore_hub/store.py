@@ -6,6 +6,7 @@ Tables:
     bets          bet lists received from Render and their placement status
     outbox        messages queued for Render (survive restarts, sent at least once)
     inbox_seen    msg_ids already processed (idempotency)
+    mail_seen     Message-IDs of tipster emails already read (mail.py; idempotency)
     escalations   things handed to the local AI and what it decided
     alerts        sent alerts, for de-dup
     balances      balance snapshots per account
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS bets(
 CREATE TABLE IF NOT EXISTS outbox(
     id INTEGER PRIMARY KEY, msg_id TEXT UNIQUE, type TEXT, body TEXT, created TEXT, sent_at TEXT, acked_at TEXT);
 CREATE TABLE IF NOT EXISTS inbox_seen(msg_id TEXT PRIMARY KEY, ts TEXT);
+CREATE TABLE IF NOT EXISTS mail_seen(message_id TEXT PRIMARY KEY, ts TEXT);
 CREATE TABLE IF NOT EXISTS escalations(
     id INTEGER PRIMARY KEY, kind TEXT, ref TEXT, detail TEXT, created TEXT,
     outcome TEXT, resolved TEXT, reported INTEGER DEFAULT 0);
@@ -177,6 +179,16 @@ class Store:
         cur = self.conn.execute("INSERT OR IGNORE INTO inbox_seen(msg_id, ts) VALUES(?,?)", (msg_id, iso(utcnow())))
         self.conn.commit()
         return cur.rowcount == 0
+
+    # ---- mail ------------------------------------------------------------------------------------
+    # The mailbox's \Seen flag only says the Hub downloaded a message; this table says it was
+    # read, so a message is never turned into tips or an escalation twice, whatever the flag says.
+    def mail_seen(self, message_id: str) -> bool:
+        return self.conn.execute("SELECT 1 FROM mail_seen WHERE message_id=?", (message_id,)).fetchone() is not None
+
+    def mail_mark_seen(self, message_id: str) -> None:
+        self.conn.execute("INSERT OR IGNORE INTO mail_seen(message_id, ts) VALUES(?,?)", (message_id, iso(utcnow())))
+        self.conn.commit()
 
     # ---- escalations -----------------------------------------------------------------------------
     def add_escalation(self, kind: str, ref: str, detail: str) -> int:

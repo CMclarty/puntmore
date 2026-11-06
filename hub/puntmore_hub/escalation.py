@@ -46,10 +46,14 @@ def raise_escalation(store: Store, kind: str, ref: str, detail: str, *, cfg: Set
 MAX_DETAIL = 1200
 
 
-def _clean(text: str) -> str:
-    """Flatten and cap free text before it goes into an agent's context."""
+def clean_detail(text: str, limit: int = MAX_DETAIL) -> str:
+    """Flatten and cap free text before it goes into an agent's context. Whoever raises an
+    escalation about untrusted text (a page, an email) runs it through this first."""
     text = "".join(ch if ch.isprintable() or ch == "\n" else " " for ch in (text or ""))
-    return text[:MAX_DETAIL] + (" […]" if len(text) > MAX_DETAIL else "")
+    return text[:limit] + (" […]" if len(text) > limit else "")
+
+
+_clean = clean_detail
 
 
 def brief_for(store: Store, esc_id: int) -> str:
