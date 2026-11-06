@@ -7,7 +7,8 @@ Render (render/, cloud)                Hub (hub/ + scraper/, one repo with Rende
 ───────────────────────                ───────────────────────────────────────────
 2-up engine, Bet Finder orchestrator   hub/ link/     persistent outbound WebSocket to Render
 odds API client, ledgers    ◄────────► hub/ inbox     the Scraper's tip and event drops -> Render, escalations
-  /api/2up/ws                          hub/ placement client engine: bet lists → phones, reports back
+  /api/2up/ws                          hub/ mail      the tipster mailbox (IMAP) -> the same tips and escalations
+                                       hub/ placement client engine: bet lists → phones, reports back
                  bet lists, kill switch hub/ escalation local AI (Hermes) owns what happens after a failure
                  reports, tips, outcomes hub/ web      the Hub Console
                                        scraper/       the Scraper: one real Chrome, every page load, budgets
@@ -20,6 +21,8 @@ puntmore_hub/
   schemas.py       the Render contract: Bet, Report, CandidateTip, ScrapeJob, Envelope
   store.py         SQLite: tips, bets, outbox, escalations
   inbox.py         the Scraper's drops (tips, events) -> stored tips queued for Render, escalations
+  mail.py          the tipster mailbox (IMAP) -> the same stored tips and escalations, through inbox.ingest_rows
+  tipsters/        one parser per email tipster (PARSERS), named in data/tipsters.toml
   link/client.py   reconnecting WS client, durable outbox, idempotent inbound
   placement/       engine.py (client engine) · adapters/{dry_run,phone}.py
   escalation.py    hands failures to Hermes with a self-contained brief; records the outcome
@@ -30,11 +33,14 @@ puntmore_hub/
 deploy/update.sh   thin wrapper around `puntmore update`, run by the update timer
 deploy/systemd/    link daemon, 09:00 heartbeat timer, 10-minute update timer, the Hub Console
 deploy/hermes-skills/  the Scraper-ops runbook the scraper-manager agent follows (`puntmore update` copies it into that profile)
-data/              runtime state (git-ignored): hub.sqlite, KILL
+data/              runtime state (git-ignored): hub.sqlite, KILL, tipsters.toml, mail-status.json
 ```
 
 ## Relationship to `scraper/`
 The Scraper (`scraper/`) is the only thing on the Hub that loads a page: Paddy Power pages kept open (and one Bookie Bashing page, `bb-saves`, an open item for Callum in `docs/decisions.md`), and the Bet Finder's sources as `generic` targets that are loaded, parsed and closed, all under one Chrome, one guard and one alert path. For a Bet Finder target the Scraper writes one JSON file per run into `<scraper data>/hub/tips/` and, when something needs a decision, into `<scraper data>/hub/events/`. Each file is one envelope of the protocol (`scraper_tips`, `scraper_event` in `schemas/protocol.schema.json`). `puntmore inbox` (run by the link daemon every 30 s) turns those into deduplicated tips queued for Render and into escalations for Hermes: a source escalation goes to the `scraper-manager` profile (`PUNTMORE_HERMES_SCRAPER_PROFILE`), the rest to `PUNTMORE_HERMES_PROFILE`. `puntmore health` reads the Scraper's heartbeat and `status.json` from the same directory (`PUNTMORE_SCRAPER_DATA`, the native service's data dir `/opt/puntmore-scraper/data`; the old name `PUNTMORE_WORKER_DATA` is still read for one release; in the Docker fallback, the container's volume on the host).
+
+## Tipster emails
+The Bet Finder's email tipsters (spec, "Tipsters by email") arrive in one dedicated mailbox that the Hub polls over IMAP with SSL (`PUNTMORE_IMAP_HOST`, `_PORT` 993, `_USER`, `_PASSWORD`, `_FOLDER` INBOX, `_EVERY_MIN` 10); a blank host means not configured. Render never polls a mailbox and the Scraper never reads one. Which senders are tipsters is `data/tipsters.toml` (copy `tipsters.example.toml`; `PUNTMORE_TIPSTERS_FILE` points elsewhere): a `name` (the source id Render sees), a `from` rule (an address, or a domain suffix, matched case-insensitively), a `parser` in `puntmore_hub/tipsters/` with the same row contract as the Scraper's parsers, a `trust_weight` and an `enabled` flag; it is validated and re-read every poll, and a file that will not load is reported and that poll does nothing. `puntmore mail` (run by the link daemon on its own thread) fetches the messages the mailbox has not shown us (`UNSEEN`, then flagged), skips any whose Message-ID the `mail_seen` table already holds, hands each message from a tipster to its parser, mints the `tip_id` there, at first sight, and stores the rows down the inbox's own path (`inbox.ingest_rows`), so a mail tip is a tip like any other on its way to Render. A parser that reads zero rows or raises is an `unhealthy_source` escalation for that tipster (subject and error, never the body); mail from no configured tipster is ignored and counted; a mailbox that cannot be reached is one de-duplicated alert and the poll stops. `puntmore mail --dry-run` prints what the parsers would store and changes nothing, not even the mailbox flags. Each poll writes `data/mail-status.json`, which `puntmore status` shows and `puntmore health` judges (unhealthy if the last poll errored or is older than three intervals while a host is configured).
 
 ## Setup (from `hub/`)
 ```bash
@@ -53,12 +59,13 @@ systemctl --user enable --now puntmore-link puntmore-heartbeat.timer puntmore-up
 ```
 puntmore status                      one screen: mode, the Scraper's targets and their state
 puntmore inbox                       one pass over the Scraper's drops
+puntmore mail [--dry-run]            one poll of the tipster mailbox (--dry-run: what the parsers read, nothing stored)
 puntmore health                      exit 1 if the Scraper is down, a source is blocked or unhealthy, or an escalation is open
 puntmore kill on|off|status          the kill switch (a file: data/KILL)
 puntmore escalation list|show|resolve
 puntmore tips                        candidate bets found
 puntmore heartbeat                   the daily summary, on demand
-puntmore link                        the Render link daemon (also runs the inbox)
+puntmore link                        the Render link daemon (also runs the inbox and the mail poll)
 puntmore link-check <url> --key K    handshake with a Render build
 puntmore web                         the Hub Console on PUNTMORE_WEB_BIND (default http://127.0.0.1:8090)
 puntmore update [--dry-run|--check]  fast-forward to origin/main, reinstall, restart (deploy/update.sh)
@@ -134,4 +141,4 @@ tail hub/data/update.log
 `pytest` runs the real link against `puntmore_hub/link/mock_render.py` over a localhost socket, and validates every example in `schemas/examples/` against `schemas/protocol.schema.json`. Against a real Render build: `puntmore link-check wss://puntmore.com/api/2up/ws --key <key>` (the `2up` subdomain once it exists).
 
 ## Status
-Scaffold. The client engine, link protocol, inbox, escalation path and CLI are implemented and tested with fakes; the Bet Finder's sources run in the Scraper. Not yet done: the phone placement adapter and the IMAP tipster source kind. (The kick-off sweep is the Scraper's `near_min`, 6 Nov 2026.) (The Render end of the WebSocket landed in Nov 2026.)
+Scaffold. The client engine, link protocol, inbox, escalation path and CLI are implemented and tested with fakes; the Bet Finder's sources run in the Scraper. Not yet done: the phone placement adapter. (The Render end of the WebSocket and the IMAP tipster source, `mail.py`, landed in Nov 2026; the kick-off sweep is the Scraper's `near_min`, 6 Nov 2026.)

@@ -1,7 +1,8 @@
 """``puntmore`` command line. Every operation an agent or a human needs, with plain text output.
 
 Scraping is the Scraper's (`python -m scraper ...` in `scraper/`); this CLI reads what the
-Scraper drops and reports, and owns the link to Render, placement, and escalations.
+Scraper drops and reports, polls the tipster mailbox, and owns the link to Render, placement,
+and escalations.
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ import sys
 import threading
 from datetime import timedelta
 
-from . import __version__, alerts, escalation, inbox, killswitch
+from . import __version__, alerts, escalation, inbox, killswitch, mail
 from .config import settings
 from .store import Store, utcnow
 
@@ -54,11 +55,29 @@ def cmd_status(a):
           + f", {len(w['targets'])} target(s), blocked={w['blocked'] or 'none'}, unhealthy={w['unhealthy'] or 'none'}")
     if w["targets"]:
         _print_rows(w["targets"], ["name", "site", "mode", "state", "detail", "rows_posted"])
+    print(f"mail: {mail.status(settings)['detail']}")
 
 
 def cmd_inbox(a):
     counts = inbox.ingest(_store(), settings, notify=not a.no_notify)
     print(", ".join(f"{k}={v}" for k, v in counts.items()))
+
+
+def cmd_mail(a):
+    """One poll of the tipster mailbox. --dry-run shows what the parsers read and changes nothing."""
+    r = mail.poll(_store(), settings, dry_run=a.dry_run, notify=not a.no_notify)
+    if not r["configured"]:
+        print(r["error"])
+        return
+    if a.dry_run:
+        for row in r["rows"]:
+            print(f"  {row['source_id']}  {row['tip_id']}  {row['event']} | {row['market']} | {row['selection']}"
+                  f" | {row['advised_price'] if row['advised_price'] is not None else '-'}  ({row['tip_time']})")
+        for p in r["problems"]:
+            print(f"  ! {p}")
+    print(("dry-run: " if a.dry_run else "") + ", ".join(f"{k}={r[k]}" for k in mail.COUNT_KEYS))
+    if r["error"]:
+        sys.exit(f"error: {r['error']}")
 
 
 def cmd_health(a):
@@ -74,6 +93,9 @@ def cmd_health(a):
         bad.append("unhealthy sources: " + ", ".join(w["unhealthy"]))
     print(f"scraper: {'running' if w['running'] else 'NOT RUNNING'}; blocked: {', '.join(w['blocked']) or 'none'}; "
           f"unhealthy: {', '.join(w['unhealthy']) or 'none'}")
+    m = mail.status(settings)
+    bad.extend(m["problems"])
+    print(f"mail: {m['detail']}")
     print(f"open escalations: {len(open_esc)}")
     for e in open_esc:
         print(f"  #{e['id']} {e['kind']} {e['ref']} ({e['created']}): {e['detail'][:160]}")
@@ -118,7 +140,8 @@ def cmd_heartbeat(a):
 
 
 def cmd_link(a):
-    """Run the Render link daemon: bet lists -> client engine, Scraper drops -> tips and escalations."""
+    """Run the Render link daemon: bet lists -> client engine, Scraper drops and tipster emails -> tips
+    and escalations."""
     from .link.client import RenderLink, bets_from
     from .placement.engine import ClientEngine
 
@@ -153,7 +176,20 @@ def cmd_link(a):
                 log.exception("inbox pass failed: %s", exc)
             time.sleep(30)
 
+    def mail_loop():
+        # The tipster mailbox, every PUNTMORE_IMAP_EVERY_MIN; a failed poll is its own alert.
+        import time
+        while True:
+            try:
+                counts = mail.poll(Store(settings.db_path), settings)
+                log.info("mail: %s", {k: counts[k] for k in mail.COUNT_KEYS} | {"error": counts["error"]})
+            except Exception as exc:  # noqa: BLE001
+                log.exception("mail poll failed: %s", exc)
+            time.sleep(max(1, settings.imap_every_min) * 60)
+
     threading.Thread(target=ingest_loop, name="inbox", daemon=True).start()
+    if settings.mail_configured:
+        threading.Thread(target=mail_loop, name="mail", daemon=True).start()
     alerts.startup(st, "link")
     try:
         asyncio.run(link.run())
@@ -195,6 +231,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="one-screen status, including the Scraper").set_defaults(fn=cmd_status)
     ib = sub.add_parser("inbox", help="one pass over the Scraper's drop folders (the link daemon does this every 30 s)")
     ib.add_argument("--no-notify", action="store_true", help="record escalations without waking the local AI"); ib.set_defaults(fn=cmd_inbox)
+    ml = sub.add_parser("mail", help="one poll of the tipster mailbox (the link daemon does this every PUNTMORE_IMAP_EVERY_MIN)")
+    ml.add_argument("--dry-run", action="store_true", help="show what the parsers read; store nothing, mark nothing seen")
+    ml.add_argument("--no-notify", action="store_true", help="record escalations without waking the local AI"); ml.set_defaults(fn=cmd_mail)
     sub.add_parser("health", help="exit 1 if anything needs attention").set_defaults(fn=cmd_health)
     k = sub.add_parser("kill", help="kill switch"); k.add_argument("action", choices=["on", "off", "status"]); k.set_defaults(fn=cmd_kill)
 

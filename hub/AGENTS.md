@@ -8,6 +8,7 @@ This is the Hub side of the Puntmore 2-Up Engine. Render (cloud, `render/api/`) 
 - No auto-retry and no re-routing of failed bets, anywhere. A failure is reported and escalated, full stop.
 - Every bet is idempotent on `bet_id`; every message on `msg_id`. Never remove those checks.
 - `hub/` never loads a page. Scraping, budgets and parsers are the Scraper's (`scraper/`); its rules are in `scraper/AGENTS.md` and the runbook `deploy/hermes-skills/puntmore-scraper-ops/SKILL.md`.
+- Email tipsters are polled by the Hub's `mail.py` (one IMAP mailbox, `PUNTMORE_IMAP_*`; senders and parsers in `data/tipsters.toml`), never by Render and never by the Scraper. Its parsers (`puntmore_hub/tipsters/`) never guess: one that cannot read an email returns nothing and the tipster is escalated as unhealthy.
 - Secrets go in `.env` (git-ignored). Never commit tokens, account details or `sub_clients.yaml`.
 
 ## Where to change what
@@ -15,6 +16,7 @@ This is the Hub side of the Puntmore 2-Up Engine. Render (cloud, `render/api/`) 
 |---|---|
 | Add or pause a Scraper target (a Bet Finder source is `site = "generic"`) | the console's Scraper tab, or `python -m scraper targets …` (`scraper/README.md`, "Changing targets"); never `targets.toml` by hand |
 | Fix a broken parser | `scraper/parsers/<name>.py` + a fixture under `scraper/tests/fixtures/` |
+| Add an email tipster | an entry in `data/tipsters.toml` (see `tipsters.example.toml`) + a parser in `puntmore_hub/tipsters/<name>.py` registered in `PARSERS`, written from a real email; `puntmore mail --dry-run` shows what it reads |
 | Change where the Scraper's drops are read from | `.env` (`PUNTMORE_SCRAPER_DATA`; the old `PUNTMORE_WORKER_DATA` is still read for one release) |
 | Add a bookmaker account (sub-client) | `sub_clients.yaml` (see `sub_clients.example.yaml`) |
 | Implement real placement | `puntmore_hub/placement/adapters/phone.py` |
@@ -27,6 +29,7 @@ This is the Hub side of the Puntmore 2-Up Engine. Render (cloud, `render/api/`) 
 cd hub && ~/.venvs/puntmore/bin/pytest -q   # must pass before any commit
 puntmore health                             # exit 1 = Scraper down, a source blocked/unhealthy, or an open escalation
 puntmore inbox                              # one pass over the Scraper's drops (the link daemon does this every 30 s)
+puntmore mail --dry-run                     # what the tipster parsers would read from the mailbox; stores nothing
 ```
 
 ## From the repo's CLAUDE.md (moved here 5 Nov 2026)

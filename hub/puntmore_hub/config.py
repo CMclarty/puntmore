@@ -99,12 +99,32 @@ class Settings:
     # The https base of Render, for its /api/ready health gate. Blank = not configured.
     render_http: str = os.environ.get("PUNTMORE_RENDER_HTTP", "")
 
+    # Tipster emails (mail.py): one mailbox polled over IMAP (SSL) on this box, never on Render.
+    # A blank host means not configured and the poll is a no-op. Which senders are tipsters, and
+    # which parser reads each, is the tipsters file (tipsters.example.toml), re-read every poll.
+    imap_host: str = os.environ.get("PUNTMORE_IMAP_HOST", "")
+    imap_port: int = int(os.environ.get("PUNTMORE_IMAP_PORT", "993"))
+    imap_user: str = os.environ.get("PUNTMORE_IMAP_USER", "")
+    imap_password: str = os.environ.get("PUNTMORE_IMAP_PASSWORD", "")
+    imap_folder: str = os.environ.get("PUNTMORE_IMAP_FOLDER", "INBOX")
+    imap_every_min: int = int(os.environ.get("PUNTMORE_IMAP_EVERY_MIN", "10"))
+    tipsters_file: Path = Path(os.environ.get("PUNTMORE_TIPSTERS_FILE") or ROOT / "data" / "tipsters.toml")
+
     def with_overrides(self, **changes) -> "Settings":
         return dataclasses.replace(self, **changes)
 
     @property
     def link_configured(self) -> bool:
         return bool(self.render_ws_url and self.render_api_key)
+
+    @property
+    def mail_configured(self) -> bool:
+        return bool(self.imap_host.strip())
+
+    @property
+    def mail_status_file(self) -> Path:
+        """What the last mail poll did (mail.py writes it; status and health read it)."""
+        return self.data_dir / "mail-status.json"
 
     @property
     def inbox_dir(self) -> Path:

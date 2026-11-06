@@ -4,9 +4,10 @@ The Scraper is the only thing on the Hub that loads a page. For Bet Finder sourc
 writes one JSON file per run into `<scraper data>/hub/tips/` and, when something needs a
 decision (a block, a source parsing too few rows), one into `<scraper data>/hub/events/`.
 This module turns tips into stored, deduplicated candidate tips queued for Render, and
-events into escalations for the local AI. Files are moved to `done/` once handled, so a
-crash between the two never loses or doubles anything: a tip is deduplicated by its id,
-an event by its file name.
+events into escalations for the local AI. The storage step, `ingest_rows`, is the one path
+for a source's rows whoever parsed them: the tipster emails `mail.py` reads go through it
+too. Files are moved to `done/` once handled, so a crash between the two never loses or
+doubles anything: a tip is deduplicated by its id, an event by its file name.
 
 A tip's id is the Scraper's: each row of a drop carries `tip_id`, minted where the tip
 was first seen (`ids.py`). Only an old drop without one has it minted here.
@@ -26,7 +27,7 @@ from pathlib import Path
 from . import escalation
 from .config import Settings, settings as default_settings
 from .schemas import FILE_TYPES, CandidateTip
-from .store import Store, parse_iso, utcnow
+from .store import Store, utcnow
 
 log = logging.getLogger("puntmore.inbox")
 
@@ -56,14 +57,12 @@ def _body(d: dict) -> dict:
     return d
 
 
-def _tips_from(body: dict) -> tuple[list[tuple[str | None, CandidateTip]], list[str]]:
-    """The drop's good rows as (tip_id or None, tip): None when the row carries no
-    usable tip_id (an old drop), so the store mints it."""
+def tips_from_rows(source: str, rows: list[dict], *, at: str, trust_weight: float) -> tuple[list[tuple[str | None, CandidateTip]], list[str]]:
+    """The good rows of one source as (tip_id or None, tip): None when the row carries no
+    usable tip_id (an old drop), so the store mints it. A row with no event, market or
+    selection, or a price outside the band, is a problem, never a guess."""
     good, problems = [], []
-    at = _iso(float(body.get("at") or utcnow().timestamp()))
-    source = str(body.get("source") or "")
-    weight = body.get("trust_weight", 1.0)
-    for row in body.get("rows") or []:
+    for row in rows:
         missing = [k for k in ("event", "market", "selection") if not row.get(k)]
         if missing or not source:
             problems.append(f"missing {missing or ['source']}: {row}")
@@ -79,9 +78,25 @@ def _tips_from(body: dict) -> tuple[list[tuple[str | None, CandidateTip]], list[
             advised_stake_units=row.get("advised_stake_units"),
             tip_time=row.get("tip_time") or at, expiry=row.get("expiry"),
             origin=row.get("origin") or "scrape",
-            extra={**(row.get("extra") or {}), "trust_weight": weight},
+            extra={**(row.get("extra") or {}), "trust_weight": trust_weight},
         )))
     return good, problems
+
+
+def ingest_rows(store: Store, source: str, rows: list[dict], *, at: str, trust_weight: float) -> dict:
+    """The one storage path for a source's rows, whoever parsed them (the Scraper's drops here,
+    a tipster's email in `mail.py`): the good rows become stored tips, deduplicated on `tip_id`,
+    each new one queued for Render as a `tip` message. `at` (ISO) is the tip_time of a row that
+    has none. The row's own `tip_id`, minted where the tip was first seen, is kept; only a row
+    without one has it minted by the store. Returns the counts and the problems."""
+    tips, problems = tips_from_rows(source, rows, at=at, trust_weight=trust_weight)
+    out = {"tips": len(tips), "new_tips": 0, "rejected": len(problems), "problems": problems}
+    for given, tip in tips:
+        tid = store.add_tip(tip.to_dict(), tip_id=given)
+        if tid:
+            out["new_tips"] += 1
+            store.outbox_add("tip", {"tip_id": tid, **tip.to_dict()})
+    return out
 
 
 def ingest(store: Store, cfg: Settings = default_settings, *, notify: bool = True) -> dict:
@@ -91,21 +106,19 @@ def ingest(store: Store, cfg: Settings = default_settings, *, notify: bool = Tru
     for path in sorted(tips_dir.glob("*.json")) if tips_dir.exists() else []:
         try:
             body = _body(json.loads(path.read_text()))
-            tips, problems = _tips_from(body)
-        except (OSError, ValueError) as exc:
+            source = str(body.get("source") or "")
+            at = _iso(float(body.get("at") or utcnow().timestamp()))
+            rows = list(body.get("rows") or [])
+        except (OSError, ValueError, TypeError) as exc:
             log.warning("inbox: unreadable %s: %s", path.name, exc)
             _finish(path, done)
             continue
         counts["tip_files"] += 1
-        counts["tips"] += len(tips)
-        counts["rejected"] += len(problems)
-        for p in problems[:3]:
-            log.warning("inbox %s: rejected %s", body.get("source"), p)
-        for given, tip in tips:
-            tid = store.add_tip(tip.to_dict(), tip_id=given)
-            if tid:
-                counts["new_tips"] += 1
-                store.outbox_add("tip", {"tip_id": tid, **tip.to_dict()})
+        got = ingest_rows(store, source, rows, at=at, trust_weight=body.get("trust_weight", 1.0))
+        for k in ("tips", "new_tips", "rejected"):
+            counts[k] += got[k]
+        for p in got["problems"][:3]:
+            log.warning("inbox %s: rejected %s", source, p)
         _finish(path, done)
     for path in sorted(events_dir.glob("*.json")) if events_dir.exists() else []:
         try:

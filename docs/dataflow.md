@@ -11,8 +11,8 @@ and needs a line in the register.
 | # | Stage | Record produced | Owner, where it lives | Id | Status words |
 |---|---|---|---|---|---|
 | 1 | A page is loaded | nothing durable: a page load, counted against the site's budget | Scraper, `guard.sqlite3` | — | per target: `running`, `paused`, `blocked`, `retired` (in `status.json`) |
-| 2 | A parser reads rows | **rows**: event, market, selection, optional advised price / stake units / tip time / expiry / origin | Scraper, `latest/<target>.json` | **`tip_id`** minted here: sha1 of source, normalised event, market, selection, day (`scraper/ids.py`, pinned equal to `hub/puntmore_hub/ids.py`) | — |
-| 3 | Rows leave the Scraper | one **drop file** per run under `<data>/hub/tips/` (Bet Finder sources), or one POST to Render for Paddy prices (`/api/paddy/*` with the ingest key); problems are **event** files under `<data>/hub/events/`; each file is one protocol envelope (`scraper_tips`, `scraper_event`) | Scraper writes, Hub reads and moves to `done/` | `tip_id` on every row; `msg_id` per file | event kinds: `unhealthy_source`, `blocked_source` |
+| 2 | A parser reads rows | **rows**: event, market, selection, optional advised price / stake units / tip time / expiry / origin; a tipster's email is parsed the same way on the Hub by `mail.py` (`puntmore_hub/tipsters/`, one parser per tipster from `tipsters.toml`) | Scraper, `latest/<target>.json`; a tipster email: Hub, in memory (the message is recorded in `mail_seen`) | **`tip_id`** minted here: sha1 of source, normalised event, market, selection, day (`scraper/ids.py`, pinned equal to `hub/puntmore_hub/ids.py`, which `mail.py` uses for a mail tip) | — |
+| 3 | Rows leave the Scraper | one **drop file** per run under `<data>/hub/tips/` (Bet Finder sources), or one POST to Render for Paddy prices (`/api/paddy/*` with the ingest key); problems are **event** files under `<data>/hub/events/`; each file is one protocol envelope (`scraper_tips`, `scraper_event`). A tipster email's rows have no file: they go straight to stage 4 inside the Hub (`inbox.ingest_rows`, the one storage path), and a message that parses to nothing or whose parser fails becomes the escalation directly | Scraper writes, Hub reads and moves to `done/` | `tip_id` on every row; `msg_id` per file | event kinds: `unhealthy_source`, `blocked_source` |
 | 4 | The Hub takes them in | a **tip** row in the Hub store, deduplicated on `tip_id`, and one `tip` message queued in the outbox; an event becomes an **escalation** | Hub, `hub.sqlite` (`tips`, `outbox`, `escalations`) | `tip_id`; `msg_id` per message | escalation: open, resolved |
 | 5 | The wire | the **envelope** `{type, client_id, msg_id, ts, body}` over the Hub's outbound WebSocket to `/api/2up/ws`; every non-control message is acked, replays are acked and ignored, unacked messages are re-sent after a reconnect under the same `msg_id` | contract: `hub/PROTOCOL.md` + `hub/schemas/protocol.schema.json`, copied verbatim on Render and tested on both sides | `msg_id` | — |
 | 6 | Render stores the tip | one row in the **`tips`** table; the row the endpoint writes is the row the Bet Finder works on | Render, `tips` | `tip_id` (unique; first copy kept) | `new` → `priced` or `quarantined` or `duplicate` or `expired` → `decided` / `not_placed` → `settled` |
@@ -33,7 +33,8 @@ and needs a line in the register.
    Scraper's tests (what the sinks write), the Hub's (what the inbox reads and
    what the link sends) and Render's (its vendored copy is byte-identical).
 2. **One id, minted at first sight, never re-minted.** `tip_id` is made by the
-   Scraper when the row is parsed and travels unchanged to the Hub, over the
+   Scraper when the row is parsed (by the Hub's `mail.py` for a tipster email,
+   with the same function) and travels unchanged to the Hub, over the
    wire, into Render's `tips` row, into the candidate, and back from the
    settled bet to the source credit. `bet_id` is made once by the decision and
    travels the other way. `msg_id` belongs to one message only. Nobody down
@@ -51,8 +52,9 @@ and needs a line in the register.
 
 ## Where to look when something is lost
 
-- A tip that never reached Render: `tip_id` in the Scraper's drop file, then in
-  the Hub's `tips` table, then in the outbox (`acked_at` empty means Render
+- A tip that never reached Render: `tip_id` in the Scraper's drop file (for a
+  tipster email, `puntmore mail --dry-run` shows the rows and ids a parser
+  reads; `data/mail-status.json` the last poll), then in the Hub's `tips` table, then in the outbox (`acked_at` empty means Render
   never acked), then in Render's `tips` (`GET /api/2up/hub/tips`).
 - A bet that never placed: `bet_id` in `twoup_bets` (status `sent` with no
   report means the Hub has it), then the Hub's `bets` table and its outbox.

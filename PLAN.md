@@ -452,12 +452,13 @@ The Hub side of the 2-Up Engine spec. (History: built on branch `home-box`, as
       bet lists out, reports in) — landed Nov 2026, branch `hub-endpoint` (item 11).
 - [x] Fold the Bet Finder's sources into the Scraper (branch `fold-worker`, 5 Nov): a `generic` site kind under `scraper/guard.py`, fetch-mode targets, tips and events dropped as files for `hub/`'s inbox; `hub/` no longer has a browser, budget or parsers.
 - [x] Self-update (branch `hub-update`): `puntmore-update.timer` every 10 min runs `hub/deploy/update.sh` (`puntmore update`): fast-forward to `origin/main`, reinstall, restart the enabled units; waits while a bet is `received`/`placing`; logs to `hub/data/update.log`, alerts on failure.
-- [ ] Phone placement adapter; IMAP tipster source. [x] Kick-off-window
-      sweeps (6 Nov 2026): a target's `near_min` / `near_hours` in
-      `targets.toml` (`schedule.py`): while a kick-off its own rows report is
-      within `near_hours`, it reloads or runs every `near_min` and goes first
-      among equals when the site's budget is short; `status.json` carries
-      `next_kickoff` and `near`, the console shows both.
+- [ ] Phone placement adapter.
+- [x] Kick-off-window sweeps (6 Nov 2026): a target's `near_min` /
+      `near_hours` in `targets.toml` (`schedule.py`): while a kick-off its own
+      rows report is within `near_hours`, it reloads or runs every `near_min`
+      and goes first among equals when the site's budget is short;
+      `status.json` carries `next_kickoff` and `near`, the console shows both.
+- [x] IMAP tipster source (branch `hub-mail`, Nov 2026): `hub/puntmore_hub/mail.py` polls one mailbox over IMAP (`PUNTMORE_IMAP_*`); tipsters are `hub/data/tipsters.toml` (sender rule, parser in `puntmore_hub/tipsters/`, trust weight); rows take the inbox's one storage path with `tip_id` minted at first sight; `puntmore mail [--dry-run]`, the link daemon every `PUNTMORE_IMAP_EVERY_MIN`, `mail-status.json` in status and health.
 - [x] Hub Console (branch `hub-console`): `puntmore web`, one page on the Hub with a live state per component (Scraper, Link, Placement, Escalations, Tips, Model, Hermes, Render) and the CLI's own actions (kill switch, resolve, inbox, link-check, heartbeat) behind `PUNTMORE_WEB_TOKEN`; unit `puntmore-web`, localhost by default.
 - [x] The Scraper on the Hub's desktop (branch `native-worker`, 5 Nov 2026): measured that day, Chrome 157 in the container reported NO WebGL (Xvfb, no GPU) and the container's fonts (its blank `deviceMemory` was partly `selfcheck` reading it on `about:blank`, where Chrome hides it; it now reads it on a secure page: 32 GB natively), while the same binary on the Hub's Wayland session reports `ANGLE (AMD, AMD Radeon 8060S Graphics (radeonsi strix_halo ACO), OpenGL ES 3.2)`. So the Scraper now runs there as the user service `puntmore-scraper` (`scraper/deploy/native/`), Chrome on its own defaults, restarted by `puntmore-update.timer` when `scraper/` changes; Docker is the no-screen fallback, and `selfcheck` prints the WebGL renderer. Rules unchanged: no stealth, one profile, budgets in code.
 - [ ] **A controllable Scraper.** [x] `scraper/targets.py` + `python -m scraper
