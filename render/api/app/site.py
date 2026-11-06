@@ -78,7 +78,7 @@ def main_domain_url(host: str | None, scheme: str, path: str, query: str = "") -
 # its MAIN filled in with the main domain's origin). A browser fetches a service
 # worker's script itself to update it and refuses a redirected one, so an app
 # installed from shalgo can only be released by a worker served from shalgo.
-# render/frontend/src/shalgoWorker.test.js runs it against a fake worker scope.
+# render/frontend/src/serviceWorkers.test.js runs it against a fake worker scope.
 RETIRING_WORKER = (Path(__file__).with_name("shalgo_sw.js")).read_text(encoding="utf-8")
 
 

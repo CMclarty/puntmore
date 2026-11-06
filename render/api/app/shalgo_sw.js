@@ -3,7 +3,7 @@
 // origin. An app installed from shalgo runs the real worker, which a redirect
 // can never replace; this one takes over at once, unregisters itself (the old
 // worker's cache goes with the registration) and loads every window again on
-// the main domain, same path. Tested by frontend/src/shalgoWorker.test.js.
+// the main domain, same path. Tested by frontend/src/serviceWorkers.test.js.
 const MAIN = __MAIN__
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', (event) => {
