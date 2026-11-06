@@ -402,7 +402,7 @@ def status(cfg: Settings = default_settings) -> dict:
     except (OSError, ValueError, TypeError):
         body, last = {}, None
     if last is None:
-        out["problems"].append("mail: configured but never polled (is the link daemon running?)")
+        out["problems"].append("mail: configured but never polled (is the daemon running?)")
     else:
         out["last_poll"] = body["last_poll"]
         out["age_s"] = int(utcnow().timestamp() - last.timestamp())

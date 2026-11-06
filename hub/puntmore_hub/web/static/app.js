@@ -4,7 +4,7 @@
 "use strict";
 
 const COMPONENTS = [
-  ["scraper", "Scraper"], ["link", "Link"], ["placement", "Placement"], ["escalations", "Escalations"],
+  ["scraper", "Scraper"], ["daemon", "Daemon"], ["placement", "Placement"], ["escalations", "Escalations"],
   ["tips", "Tips"], ["model", "Model"], ["hermes", "Hermes"], ["render", "Render"],
 ];
 const POLL_MS = 5000;
@@ -195,22 +195,18 @@ const RENDER = {
     lines(sec, "alerts", d.alerts, "alerts.log is empty or missing");
   },
 
-  link(sec, d, skew) {
+  daemon(sec, d, skew) {
     const drops = d.inbox_drops || {};
-    const ob = d.outbox || {};
+    const li = d.last_inbox || {};
+    const m = d.last_mail || {};
     fill(sec, "summary", kv([
       ["state", stateTag(d.state)], ["detail", d.detail],
-      ["puntmore-link.service", d.service === null ? "systemctl not available" : d.service],
-      ["configured", d.configured ? "yes" : "no (PUNTMORE_RENDER_WS / PUNTMORE_RENDER_API_KEY)"],
-      ["outbox pending (not yet sent)", ob.pending], ["outbox unacked by Render", ob.unacked],
-      ["oldest unacked", d.oldest_unacked_age_s === null ? "—" : d.oldest_unacked_age_s + "s"],
-      ["inbox drops waiting", `tips ${show(drops.tips)}, events ${show(drops.events)}`], ["inbox dir", d.inbox_dir],
+      ["puntmore-link.service (puntmore daemon)", d.service === null ? "systemctl not available" : d.service],
+      ["last inbox pass", li.at ? `${when(li.at, skew)}${li.error ? " — failed: " + li.error : ""}` : "none recorded"],
+      ["last inbox counts", li.counts ? Object.entries(li.counts).map(([k, v]) => `${k} ${v}`).join(", ") : "—"],
+      ["last mail poll", show(m.detail)],
+      ["drop files waiting", `tips ${show(drops.tips)}, events ${show(drops.events)}`], ["inbox dir", d.inbox_dir],
     ]));
-    fill(sec, "outbox", table([
-      ["#", "id", "n"], ["type", "type"], ["created", (r) => when(r.created, skew)],
-      ["sent", (r) => when(r.sent_at, skew)], ["acked", (r) => r.acked_at ? when(r.acked_at, skew) : el("span", { class: "st st-warn", text: "not yet" })],
-      ["msg_id", "msg_id", "mono"],
-    ], d.outbox_rows, "outbox is empty"));
   },
 
   placement(sec, d, skew) {
@@ -287,10 +283,6 @@ const RENDER = {
     box.textContent = !d.url ? "not configured" : (r.body !== null && r.body !== undefined
       ? `HTTP ${show(r.status_code)} in ${show(r.ms)} ms\n` + JSON.stringify(r.body, null, 2)
       : `HTTP ${show(r.status_code)}: ${show(r.error)}`);
-    const lc = d.last_link_check;
-    sec.querySelector('[data-slot="linkcheck"]').textContent = lc
-      ? `${lc.ok ? "OK" : "FAIL"} ${show(lc.message)}\n${show(lc.url)}\n${show(lc.at)} (${ago(lc.at, skew)})`
-      : "no link-check run from the console yet";
   },
 };
 
@@ -521,7 +513,6 @@ function wireActions() {
   document.getElementById("btn-kill-on").addEventListener("click", () => act("kill-on", {}, "Kill switch ON"));
   document.getElementById("btn-inbox").addEventListener("click", () => act("inbox-now", {}, "Inbox now"));
   document.getElementById("btn-heartbeat").addEventListener("click", () => act("heartbeat-now", {}, "Heartbeat now"));
-  document.getElementById("btn-link-check").addEventListener("click", () => act("link-check", {}, "Link-check"));
   document.getElementById("kill-off-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const c = document.getElementById("kill-off-confirm");

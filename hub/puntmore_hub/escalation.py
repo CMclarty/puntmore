@@ -96,7 +96,5 @@ def notify_hubai(store: Store, esc_id: int, *, cfg: Settings = default_settings)
 
 
 def resolve(store: Store, esc_id: int, outcome: str) -> None:
+    """Record HubAI's (or a person's) outcome. It stays in the store; nothing is sent anywhere."""
     store.resolve_escalation(esc_id, outcome)
-    row = store.escalation(esc_id)
-    store.outbox_add("escalation_outcome", {"escalation_id": esc_id, "kind": row["kind"], "ref": row["ref"],
-                                            "outcome": outcome})

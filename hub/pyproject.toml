@@ -1,10 +1,9 @@
 [project]
 name = "puntmore-hub"
 version = "0.1.0"
-description = "The Hub side of Puntmore: inbox of the Scraper's drops, Render link, placement client engine, local-AI escalation, console"
+description = "Puntmore's Hub: the Scraper's drop files and the tipster mailbox, HubAI's escalations and Finder posts, the placement engine, the Console"
 requires-python = ">=3.11"
 dependencies = [
-    "websockets>=12",
     "pyyaml>=6",
 ]
 

@@ -35,7 +35,8 @@ class ClientEngine:
         self.cfg = cfg
         self.adapter = adapter or DryRunAdapter()
         self.sub_clients = sub_clients if sub_clients is not None else load_sub_clients(cfg.sub_clients_file)
-        self.enqueue = enqueue or (lambda type_, body: store.outbox_add(type_, body))
+        # Where a report goes. The bets table is the record; by default a report is only logged.
+        self.enqueue = enqueue or (lambda type_, body: log.info("%s %s", type_, body))
         self.notify = notify
 
     def _report(self, rep: schemas.Report) -> None:

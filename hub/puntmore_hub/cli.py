@@ -1,17 +1,15 @@
 """``puntmore`` command line. Every operation an agent or a human needs, with plain text output.
 
 Scraping is the Scraper's (`python -m scraper ...` in `scraper/`); this CLI reads what the
-Scraper drops and reports, polls the tipster mailbox, and owns the link to Render, placement,
-and escalations.
+Scraper drops and reports, polls the tipster mailbox, runs the daemon, hands Finder rows to
+Render for HubAI, and owns placement and escalations.
 """
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import logging
 import sys
-import threading
 from datetime import timedelta
 
 from . import __version__, alerts, escalation, finder, inbox, killswitch, mail
@@ -38,15 +36,15 @@ def cmd_init(a):
         d.mkdir(parents=True, exist_ok=True)
     _store().close()
     print(f"initialised {settings.data_dir} (db {settings.db_path})")
-    print(f"dry_run={settings.dry_run} kill_switch={settings.kill_switch_on()} link_configured={settings.link_configured}")
+    print(f"dry_run={settings.dry_run} kill_switch={settings.kill_switch_on()}")
     print(f"scraper data: {settings.scraper_data_dir} ({'present' if settings.scraper_data_dir.exists() else 'not found'})")
 
 
 def cmd_status(a):
     st = _store()
     s = st.summary_since(utcnow() - timedelta(hours=24))
-    print(f"puntmore-hub {__version__}  client={settings.client_id}  dry_run={settings.dry_run}  "
-          f"kill_switch={'ON' if settings.kill_switch_on() else 'off'}  link={'configured' if settings.link_configured else 'OFFLINE'}")
+    print(f"puntmore-hub {__version__}  dry_run={settings.dry_run}  "
+          f"kill_switch={'ON' if settings.kill_switch_on() else 'off'}")
     print("last 24h: " + ", ".join(f"{k}={v}" for k, v in s.items()))
     w = inbox.scraper_status(settings)
     age = w["heartbeat_age_s"]
@@ -125,7 +123,7 @@ def cmd_escalation(a):
         print(escalation.brief_for(st, a.id))
     elif a.which == "resolve":
         escalation.resolve(st, a.id, a.outcome)
-        print(f"escalation #{a.id} resolved; outcome queued for Render")
+        print(f"escalation #{a.id} resolved")
 
 
 def cmd_tips(a):
@@ -139,73 +137,16 @@ def cmd_heartbeat(a):
     print(alerts.heartbeat(_store(), scraper=inbox.scraper_status(settings)))
 
 
-def cmd_link(a):
-    """Run the link daemon: Scraper drops and tipster emails -> tips (for Hermes, `finder new`) and
-    escalations, and, only when PUNTMORE_RENDER_WS is set, the socket (bet lists -> client engine).
-    Render has no Hub socket since 6 Nov 2026, so blank is the normal case: the inbox loop then
-    runs in the foreground and keeps the process up."""
-    from .link.client import RenderLink, bets_from
-    from .placement.engine import ClientEngine
-
-    st = _store()
-    engine = ClientEngine(st)
-    link = RenderLink(st)
-    log = logging.getLogger("puntmore.link")
-
-    def on_bet_list(env):
-        statuses = engine.handle_bet_list(bets_from(env))
-        log.info("bet_list %s -> %s", env.msg_id, statuses)
-
-    def on_scrape_job(env):
-        # Scraping is the Scraper's: a job from Render is noted, not run here.
-        link.enqueue("scrape_result", {"job_id": env.body.get("job_id"), "status": "skipped",
-                                       "error": "scrapes run on the Scraper's own schedule (scraper/targets.toml)"})
-
-    def on_kill(env):
-        # ON only: Render never turns the file off (killswitch.from_render).
-        killswitch.from_render(st, env.body, settings)
-
-    link.handlers.update({"bet_list": on_bet_list, "scrape_job": on_scrape_job, "kill_switch": on_kill})
-
-    def ingest_loop():
-        import time
-        while True:
-            try:
-                counts = inbox.ingest(Store(settings.db_path), settings)
-                if counts["tip_files"] or counts["events"]:
-                    log.info("inbox: %s", counts)
-            except Exception as exc:  # noqa: BLE001
-                log.exception("inbox pass failed: %s", exc)
-            time.sleep(30)
-
-    def mail_loop():
-        # The tipster mailbox, every PUNTMORE_IMAP_EVERY_MIN; a failed poll is its own alert.
-        import time
-        while True:
-            try:
-                counts = mail.poll(Store(settings.db_path), settings)
-                log.info("mail: %s", {k: counts[k] for k in mail.COUNT_KEYS} | {"error": counts["error"]})
-            except Exception as exc:  # noqa: BLE001
-                log.exception("mail poll failed: %s", exc)
-            time.sleep(max(1, settings.imap_every_min) * 60)
-
-    if settings.mail_configured:
-        threading.Thread(target=mail_loop, name="mail", daemon=True).start()
-    alerts.startup(st, "link")
-    try:
-        if not settings.render_ws_url:
-            asyncio.run(link.run())          # says "no socket configured" once and returns
-            ingest_loop()                    # the inbox in the foreground; the process stays up
-            return
-        threading.Thread(target=ingest_loop, name="inbox", daemon=True).start()
-        asyncio.run(link.run())
-    except KeyboardInterrupt:
-        pass
+def cmd_daemon(a):
+    """Run the Hub daemon: the inbox pass over the Scraper's drop files every 30 s and the
+    tipster mailbox on its own thread (daemon.py). `puntmore link` is the same command."""
+    from . import daemon
+    daemon.run(settings)
 
 
 def cmd_finder(a):
-    """Finder (docs/finder-spec.md): the new tips Hermes judges, the rows it posts to Render,
-    the tips it skips, and the placer's placed|gone."""
+    """Finder (docs/finder-spec.md): the new tips HubAI judges, the rows it posts to Render,
+    the tips it skips, and the Bet Placer's placed|gone."""
     if a.which == "new":
         for tip in finder.new_tips(_store(), limit=a.limit):
             print(json.dumps(tip))
@@ -223,19 +164,6 @@ def cmd_finder(a):
     else:
         at = utcnow().isoformat(timespec="seconds")
         print(json.dumps(finder.post_status(settings, a.tip_id, a.status, at, store=_store())))
-
-
-def cmd_link_check(a):
-    """Handshake with a Render build and report. Exit 1 on failure."""
-    from .link.client import check
-    url = a.url or settings.render_ws_url
-    key = a.key or settings.render_api_key
-    if not url or not key:
-        sys.exit("need a URL and key: pass them or set PUNTMORE_RENDER_WS / PUNTMORE_RENDER_API_KEY")
-    ok, detail = asyncio.run(check(url, key, settings.client_id))
-    print(("OK " if ok else "FAIL ") + detail)
-    if not ok:
-        sys.exit(1)
 
 
 def cmd_web(a):
@@ -257,33 +185,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("init", help="create data dirs and the database").set_defaults(fn=cmd_init)
     sub.add_parser("status", help="one-screen status, including the Scraper").set_defaults(fn=cmd_status)
-    ib = sub.add_parser("inbox", help="one pass over the Scraper's drop folders (the link daemon does this every 30 s)")
-    ib.add_argument("--no-notify", action="store_true", help="record escalations without waking the local AI"); ib.set_defaults(fn=cmd_inbox)
-    ml = sub.add_parser("mail", help="one poll of the tipster mailbox (the link daemon does this every PUNTMORE_IMAP_EVERY_MIN)")
+    ib = sub.add_parser("inbox", help="one pass over the Scraper's drop folders (the daemon does this every 30 s)")
+    ib.add_argument("--no-notify", action="store_true", help="record escalations without waking HubAI"); ib.set_defaults(fn=cmd_inbox)
+    ml = sub.add_parser("mail", help="one poll of the tipster mailbox (the daemon does this every PUNTMORE_IMAP_EVERY_MIN)")
     ml.add_argument("--dry-run", action="store_true", help="show what the parsers read; store nothing, mark nothing seen")
-    ml.add_argument("--no-notify", action="store_true", help="record escalations without waking the local AI"); ml.set_defaults(fn=cmd_mail)
+    ml.add_argument("--no-notify", action="store_true", help="record escalations without waking HubAI"); ml.set_defaults(fn=cmd_mail)
     sub.add_parser("health", help="exit 1 if anything needs attention").set_defaults(fn=cmd_health)
     k = sub.add_parser("kill", help="kill switch"); k.add_argument("action", choices=["on", "off", "status"]); k.set_defaults(fn=cmd_kill)
 
-    es = sub.add_parser("escalation", help="escalations to the local AI").add_subparsers(dest="which", required=True)
+    es = sub.add_parser("escalation", help="escalations to HubAI").add_subparsers(dest="which", required=True)
     es.add_parser("list").set_defaults(fn=cmd_escalation)
     sh = es.add_parser("show"); sh.add_argument("id", type=int); sh.set_defaults(fn=cmd_escalation)
     rs = es.add_parser("resolve"); rs.add_argument("id", type=int); rs.add_argument("--outcome", required=True); rs.set_defaults(fn=cmd_escalation)
 
-    t = sub.add_parser("tips", help="recent candidate tips"); t.add_argument("--limit", type=int, default=30); t.set_defaults(fn=cmd_tips)
-    fd = sub.add_parser("finder", help="Finder: new tips for Hermes, its rows to Render, skips, the placer's status").add_subparsers(dest="which", required=True)
+    t = sub.add_parser("tips", help="recent tips from the Scraper's sources and the mailbox"); t.add_argument("--limit", type=int, default=30); t.set_defaults(fn=cmd_tips)
+    fd = sub.add_parser("finder", help="Finder: new tips for HubAI, its rows to Render, skips, the Bet Placer's status").add_subparsers(dest="which", required=True)
     fn = fd.add_parser("new", help="tips not yet posted to Finder, one JSON object per line")
     fn.add_argument("--limit", type=int, default=50); fn.set_defaults(fn=cmd_finder)
     fp = fd.add_parser("post", help="POST a JSON list of rows (a file, or - for stdin) to /api/finder/rows")
     fp.add_argument("file"); fp.set_defaults(fn=cmd_finder)
-    fk = fd.add_parser("skip", help="a tip Hermes cannot post: marked skipped, so `finder new` moves on")
+    fk = fd.add_parser("skip", help="a tip HubAI cannot post: marked skipped, so `finder new` moves on")
     fk.add_argument("tip_id"); fk.add_argument("--reason"); fk.set_defaults(fn=cmd_finder)
-    fs = fd.add_parser("status", help="the placer's report on an offered row")
+    fs = fd.add_parser("status", help="the Bet Placer's report on an offered row")
     fs.add_argument("tip_id"); fs.add_argument("status", choices=["placed", "gone"]); fs.set_defaults(fn=cmd_finder)
     sub.add_parser("heartbeat", help="send the daily summary").set_defaults(fn=cmd_heartbeat)
-    sub.add_parser("link", help="run the Render link daemon").set_defaults(fn=cmd_link)
-    lc = sub.add_parser("link-check", help="handshake with a Render build (hello -> hello_ack)")
-    lc.add_argument("url", nargs="?"); lc.add_argument("--key"); lc.set_defaults(fn=cmd_link_check)
+    sub.add_parser("daemon", help="run the daemon: inbox every 30 s, tipster mailbox on its own thread").set_defaults(fn=cmd_daemon)
+    sub.add_parser("link", help="the same as `daemon` (the name puntmore-link.service runs)").set_defaults(fn=cmd_daemon)
     w = sub.add_parser("web", help="the Hub Console web page (PUNTMORE_WEB_BIND, default 127.0.0.1:8090)")
     w.add_argument("--bind", help="host:port, overrides PUNTMORE_WEB_BIND"); w.set_defaults(fn=cmd_web)
     up = sub.add_parser("update", help="fast-forward to origin/main, reinstall, restart (puntmore-update.timer)")

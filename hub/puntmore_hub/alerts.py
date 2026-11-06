@@ -37,7 +37,7 @@ def send(store: Store, key: str, message: str, *, level: str = "warn",
         return False
     store.add_alert(key, message)
     prefix = {"info": "ℹ️", "warn": "⚠️", "error": "🚨"}.get(level, "⚠️")
-    text = f"{prefix} [{cfg.client_id}] {message}"
+    text = f"{prefix} [hub] {message}"
     getattr(log, "error" if level == "error" else "warning" if level == "warn" else "info")("%s", text)
     if cfg.discord_webhook:
         return _post_discord(cfg.discord_webhook, text)
@@ -61,7 +61,7 @@ def heartbeat(store: Store, cfg: Settings = default_settings, scraper: dict | No
     lines = [
         f"heartbeat 24h: tips {s['tips']}, bets received {s['bets_received']}, placed {s['bets_placed']}, "
         f"failed {s['bets_failed']}",
-        f"open escalations {s['escalations_open']}, outbox pending {s['outbox_pending']}",
+        f"open escalations {s['escalations_open']}",
     ]
     if scraper:
         lines.append(f"scraper: {'running' if scraper.get('running') else 'NOT RUNNING'}, "

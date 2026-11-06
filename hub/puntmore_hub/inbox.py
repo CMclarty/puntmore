@@ -26,7 +26,7 @@ from pathlib import Path
 
 from . import escalation
 from .config import Settings, settings as default_settings
-from .schemas import FILE_TYPES, CandidateTip
+from .schemas import FILE_TYPES, Tip
 from .store import Store, utcnow
 
 log = logging.getLogger("puntmore.inbox")
@@ -57,7 +57,7 @@ def _body(d: dict) -> dict:
     return d
 
 
-def tips_from_rows(source: str, rows: list[dict], *, at: str, trust_weight: float) -> tuple[list[tuple[str | None, CandidateTip]], list[str]]:
+def tips_from_rows(source: str, rows: list[dict], *, at: str, trust_weight: float) -> tuple[list[tuple[str | None, Tip]], list[str]]:
     """The good rows of one source as (tip_id or None, tip): None when the row carries no
     usable tip_id (an old drop), so the store mints it. A row with no event, market or
     selection, or a price outside the band, is a problem, never a guess."""
@@ -72,7 +72,7 @@ def tips_from_rows(source: str, rows: list[dict], *, at: str, trust_weight: floa
             problems.append(f"price {price} out of range: {row}")
             continue
         tid = row.get("tip_id")
-        good.append((tid if isinstance(tid, str) and _TIP_ID.match(tid) else None, CandidateTip(
+        good.append((tid if isinstance(tid, str) and _TIP_ID.match(tid) else None, Tip(
             source_id=source, event=str(row["event"]), market=str(row["market"]), selection=str(row["selection"]),
             advised_price=None if price is None else float(price),
             advised_stake_units=row.get("advised_stake_units"),

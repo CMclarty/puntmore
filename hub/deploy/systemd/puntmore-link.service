@@ -1,12 +1,12 @@
 [Unit]
-Description=Puntmore Hub: persistent link to Render (bet lists in, reports out)
+Description=Puntmore Hub daemon: the Scraper's drop files and the tipster mailbox (puntmore daemon)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=%h/Projects/puntmore/hub
-ExecStart=%h/.venvs/puntmore/bin/puntmore link
+ExecStart=%h/.venvs/puntmore/bin/puntmore daemon
 Restart=always
 RestartSec=5
 

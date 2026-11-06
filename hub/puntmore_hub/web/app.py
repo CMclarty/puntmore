@@ -99,7 +99,7 @@ def create_app(cfg: Settings | None = None, *, allowed_hosts: list[str] | None =
     def overview():
         with ThreadPoolExecutor(max_workers=len(collect.COMPONENTS)) as pool:
             results = dict(zip(collect.COMPONENTS, pool.map(get, collect.COMPONENTS)))
-        return {"now": iso(utcnow()), "version": __version__, "client_id": cfg.client_id,
+        return {"now": iso(utcnow()), "version": __version__,
                 "dry_run": cfg.dry_run, "kill_switch": cfg.kill_switch_on(), "actions_enabled": bool(cfg.web_token),
                 "components": {n: {k: r.get(k) for k in ("state", "checked_at", "detail")} for n, r in results.items()}}
 
@@ -179,17 +179,12 @@ def create_app(cfg: Settings | None = None, *, allowed_hosts: list[str] | None =
         authorise(request, "escalation resolve")
         body = await body_of(request)
         return run(request, f"escalation resolve #{body.get('id')}",
-                   with_store(actions.escalation_resolve, body), "escalations", "link")
+                   with_store(actions.escalation_resolve, body), "escalations")
 
     @app.post("/api/actions/inbox-now")
     def inbox_now(request: Request):
         authorise(request, "inbox now")
-        return run(request, "inbox now", with_store(actions.inbox_now), "tips", "link", "escalations")
-
-    @app.post("/api/actions/link-check")
-    def link_check(request: Request):
-        authorise(request, "link-check")
-        return run(request, "link-check", lambda: actions.link_check(cfg), "render")
+        return run(request, "inbox now", with_store(actions.inbox_now), "tips", "daemon", "escalations")
 
     @app.post("/api/actions/heartbeat-now")
     def heartbeat_now(request: Request):
