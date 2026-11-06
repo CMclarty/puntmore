@@ -5,7 +5,8 @@ import importlib
 import pytest
 
 
-@pytest.mark.parametrize("name", ["app.twoup.decision", "app.hub", "app.routers.hub_ws"])
+@pytest.mark.parametrize("name", ["app.twoup.decision", "app.hub", "app.routers.hub_ws",
+                                  "app.betfinder", "app.tip_migration", "app.routers.betfinder"])
 def test_removed_modules_do_not_import(name):
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module(name)
@@ -27,3 +28,11 @@ def test_no_hub_routes():
     paths = set(_paths(app.routes))
     assert "/2up/feed" in paths          # the walk sees the mounted routers
     assert not [p for p in paths if p.startswith(("/2up/ws", "/2up/hub"))]
+
+
+def test_no_betfinder_routes():
+    from app.main import app
+
+    paths = set(_paths(app.routes))
+    assert "/2up/feed" in paths
+    assert not [p for p in paths if p.startswith("/2up/betfinder")]

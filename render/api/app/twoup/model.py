@@ -70,9 +70,7 @@ class Params:
 class Candidate:
     """One bettable selection, priced. The decision layer's only input type.
 
-    2-up rows come from `feed.py` with `source_scope="shared"`; Bet Finder
-    rows (`decision.extra_candidates`) arrive with `source_scope="owner"` and
-    are only ever considered for the owner client."""
+    2-up rows come from `feed.py` with `source_scope="shared"`."""
     event_id: str
     event: str                     # "Home v Away"
     home: str

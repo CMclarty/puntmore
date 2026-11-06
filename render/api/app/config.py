@@ -148,8 +148,8 @@ class Settings(BaseSettings):
     # Key the local Bookie Bashing script sends (X-API-Key) with fair saves
     # prices to POST /api/paddy/saves-fair. Blank = endpoint disabled (503).
     saves_ingest_key: str = ""
-    # The client id whose bets may carry source_scope "owner" (Bet Finder): such
-    # a bet is never offered to any other client. (Goes with the Bet Finder.)
+    # The client id whose bets may carry source_scope "owner": such a bet is
+    # never offered to any other client. (Read by the ledger, which goes next.)
     hub_owner_client_id: str = "owner"
 
     # --- 2-Up engine (app/twoup/, docs/2up-engine-spec.md) -------------------
@@ -192,43 +192,8 @@ class Settings(BaseSettings):
     twoup_max_price: float = 8.0
     # Where the rescue-rate table lives. Blank = app/twoup/rescue_table.json.
     twoup_rescue_table_path: str = ""
-    # The London day the ledger (and, until it goes, the Bet Finder) counts in.
+    # The London day the ledger counts in. (Read by the ledger, which goes next.)
     twoup_timezone: str = "Europe/London"
-
-    # --- Bet Finder orchestrator (app/betfinder/) ----------------------------
-    # Turns the Hub's `tip` frames (the `tips` table) into OWNER-ONLY 2-Up candidates.
-    # It never fetches anything (no IMAP, no tipster pages): tips arrive over
-    # the Hub link, prices come from the 2-Up feed's cache. Off = no job and
-    # `extra_candidates` returns nothing; the routes still read.
-    enable_betfinder: bool = True
-    # Sources created on startup if missing, NEVER modified once they exist
-    # (trust, active and stake mode are set by hand through the routes):
-    # "name:trust=0.6,active=1,stake=advised,kind=hub;other:trust=0.4".
-    # Keys are optional; defaults are trust 0.5, inactive, stake auto, kind hub.
-    # A tip from a source not listed creates it INACTIVE at trust 0.5.
-    betfinder_sources: str = ""
-    # One advised unit in pounds: a tip's advised_stake_units x this is its
-    # stake in `advised` mode, before the trust weight and the 2-Up caps.
-    betfinder_unit_stake: float = 5.0
-    # Advised units above this are not believed: the tip is quarantined.
-    betfinder_max_units: float = 10.0
-    # Edge floor for Bet Finder rows, in probability units, p_win - 1/price
-    # with rescue 0 (the 2-Up floor is for the 2-up edge, which a tip does not
-    # claim). 0 = never back a tip bet365 prices below Pinnacle's fair line.
-    betfinder_min_edge: float = 0.0
-    # How long after its tip_time an unmatched tip keeps being retried (the
-    # fixture may not be in the 2-Up feed's horizon yet), and how far after
-    # the tip a fixture may kick off and still be the one it means.
-    betfinder_match_days: float = 3.0
-    # A priced tip older than this is not offered to the decision: its price
-    # is re-read every pass, so a stale one means the fixture left the feed.
-    betfinder_max_price_age_minutes: int = 30
-    # The pipeline's cadence, in minutes. It prices off the 2-Up feed's CACHE
-    # only (never a refresh), and the 2-Up pass re-prices open tips off the
-    # feed it has just read, so the Bet Finder adds no OddsPapi request.
-    betfinder_minutes: int = 5
-    # Rolling window for the per-source strike rate and ROI (settled tips).
-    betfinder_stats_window: int = 50
 
     # Session cookie signing key. If blank, a random key is generated at startup
     # (sessions reset on restart — fine for dev; set a fixed value in prod).

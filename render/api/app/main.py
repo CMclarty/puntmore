@@ -45,7 +45,6 @@ from .routers import state as state_router
 from .routers import diagnostics as diagnostics_router
 from .routers import value as value_router
 from .routers import twoup as twoup_router
-from .routers import betfinder as betfinder_router
 from . import diagnostics
 
 logger = logging.getLogger("uvicorn.error")
@@ -61,14 +60,6 @@ SLOW_REQUEST_MS = 8000
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     ensure_schema()
-    # One-off: hub_tips + betfinder_tips -> the one `tips` table. Runs once
-    # (a marker row); the old tables are left in place, unused. A failure is
-    # logged and retried on the next start: new tips land in `tips` anyway.
-    try:
-        from .tip_migration import migrate_tips
-        migrate_tips(engine)
-    except Exception:  # noqa: BLE001
-        logger.exception("tips migration failed; it is retried on the next start")
     db = SessionLocal()
     try:
         seed(db)
@@ -77,11 +68,6 @@ async def lifespan(app: FastAPI):
         from .twoup.ledger import ensure_clients
         if ensure_clients(db):
             logger.info("2up: seeded client(s)/account(s) from TWOUP_CLIENTS")
-        # Bet Finder sources named in BETFINDER_SOURCES that have no row.
-        # Existing rows (trust, active, stake mode) are never touched.
-        from .betfinder.sources import ensure_sources
-        if ensure_sources(db):
-            logger.info("betfinder: seeded source(s) from BETFINDER_SOURCES")
         created, regranted = seed_users(db, settings.auth_users)
         if created:
             logger.info("Seeded %d user(s) from AUTH_USERS", created)
@@ -351,9 +337,6 @@ app.include_router(shop_router.router, dependencies=[Depends(require_tool("shop"
 # not ENABLE_ACCABONUS: the acca page can stay hidden while 2-Up runs dry.
 if settings.enable_twoup:
     app.include_router(twoup_router.router, dependencies=[Depends(require_tool("accabonus"))])
-    # The Bet Finder's operator routes: same tool, same grant.
-    app.include_router(betfinder_router.router,
-                       dependencies=[Depends(require_tool("accabonus"))])
 
 # The cross-tool value feed: `value` grant sees every source, a tool grant its
 # own rows (routers/value.py resolves that itself, through user_permissions).
