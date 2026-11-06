@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, memo, Fragment } from 'react
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getCouponTypes, getTypeSelections, getTypeBundles, editLeg } from '../api'
 import useAutoRefresh from '../hooks/useAutoRefresh'
+import { pricesStaleSince } from '../staleness'
 import { FRACTIONAL_LADDER, fractionToDecimal, nearestFraction } from '../odds'
 import styles from './TrackerPage.module.css'
 
@@ -649,6 +650,8 @@ export default function TrackerPage() {
     }
   }, [])
 
+  const staleSince = pricesStaleSince(legs)
+
   // No coupon chosen: the landing page. Which coupons exist, which of their
   // windows are live right now, and a way into each.
   if (!activeCode) {
@@ -714,6 +717,14 @@ export default function TrackerPage() {
           lost part of it is measurable — and this is the whole of how that is
           said. One line, about the SCAN, shown only when something went
           missing; the per-row anomaly badges are not coming back. */}
+      {/* Prices older than two refreshes say so (PLAN.md item 4): the
+          refresh is silent, so without this a stalled one leaves the list
+          looking current. Nothing is shown while they are fresh. */}
+      {staleSince && (
+        <div className={styles.scanNote}>
+          Prices from {staleSince.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · not refreshed since
+        </div>
+      )}
       {headlineIssue?.scan_note && (
         <div className={styles.scanNote}>
           Incomplete scan · {headlineIssue.scan_note} · re-scan to re-read the sheet

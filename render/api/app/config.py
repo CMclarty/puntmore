@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     # notifications/routes.py. Unrouted alerts use DISCORD_WEBHOOK_URL.
     discord_routes: str = ""
     upload_dir: str = "uploads"
+    # A coupon and its photo are deleted this many days after upload (PLAN.md
+    # item 4): a coupon's window is a week at most, so after 8 days nothing on
+    # it can still be bet. Rows and image files go together, never one alone.
+    coupon_cleanup_days: int = 8
     # Largest coupon photo accepted, in MB. A phone photo is 2-6 MB, so this is
     # generous — it exists because the request body is held in memory and then
     # decoded and base64-encoded for OCR, so one oversized POST could exhaust a

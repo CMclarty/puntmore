@@ -26,11 +26,14 @@ from .time_utils import utcnow
 logger = logging.getLogger("uvicorn.error")
 
 
-def cleanup_old_coupons(db=None, *, cutoff_days: int = 30, notifier=None) -> int:
-    """Delete coupons older than cutoff_days, including their image files.
+def cleanup_old_coupons(db=None, *, cutoff_days: int | None = None, notifier=None) -> int:
+    """Delete coupons older than cutoff_days (default `Settings.coupon_cleanup_days`),
+    including their image files: a row and its file go together, never one alone.
 
     Returns the number of coupons deleted.
     """
+    if cutoff_days is None:
+        cutoff_days = settings.coupon_cleanup_days
     close = False
     if db is None:
         db = SessionLocal()
