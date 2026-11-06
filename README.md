@@ -1,33 +1,90 @@
 # Puntmore
 
-Betting tools: a web app on Render, and a Hub on a residential connection that reads bookmaker pages and, for the 2-Up Engine, places bets. One repo, one directory per deployable, and **one source for everything**: read `docs/decisions.md` first (the decisions register: it wins over every other file), then this file for what runs where, `CLAUDE.md` the rules, `PLAN.md` what is next and the older product decisions, `docs/architecture.md` the architecture, `docs/2up-engine-spec.md` the 2-Up spec, `SPEC.md` the web app's original design (history). Nothing about the system lives outside the repo.
+Betting tools in two boxes. **Render** is the cloud service: one deploy that prices markets and
+serves the tools. The **Hub** is Callum's box on a residential connection: it reads every
+bookmaker and tipster page, judges tips, and is where bets are placed from. One repository for
+both, one directory per deployable.
+
+## Read in this order
+
+1. `docs/decisions.md`: the decisions register. It wins over every other file.
+2. `docs/architecture.md`: the components, where each runs, what crosses between the boxes.
+3. `docs/dataflow.md`: how one row travels from a page to a placed bet.
+4. The three specs: `docs/2up-engine-spec.md` (2-Up), `docs/finder-spec.md` (Finder),
+   `docs/placer-spec.md` (the Bet Placer).
+5. `CLAUDE.md` (rules for the whole repo), then the `AGENTS.md` of the directory you work in.
+6. `PLAN.md`: the open work.
+
+Nothing about the system lives outside the repo.
+
+## Render
+
+One Docker web service; every push to `main` deploys it. Render never loads a bookmaker page and
+never places a bet. **OddsPapi** is its only odds source.
+
+It serves **boards**: tool pages, each with a one-way HTTP **feed** of value rows.
+
+| Board | What it is | Feed |
+|---|---|---|
+| **Paddy** | corners, cards, goals and saves against Paddy Power | `GET /api/paddy/feed` |
+| **2-Up** | bet365's early-payout value, inside the **365 tool** | `GET /api/2up/feed` |
+| **Finder** | the tips board: the tips HubAI has judged; the feed is the ones it offered | `GET /api/finder/feed` |
+
+Beside the boards: the coupon tracker, Hills, and Callum's personal tools (dogs, Virtuals, P&L,
+Kelly, the shop). No ledger, no account and no Hub endpoint on Render.
+
+Two hosts from the one deploy: the **main domain** (`puntmore.com`) serves every public tool
+(the coupon tracker, Paddy, Hills, 365 with 2-Up), the login and the API; **`me`**
+(`me.puntmore.com`) serves Callum's personal tools, Finder among them, with its own login.
+`me` is switched on by `ME_HOST`: blank (the default) there is no `me`, and its tools are served
+on the main domain. To switch it on, add the `me.puntmore.com` DNS record and the Render custom
+domain, check the host resolves to the service, then set `ME_HOST=me.puntmore.com` on Render.
+
+## The Hub
+
+One program on Callum's box, in five parts:
+
+- **Scraper service** (`scraper/`): the one real Chrome on the desktop; reads every page any
+  tool needs and fills what OddsPapi lacks. It hands up two kinds of row: **prices** (raw rows
+  for the Paddy board, which turns them into value bets: Paddy Power's lines off a Paddy page,
+  and the fair prices for Paddy's saves read from Bookie Bashing) and **tips** (bets from an
+  external source).
+- **Scraper control**: rules, routing and switches for every source's rows (pages and the
+  tipster mailbox), driven from the Console; rows go from the Scraper service to Scraper control
+  and on to a board or to HubAI. Built today: the targets file and its library
+  (`scraper/targets.py`), the Hub's inbox of the Scraper's drop files and the mailbox poll
+  (`hub/`). Paddy's prices still post straight to Render; moving them behind Scraper control is
+  the next Scraper work.
+- **HubAI**: the Hub's AI, the whole Hermes layer (a chief of staff on Telegram and its
+  specialist profiles, one Qwen model under llama-server). It takes every escalation and judges
+  tips for Finder, including a tip Callum asks for on Telegram; that Finder skill is the next
+  HubAI work.
+- **Bet Placer**: reads the three feeds, sizes, places on the phones through DeviceFarmer,
+  keeps the only book, and posts `placed` / `gone` to Finder. A black box for now
+  (`docs/placer-spec.md`); the placement engine in `hub/puntmore_hub/placement/` is its start.
+- **Console** (`puntmore web`): the page that shows every part and carries the control page;
+  reachable through a private tunnel.
 
 ## What runs where
 
-| Directory | Runs on | Built and deployed by | Updated when |
+| Directory | Runs on | Deployed by | Updated when |
 |---|---|---|---|
-| `render/api/` + `render/frontend/` | Render, one Docker web service (`puntmore.com`) | `render.yaml`: `render/api/Dockerfile` builds the frontend into the API image | **every push to `main`** |
-| `scraper/` | Hub: the Scraper, user service `puntmore-scraper` on the desktop session, real Chrome on the real display (the Docker image on Xvfb is the fallback for a box with no screen) | `hub/deploy/`; fallback: `.github/workflows/scraper-image.yml` → GHCR + `scraper/deploy/update.sh` cron | push to `main`: `puntmore-update.timer` within 10 min |
-| `hub/` | Hub, systemd user services | `hub/deploy/systemd/`; the box runs this checkout | push to `main`: `puntmore-update.timer` fast-forwards the box within 10 min |
-| `hub/puntmore_hub/placement/` | Hub, driving the sub-client phones | part of `hub/` | **placeholder**: the bet-placing bot. Bets in, results out. Contract in its README; only the dry-run adapter exists |
-| `clients/python/` | any machine client | from the repo | on demand |
+| `render/api/` + `render/frontend/` | Render, one Docker web service | `render.yaml`; `render/api/Dockerfile` builds the frontend into the API image | every push to `main` |
+| `scraper/` | Hub: the Scraper service, user service `puntmore-scraper` on the desktop session (Docker is the fallback for a box with no screen) | `scraper/deploy/native/`; fallback `.github/workflows/scraper-image.yml` | `puntmore-update.timer`, every 10 min |
+| `hub/` | Hub: the daemon, the Console, HubAI's CLI, the placement engine; systemd user services | `hub/deploy/systemd/` on the box's checkout | `puntmore-update.timer`, every 10 min |
+| `clients/python/` | any machine client of the API | from the repo | on demand |
 | `local/` | one-off scripts on the Hub | by hand | — |
 
-Only `main` deploys Render, so nothing is pushed to `main` directly: work on a branch, open a pull request, let the path-scoped workflows run.
+Only `main` deploys, so nothing is pushed to `main` directly: work on a branch, open a pull
+request, let the path-scoped workflows run.
 
-## The two boxes
-
-**Render** prices and serves the 2-Up value feed (a one-way HTTP feed: it keeps no ledger, stakes nothing and places nothing). It is one deploy serving three subdomains: `2up.puntmore.com` (the 2-Up product: the 365 tool and its value feed), `shalgo.puntmore.com` (the Paddy Power tools, a setup of their own fed by the Scraper, and the coupon tracker) and `me.puntmore.com` (Cal's personal tools, owner only; Finder, his private Bet Finder, is the first tool the me site itself shows). It runs the app, the 365 tool (the 2-Up value feed, refreshed on a schedule and read over HTTP by the betting agent and on the 2-Up tab; the acca boost was removed 5 Nov 2026 and returns on OddsPapi, goalscorers is parked) and the odds API client. Since 6 Nov 2026 it has no Bet Finder orchestrator and no Hub socket; Finder (`docs/finder-spec.md`) keeps, serves and expires the bets Hermes posts from the Hub over two key-authenticated HTTP routes, and the placer reads them back. **OddsPapi is the only odds source.** Render never loads a bookmaker page and never places a bet.
-
-**The Hub** does only what needs a residential IP, the phones or the GPU. `scraper/` (the Scraper) keeps Paddy Power pages open in one real Chrome and posts prices to the API, and loads the tip sources (`site = "generic"`); its one Bookie Bashing page (`bb-saves`) is an open exception for Callum to decide (`docs/decisions.md`). `hub/` holds the link daemon (its inbox and tipster-mail loops run without a socket since 6 Nov 2026; `PUNTMORE_RENDER_WS` is blank), the client engine that places bets on sub-client phones, escalation, the inbox for the Scraper's tip drops, the `puntmore finder` commands, and the Hub Console. Hermes owns the Hub: it runs the schedules, takes every escalation, and judges each stored tip, posting its verdict to Finder on Render (`puntmore finder new` / `post`). The bet-placing bot itself, the part that takes a bet and returns `placed`, `price_changed` or `failed`, is a placeholder: `hub/puntmore_hub/placement/README.md` has its contract and the stub to replace. `hub/PROTOCOL.md` and `hub/schemas/` describe the Hub's side of the link; Render's end of it was removed on 6 Nov 2026.
-
-## Running the tests
+## Tests
 
 ```
-cd render/api && .venv/bin/python -m pytest tests/ -q       # Render side
-cd render/frontend && npm run lint && npm test && npm run build
-PYTHONPATH=. python -m pytest scraper/tests -q      # the Scraper (needs playwright + chromium)
-cd hub && ~/.venvs/puntmore/bin/python -m pytest -q  # Hub, including the protocol contract tests
+cd render/api && .venv/bin/python -m pytest tests/ -q                 # Render's API
+cd render/frontend && npm run lint && npm test && npm run build       # Render's frontend
+cd hub && ~/.venvs/puntmore/bin/python -m pytest -q                   # the Hub
+PYTHONPATH=. ~/.venvs/puntmore/bin/python -m pytest scraper/tests -q  # the Scraper (needs Chrome)
 ```
 
-Each directory has its own README with setup and day-to-day commands.
+Each directory's README has its setup and day-to-day commands.

@@ -2,9 +2,13 @@
 
 Every Puntmore tool is reachable by a machine through one key-authenticated
 API: the same routes the site uses, under `/api`, each tool behind its own
-grant. A bet-placing service can ask one question — what value is on offer
-right now, across every tool — at `GET /api/value`. **Nothing in this API places a bet**, and nothing
-automates a bookmaker account: read and report.
+grant. The three boards each serve a one-way feed (`GET /api/paddy/feed`,
+`/api/2up/feed`, `/api/finder/feed`); the Bet Placer reads those
+(`docs/placer-spec.md`). `GET /api/value` is a cross-tool view of the same
+value in one shape. **Nothing in this API places a bet**, and nothing automates
+a bookmaker account: read and report. Every route answers on both hosts, the
+main domain and `me` (`me` once `ME_HOST` is set; `GET /api/auth/site` says
+which host it is, `""` while there is none).
 
 The live, typed reference is **`/api/docs`** (Swagger UI) and
 **`/api/openapi.json`**, behind auth like everything else. This page is the
@@ -21,14 +25,18 @@ Two ways in, one permission model:
 
 Grants use one grammar: `*` (everything) or names joined by `+`. Tool grants:
 `coupons`, `accabonus` (365 acca), `cards` (Paddy), `goalscorers` (365
-scorers), `pnl`, `kelly`, `boost`, `shop`, `finder` (Finder, Callum's private
-Bet Finder on me: Callum's account and the placer's key only). `*` includes
-`finder`, so a key or account issued to anyone but Callum never carries `*`,
-only named grants. Machine grants:
-`value` (every source on `/api/value`), `state` (`/api/state`), `ingest` (the
-scraper / Bookie Bashing write paths). (`hub`, the Hub link socket
-`/api/2up/ws`, was a fourth until 6 Nov 2026; the 2-Up module has no Hub
-endpoint, and a key still holding the name is granted nothing.)
+scorers), `hills`, `pnl`, `kelly`, `boost`, `shop`, `finder` (Finder,
+Callum's tips on `me`, or the main domain while `ME_HOST` is blank: Callum's
+account and his Bet Placer's key only). `*`
+includes `finder`, so a key or account issued to anyone but Callum never
+carries `*`, only named grants. Machine grants: `value` (every source on
+`/api/value`), `state` (`/api/state`), `ingest` (the write paths of the
+Scraper service, the Bookie Bashing script and HubAI, and the Bet Placer's
+Finder status). A key holding a grant name that no longer exists is granted
+nothing for it.
+
+**The Bet Placer's key** (register, 6 Nov 2026) carries `accabonus`, `cards`,
+`finder` and `ingest`; **a third party's** carries `accabonus` only.
 
 - A key resolves through the same seam as a session (`security.user_permissions`),
   so every route that admits a user with grant X admits a key with grant X.
@@ -59,14 +67,14 @@ work too (`paddy` = `cards`, `365` = `accabonus+goalscorers`, `scorers` =
 new client, switch the caller over, revoke the old one.
 
 **In production** run it in the Render service's **Shell** tab:
-`cd /app && python -m app.apikeys create bet-placer --tools value`. The
+`cd /app && python -m app.apikeys create bet-placer --tools accabonus,cards,finder,ingest`. The
 shell has the service's env (`DATABASE_URL` → the `/data` disk), so the key
 lands in the live database. Copy the printed key into the caller's own secret
 store; it cannot be shown again. There is no env-var way to create an API
 client — that would put a plaintext key in the dashboard; the static env keys
 above are the only env-configured ones.
 
-## The value feed
+## The cross-tool value view
 
 ```
 GET /api/value?min_edge=&kickoff_within_hours=&bookmaker=
@@ -152,16 +160,17 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 |---|---|---|
 | any | `GET /auth/me` | who is calling, grants |
 | — | `POST /auth/login`, `POST /auth/logout` | session (browsers) |
+| — | `GET /auth/site` | `{"me_host": …}`: `me`'s host, `""` while `ME_HOST` is blank (public; the shell reads it at boot) |
 | value (`value` or a tool) | `GET /value`, `GET /value/{source}` | `ValueFeedOut` |
 | state (`state`) | `GET /state` | whole-app snapshot |
 | coupons (`coupons`) | `GET /coupons/types`, `/coupons/types/{type}/selections`, `/coupons/types/{type}/bundles`, `/coupons/periods`, `/coupons/upload-options`, `/coupons`, `/coupons/{id}/legs` | tracker reads |
 | coupons (`coupons`) | `POST /coupons/{id}/refresh`, `PATCH /coupons/{id}/legs/{leg}`, `POST /upload`, `POST /upload/{id}/rescan` | re-price, correct, upload a photo |
 | 365 scorers (`goalscorers`) | `GET /goalscorers/feed` — PARKED, not mounted (`ENABLE_GOALSCORERS=false`) | |
-| 365 2-Up (`accabonus`) | `GET /2up/feed` (`?value_only=`), `GET /2up/diagnostics` | the served board of priced candidates; what the feed last saw, the rescue table and the dials |
+| 365 2-Up (`accabonus`) | `GET /2up/feed` (`?value_only=`), `GET /2up/diagnostics` | the served board of priced rows; what the feed last saw, the rescue table and the dials |
 | Paddy (`cards`) | `GET /paddy/feed`, `/paddy/diagnostics`, `/paddy/shadow`, `/paddy/oddspapi-check` | |
-| Paddy ingest (`ingest`) | `POST /paddy/saves-fair`, `POST /paddy/most-prices` | scraper writes |
-| Finder writes (`ingest`, key only) | `POST /finder/rows`, `POST /finder/rows/{tip_id}/status` | Hermes's rows; the placer's `placed`\|`gone` |
-| Finder reads (`finder`) | `GET /finder/feed`, `GET /finder/board` (`?days=3`), `GET /value/finder` | the offered rows; the me board |
+| Paddy ingest (`ingest`) | `POST /paddy/saves-fair`, `POST /paddy/most-prices` | the Scraper service's writes |
+| Finder writes (`ingest`, key only) | `POST /finder/rows`, `POST /finder/rows/{tip_id}/status` | HubAI's rows; the Bet Placer's `placed`\|`gone` |
+| Finder reads (`finder`) | `GET /finder/feed`, `GET /finder/board` (`?days=3`), `GET /value/finder` | the offered rows; the board on `me` |
 | P&L (`pnl`) | `GET/POST /pnl/{dogs\|virtuals}/bets`, `GET /pnl/{c}/bets.csv`, `DELETE /pnl/{c}/bets/{id}` | per-caller ledger |
 | shop (`shop`) | `GET /shop`, `POST /shop/visits`, `DELETE /shop/visits[/{id}]` | per-caller route |
 | diagnostics (`*`, or `state`) | `GET/DELETE /diagnostics/errors` | error ring buffer |
@@ -169,8 +178,8 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 
 ### 365 2-Up feed (`GET /api/2up/feed`)
 
-A one-way feed: the module takes nothing back, keeps no client or account and
-has no Hub endpoint (6 Nov 2026; `docs/2up-engine-spec.md`). Every reader gets
+A one-way feed: the module takes nothing back and keeps no account
+(`docs/2up-engine-spec.md`). Every reader gets
 the same rows. The board is priced by the scheduler job `twoup_refresh` every
 `TWOUP_FEED_TTL` seconds (5 min by default) and the route only reads it; a
 request never fetches. `value_only=true` drops rows outside the price band or
@@ -218,17 +227,13 @@ settings}`: `feed` is the same `status` block as above (without `killed`),
 `twoup_min_price`, `twoup_max_price`, `twoup_min_lead_minutes`,
 `twoup_tournament_ids`, `twoup_feed_ttl`, `twoup_horizon_hours`). No secrets.
 
-Removed on 6 Nov 2026, with no replacement on Render: `/2up/ledger/{client_id}`,
-`/2up/clients/{id}/kill|resume`, `/2up/betfinder/*`, `/2up/hub/*` and the
-WebSocket `/2up/ws`.
-
 ### Finder (`/api/finder/*`, Nov 2026)
 
-Callum's private Bet Finder (`docs/finder-spec.md`). Hermes on the Hub judges
+Callum's tips (`docs/finder-spec.md`). HubAI on the Hub judges
 each tip and posts the verdict; Render keeps, serves and expires it, and never
 prices a tip or loads a page.
 
-- `POST /finder/rows` — ingest key (Hermes). Body `{"rows": [FinderRowIn, …]}`
+- `POST /finder/rows` — ingest key (HubAI). Body `{"rows": [FinderRowIn, …]}`
   (at most 500): `tip_id, origin, sport (football|horse), bookmaker, event,
   home?, away?, event_id?, kickoff?, market, selection, line?, side?, odds?,
   fair?, advised_stake?, reason?, status (asked|offered|rejected), expiry?`.
@@ -246,7 +251,7 @@ prices a tip or loads a page.
   with the status it holds after the post (null when there is no row), which
   is what the Hub records. Re-posting an `offered` row as `rejected`
   withdraws it; a `placed` row cannot be withdrawn (`final`).
-- `POST /finder/rows/{tip_id}/status` — ingest key (the placer). Body
+- `POST /finder/rows/{tip_id}/status` — ingest key (the Bet Placer). Body
   `{"status": "placed"|"gone", "at": <ISO>}` → the row; `404` unknown tip,
   `409` a final row or one never offered, `422` any other word.
 - `GET /finder/feed` — `finder` grant. `{generated_at, rows}`: `offered`
@@ -258,7 +263,7 @@ A row (`FinderRowOut`) carries every column: the tip fields above (`kickoff`
 and `odds` null on an asked row that has none), `edge` (`odds / fair - 1`,
 null without both), `status`, `expires_at` (the earlier of `kickoff` and
 `expiry`; with neither, `seen_at` + 48 h), `asked_at`, `answered_at`,
-`seen_at` (Hermes's latest post), `created_at`, `updated_at`, all UTC.
+`seen_at` (HubAI's latest post), `created_at`, `updated_at`, all UTC.
 Status words: `asked → offered | rejected | expired`, `offered → placed |
 gone | rejected | expired`; `placed`, `gone`, `rejected` and `expired` are
 final. Render expires rows every minute; rows are kept 30 days. One bet per
@@ -268,15 +273,11 @@ or `placed` row. `ENABLE_FINDER=false` removes the routes.
 `kelly` and `boost` are client-side calculators with no routes. The legacy
 aliases (`/cards/*`, `/tennis/*`) still answer and are hidden from the schema.
 
-The AW 26 routes (`/aw26/*`) were removed when AW 26 was retired on 29 Oct
-2026 (`docs/retired.md`).
-
 ## Python client
 
 `clients/python/puntmore` — `Puntmore(url, key)` / `AsyncPuntmore`, with
 `.value()`, `.paddy.feed()`, `.state()`,
-`.whoami()` and `.get()` / `.post()` for the rest. See its README for a
-bet-placer's polling loop.
+`.whoami()` and `.get()` / `.post()` for the rest. See its README.
 
 ## Versioning
 
@@ -286,11 +287,8 @@ new optional fields, new enum values in documented open sets (a new `source`,
 `market` or `basis`). Clients must ignore fields they do not know — the
 Python client does. Nothing is renamed, retyped or removed in place: a
 breaking change ships beside the old one under `/api/v2/...`, and `/api/...`
-keeps its v1 behaviour until every caller has moved.
-
-6 Nov 2026 exception, by decision (`docs/decisions.md`): the 2-Up ledger,
-clients, hub and betfinder routes and `source_scope` were removed without a
-/v2.
+keeps its v1 behaviour until every caller has moved, unless the register
+decides otherwise.
 
 ## Code map
 

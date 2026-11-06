@@ -2,14 +2,13 @@
 
 One file, plain tables, so any agent can inspect it with ``sqlite3 data/hub.sqlite``.
 Tables:
-    tips          candidate bets from the Scraper's sources, deduped, with settled outcome for ROI
-    bets          bet lists received from Render and their placement status
-    outbox        messages queued for Render (survive restarts, sent at least once)
-    inbox_seen    msg_ids already processed (idempotency)
+    tips          tips from the Scraper's sources and the tipster mailbox, deduped, with settled
+                  outcome for ROI
+    bets          bets the placement engine was asked to place and their status
     mail_seen     Message-IDs of tipster emails already read (mail.py; idempotency)
-    finder_posted tips Hermes has posted to Render's Finder, with the status Render stored, or
-                  skipped (with a reason) when Hermes cannot post it (finder.py)
-    escalations   things handed to the local AI and what it decided
+    finder_posted tips HubAI has posted to Render's Finder, with the status Render stored, or
+                  skipped (with a reason) when HubAI cannot post it (finder.py)
+    escalations   things handed to HubAI and what it decided
     alerts        sent alerts, for de-dup
     balances      balance snapshots per account
 """
@@ -22,7 +21,6 @@ from pathlib import Path
 from typing import Any
 
 from .ids import tip_id_for  # noqa: F401  (the one tip id; re-exported)
-from .schemas import new_id
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tips(
@@ -32,9 +30,6 @@ CREATE TABLE IF NOT EXISTS tips(
 CREATE TABLE IF NOT EXISTS bets(
     bet_id TEXT PRIMARY KEY, account_id TEXT, body TEXT, received TEXT,
     status TEXT, actual_price REAL, updated TEXT);
-CREATE TABLE IF NOT EXISTS outbox(
-    id INTEGER PRIMARY KEY, msg_id TEXT UNIQUE, type TEXT, body TEXT, created TEXT, sent_at TEXT, acked_at TEXT);
-CREATE TABLE IF NOT EXISTS inbox_seen(msg_id TEXT PRIMARY KEY, ts TEXT);
 CREATE TABLE IF NOT EXISTS mail_seen(message_id TEXT PRIMARY KEY, ts TEXT);
 CREATE TABLE IF NOT EXISTS escalations(
     id INTEGER PRIMARY KEY, kind TEXT, ref TEXT, detail TEXT, created TEXT,
@@ -75,7 +70,7 @@ class Store:
 
     # ---- tips ------------------------------------------------------------------------------------
     def add_tip(self, tip: dict[str, Any], tip_id: str | None = None) -> str | None:
-        """Insert a candidate tip under `tip_id` (the Scraper's, minted where the tip was
+        """Insert a tip under `tip_id` (the Scraper's, minted where the tip was
         first seen), or one minted here when none is given. Returns its tip_id, or None
         if it was already stored."""
         tid = tip_id or tip_id_for(tip["source_id"], tip["event"], tip["market"], tip["selection"], tip["tip_time"])
@@ -89,9 +84,9 @@ class Store:
         self.conn.commit()
         return tid if cur.rowcount else None
 
-    # ---- Finder (finder.py): which tips Hermes has posted to Render -------------------------------
+    # ---- Finder (finder.py): which tips HubAI has posted to Render --------------------------------
     def finder_unposted(self, limit: int = 50) -> list[sqlite3.Row]:
-        """Stored tips Hermes has not yet posted to Finder, oldest first."""
+        """Stored tips HubAI has not yet posted to Finder, oldest first."""
         return self.conn.execute(
             """SELECT t.tip_id, t.source_id, t.event, t.market, t.selection, t.advised_price,
                       t.advised_stake_units, t.tip_time, t.expiry, t.origin, t.first_seen
@@ -100,7 +95,7 @@ class Store:
 
     def finder_mark(self, tip_id: str, status: str, reason: str | None = None) -> None:
         """Record `tip_id`'s Finder status: the one Render stored for it, or `skipped` with the
-        reason Hermes gave (the latest mark wins)."""
+        reason HubAI gave (the latest mark wins)."""
         self.conn.execute("INSERT OR REPLACE INTO finder_posted(tip_id, status, ts, reason) VALUES(?,?,?,?)",
                           (tip_id, status, iso(utcnow()), reason))
         self.conn.commit()
@@ -154,62 +149,10 @@ class Store:
 
     def _migrate(self) -> None:
         """Columns added after a database was first created."""
-        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(outbox)").fetchall()}
-        if "acked_at" not in cols:
-            self.conn.execute("ALTER TABLE outbox ADD COLUMN acked_at TEXT")
-            self.conn.commit()
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(finder_posted)").fetchall()}
         if "reason" not in cols:
             self.conn.execute("ALTER TABLE finder_posted ADD COLUMN reason TEXT")
             self.conn.commit()
-
-    # ---- outbox / inbox --------------------------------------------------------------------------
-    # A message is `sent` when it went down the socket and `acked` when Render answered with its
-    # msg_id (PROTOCOL.md, "Idempotency and acknowledgement"). Only an ack finishes it: on every
-    # reconnect `outbox_resend_unacked` puts the sent-but-unacked ones back in the queue, same msg_id,
-    # so Render's replay check does the de-duplication. Control frames (ack, pong) are never acked by
-    # Render and are finished at send time.
-    def outbox_add(self, type_: str, body: dict, msg_id: str | None = None) -> str:
-        msg_id = msg_id or new_id()
-        self.conn.execute("INSERT OR IGNORE INTO outbox(msg_id, type, body, created) VALUES(?,?,?,?)",
-                          (msg_id, type_, json.dumps(body), iso(utcnow())))
-        self.conn.commit()
-        return msg_id
-
-    def outbox_pending(self, limit: int = 100) -> list[sqlite3.Row]:
-        """What to send now: never sent on the current socket and not yet acked."""
-        return self.conn.execute("SELECT * FROM outbox WHERE sent_at IS NULL AND acked_at IS NULL ORDER BY id LIMIT ?",
-                                 (limit,)).fetchall()
-
-    def outbox_unacked(self) -> list[sqlite3.Row]:
-        """Everything Render has not acknowledged, sent or not."""
-        return self.conn.execute("SELECT * FROM outbox WHERE acked_at IS NULL ORDER BY id").fetchall()
-
-    def outbox_mark_sent(self, msg_id: str, acked: bool = False) -> None:
-        now = iso(utcnow())
-        self.conn.execute("UPDATE outbox SET sent_at=?, acked_at=COALESCE(acked_at, ?) WHERE msg_id=?",
-                          (now, now if acked else None, msg_id))
-        self.conn.commit()
-
-    def outbox_mark_acked(self, msg_id: str) -> bool:
-        """Render acknowledged msg_id. Returns False if it was unknown or already acked."""
-        now = iso(utcnow())
-        cur = self.conn.execute("UPDATE outbox SET acked_at=?, sent_at=COALESCE(sent_at, ?) WHERE msg_id=? AND acked_at IS NULL",
-                                (now, now, msg_id))
-        self.conn.commit()
-        return cur.rowcount == 1
-
-    def outbox_resend_unacked(self) -> int:
-        """On a new socket: queue every sent-but-unacked message again. Returns how many."""
-        cur = self.conn.execute("UPDATE outbox SET sent_at=NULL WHERE acked_at IS NULL AND sent_at IS NOT NULL")
-        self.conn.commit()
-        return cur.rowcount
-
-    def inbox_seen(self, msg_id: str) -> bool:
-        """Record an inbound msg_id. Returns True if it had been seen before (replay)."""
-        cur = self.conn.execute("INSERT OR IGNORE INTO inbox_seen(msg_id, ts) VALUES(?,?)", (msg_id, iso(utcnow())))
-        self.conn.commit()
-        return cur.rowcount == 0
 
     # ---- mail ------------------------------------------------------------------------------------
     # The mailbox's \Seen flag only says the Hub downloaded a message; this table says it was
@@ -274,16 +217,6 @@ class Store:
         return [r[0] for r in self.conn.execute(
             "SELECT account_id FROM bets UNION SELECT account_id FROM balances ORDER BY 1").fetchall() if r[0]]
 
-    def recent_outbox(self, limit: int = 50) -> list[sqlite3.Row]:
-        return self.conn.execute("SELECT id, msg_id, type, created, sent_at, acked_at FROM outbox ORDER BY id DESC LIMIT ?",
-                                 (limit,)).fetchall()
-
-    def outbox_counts(self) -> dict[str, int]:
-        q = lambda sql: self.conn.execute(sql).fetchone()[0]  # noqa: E731
-        return {"pending": q("SELECT COUNT(*) FROM outbox WHERE sent_at IS NULL AND acked_at IS NULL"),
-                "unacked": q("SELECT COUNT(*) FROM outbox WHERE acked_at IS NULL"),
-                "total": q("SELECT COUNT(*) FROM outbox")}
-
     def resolved_escalations(self, limit: int = 100) -> list[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM escalations WHERE resolved IS NOT NULL ORDER BY resolved DESC LIMIT ?",
                                  (limit,)).fetchall()
@@ -298,5 +231,4 @@ class Store:
             "bets_placed": q("SELECT COUNT(*) FROM bets WHERE updated>=? AND status='placed'", s),
             "bets_failed": q("SELECT COUNT(*) FROM bets WHERE updated>=? AND status='failed'", s),
             "escalations_open": q("SELECT COUNT(*) FROM escalations WHERE resolved IS NULL"),
-            "outbox_pending": q("SELECT COUNT(*) FROM outbox WHERE acked_at IS NULL"),
         }

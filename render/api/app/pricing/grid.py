@@ -21,7 +21,7 @@ Model: independent Poisson with a Dixon–Coles low-score correction.
 ρ corrects the well-known Poisson failure on 0-0/1-0/0-1/1-1, which shows up as
 under-predicting draws. Setting ρ = 0 recovers plain independent Poisson.
 
-Identifiability: 3 free parameters (λ_home, λ_away, ρ). bettingiscool supplies
+Identifiability: 3 free parameters (λ_home, λ_away, ρ). OddsPapi supplies
 1X2 (2 independent probabilities), a totals ladder (~7 lines) and team totals
 for both sides — roughly 10 constraints, so the fit is over-determined and the
 hold-one-out check in the tests is meaningful. On a source offering only 1X2

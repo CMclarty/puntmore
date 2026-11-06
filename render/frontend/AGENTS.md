@@ -1,8 +1,17 @@
 # frontend/ — rules for the React app
 
 `docs/decisions.md` is read first and wins over this file; the repo's
-`CLAUDE.md` applies everywhere and wins on any other conflict. Moved verbatim
-from `CLAUDE.md` on 5 Nov 2026.
+`CLAUDE.md` applies everywhere and wins on any other conflict.
+
+## Two sites, one app
+The main domain shows every public tool, `me` shows Callum's personal tools
+(`src/site.js`, mirroring `render/api/app/site.py`: `ME_TOOLS` is the list).
+`me` exists only when the API's `ME_HOST` names it: the app reads it at boot
+(`GET /api/auth/site`, `setMeHost`) before it renders; blank, there is one site
+and it shows every tool. Each site shows only its own tools; a link to the
+other site's tool goes there, same path. On the main domain an account without the coupon tracker lands on
+its first granted tool. A tool's home-screen identity (title, icon, manifest)
+is in `src/identity.js`, mirrored by `render/api/app/identity.py`.
 
 ## UI rules — these are TOOLS, build only what is asked
 Callum has had to strip unrequested additions out repeatedly (Oct 2026). A
@@ -24,9 +33,7 @@ screen is for finding a bet and placing it in seconds.
 - **Every live-price screen refreshes itself** (`hooks/useAutoRefresh.js`):
   every 2 min while on screen, and at once when the app is reopened after
   30 s away — silently, in place. Paddy, the coupon tracker and the 2-Up
-  tab use it (as did the 365 acca, removed 5 Nov 2026, and scorers,
-  parked); a new tool
-  showing prices must too. A failed refresh must
+  tab use it; a new tool showing prices must too. A failed refresh must
   never leave old prices looking current. The feeds read the server's
   caches, so refreshing costs no vendor quota.
 - When asked to change one thing, change that thing. Don't tidy, restyle or
@@ -41,9 +48,7 @@ row's **priced** time. A line in the error style says when the board is stale
 switch (`TWOUP_KILL_SWITCH`, global, `.env`) or not yet refreshed since boot.
 An older API mid-deploy may send no `generated_at`, `priced_at` or `status`
 keys: the page shows "—" and never throws. Nothing on it places a bet, keeps
-an account or configures the engine: the dials are `.env` on Render. (History:
-until 6 Nov 2026 a **Ledger** view sat behind a Feed / Ledger switch with a
-per-client kill switch; the ledger left Render with the accounts.) Helpers in
+an account or configures the feed: the dials are `.env` on Render. Helpers in
 `twoup.js`, pinned by `twoup.test.js`.
 
 ## The acca maths (client-side, pinned by vitest)

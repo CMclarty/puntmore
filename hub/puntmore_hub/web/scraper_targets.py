@@ -128,7 +128,7 @@ def _refused(exc: BaseException):
     from .actions import ActionError
     msg = str(exc)
     if BUSY in msg:
-        return ActionError(409, msg + " (Hermes or the CLI is mid-change)", retry=True)
+        return ActionError(409, msg + " (HubAI or the CLI is mid-change)", retry=True)
     if msg.startswith("no target named"):
         return ActionError(404, msg, field="name")
     if "already exists" in msg:

@@ -1,4 +1,4 @@
-"""Finder rows (app/finder/rows.py): the table, the status machine, the
+"""Tips on Finder (app/finder/rows.py): the table, the status machine, the
 duplicate rule, expiry and the sweep — against an in-memory database."""
 from datetime import datetime, timedelta, timezone
 
@@ -57,8 +57,8 @@ def test_no_fair_price_means_asked_whatever_hermes_said():
 
 def test_a_reposted_tip_updates_and_a_final_row_is_refused():
     rows.upsert(db, [tip(tip_id="t3", status="asked")], NOW)
-    rows.upsert(db, [tip(tip_id="t3", status="offered", reason="Cal said yes")], NOW)
-    assert rows.feed(db, NOW)[0].reason == "Cal said yes"
+    rows.upsert(db, [tip(tip_id="t3", status="offered", reason="Callum said yes")], NOW)
+    assert rows.feed(db, NOW)[0].reason == "Callum said yes"
     rows.set_status(db, "t3", "placed", NOW)
     out = rows.upsert(db, [tip(tip_id="t3", status="offered")], NOW)
     assert out["refused"] == [("t3", "final")] and _board()[0].status == "placed"
@@ -165,9 +165,9 @@ def test_the_feed_is_soonest_kickoff_first_and_the_board_newest_first():
 
 def test_callum_saying_no_to_an_asked_row_with_no_fair_rejects_it():
     rows.upsert(db, [tip(tip_id="n", fair=None, status="asked")], NOW)
-    rows.upsert(db, [tip(tip_id="n", fair=None, status="rejected", reason="Cal: no")], NOW)
+    rows.upsert(db, [tip(tip_id="n", fair=None, status="rejected", reason="Callum: no")], NOW)
     n = _board()[0]
-    assert (n.status, n.reason, n.edge) == ("rejected", "Cal: no", None)
+    assert (n.status, n.reason, n.edge) == ("rejected", "Callum: no", None)
 
 
 def test_an_offered_row_reposted_onto_another_live_bet_is_refused_and_unchanged():
@@ -181,7 +181,7 @@ def test_an_offered_row_reposted_onto_another_live_bet_is_refused_and_unchanged(
 # --- the final review's fixes (FR1–FR5, finder-ledger.md) ----------------------
 
 def test_an_asked_row_may_come_with_no_kickoff_odds_or_fair_and_lives_48_hours():
-    # FR1: Hermes asks when it cannot place a tip on a day and time.
+    # FR1: HubAI asks when it cannot place a tip on a day and time.
     out = rows.upsert(db, [tip(tip_id="q", status="asked", kickoff=None, odds=None, fair=None,
                                reason="which day is Arsenal?")], NOW)
     assert out["stored"] == 1 and out["rows"] == [{"tip_id": "q", "status": "asked"}]
@@ -229,7 +229,7 @@ def test_gone_rejected_and_expired_twins_do_not_block():
 
 
 def test_hermes_withdraws_an_offered_row_by_reposting_it_rejected():
-    # FR4: offered → rejected; the row leaves the feed with Hermes's reason.
+    # FR4: offered → rejected; the row leaves the feed with HubAI's reason.
     rows.upsert(db, [tip(tip_id="w")], NOW)
     later = NOW + timedelta(minutes=5)
     out = rows.upsert(db, [tip(tip_id="w", status="rejected", reason="tipster withdrew it")], later)
@@ -248,11 +248,11 @@ def test_a_placed_row_cannot_be_withdrawn():
 
 
 def test_the_answer_carries_each_rows_stored_status():
-    # FR5: the Hub marks what Render stored, not what Hermes sent.
+    # FR5: the Hub marks what Render stored, not what HubAI sent.
     rows.upsert(db, [tip(tip_id="a")], NOW)
     out = rows.upsert(db, [tip(tip_id="nofair", selection="X", fair=None),       # offered → stored asked
                            tip(tip_id="dup"),                                       # twin of a → rejected
-                           tip(tip_id="bad", status="placed"),                      # not Hermes's word, no row
+                           tip(tip_id="bad", status="placed"),                      # not HubAI's word, no row
                            tip(tip_id="a", reason="again")], NOW)                   # an update
     assert out["rows"] == [{"tip_id": "nofair", "status": "asked"}, {"tip_id": "dup", "status": "rejected"},
                            {"tip_id": "bad", "status": None}, {"tip_id": "a", "status": "offered"}]

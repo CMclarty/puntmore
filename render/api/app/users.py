@@ -16,8 +16,8 @@ Users created earlier from the AUTH_USERS env var stay in the database
 whether or not they are listed here, so that variable can be removed from
 Render without locking anyone out.
 
-A grant of Shalgo tools only (cards, hills) signs in on Shalgo and nowhere
-else: login refuses a site holding none of the user's tools.
+Login refuses a site holding none of the user's tools: a grant of public
+tools only (cards, hills) signs in on the main domain, not on Me.
 """
 
 USERS: list[tuple[str, str, str]] = [

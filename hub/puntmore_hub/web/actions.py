@@ -1,6 +1,6 @@
 """The few things the Hub Console can do. Each is the CLI's own function, never a shell-out.
 
-Kill switch on and off, resolve an escalation, one inbox pass, a link-check, a heartbeat, and the
+Kill switch on and off, resolve an escalation, one inbox pass, a heartbeat, and the
 Scraper's target edits (add, set, enable, disable, remove), which are ``scraper/targets.py``'s own
 functions (``scraper_targets.py``). Nothing else: no Scraper commands (``resume`` is the Scraper's
 CLI), no placement triggers, no ``.env`` writes. Every call, done or refused, is one line in
@@ -10,14 +10,11 @@ Token checking lives in ``app.py``; these functions assume the caller is allowed
 """
 from __future__ import annotations
 
-import asyncio
-import json
 from typing import Any
 
 from .. import alerts, escalation, inbox, killswitch
 from ..config import Settings
 from ..store import Store, iso, utcnow
-from .collect import LAST_LINK_CHECK
 
 ACTIONS_LOG = "console-actions.log"
 CONFIRM_OFF = "OFF"
@@ -48,7 +45,7 @@ def kill_on(cfg: Settings, store: Store) -> dict[str, Any]:
 
 def kill_off(cfg: Settings, body: dict[str, Any]) -> dict[str, Any]:
     if (body or {}).get("confirm") != CONFIRM_OFF:
-        raise ActionError(400, f'kill off needs {{"confirm": "{CONFIRM_OFF}"}}; only Cal turns it off')
+        raise ActionError(400, f'kill off needs {{"confirm": "{CONFIRM_OFF}"}}; only Callum turns it off')
     killswitch.turn_off(cfg)
     return {"ok": True, "kill_switch": False, "message": "kill switch off"}
 
@@ -69,25 +66,12 @@ def escalation_resolve(cfg: Settings, store: Store, body: dict[str, Any]) -> dic
     if row["resolved"]:
         raise ActionError(409, f"escalation #{esc_id} was already resolved {row['resolved']}")
     escalation.resolve(store, esc_id, outcome)
-    return {"ok": True, "id": esc_id, "message": f"escalation #{esc_id} resolved; outcome queued for Render"}
+    return {"ok": True, "id": esc_id, "message": f"escalation #{esc_id} resolved"}
 
 
 def inbox_now(cfg: Settings, store: Store) -> dict[str, Any]:
     counts = inbox.ingest(store, cfg)
     return {"ok": True, "counts": counts, "message": ", ".join(f"{k}={v}" for k, v in counts.items())}
-
-
-def link_check(cfg: Settings) -> dict[str, Any]:
-    """`puntmore link-check` against the configured Render: hello -> hello_ack."""
-    from ..link.client import check
-    if not cfg.render_ws_url or not cfg.render_api_key:
-        ok, message = False, "not configured: set PUNTMORE_RENDER_WS and PUNTMORE_RENDER_API_KEY"
-    else:
-        ok, message = asyncio.run(check(cfg.render_ws_url, cfg.render_api_key, cfg.client_id))
-    result = {"ok": ok, "message": message, "url": cfg.render_ws_url or None, "at": iso(utcnow())}
-    cfg.data_dir.mkdir(parents=True, exist_ok=True)
-    (cfg.data_dir / LAST_LINK_CHECK).write_text(json.dumps(result))
-    return result
 
 
 def heartbeat_now(cfg: Settings, store: Store) -> dict[str, Any]:

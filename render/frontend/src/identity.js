@@ -1,4 +1,4 @@
-import { ME, PUNTMORE, SHALGO, SITE } from './site'
+import { ME, PUNTMORE, SITE } from './site'
 
 // Home-screen identity per tool. The icon and title are read when "Add to
 // Home Screen" is tapped, but iOS reads the MANIFEST (start_url, id) at page
@@ -20,9 +20,8 @@ import { ME, PUNTMORE, SHALGO, SITE } from './site'
 // "wrong page half the time". Only routes that render a page are listed; a
 // route that redirects (battles, /pnl/virtuals, /boost) takes its target's.
 //
-// Three sites share the shell (site.js): Paddy and Hills carry Shalgo's
-// name, and a path with no tool of its own (/login, Shalgo's or Me's
-// landing "/") takes the identity of the site it is on.
+// Two sites share the shell (site.js): a path with no tool of its own
+// (/login, Me's landing "/") takes the identity of the site it is on.
 const IDENTITIES = [
   { match: (p) => p === '/' || p.startsWith('/t/'), title: 'Puntmore — Coupon', icon: 'coupons' },
   { match: (p) => p === '/upload', title: 'Puntmore — Upload', icon: 'upload' },
@@ -32,20 +31,19 @@ const IDENTITIES = [
   { match: (p) => p === '/shop', title: 'Puntmore — Shop Visits', icon: 'shop' },
   { match: (p) => p === '/365/scorers', title: 'Puntmore — Goalscorers', icon: 'goalscorers' },
   { match: (p) => p.startsWith('/365') || p === '/accabonus', title: 'Puntmore — 365', icon: 'accabonus' },
-  { match: (p) => p.startsWith('/paddy') || p === '/cards', title: 'Shalgo — Paddy', icon: 'paddy' },
-  { match: (p) => p.startsWith('/hills'), title: 'Shalgo — Hills', icon: 'hills' },
+  { match: (p) => p.startsWith('/paddy') || p === '/cards', title: 'Puntmore — Paddy', icon: 'paddy' },
+  { match: (p) => p.startsWith('/hills'), title: 'Puntmore — Hills', icon: 'hills' },
 ]
 
 const DEFAULTS = {
   [PUNTMORE]: { title: 'Puntmore', icon: 'puntmore' },
-  [SHALGO]: { title: 'Shalgo', icon: 'shalgo' },
   [ME]: { title: 'Me', icon: 'me' },
 }
 
 // The identity for a path on a site: title plus the three files the head points at.
 export function identityFor(pathname, site = SITE) {
   const rows = site !== PUNTMORE && pathname === '/' ? [] : IDENTITIES
-  const { title, icon, manifest = icon } = rows.find((i) => i.match(pathname)) || DEFAULTS[site]
+  const { title, icon, manifest = icon } = rows.find((i) => i.match(pathname)) || DEFAULTS[site] || DEFAULTS[PUNTMORE]
   return {
     title,
     svg: icon === 'puntmore' ? '/icon.svg' : `/icons/${icon}.svg`,

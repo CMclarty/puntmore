@@ -12,11 +12,12 @@ pip install ./clients/python        # or: PYTHONPATH=clients/python
 A key is made on the server, once, and printed once:
 
 ```
-python -m app.apikeys create bet-placer --tools value
+python -m app.apikeys create value-reader --tools value
 ```
 
-`value` reads every source on `/api/value`. Give
-a key only the grants it needs. See `docs/api.md`.
+`value` reads every source on `/api/value`, the cross-tool view. Give a key
+only the grants it needs; the Bet Placer's key is in `docs/placer-spec.md`.
+See `docs/api.md`.
 
 ## Surface
 
@@ -25,7 +26,7 @@ from puntmore import Puntmore, PuntmoreError
 
 pm = Puntmore("https://puntmore.com", key)      # or AsyncPuntmore, same methods
 
-pm.whoami()                                      # {"username": "api:bet-placer", "tools": [...]}
+pm.whoami()                                      # {"username": "api:value-reader", "tools": [...]}
 feed = pm.value(min_edge=0.03,                   # ValueFeed
                 kickoff_within_hours=6,
                 bookmaker="paddypower",          # optional
@@ -42,30 +43,22 @@ sport, market, selection, line, side, odds, fair, edge, basis, url, seen_at`
 (`edge = odds / fair - 1`; times are aware UTC datetimes; `line` is always an
 x.5 when present). A non-2xx answer raises `PuntmoreError(status, detail)`.
 
-## A bet-placer's loop
+## Reading value by hand
 
-Poll the feed and decide; placing is done elsewhere.
+`/api/value` is a cross-tool view: one shape across the tools, a failed source
+named in `errors`. It is not the Bet Placer's source: the Bet Placer reads each
+board's own feed (`/api/paddy/feed`, `/api/2up/feed`, `/api/finder/feed`), which
+carries the full status (`docs/placer-spec.md`). A quick look:
 
 ```python
-import time
 from puntmore import Puntmore
 
 pm = Puntmore("https://puntmore.com", KEY)
-seen = set()
-
-while True:
-    feed = pm.value(min_edge=0.04, kickoff_within_hours=3)
-    if feed.errors:
-        print("sources down:", feed.errors)          # an empty list is not "no value"
-    for row in feed.selections:
-        k = (row.source, row.event_id, row.market, row.selection, row.line)
-        if k in seen:
-            continue
-        seen.add(k)
-        if not decide(row):                           # your rules: stake, limits, exposure
-            continue
-        place_elsewhere(row)                          # NOT part of this API
-    time.sleep(120)                                   # the feeds refresh every 2 min
+feed = pm.value(min_edge=0.04, kickoff_within_hours=3)
+if feed.errors:
+    print("sources down:", feed.errors)          # an empty list is not "no value"
+for row in feed.selections:
+    print(row.source, row.event, row.selection, row.odds, row.fair, row.edge)
 ```
 
 The feeds read the server's caches, so polling every couple of minutes costs no

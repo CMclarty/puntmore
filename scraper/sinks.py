@@ -3,17 +3,18 @@
 A target names its sink by its `post` value:
   "/api/..."    POST {"prices": rows} to Render (PUNTMORE_URL) with the ingest key
   "hub:<chan>"  one JSON file per run into data/hub/tips/, for the Hub's
-                `puntmore inbox` (Bet Finder sources); each row carries its
+                `puntmore inbox` (Finder sources); each row carries its
                 `tip_id`, minted here (ids.py)
 
 Events for the Hub (a block, an unhealthy source) are drop files too, in
 data/hub/events/. Every drop is written atomically (temp file + rename), so
 the Hub never reads half a file.
 
-A drop file is one envelope of the Hub <-> Render protocol (`type`,
-`client_id`, `msg_id`, `ts`, `body`), type `scraper_tips` or `scraper_event`,
-validated by hub/schemas/protocol.schema.json; the file on disk is only the
-transport (docs/dataflow.md, rule 1). The Hub reads `body`.
+A drop file is one envelope (`type`, `client_id`, `msg_id`, `ts`, `body`),
+type `scraper_tips` or `scraper_event`, validated by
+hub/schemas/protocol.schema.json (hub/PROTOCOL.md, the Scraper's drop files);
+the file on disk is only the transport (docs/dataflow.md, rule 1). The Hub
+reads `body`.
 """
 import json
 import re
@@ -26,8 +27,7 @@ from .ids import with_tip_ids
 # `scraper_tips` envelope. Same rule as hub/puntmore_hub/inbox.py (PRICE_MIN, PRICE_MAX).
 PRICE_MIN, PRICE_MAX = 1.01, 1000.0
 
-# The envelope's client_id. The Hub owns the real client id (its PUNTMORE_CLIENT_ID); a file
-# never leaves the box, so the Scraper names itself and the Hub does not forward the envelope.
+# The envelope's client_id: a file never leaves the box, so the Scraper names itself.
 CLIENT_ID = "scraper"
 
 
@@ -122,8 +122,8 @@ def tip_rows(rows) -> tuple[list, list]:
 
 
 def deliver_to_hub(data_dir, target, rows, now) -> bool:
-    """Hand a fetch target's rows to the Hub: one file per run, picked up by the
-    Hub's link daemon (`puntmore inbox`) and sent to Render as tips. The channel
+    """Hand a fetch target's rows to the Hub: one drop file per run, read by the
+    Hub daemon's inbox pass and stored as tips for HubAI to judge. The channel
     after `hub:` in the target's post (e.g. `hub:tips`) is passed through.
 
     Every row is written with its `tip_id` (ids.py): the tip's one id, minted
@@ -145,5 +145,5 @@ def deliver_to_hub(data_dir, target, rows, now) -> bool:
 
 def emit_event(data_dir, kind, ref, detail, now) -> bool:
     """Tell the Hub something needs a decision (a block, an unhealthy source).
-    The Hub turns it into an escalation for the local AI."""
+    The Hub turns it into an escalation for HubAI."""
     return _drop(data_dir, "events", ref, "scraper_event", {"kind": kind, "ref": ref, "detail": detail, "at": now})

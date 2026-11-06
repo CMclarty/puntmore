@@ -1,13 +1,10 @@
 """Paddy Power corners/cards prices from OddsPapi.
 
-WHY THIS VENDOR. TheOddsApi does not carry Paddy Power's corners or cards. A
-probe on a Nations League fixture hours from kickoff (28 Sept 2026), asked by
-region with NO bookmaker filter, returned one book with corners (LeoVegas),
-none with cards, and no Paddy Power at all. OddsPapi's own Paddy Power feed
+WHY THIS VENDOR. OddsPapi is the only odds source. Its own Paddy Power feed
 carries a family of two-way markets beyond the standard ones, which is where
 the corners and cards lines live.
 
-WHAT THIS FILE PRODUCES. TheOddsApi-shaped events — {id, home_team, away_team,
+WHAT THIS FILE PRODUCES. Events in the shape the counts model reads — {id, home_team, away_team,
 commence_time, sport_key, bookmakers: [{key: "paddypower", markets: [{key:
 "alternate_totals_corners", outcomes: [{name: "Over", point: 9.5, price}]}]}]}
 — so `value.py`, `laddered.py` and the diagnostics consume it unchanged. Swapping vendor is this file plus one branch in `main.py`.
@@ -32,8 +29,8 @@ Read that once before trusting a price.
 
 COST. OddsPapi bills per REQUEST, and one odds-by-tournaments request returns
 every fixture in those tournaments with its full Paddy board — so a sweep is a
-handful of requests however many fixtures are on, not one call per fixture as
-TheOddsApi's per-event billing forced. Cached per chunk for a time set by how
+handful of requests however many fixtures are on, not one call per fixture.
+Cached per chunk for a time set by how
 soon its next fixture kicks off (`oddspapi_ttl_tiers`: 2 min near kickoff,
 hourly when nothing is close), and capped per day by
 `oddspapi_daily_request_budget`.
@@ -83,7 +80,7 @@ _HANDICAP_MARKET_KEYS = {
     "Bookings - Handicap": CARDS_HANDICAP,
 }
 
-# Sofascore tournament id -> the TheOddsApi-style key the counts model keys its
+# Sofascore tournament id -> the sport key (`soccer_epl`, ...) the counts model keys its
 # per-league dispersion priors by. A tournament missing here still prices; it
 # takes the default prior, which only matters on a sparse Pinnacle ladder.
 TOURNAMENT_SPORT_KEYS = {
@@ -308,7 +305,7 @@ def handicap_markets(catalogue) -> dict[str, tuple[str, float, dict[str, str]]]:
 
 
 # The coupon score-grid's Pinnacle inputs: match result + goal totals + team
-# goal totals. marketType -> the bettingiscool row "market" the grid expects.
+# goal totals. marketType -> the row "market" the grid expects.
 _COUPON_MARKET_TYPES = {
     "1x2": "moneyline",
     "totals": "totals",
@@ -323,7 +320,7 @@ def coupon_markets(catalogue) -> dict[str, tuple[str, float | None, dict[str, in
     `market` is moneyline/totals/home_totals/away_totals and `sides` maps an
     outcomeId to the row index the grid reads (moneyline 1=home 0=draw 2=away;
     over=1 under=0) — so _odds can emit rows in the format _grid_constraints
-    expects, identical to bettingiscool's."""
+    expects."""
     out = {}
     for m in _as_list(catalogue):
         market = _COUPON_MARKET_TYPES.get(str(_first(m, "marketType", "type") or "").lower())
@@ -416,8 +413,8 @@ def merge_books(*fixture_lists) -> list[dict]:
 
     Each odds request names ONE bookmaker, so Paddy and Pinnacle arrive as two
     lists of the same fixtures. They share the fixture id, so the join is
-    exact — no team-name matching, which is what the bettingiscool fair side
-    needed and what could pair a fixture with the wrong one."""
+    exact — no team-name matching, which could pair a fixture with the wrong
+    one."""
     out: dict[str, dict] = {}
     for fixtures in fixture_lists:
         for fx in _as_list(fixtures):
@@ -433,7 +430,7 @@ def merge_books(*fixture_lists) -> list[dict]:
 def to_events(fixtures, markets, names, *, now=None, window_hours=None,
               fair_book: str | None = None,
               book: str = PADDY_POWER) -> tuple[list[dict], dict]:
-    """OddsPapi fixtures -> TheOddsApi-shaped events carrying `book`'s corners/cards
+    """OddsPapi fixtures -> events (the shape above) carrying `book`'s corners/cards
     (Paddy Power unless told otherwise; the counts keep their "paddy" names).
 
     Returns (events, counts). Only fixtures still to kick off inside the window
@@ -989,7 +986,8 @@ class OddsPapiPaddySource:
         self.last_sweep = {
             "source": "oddspapi",
             "book": self.book,
-            "fair_source": f"oddspapi:{fair_book}" if fair_book else "bettingiscool",
+            # None: ODDSPAPI_FAIR_BOOK is blank, so the sweep carried no fair side.
+            "fair_source": f"oddspapi:{fair_book}" if fair_book else None,
             "window_hours": settings.oddspapi_window_hours,
             "tournaments": len(ids),
             "unresolved_tournaments": unresolved,

@@ -1,6 +1,6 @@
-"""Tipster emails -> stored tips queued for Render.
+"""Tipster emails -> stored tips for HubAI to judge for Finder.
 
-The Bet Finder's email tipsters (spec, "Tipsters by email") arrive in one dedicated mailbox
+Finder's email tipsters arrive in one dedicated mailbox
 that this box polls over IMAP (`PUNTMORE_IMAP_*`); Render never polls a mailbox and the
 Scraper never reads one. Each poll re-reads `tipsters.toml` (which senders are tipsters, which
 parser reads each, their trust weight), fetches the messages the mailbox has not shown us
@@ -89,7 +89,7 @@ class TipstersError(ValueError):
 
 @dataclass(frozen=True)
 class Tipster:
-    name: str              # the source id Render sees
+    name: str              # the source id HubAI sees (Finder's `origin`)
     sender: str            # the `from` rule, lower-cased: an address, or a domain (suffix)
     parser: str            # a name in tipsters.PARSERS
     trust_weight: float = 0.5
@@ -402,7 +402,7 @@ def status(cfg: Settings = default_settings) -> dict:
     except (OSError, ValueError, TypeError):
         body, last = {}, None
     if last is None:
-        out["problems"].append("mail: configured but never polled (is the link daemon running?)")
+        out["problems"].append("mail: configured but never polled (is the daemon running?)")
     else:
         out["last_poll"] = body["last_poll"]
         out["age_s"] = int(utcnow().timestamp() - last.timestamp())

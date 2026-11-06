@@ -160,17 +160,18 @@ def test_a_respelt_coded_user_is_renamed_not_doubled():
         db.close()
 
 
-def test_a_shalgo_only_account_signs_in_on_shalgo_only():
+def test_a_paddy_and_hills_account_signs_in_on_the_main_domain_not_on_me(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "me_host", "me.puntmore.com")
     db = TestSession()
     try:
         seed_coded_users(db, [("gina", hash_password("a-long-test-password"), "cards+hills")])
     finally:
         db.close()
     body = {"username": "gina", "password": "a-long-test-password"}
-    assert TestClient(app).post("/auth/login", json=body).status_code == 403
-    shalgo = TestClient(app, base_url="http://shalgo.puntmore.com")
-    r = shalgo.post("/auth/login", json=body)
+    r = TestClient(app).post("/auth/login", json=body)
     assert r.status_code == 200 and r.json()["tools"]
+    assert TestClient(app, base_url="http://me.puntmore.com").post("/auth/login", json=body).status_code == 403
 
 
 def test_the_coded_user_list_holds_hashes_not_passwords():
@@ -341,15 +342,28 @@ def test_finder_is_off_with_its_flag(monkeypatch):
     assert "finder" not in enabled_tools()
 
 
-def test_a_finder_only_account_signs_in_on_me_only():
+def test_a_finder_only_account_signs_in_on_me_only(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "me_host", "me.puntmore.com")
     _seed_user("cal", "finderpass", permissions="finder")
     _use_real_auth()
     body = {"username": "cal", "password": "finderpass"}
     assert TestClient(app).post("/auth/login", json=body).status_code == 403
-    assert TestClient(app, base_url="http://shalgo.puntmore.com").post("/auth/login", json=body).status_code == 403
     me = TestClient(app, base_url="http://me.puntmore.com")
     assert me.post("/auth/login", json=body).status_code == 200
     assert me.get("/auth/me").json()["tools"] == ["finder"]
+
+
+def test_with_me_host_blank_a_personal_account_signs_in_on_the_main_domain(monkeypatch):
+    """Until me.puntmore.com resolves (ME_HOST blank), Callum's personal tools
+    are the main domain's, and so is their login."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "me_host", "")
+    _seed_user("cal", "finderpass", permissions="finder+pnl")
+    _use_real_auth()
+    c = TestClient(app)
+    assert c.post("/auth/login", json={"username": "cal", "password": "finderpass"}).status_code == 200
+    assert set(c.get("/auth/me").json()["tools"]) == {"finder", "pnl"}
 
 
 def test_seed_users_persists_the_grant():

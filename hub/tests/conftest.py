@@ -13,14 +13,13 @@ REPO = Path(__file__).resolve().parent.parent
 @pytest.fixture
 def cfg(tmp_path: Path) -> Settings:
     return Settings(
-        client_id="test",
-        render_ws_url="", render_api_key="",
+        render_api_key="",
         dry_run=True,
         kill_switch_file=tmp_path / "KILL",
         data_dir=tmp_path, db_path=tmp_path / "hub.sqlite",
         sub_clients_file=tmp_path / "sub_clients.yaml",
         scraper_data_dir=tmp_path / "scraper",
-        discord_webhook="", hermes_bin="", escalate_to_local_ai=False,
+        discord_webhook="", hermes_bin="", escalate_to_hubai=False,
         hermes_home=tmp_path / "hermes",
     )
 

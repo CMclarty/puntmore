@@ -596,3 +596,19 @@ def test_no_fixtures_in_a_competition_is_an_empty_answer_cached_hourly(monkeypat
         c._odds._data[k] = (at - 1800, v)          # half an hour later
     assert c.odds_by_tournaments([23755]) == []
     assert len(sent) == 1                          # still cached: hourly gear
+
+
+def test_a_sweep_with_no_fair_book_names_none_and_never_the_old_vendor(monkeypatch):
+    """With ODDSPAPI_FAIR_BOOK blank the sweep carries no fair side: `fair_source` is None
+    (it used to say "bettingiscool", a vendor removed on 5 Nov 2026), and the empty screen
+    says to set the fair book."""
+    from pathlib import Path
+    from types import SimpleNamespace
+    from app.cards import laddered, oddspapi as cards_op
+    from app.routers.cards import diagnose
+    assert "bettingiscool" not in Path(cards_op.__file__).read_text()
+    monkeypatch.setattr(laddered, "LAST_RUNS", {})        # nothing priced yet
+    stub = SimpleNamespace(book="paddypower", last_sweep={
+        "source": "oddspapi", "fair_source": None, "fixtures_in_window": 3, "called": 3,
+        "carried_paddy_prices": 3, "carried_pinnacle_prices": 0, "errors": []})
+    assert "Set ODDSPAPI_FAIR_BOOK" in diagnose(stub)["verdict"]

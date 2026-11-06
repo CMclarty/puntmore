@@ -1,18 +1,14 @@
-"""Render may turn the Hub's kill switch ON, never OFF (PROTOCOL.md, "Kill switches")."""
+"""The kill switch is the file data/KILL: anyone turns it on, only Callum turns it off."""
 from puntmore_hub import killswitch
 from puntmore_hub.store import Store
 
 
-def test_render_turns_it_on_but_never_off(cfg):
+def test_on_writes_the_file_and_escalates_off_removes_it(cfg):
     store = Store(cfg.db_path)
     assert not cfg.kill_switch_on()
-    assert killswitch.from_render(store, {"on": False}, cfg) is False     # OFF while off: stays off, escalated
-    assert not cfg.kill_switch_file.exists()
-    assert killswitch.from_render(store, {"on": True}, cfg) is True
-    assert cfg.kill_switch_file.exists() and "from Render" in cfg.kill_switch_file.read_text()
-    assert killswitch.from_render(store, {"on": False}, cfg) is True      # OFF while on: still on
-    assert cfg.kill_switch_file.exists()
-    kinds = [(e["kind"], e["ref"]) for e in store.open_escalations()]
-    assert kinds.count(("kill_switch", "render")) == 2 and ("kill_switch", "global") in kinds
-    killswitch.turn_off(cfg)                                              # only Cal, by hand
+    killswitch.turn_on(store, cfg, by="the console")
+    assert cfg.kill_switch_on() and "from the console" in cfg.kill_switch_file.read_text()
+    assert [(e["kind"], e["ref"]) for e in store.open_escalations()] == [("kill_switch", "global")]
+    assert not hasattr(killswitch, "from_render")
+    killswitch.turn_off(cfg)
     assert not cfg.kill_switch_on()

@@ -1,7 +1,7 @@
 """Provider-agnostic coupon fair odds — the score grid + de-vig + derived
 markets + fixture matching, over a Pinnacle board ANY vendor can supply.
 
-`GridCouponProvider` is the coupon tracker's odds engine (SPEC §5/§7/§8). It is
+`GridCouponProvider` is the coupon tracker's odds engine (SPEC §7/§8). It is
 vendor-neutral: a concrete provider implements just two data methods —
 `_fixtures()` and `_odds(event_id)` — and everything else (in-house de-vig,
 the fitted score grid, GG / GG-No-Draw / TTS / Win-and-Over / Win-to-Nil

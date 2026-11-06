@@ -18,9 +18,8 @@
   </div>
   <div class="actions-bar">
     <button id="btn-kill-on" class="danger" type="button" title="Stops every placement now. Anyone may turn it on.">Kill switch ON</button>
-    <button id="btn-inbox" type="button" title="One pass over the Scraper's drops (the link daemon does this every 30 s)">Inbox now</button>
+    <button id="btn-inbox" type="button" title="One pass over the Scraper's drop files (the daemon does this every 30 s)">Inbox now</button>
     <button id="btn-heartbeat" type="button" title="Send the daily summary now (Discord + log)">Heartbeat now</button>
-    <button id="btn-link-check" type="button" title="hello → hello_ack against the configured Render">Link-check</button>
     <label class="token">Token <input id="token" type="password" autocomplete="off" placeholder="X-Puntmore-Token"></label>
   </div>
   <p id="action-result" class="action-result" role="status" hidden></p>
@@ -67,7 +66,7 @@
 
     <form id="target-add-form" class="card form" autocomplete="off">
       <h3>Add target</h3>
-      <p class="hint">The fields of <code>targets add</code>. A Bet Finder source is <code>site = generic</code>, <code>post = hub:tips</code>. Add it disabled, check its first parse, then enable it. <code>[target.matches]</code> is set with <code>python -m scraper targets set … --matches</code>.</p>
+      <p class="hint">The fields of <code>targets add</code>. A Finder source is <code>site = generic</code>, <code>post = hub:tips</code>. Add it disabled, check its first parse, then enable it. <code>[target.matches]</code> is set with <code>python -m scraper targets set … --matches</code>.</p>
       <label>name <input name="name" type="text" required autocapitalize="off" spellcheck="false"><span class="field-error" data-err="name"></span></label>
       <label>site <select name="site"><option>paddypower</option><option>bookiebashing</option><option selected>generic</option></select><span class="field-error" data-err="site"></span></label>
       <label class="wide">url <input name="url" type="url" required><span class="field-error" data-err="url"></span></label>
@@ -99,11 +98,9 @@
     <pre class="log" data-slot="alerts"></pre>
   </section>
 
-  <section id="tab-link" class="tab" hidden>
-    <div class="feedhead"><h2>Link</h2><span class="feedstate"></span></div>
+  <section id="tab-daemon" class="tab" hidden>
+    <div class="feedhead"><h2>Daemon</h2><span class="feedstate"></span></div>
     <div class="summary" data-slot="summary"></div>
-    <h3>Outbox (last 50)</h3>
-    <div class="scroll" data-slot="outbox"></div>
   </section>
 
   <section id="tab-placement" class="tab" hidden>
@@ -111,7 +108,7 @@
     <div class="summary" data-slot="summary"></div>
     <form id="kill-off-form" class="card form" autocomplete="off">
       <h3>Turn the kill switch off</h3>
-      <p class="rule"><strong>Only Cal turns it off.</strong> Anyone may turn it on. Type <code>OFF</code> to confirm.</p>
+      <p class="rule"><strong>Only Callum turns it off.</strong> Anyone may turn it on. Type <code>OFF</code> to confirm.</p>
       <input id="kill-off-confirm" type="text" inputmode="text" autocapitalize="characters" placeholder="type OFF" maxlength="3">
       <button type="submit">Kill switch off</button>
     </form>
@@ -125,7 +122,7 @@
     <div class="feedhead"><h2>Escalations</h2><span class="feedstate"></span></div>
     <form id="resolve-form" class="card form" autocomplete="off">
       <h3>Resolve an escalation</h3>
-      <p class="hint">Tap “resolve” on an open one to fill in its number. The outcome is queued for Render.</p>
+      <p class="hint">Tap “resolve” on an open one to fill in its number. The outcome is kept in the Hub's store.</p>
       <label>Number <input id="resolve-id" type="number" min="1" inputmode="numeric"></label>
       <label class="wide">Outcome <textarea id="resolve-outcome" rows="2" maxlength="2000" placeholder="what was decided and done"></textarea></label>
       <button type="submit">Resolve</button>
@@ -153,7 +150,7 @@
   </section>
 
   <section id="tab-hermes" class="tab" hidden>
-    <div class="feedhead"><h2>Hermes</h2><span class="feedstate"></span></div>
+    <div class="feedhead"><h2>HubAI</h2><span class="feedstate"></span></div>
     <div class="summary" data-slot="summary"></div>
     <h3>hermes-gateway journal (last 50 lines)</h3>
     <pre class="log" data-slot="journal"></pre>
@@ -164,8 +161,6 @@
     <div class="summary" data-slot="summary"></div>
     <h3>/api/ready</h3>
     <pre class="log" data-slot="ready"></pre>
-    <h3>Last link-check</h3>
-    <pre class="log" data-slot="linkcheck"></pre>
   </section>
 </main>
 <footer class="foot">Reads need nothing; actions need the token. Every action is logged to <code>data/console-actions.log</code>. The console never loads a page and never talks to a bookmaker.</footer>

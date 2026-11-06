@@ -1,4 +1,4 @@
-"""Tipster emails -> stored tips for Hermes to judge (`puntmore finder new`), through `mail.poll`
+"""Tipster emails -> stored tips for HubAI to judge (`puntmore finder new`), through `mail.poll`
 with a fetcher that hands over messages built here, so no test opens a socket. Nothing is queued
 for Render: the `tip` message was retired with the socket (6 Nov 2026, docs/finder-spec.md)."""
 import imaplib
@@ -79,8 +79,7 @@ def test_a_tipster_mail_becomes_tips_for_hermes(mcfg, store):
     assert r["error"] is None
     assert {k: r[k] for k in ("messages", "tips", "new_tips", "rejected", "ignored", "escalations")} == \
         {"messages": 1, "tips": 2, "new_tips": 2, "rejected": 0, "ignored": 0, "escalations": 0}
-    # Nothing is queued for Render (the `tip` message is retired): the tips are Hermes's to judge.
-    assert store.outbox_pending() == []
+    # The tips are HubAI's to judge (`puntmore finder new`).
     queued = finder.new_tips(store)
     first = queued[0]
     assert first["tip_id"] == tip_id_for("example-tipster", "Arsenal v Chelsea", "Match Result", "Arsenal", "2026-11-07T08:00:00+00:00")
@@ -103,7 +102,6 @@ def test_the_same_message_twice_stores_nothing_new(mcfg, store):
     r = mail.poll(store, mcfg, fetcher=fetcher_of(raw))   # the \\Seen flag lost: the mailbox hands it over again
     assert r["messages"] == 1 and r["seen"] == 1 and r["new_tips"] == 0 and r["tips"] == 0
     assert store.conn.execute("SELECT COUNT(*) FROM tips").fetchone()[0] == 2
-    assert store.conn.execute("SELECT COUNT(*) FROM outbox").fetchone()[0] == 0
     # the same tips in a second email (another send of the same list) are deduplicated on tip_id
     r = mail.poll(store, mcfg, fetcher=fetcher_of(_mail(message_id="<def456@example.com>", subject="Tips again")))
     assert r["tips"] == 2 and r["new_tips"] == 0
@@ -191,7 +189,6 @@ def test_dry_run_stores_nothing_and_marks_nothing_seen(mcfg, store):
     assert r["rows"][0]["tip_id"] == tip_id_for("example-tipster", "Arsenal v Chelsea", "Match Result", "Arsenal", "2026-11-07")
     assert r["problems"] == ["example-tipster: [mail] 'Tips for Saturday': parser example_tipster read 0 rows"]
     assert store.conn.execute("SELECT COUNT(*) FROM tips").fetchone()[0] == 0
-    assert store.conn.execute("SELECT COUNT(*) FROM outbox").fetchone()[0] == 0
     assert store.conn.execute("SELECT COUNT(*) FROM mail_seen").fetchone()[0] == 0
     assert store.open_escalations() == [] and not mcfg.mail_status_file.exists()
     # the real poll afterwards sees everything as new

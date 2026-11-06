@@ -1,6 +1,6 @@
 """The only way targets.toml is changed.
 
-The Hub Console, the Hub CLI and Hermes's scraper-manager all drive the
+The Console, the Hub CLI and HubAI's scraper-manager all drive the
 Scraper through this module (or its CLI, `python -m scraper targets ...`), so
 there is one config store and one set of rules. Every rule a target must
 satisfy - sites, hosts, the clamps on every timing - stays in
@@ -36,7 +36,7 @@ LOCK_TIMEOUT_S = 10.0
 HEADER = """\
 # The Scraper's targets. WRITTEN BY scraper/targets.py - do not edit by hand
 # while the Scraper runs. Change it with `python -m scraper targets ...`, the
-# Hub Console, or Hermes's scraper-manager; each change is validated against
+# Console, or HubAI's scraper-manager; each change is validated against
 # config._target (sites, hosts, clamps) and saved atomically.
 #
 # This file is rewritten whole on every change: comments are not kept. The
@@ -215,7 +215,7 @@ def save(path, targets: list[Target]) -> None:
 @contextlib.contextmanager
 def locked(path, timeout: float | None = None):
     """Hold an exclusive flock on <path>.lock for one read-modify-write. The
-    console, the CLI and Hermes cannot interleave; a holder that does not let
+    Console, the CLI and HubAI cannot interleave; a holder that does not let
     go within `timeout` seconds is an error, not a hang."""
     timeout = LOCK_TIMEOUT_S if timeout is None else timeout
     path = pathlib.Path(path)

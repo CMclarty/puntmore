@@ -1,8 +1,21 @@
-# scraper/ — rules for the Scraper
+# scraper/ — rules for the Scraper service
 
 `docs/decisions.md` is read first and wins; the repo's `CLAUDE.md` applies everywhere and wins on any other conflict. Setup and
-day-to-day commands are in `README.md`; the boundaries that still apply are in
-`HANDOVER.md`. The Scraper is the ONLY thing on the Hub that loads a page.
+day-to-day commands are in `README.md`. The Scraper service is the ONLY thing on the Hub that loads a page:
+every page any tool needs, filling what OddsPapi lacks. Its rows go to Scraper control (the Hub's
+inbox, as drop files: `hub/PROTOCOL.md`) and from there to a board or to HubAI; Paddy's prices still
+post straight to Render and move behind Scraper control as the next Scraper work.
+
+## Boundaries (agreed; keep them)
+- It detects challenges and logouts and **stops**. It never answers a check, never types a
+  password, and never fakes a fingerprint. No proxies or IP rotation, no clicking through menus
+  to look human, and no other ways to avoid detection. If Paddy blocks the Hub, the answer is to
+  slow down or get the data another way, not to work around the block.
+- One agreed exception (Callum, 26 Oct 2026): Chrome is started as a person's Chrome, without
+  Playwright's `--enable-automation` test flag and with AutomationControlled off. Nothing else
+  about the browser is changed or overridden.
+- Per-site rules live in code (`sites.py`). Config can only make it slower.
+- Targets are direct page URLs in `targets.toml`.
 
 ## Module map
 - `runner.py` - the loop: wires the modules below, owns the tabs, loads
@@ -19,7 +32,7 @@ day-to-day commands are in `README.md`; the boundaries that still apply are in
 - `ids.py` - the one tip id, minted here when rows reach the Hub sink (a copy
   of `hub/puntmore_hub/ids.py`; a test in each suite pins the same vector).
 - `parsers/` - one module per page kind; rows only from what the page shows.
-- `targets.py` - the only writer of targets.toml (CLI, console, Hermes).
+- `targets.py` - the only writer of targets.toml (CLI, Console, HubAI).
 - `config.py` - settings and target validation (`_target`, the clamps).
 - `sites.py` - per-site rules in code: budgets, quiet hours, what a block means.
 - `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite).
@@ -28,7 +41,7 @@ day-to-day commands are in `README.md`; the boundaries that still apply are in
   the alert webhook and log.
 
 ## Rules
-- **The client's tip-finding sources are Scraper targets** (5 Nov 2026, Callum: one Chrome,
+- **Finder's sources are Scraper targets** (5 Nov 2026, Callum: one Chrome,
   one budget, one alert path). `site = "generic"` may name any host except the
   two bookmakers; its budget is in `sites.py` (60/h, 400/day, no quiet hours,
   a block = 24 h cool-off + `resume generic`). A generic target is `fetch`
@@ -40,14 +53,10 @@ day-to-day commands are in `README.md`; the boundaries that still apply are in
   `puntmore inbox` reads both. Never let a generic target reach Paddy Power
   or Bookie Bashing; never add a second budget anywhere.
 - targets.toml is edited only through `scraper/targets.py` (the CLI, the
-  console, the scraper-manager); never by hand while the Scraper runs.
+  Console, HubAI's scraper-manager); never by hand while the Scraper runs.
   Validation stays in `config._target`; `targets.py` must not grow its own
   copy of a clamp, host or site rule.
-- The rule below is moved from `CLAUDE.md` on 5 Nov 2026 (its first lines
-  updated the same day for the move to the Hub's desktop).
-
-- **The Scraper (`scraper/`, Oct 2026) is a SEPARATE service** — since
-  5 Nov 2026 ONE real Chrome on the Hub's desktop session, the systemd user
+- **The Scraper service is a SEPARATE service**: ONE real Chrome on the Hub's desktop session, the systemd user
   service `puntmore-scraper` (`deploy/native/`), updated by
   `puntmore-update.timer` with the rest of the Hub, so the sites see a
   person's Chrome: the box's GPU, fonts and screen (in the container Chrome
@@ -60,9 +69,8 @@ day-to-day commands are in `README.md`; the boundaries that still apply are in
   Chrome keeps every target's page OPEN and listens to what the page receives, so after
   the first load most targets cost no requests. WHAT it reads is config, and
   the config is ONE file: **`targets.toml` on the Hub** (`data/targets.toml`,
-  or the file `SCRAPER_TARGETS` names), edited by Hermes — nothing on Render
-  configures the Scraper (decision 5 Nov 2026; Puntmore's `/scraper` page and
-  its config and status routes are gone). A target is a page, or a
+  or the file `SCRAPER_TARGETS` names), changed through `targets.py`; nothing
+  on Render configures the Scraper. A target is a page, or a
   competition listing whose match links are opened (in-page tabs, parser,
   ingest path). The Scraper checks the file once a minute and applies an edit
   without a restart; a file that will not load is reported and the running

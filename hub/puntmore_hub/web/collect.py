@@ -6,7 +6,7 @@ never raises: a missing source (no Scraper data dir, no llama-server, no systemd
 ``unknown`` or ``off`` with a detail saying why.
 
 The rule for the two grey states: ``off`` is a thing that is not configured or not running and is
-allowed not to be (the link before a Render endpoint exists, llama-server not answering); ``unknown``
+allowed not to be (Render's health URL not set, llama-server not answering); ``unknown``
 is when the console cannot tell (no systemctl, no Scraper data dir).
 
 The Scraper tab's ``config`` is ``scraper.targets.summary()`` (``scraper_targets.view``): targets.toml
@@ -39,14 +39,13 @@ from . import scraper_targets
 STATES = ("up", "warn", "down", "off", "unknown")
 HERMES_HOME = Path.home() / ".hermes"
 ALERTS_TAIL = 100
-OUTBOX_ROWS = 50
 TIPS_ROWS = 100
 BETS_ROWS = 100
 JOURNAL_LINES = 50
 LATEST_ROWS_MAX = 500
-UNACKED_WARN_S = 300         # a message Render has not acked for 5 min means the link is not working
+DAEMON_UNIT = "puntmore-link.service"   # runs `puntmore link`, the same command as `puntmore daemon`
+INBOX_STALE_S = 300          # no inbox pass for 5 min (one every 30 s) means the daemon is not working
 TIPS_QUIET_H = 24            # no new tip for a day: the sources are probably not running
-LAST_LINK_CHECK = "console-last-link-check.json"
 
 
 def _now() -> str:
@@ -185,37 +184,39 @@ def scraper(cfg: Settings) -> dict[str, Any]:
     return _guard("scraper", go)
 
 
-# ---- Link ------------------------------------------------------------------------------------
+# ---- Daemon ----------------------------------------------------------------------------------
 
-def link(cfg: Settings, store: Store, run=None) -> dict[str, Any]:
+def daemon(cfg: Settings, store: Store, run=None) -> dict[str, Any]:
+    """The Hub daemon (`puntmore daemon`, unit puntmore-link.service): the last inbox pass over the
+    Scraper's drop files, the last tipster-mailbox poll, and the drop files still waiting."""
+    from .. import daemon as hub_daemon, mail
+
     def go():
-        svc = unit_state("puntmore-link.service", run)
-        counts = store.outbox_counts()
-        rows = [dict(r) for r in store.recent_outbox(OUTBOX_ROWS)]
-        oldest = store.conn.execute("SELECT MIN(created) FROM outbox WHERE acked_at IS NULL").fetchone()[0]
-        oldest_age = int(utcnow().timestamp() - parse_iso(oldest).timestamp()) if oldest else None
+        svc = unit_state(DAEMON_UNIT, run)
+        last_inbox = hub_daemon.last_status(cfg).get("inbox")
+        last_mail = mail.status(cfg)
         drops = {}
         for sub in ("tips", "events"):
             p = cfg.inbox_dir / sub
             drops[sub] = len(list(p.glob("*.json"))) if p.is_dir() else None
-        if not cfg.link_configured:
-            state, detail = "off", "not configured (PUNTMORE_RENDER_WS / _API_KEY)"
-            if svc:
-                detail += f"; puntmore-link.service {svc}"
-        elif svc is None:
-            state, detail = "unknown", "systemctl not available"
+        at = parse_iso(last_inbox["at"]) if last_inbox and last_inbox.get("at") else None
+        age = int(utcnow().timestamp() - at.timestamp()) if at else None
+        seen = f"last inbox pass {age}s ago" if age is not None else "no inbox pass recorded"
+        if svc is None:
+            state, detail = "unknown", f"systemctl not available; {seen}"
         elif svc != "active":
-            state, detail = "down", f"puntmore-link.service {svc}"
-        elif oldest_age is not None and oldest_age > UNACKED_WARN_S:
-            state, detail = "warn", f"{counts['unacked']} unacked, oldest {oldest_age}s"
+            state, detail = "down", f"{DAEMON_UNIT} {svc}"
+        elif last_inbox and last_inbox.get("error"):
+            state, detail = "warn", f"last inbox pass failed: {last_inbox['error'][:120]}"
+        elif age is None or age > INBOX_STALE_S:
+            state, detail = "warn", seen
+        elif last_mail.get("problems"):
+            state, detail = "warn", f"{seen}; mail: {last_mail['detail']}"
         else:
-            state, detail = "up", f"active, {counts['unacked']} unacked"
-        if state in ("off", "unknown") and counts["unacked"]:
-            detail += f"; {counts['unacked']} waiting for Render"
-        return _result(state, detail, service=svc, configured=cfg.link_configured, outbox=counts,
-                       oldest_unacked_age_s=oldest_age, outbox_rows=rows, inbox_drops=drops,
-                       inbox_dir=str(cfg.inbox_dir))
-    return _guard("link", go)
+            state, detail = "up", f"active, {seen}"
+        return _result(state, detail, service=svc, last_inbox=last_inbox, inbox_age_s=age,
+                       last_mail=last_mail, inbox_drops=drops, inbox_dir=str(cfg.inbox_dir))
+    return _guard("daemon", go)
 
 
 # ---- Placement -------------------------------------------------------------------------------
@@ -383,19 +384,11 @@ def hermes(cfg: Settings, run=None, home: Path | None = None) -> dict[str, Any]:
 
 # ---- Render ----------------------------------------------------------------------------------
 
-def last_link_check(cfg: Settings) -> dict[str, Any] | None:
-    try:
-        return json.loads((cfg.data_dir / LAST_LINK_CHECK).read_text())
-    except (OSError, ValueError):
-        return None
-
-
 def render(cfg: Settings, timeout: float = 5.0) -> dict[str, Any]:
     def go():
-        lc = last_link_check(cfg)
         base = cfg.render_http.rstrip("/")
         if not base:
-            return _result("off", "not configured (PUNTMORE_RENDER_HTTP)", url=None, ready=None, last_link_check=lc)
+            return _result("off", "not configured (PUNTMORE_RENDER_HTTP)", url=None, ready=None)
         t0 = time.monotonic()
         code, body, err = _get_json(base + "/api/ready", timeout)
         ms = int((time.monotonic() - t0) * 1000)
@@ -406,13 +399,13 @@ def render(cfg: Settings, timeout: float = 5.0) -> dict[str, Any]:
             state, detail = "down", f"unreachable: {err}"
         else:
             state, detail = "down", f"/api/ready HTTP {code}"
-        return _result(state, detail, url=base, ready=ready, last_link_check=lc)
+        return _result(state, detail, url=base, ready=ready)
     return _guard("render", go)
 
 
 # ---- all at once -----------------------------------------------------------------------------
 
-COMPONENTS = ("scraper", "link", "placement", "escalations", "tips", "model", "hermes", "render")
+COMPONENTS = ("scraper", "daemon", "placement", "escalations", "tips", "model", "hermes", "render")
 
 
 def collect(name: str, cfg: Settings, store_factory: Callable[[], Store]) -> dict[str, Any]:
@@ -420,13 +413,13 @@ def collect(name: str, cfg: Settings, store_factory: Callable[[], Store]) -> dic
     if name in ("scraper", "model", "hermes", "render"):
         return {"scraper": scraper, "model": model, "hermes": hermes, "render": render}[name](cfg)
     if not cfg.db_path.exists():
-        # Reads never create the database: that is `puntmore init`'s (or the link daemon's) job.
+        # Reads never create the database: that is `puntmore init`'s (or the daemon's) job.
         return _result("unknown", f"no hub database at {cfg.db_path} (puntmore init)")
     try:
         store = store_factory()
     except Exception as exc:  # noqa: BLE001
         return _result("unknown", f"hub database unreadable: {exc.__class__.__name__}: {str(exc)[:160]}")
     try:
-        return {"link": link, "placement": placement, "escalations": escalations, "tips": tips}[name](cfg, store)
+        return {"daemon": daemon, "placement": placement, "escalations": escalations, "tips": tips}[name](cfg, store)
     finally:
         store.close()

@@ -8,7 +8,7 @@ const LABELS = {
 
 export const statusLabel = (status) => LABELS[status] ?? status
 
-// Pounds: '£5', '£7.50'; a dash when the tip and Hermes gave none.
+// Pounds: '£5', '£7.50'; a dash when the tip and HubAI gave none.
 export function stakeLabel(n) {
   if (n == null) return '—'
   return Number.isInteger(n) ? `£${n}` : `£${n.toFixed(2)}`
@@ -22,7 +22,7 @@ export const marketLabel = (r) => (r.line != null ? `${r.market} ${r.line}` : r.
 export const priceLabel = (n) => (n == null ? '—' : n.toFixed(2))
 
 const DONE = new Set(['placed', 'gone', 'expired'])
-// An asked row Hermes could not place on a day and time has no kick-off: it
+// An asked row HubAI could not place on a day and time has no kick-off: it
 // sorts first, with the questions.
 const time = (iso) => (iso ? new Date(iso).getTime() : -8.64e15)
 

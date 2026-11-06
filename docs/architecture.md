@@ -1,92 +1,113 @@
 # Puntmore architecture
 
-Two physical boxes. **Render** prices and serves the 2-Up value feed (a one-way HTTP feed; it keeps no ledger and places nothing) and serves the app. The **Hub**, on a home connection and owned by Hermes, does only what needs a home IP, the phones or the GPU: bookmaker pages, placement, and the judgement calls when something goes wrong.
+Two boxes. **Render** prices markets and serves the boards; it never loads a bookmaker page and
+never places a bet. The **Hub**, Callum's box on a residential connection, runs one program in
+five parts: it reads every page, judges tips, and is where bets are placed from. The names are
+the register's (`docs/decisions.md`, "Names and structure"); the register wins over this file.
+Update this file in the same pull request as the change it describes.
 
-This is the one source for the architecture. The spec it implements is `docs/2up-engine-spec.md`; decisions are settled in `docs/decisions.md` (read first; it wins), then `PLAN.md` → Decisions; rules are in `CLAUDE.md` and each directory's `AGENTS.md`. Update this file in the same pull request as the change it describes.
+*As of 6 Nov 2026. State: **live** built and running · **built** built and tested, not yet in
+daily use · **to build** specified, not started · **parked** code kept, switched off.*
 
-*As of 6 Nov 2026. State legend: **live** built and running · **scaffold** built, tested with fakes · **placeholder** a contract and a stub · **to build** specified, not started · **parked** code kept, switched off.*
-
-## What runs where
+## The picture
 
 ```mermaid
-flowchart LR
-  subgraph RENDER["RENDER — prices and serves the 2-Up value feed; always on; one deploy, three subdomains"]
+flowchart TB
+  subgraph RENDER["RENDER — one Docker web service; two hosts"]
     direction TB
-    APP["Puntmore app<br/>FastAPI + React, one origin; SQLite on disk<br/><i>live</i>"]
-    subgraph TWOUP["2up.puntmore.com — the 2-Up product, a one-way feed read by every client"]
-      T365["365 tool<br/>2-Up value feed (acca boost returns on OddsPapi; goalscorers parked)<br/><i>live</i>"]
+    subgraph MAIN["main domain — every public tool, the login, the API"]
+      PADDY["Paddy board<br/>corners, cards, goals, saves vs Paddy Power<br/><i>live</i>"]
+      T365["365 tool<br/>with the 2-Up board inside<br/><i>live</i>"]
+      PUB["Coupon tracker · Hills<br/><i>live</i>"]
     end
-    subgraph SHALGO["shalgo.puntmore.com — Paddy Power tools, fed by the Scraper"]
-      COUP["Coupon tracker<br/>photographed coupons priced off Pinnacle<br/><i>live</i>"]
-      PADDY["Paddy<br/>corners, cards, goals, saves vs Paddy Power; its own setup<br/><i>live</i>"]
-    end
-    subgraph ME["me.puntmore.com — Cal's personal tools, owner only"]
-      PERS["Personal tools<br/>dogs, Virtuals, P&amp;L, Kelly, shop<br/><i>live</i>"]
-      PRIV["Private engine<br/>multi-bookmaker staking; consumes 2-Up as one source<br/><i>to build</i>"]
-      FINDER["Finder<br/>tips judged on the Hub by Hermes; Render keeps, serves and expires the rows<br/><i>live</i>"]
+    subgraph ME["me — Callum's personal tools; on the main domain until ME_HOST is set"]
+      FINDER["Finder board<br/>Callum's tips, judged on the Hub<br/><i>live on the main domain until ME_HOST is set</i>"]
+      PERS["Dogs · Virtuals · P&amp;L · Kelly · shop<br/><i>live on the main domain until ME_HOST is set</i>"]
     end
   end
 
-  subgraph HUB["HUB — only what needs a home IP, the phones or the GPU"]
+  ODDS["OddsPapi<br/>the only odds source"] -- "prices (HTTPS)" --> PADDY
+  ODDS -- "prices (HTTPS)" --> T365
+
+  subgraph HUB["HUB — Callum's box, one program"]
     direction TB
-    subgraph HERMES["Hermes — owner of the Hub: chief of staff on Telegram + four specialists; judges tips, posts to Finder · live"]
-      MODEL["Local model<br/>llama-server, Qwen3.5-122B, two 131k slots; Hermes' brain, judges Finder's tips (never prices the boards)<br/><i>live</i>"]
+    SVC["Scraper service<br/>one real Chrome on the desktop; every page any tool needs<br/><i>live</i>"]
+    CTRL["Scraper control<br/>rules, routing, switches for every source's rows<br/><i>part built: targets library, inbox, mailbox poll</i>"]
+    HUBAI["HubAI<br/>the Hermes layer: chief of staff + specialists, one Qwen model<br/><i>live; Finder skill to build</i>"]
+    subgraph PLACER["Bet Placer — a black box for now"]
+      STAKE["staking logic<br/><i>to build</i>"]
+      PHONEIF["phone interface<br/><i>to build</i>"]
     end
-    SCRAPER["Scraper · scraper/<br/>native service, one real Chrome on the desktop (Docker the fallback): Paddy Power pages kept open, tip sources loaded-parsed-closed; one BB page, an open exception; budgets in code<br/><i>live · tips drop to the Hub</i>"]
-    PLACE["Placement bot<br/>bet in → placed / price_changed / failed; no retry<br/><i>placeholder</i>"]
-    LINK["Link daemon + inbox · hub/<br/>inbox + mail; no socket since 6 Nov 2026 — stores each tip once for Hermes (`puntmore finder new`)<br/><i>scaffold</i>"]
-    CONSOLE["Hub Console · hub/web<br/>what every Hub component is doing, live, and the kill switch<br/><i>scaffold</i>"]
+    CONSOLE["Console<br/>every part, live; the control page<br/><i>built</i>"]
   end
 
-  ODDS["OddsPapi<br/>the only odds source"] --> T365
-  ODDS --> PADDY
-  SCRAPER -- "prices, HTTP, live" --> PADDY
-  SCRAPER -- "tips, events (files)" --> LINK
-  LINK -- "new tips (hub.sqlite)" --> HERMES
-  HERMES -- "rows, HTTPS, ingest key" --> FINDER
-  LINK --> PLACE
-  PLACE --> PHONES["Phones<br/>one bookmaker account each"]
-  HERMES --> TG["Telegram<br/>Callum ↔ Hermes"]
-  SCRAPER --> SITES["Sites<br/>Paddy Power, tip sources; one Bookie Bashing page (open item)"]
+  SITES["Sites<br/>Paddy Power, tip sources; one Bookie Bashing page (open item)"] -- "pages" --> SVC
+  MAILBOX["Tipster mailbox"] -- "IMAP" --> CTRL
+  SVC -- "tips: drop files (scraper_tips, scraper_event)" --> CTRL
+  SVC -- "prices: POST /api/paddy/saves-fair, /most-prices (direct today)" --> PADDY
+  CTRL -- "new tips (hub.sqlite); escalations" --> HUBAI
+  HUBAI -- "POST /api/finder/rows" --> FINDER
+  HUBAI <-->|"Telegram: questions, tips asked for by hand"| CALLUM["Callum"]
+  PADDY -- "GET /api/paddy/feed" --> STAKE
+  T365 -- "GET /api/2up/feed" --> STAKE
+  FINDER -- "GET /api/finder/feed" --> STAKE
+  STAKE --> PHONEIF
+  PHONEIF -- "DeviceFarmer (local port)" --> PHONES["Phones<br/>bookmaker accounts in the app and the browser"]
+  PLACER -- "POST /api/finder/rows/{tip_id}/status (placed | gone)" --> FINDER
+  CONSOLE -. "reads" .- SVC
+  CONSOLE -. "reads" .- CTRL
+  CONSOLE -. "reads" .- HUBAI
+  TUNNEL["private tunnel"] --- CONSOLE
+  ME -. "links to" .- TUNNEL
+
+  THIRD["Third-party client<br/>its own Bet Placer, 2-Up only"] -- "GET /api/2up/feed" --> T365
 ```
 
 ## Components
 
 | Component | What it is | Where | State |
 |---|---|---|---|
-| Puntmore app | One FastAPI + React deploy serving the three hostnames; SQLite on disk | Render | live |
-| 365 tool | Bet365 offers as one tool: the 2-Up value feed (`render/api/app/twoup/`): a served board refreshed by the `twoup_refresh` job, read at `GET /api/2up/feed` and on the 2-Up tab (Feed alone, with "updated" and "priced" times); acca boost returns on OddsPapi; goalscorers parked | Render · 2up | live |
-| Coupon tracker | Photographed coupons priced off Pinnacle via the score grid | Render · shalgo | live |
-| Paddy | Corners, cards, goals and saves against Paddy Power; its own setup, fed by the Scraper | Render · shalgo | live |
-| Personal tools | Dogs, Virtuals, P&L, Kelly, shop | Render · me | live, owner only |
-| Private engine | Multi-bookmaker staking that consumes 2-Up as one source | Render · me | to build, to spec separately |
-| Finder | Callum's private Bet Finder (`render/api/app/finder/`, `docs/finder-spec.md`): `finder_rows`, the status machine, `/api/finder/*` (rows and `placed`\|`gone` in on the ingest key, feed and board out on the `finder` grant), a private `finder` value source, the `/finder` page on me | Render · me | live, owner only |
-| Hermes | Owner of the Hub: chief of staff and four specialists | Hub | live (delegation plugin pending) |
-| Local model | llama-server, Qwen3.5-122B, two slots; Hermes' brain; judges Finder's tips (the register struck "never prices a bet", 6 Nov 2026), never in the boards' pricing path | Hub, inside Hermes | live |
-| Scraper | `scraper/`: user service `puntmore-scraper`, one real Chrome on the desktop session (Docker the fallback for a box with no screen); Paddy Power pages kept open, the one Bookie Bashing page (`bb-saves`) an open exception (`docs/decisions.md`), tip sources as `generic` targets; what it reads is `targets.toml` on the Hub, nothing on Render | Hub | live (sources drop tips to the Hub) |
-| Placement bot | Bet in, placed / price_changed / failed out, on the phones | Hub | placeholder (dry-run adapter only; contract in `hub/puntmore_hub/placement/README.md`) |
-| Link daemon + inbox | `hub/`, `puntmore link`: the inbox (the Scraper's drops) and the tipster mailbox, stored as tips for Hermes; no socket since 6 Nov 2026 (`PUNTMORE_RENDER_WS` blank: the inbox loop runs in the foreground); `puntmore finder new\|post\|status` is Hermes's and the placer's way to Finder; updates itself from `origin/main` every 10 min (`puntmore-update.timer`) | Hub | scaffold |
-| Hub Console | `hub/puntmore_hub/web/`, `puntmore web`: what every Hub component is doing, live, and the kill switch; the CLI's actions behind a token | Hub | scaffold (localhost by default; reads what the CLI reads) |
-| Wire contract | `hub/PROTOCOL.md`, JSON Schema, examples, mock Render | the Hub only | v1, contract tests; no Render end until the betting agent defines its own |
+| Render service | FastAPI + React, one origin, SQLite on the disk; the main domain and `me` (`app/site.py`; `me` only once `ME_HOST` is set) | Render | live |
+| Paddy | Corners, cards, goals and saves against Paddy Power (`app/cards/`); OddsPapi plus the Scraper's posts | Render · main | live |
+| 365 tool, 2-Up | bet365's offers; 2-Up (`app/twoup/`) is a served board refreshed by `twoup_refresh`, read at `GET /api/2up/feed` and on the 2-Up tab; acca boost returns on OddsPapi; goalscorers parked | Render · main | live |
+| Coupon tracker, Hills | photographed coupons priced off the score grid; William Hill boosts | Render · main | live |
+| Finder | `finder_rows`, its status machine, `/api/finder/*` (`app/finder/`, `docs/finder-spec.md`) | Render · me | live, Callum only; on the main domain until `ME_HOST` is set |
+| Personal tools | dogs, Virtuals, P&L, Kelly, shop | Render · me | live on the main domain until `ME_HOST` is set |
+| Scraper service | `scraper/`, user service `puntmore-scraper`: one real Chrome on the desktop session, budgets in code (Docker is the fallback for a box with no screen) | Hub | live |
+| Scraper control | `targets.toml` changed only through `scraper/targets.py` (Console, CLI, HubAI); the Hub daemon's inbox of the drop files and its tipster-mailbox poll (`hub/`) | Hub | part built |
+| HubAI | the Hermes layer: chief of staff on Telegram, specialist profiles, Qwen3.5-122B under llama-server; takes every escalation; judges tips for Finder (`puntmore finder`) and takes a tip Callum asks for on Telegram | Hub | live; the Finder skill to build |
+| Bet Placer | reads the three feeds, sizes, places through DeviceFarmer, keeps the only book, posts `placed` / `gone` to Finder (`docs/placer-spec.md`); starts from the placement engine in `hub/puntmore_hub/placement/` (dry-run adapter only) | Hub; third parties, 2-Up only | to build |
+| Console | `puntmore web`: a card per part, the kill switch, the Scraper tab; actions behind a token | Hub | built (localhost; the tunnel is to build) |
 
-## The Render ↔ Hub contract
+## What crosses between the boxes
 
-There is no socket since 6 Nov 2026. Render's end of the WebSocket (`/api/2up/ws`, `app/hub/`, the `hub` grant) is removed; a Hub endpoint is per tool. The 2-Up module has none: it is a one-way feed that the betting agent reads over HTTP, and the betting agent defines its own Hub endpoint in its own spec. Finder's is a pair of key-authenticated HTTP routes (`POST /api/finder/rows` from Hermes, `POST /api/finder/rows/{tip_id}/status` from the placer, both on the `ingest` grant; `docs/api.md`). `hub/PROTOCOL.md` describes the socket's Hub side as it was built; its `tip` message is retired.
+Four HTTP flows and nothing else; no socket, no Hub endpoint on Render.
 
-## Fixed by the spec
+| Flow | Route | Who | Key |
+|---|---|---|---|
+| Paddy prices up | `POST /api/paddy/saves-fair`, `/api/paddy/most-prices` | Scraper service (to move behind Scraper control) | ingest key |
+| Tips up to Finder | `POST /api/finder/rows` | HubAI, through `puntmore finder post` | ingest key |
+| Feeds down | `GET /api/paddy/feed`, `/api/2up/feed`, `/api/finder/feed` | Bet Placer | its key: `accabonus`, `cards`, `finder`, `ingest` (a third party's: `accabonus`) |
+| Placed / gone up | `POST /api/finder/rows/{tip_id}/status` | Bet Placer, through `puntmore finder status` | ingest key |
 
-1. **Dry-run by default** (the betting agent's and the Hub's placement). Two weeks of clean reports before real money.
-2. **Kill switch is a file**, `hub/data/KILL`; no code change to flip.
-3. **No retry, no re-route** on the Hub's placement. Failures go to the local AI.
-4. **Real Chrome, no stealth.** Budgets in code, 24 h cool-off on a challenge.
-5. **Finder rows are Callum's only** (6 Nov 2026, `docs/finder-spec.md`): judged on the Hub by Hermes, kept on Render behind the `finder` grant, never in the combined value feed and never offered to a third-party client.
-6. **OddsPapi is the only odds source.** Render never loads a bookmaker page, never places a bet and keeps no record of any client's bets.
-7. **Three subdomains, one deploy**, by design; not expected to scale beyond this.
+The Console also reads Render's `/api/ready`. Render holds no Hub configuration and sends no Hub
+command.
 
-## Open decisions and known weaknesses
+## Fixed
 
-1. **Placement is a stub.** One phone in dry-run is the next real milestone; everything else on the Hub is scaffolding around it. The local model is building the adapter.
-2. **Folded (5 Nov):** the Bet Finder's sources are Scraper targets; `hub/` no longer scrapes.
-3. **Fixed (5 Nov):** `hub/` updates itself. `puntmore-update.timer` fast-forwards the box's checkout to `origin/main` every 10 minutes, reinstalls and restarts, never while a bet is in flight (`hub/README.md`, "Updating the Hub"). `scraper/` (the Scraper's user service) is restarted by the same timer; the Docker image is the fallback.
-4. **The placement service should run as its own Linux user** so no agent can read account credentials, whatever a scraped page says.
-5. **Goalscorers** returns only via OddsPapi, after the open work (PLAN.md, Parked).
+1. **Dry-run by default** in every Bet Placer; two weeks of clean dry-run before real money.
+2. **The kill switch is a file**, `hub/data/KILL`; Render's `TWOUP_KILL_SWITCH` empties the 2-Up feed.
+3. **No retry, no re-route** of a failed bet; it goes to HubAI.
+4. **Real Chrome, no stealth.** Budgets in code, 24 h cool-off on a block.
+5. **Tips on Finder are Callum's only**, behind the `finder` grant and on `me` (the main domain until `ME_HOST` is set); never in the combined value feed, never offered to a third party.
+6. **OddsPapi is the only odds source.** Render keeps no record of anyone's bets.
+7. **One deploy**, not designed to scale.
+
+## Open
+
+1. **Scraper control routes Paddy's prices.** Today the Scraper service posts them to Render directly; they move behind Scraper control next.
+2. **HubAI's Finder skill** (to build): one Hermes skill that reads the new tips (`puntmore finder new`), judges each from its price and fair, asks Callum when unsure, posts the verdict (`puntmore finder post`), and takes a tip Callum types to it on Telegram. The next HubAI work.
+3. **The tunnel** that makes the Console reachable from anywhere, and the link to it from `me`.
+4. **The Bet Placer box**: the phone interface through DeviceFarmer and the staking logic (`docs/placer-spec.md`). It should run as its own Linux user, so no agent can read account credentials whatever a scraped page says.
+5. **Set `ME_HOST` once the DNS points at Render.** Until then `me` is off and its tools (Finder, dogs, Virtuals, P&L, Kelly, the shop) are served on the main domain. The step: add the `me.puntmore.com` DNS record and the Render custom domain, check the host resolves to the service, then set `ME_HOST=me.puntmore.com` on Render.
+6. **Goalscorers** returns only via OddsPapi (`PLAN.md`, Parked).

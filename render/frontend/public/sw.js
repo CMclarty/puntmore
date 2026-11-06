@@ -83,8 +83,15 @@ self.addEventListener('fetch', e => {
   // during every deploy. Treat a non-ok navigation like an offline one: serve
   // the cached shell if there is one, and only surface the error if there
   // isn't. The shell is still never overwritten with a failure response.
+  //
+  // A redirect is NOT a failure either. A navigation is fetched with redirect
+  // mode "manual", so a 301 (the retired shalgo host sends every path to the
+  // main domain) comes back as an `opaqueredirect`: status 0, not ok. Treated
+  // as a failure it served the cached shalgo shell and the redirect never
+  // reached the browser. It is handed back as it is, and the browser follows it.
   e.respondWith(
     fetch(req).then(resp => {
+      if (resp.type === 'opaqueredirect') return resp
       if (resp.ok && req.method === 'GET') {
         const copy = resp.clone()
         caches.open(SHELL_CACHE).then(c => c.put(req, copy))

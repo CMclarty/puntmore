@@ -218,7 +218,7 @@ def test_config_change_closes_removed_tabs_and_opens_new_ones(tmp_path, site):
         assert [(t["name"], t["state"]) for t in status()["targets"]] == [("pp", "running")]
 
         write(f'[[target]]\nname="bb"\nsite="bookiebashing"\nurl="{site}/bbpage"\n'
-              'every_min=10\nparser="bb_saves"\n')         # edited by Hermes
+              'every_min=10\nparser="bb_saves"\n')         # edited by HubAI
         r.tick(t0 + 230)                                     # not due yet
         assert "pp:list" in r.tabs and "bb" not in r.tabs
         r.tick(t0 + 200 + TARGETS_CHECK_S + 5)

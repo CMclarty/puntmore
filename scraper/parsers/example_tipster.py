@@ -1,12 +1,12 @@
-"""Example Bet Finder parser: a page listing tips as
+"""Example Finder-source parser: a page listing tips as
 ``<li class="tip">Event | Market | Selection | Price</li>``.
 
 The contract for a fetch target's parser is the same as every other parser,
 ``fn(page, capture) -> list[dict]``, but the rows are TIPS: each needs ``event``,
 ``market`` and ``selection``, and may carry ``advised_price``,
 ``advised_stake_units``, ``tip_time`` (ISO), ``expiry`` (ISO) and ``origin``
-(``tipster`` or ``scrape``). They are handed to the Hub (``post = "hub:tips"``)
-and on to Render as candidate bets. Return nothing rather than guess: a short
+(``tipster`` or ``scrape``). They are handed to the Hub (``post = "hub:tips"``),
+where HubAI judges them for Finder. Return nothing rather than guess: a short
 row count trips the target's ``min_rows`` health check.
 """
 import html as html_lib

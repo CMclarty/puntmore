@@ -268,7 +268,7 @@ class User(Base):
 
 
 class ApiClient(Base):
-    """A machine caller (a script, a future bet-placer) with its own key.
+    """A machine caller (a script, the Bet Placer) with its own key.
 
     The key itself is NEVER stored: only its sha256, so a copy of the database
     is not a copy of the keys. It is shown once, by `python -m app.apikeys
@@ -316,7 +316,7 @@ class LadderShadow(Base):
 
 # The scraper control plane (scraper_leagues, scraper_markets,
 # scraper_timings, scraper_target_status, scraper_site_status) was removed on
-# 5 Nov 2026: the Scraper (then called the Worker) reads targets.toml on the Hub. Its tables are left in
+# 5 Nov 2026: the Scraper reads targets.toml on the Hub. Its tables are left in
 # the database untouched until someone drops them.
 
 
@@ -359,8 +359,8 @@ class HillsBet(Base):
 
 
 class FinderRow(Base):
-    """One tip on Finder, Callum's private Bet Finder (docs/finder-spec.md,
-    app/finder/rows.py): what Hermes posted from the Hub, and where it is in
+    """One row on Finder, Callum's tips board (docs/finder-spec.md,
+    app/finder/rows.py): what HubAI posted from the Hub, and where it is in
     the status machine. Owner-only; kept 30 days from `created_at`.
 
     `odds` and `fair` are the prices the TIP quotes (nothing here looks one
@@ -378,7 +378,7 @@ class FinderRow(Base):
     home = Column(String, nullable=True)
     away = Column(String, nullable=True)
     event_id = Column(String, nullable=True)
-    kickoff = Column(DateTime, nullable=True)          # kick-off or the off; null on an asked row Hermes cannot place on a day
+    kickoff = Column(DateTime, nullable=True)          # kick-off or the off; null on an asked row HubAI cannot place on a day
     market = Column(String, nullable=False)            # as the tip names it; win | each_way for a horse
     selection = Column(String, nullable=False)
     line = Column(Float, nullable=True)
@@ -386,12 +386,12 @@ class FinderRow(Base):
     odds = Column(Float, nullable=True)                # null on an asked row whose tip quotes none
     fair = Column(Float, nullable=True)
     edge = Column(Float, nullable=True)
-    advised_stake = Column(Float, nullable=True)       # pounds; Hermes's advice, the placer decides
+    advised_stake = Column(Float, nullable=True)       # pounds; HubAI's advice, the Bet Placer decides
     reason = Column(String, nullable=True)             # one line
     status = Column(String, nullable=False, index=True)  # asked | offered | rejected | placed | gone | expired
     expires_at = Column(DateTime, nullable=False, index=True)  # earlier of kickoff and the tip's expiry; neither: seen_at + 48 h
     asked_at = Column(DateTime, nullable=True)         # first posted as asked
     answered_at = Column(DateTime, nullable=True)      # posted as offered or rejected
-    seen_at = Column(DateTime, nullable=False)         # last posted by Hermes
+    seen_at = Column(DateTime, nullable=False)         # last posted by HubAI
     created_at = Column(DateTime, nullable=False, index=True)
     updated_at = Column(DateTime, nullable=False)

@@ -74,7 +74,7 @@ const TOOLS = [
     ),
   },
   {
-    // The private Bet Finder: on the me site only (site.js).
+    // Finder: on Me, or the main domain while there is no Me (site.js).
     tool: 'finder', name: 'Finder', to: '/finder', sub: 'Tips', priv: true,
     matches: (p) => p.startsWith('/finder'),
     icon: (

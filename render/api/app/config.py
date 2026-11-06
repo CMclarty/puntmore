@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # fair: %EV = (1 + edge) × 100). Default -0.02 = the 98% EV preset.
     cards_min_edge: float = -0.02
 
-    # --- Cards & corners (SPEC 1, docs/provider-verification.md) ------------
+    # --- Paddy (the `cards` settings) ----------------------------------------
     # PADDY POWER VIA ODDSPAPI (Sept 2026). No other vendor carries Paddy's
     # corners/cards (probe, 28 Sept: one book with corners, none with cards,
     # no Paddy). With a key set, Paddy's side comes from OddsPapi instead —
@@ -158,16 +158,16 @@ class Settings(BaseSettings):
     # prices to POST /api/paddy/saves-fair. Blank = endpoint disabled (503).
     saves_ingest_key: str = ""
 
-    # --- 2-Up engine (app/twoup/, docs/2up-engine-spec.md) -------------------
+    # --- 2-Up (app/twoup/, docs/2up-engine-spec.md) --------------------------
     # Part of the 365 tool, behind the `accabonus` grant. Prices bet365's 2 Goals
     # Ahead Early Payout off OddsPapi (bet365 + Pinnacle 1X2) and serves the value
-    # bets as a one-way feed. It NEVER places a bet, keeps no account and never
-    # connects to a Hub (Render has no Hub endpoint).
+    # bets as a one-way feed, read by the Bet Placer. It NEVER places a bet and
+    # keeps no account.
     # Mounts /api/2up. Off = no router.
     enable_twoup: bool = True
     # --- Finder (app/finder/, docs/finder-spec.md) ----------------------------
-    # Callum's private Bet Finder on the me site, behind the `finder` grant.
-    # Keeps, serves and expires the bets Hermes posts from the Hub; never loads
+    # Callum's tips board on `me`, behind the `finder` grant.
+    # Keeps, serves and expires the rows HubAI posts from the Hub; never loads
     # a page, never prices a tip, never places a bet. Off = no router, no jobs,
     # no `finder` tool in the nav.
     enable_finder: bool = True
@@ -221,6 +221,14 @@ class Settings(BaseSettings):
     # tool means full use of it. Because ":" separates fields, a password cannot
     # contain ":". Example: "callum:s3cret-pw-here:*, dave:otherpw:coupons".
     auth_users: str = ""
+
+    # The host Me (Callum's personal tools) is served on (app/site.py), e.g.
+    # "me.puntmore.com". Blank (the default) = no Me: every tool, Finder and the
+    # personal tools included, is served and signed in to on the main domain,
+    # and nothing redirects to Me. Set it only once the host resolves to this
+    # service: its DNS record and Render custom domain exist (a set value whose
+    # host does not resolve sends the personal tools to a DNS error).
+    me_host: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

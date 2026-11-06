@@ -185,7 +185,7 @@ class LegEditRequest(BaseModel):
 
 
 
-# Cards & corners feed (grouped by match)
+# Paddy feed (the `cards` package; grouped by match)
 class CardFeedBet(BaseModel):
     pick: str
     odds: float
@@ -467,9 +467,9 @@ UTCDatetime = Annotated[datetime, AfterValidator(_as_utc)]
 
 
 class FinderRowIn(BaseModel):
-    """One tip as Hermes posts it: the tip's own prices, never looked up.
-    `status` is Hermes's verdict. An `asked` or `rejected` row may leave out
-    `kickoff`, `odds` and `fair` (Hermes asks when it cannot place a tip on a
+    """One tip as HubAI posts it: the tip's own prices, never looked up.
+    `status` is HubAI's verdict. An `asked` or `rejected` row may leave out
+    `kickoff`, `odds` and `fair` (HubAI asks when it cannot place a tip on a
     day and time, or the tip quotes no price); an `offered` row must carry all
     three, or the post is a 422."""
     tip_id: str = Field(min_length=1, max_length=128)
@@ -505,7 +505,7 @@ class FinderRowsIn(BaseModel):
 
 
 class FinderRowOut(BaseModel):
-    """A Finder row: every column of `finder_rows`, datetimes in UTC."""
+    """A tip on Finder: every column of `finder_rows`, datetimes in UTC."""
     model_config = ConfigDict(from_attributes=True)
 
     tip_id: str
@@ -530,7 +530,7 @@ class FinderRowOut(BaseModel):
     expires_at: UTCDatetime                               # earlier of kickoff and expiry; neither: seen_at + 48 h
     asked_at: Optional[UTCDatetime] = None
     answered_at: Optional[UTCDatetime] = None
-    seen_at: UTCDatetime                                  # Hermes's latest post of it
+    seen_at: UTCDatetime                                  # HubAI's latest post of it
     created_at: UTCDatetime
     updated_at: UTCDatetime
 
@@ -549,7 +549,7 @@ class FinderPostOut(BaseModel):
 
 
 class FinderStatusIn(BaseModel):
-    """The placer's report. Any other word is a 422."""
+    """The Bet Placer's report. Any other word is a 422."""
     status: Literal["placed", "gone"]
     at: UTCDatetime
 

@@ -11,13 +11,12 @@ served: manifest, apple-touch-icon, favicon and title. PageIdentity still runs
 in the page for client-side navigation. The table below MIRRORS
 frontend/src/identity.js (tests/test_identity.py checks they agree).
 
-Three sites share the shell (app/site.py): Paddy and Hills carry
-Shalgo's name, and a path with no tool of its own (/login, a Shalgo or Me
-landing) takes the identity of the site whose host served it.
+Two sites share the shell (app/site.py): a path with no tool of its own
+(/login, Me's landing) takes the identity of the site whose host served it.
 """
 import re
 
-from .site import ME, PUNTMORE, SHALGO
+from .site import ME, PUNTMORE
 
 # (path matcher, title, icon name, manifest name or None when it is the icon's)
 IDENTITIES = [
@@ -29,25 +28,24 @@ IDENTITIES = [
     (lambda p: p == "/shop", "Puntmore — Shop Visits", "shop", None),
     (lambda p: p == "/365/scorers", "Puntmore — Goalscorers", "goalscorers", None),
     (lambda p: p.startswith("/365") or p == "/accabonus", "Puntmore — 365", "accabonus", None),
-    (lambda p: p.startswith("/paddy") or p == "/cards", "Shalgo — Paddy", "paddy", None),
-    (lambda p: p.startswith("/hills"), "Shalgo — Hills", "hills", None),
+    (lambda p: p.startswith("/paddy") or p == "/cards", "Puntmore — Paddy", "paddy", None),
+    (lambda p: p.startswith("/hills"), "Puntmore — Hills", "hills", None),
 ]
 DEFAULT = ("Puntmore", "puntmore", None)
-DEFAULTS = {PUNTMORE: DEFAULT, SHALGO: ("Shalgo", "shalgo", None), ME: ("Me", "me", None)}
+DEFAULTS = {PUNTMORE: DEFAULT, ME: ("Me", "me", None)}
 
 
 def identity_for(path: str, site: str = PUNTMORE) -> dict:
     """title, svg, png and manifest paths for a page path on `site` — the
     same answer frontend/src/identity.js gives."""
     path = "/" + path.strip("/") if path.strip("/") else "/"
-    # Shalgo's and Me's "/" is no page of its own (it lands on a tool): the
-    # site's default.
+    # Me's "/" is no page of its own (it lands on a tool): the site's default.
     rows = [] if site != PUNTMORE and path == "/" else IDENTITIES
     for match, title, icon, manifest in rows:
         if match(path):
             break
     else:
-        title, icon, manifest = DEFAULTS[site]
+        title, icon, manifest = DEFAULTS.get(site, DEFAULT)
     manifest = manifest or icon
     return {
         "title": title,

@@ -112,21 +112,18 @@ def test_latest_rows_cannot_leave_latest(wcfg):
     assert collect.latest_rows(wcfg, "/etc/passwd") is None
 
 
-def test_link_collector(wcfg):
+def test_daemon_collector(wcfg):
+    from puntmore_hub import daemon
     st = Store(wcfg.db_path)
-    st.outbox_add("tip", {"x": 1})
-    st.outbox_add("tip", {"x": 2})
-    m = st.outbox_add("report", {"x": 3})
-    st.outbox_mark_acked(m)
-    out = collect.link(wcfg, st)
-    assert out["state"] == "off"                      # not configured
-    assert out["outbox"] == {"pending": 2, "unacked": 2, "total": 3}
-    assert len(out["outbox_rows"]) == 3 and out["outbox_rows"][0]["type"] == "report"
-    assert out["inbox_drops"] == {"tips": 1, "events": 0}
-    configured = wcfg.with_overrides(render_ws_url="wss://x/ws", render_api_key="k")
-    assert collect.link(configured, st)["state"] == "unknown"         # no systemctl
-    assert collect.link(configured, st, run=lambda c, timeout=5: (3, "inactive\n"))["state"] == "down"
-    assert collect.link(configured, st, run=lambda c, timeout=5: (0, "active\n"))["state"] == "up"
+    out = collect.daemon(wcfg, st)
+    assert out["state"] == "unknown" and out["inbox_drops"] == {"tips": 1, "events": 0}   # no systemctl
+    assert out["last_inbox"] is None and "no inbox pass recorded" in out["detail"]
+    daemon.record_inbox(wcfg, {"tip_files": 1, "events": 0})
+    out = collect.daemon(wcfg, st, run=lambda c, timeout=5: (0, "active\n"))
+    assert out["state"] == "up" and out["last_inbox"]["counts"] == {"tip_files": 1, "events": 0}
+    assert out["last_mail"]["detail"]                                 # mail.status(): not configured
+    assert collect.daemon(wcfg, st, run=lambda c, timeout=5: (3, "inactive\n"))["state"] == "down"
+    assert "outbox" not in out and "configured" not in out
 
 
 def test_placement_and_escalation_collectors(cfg):
@@ -217,20 +214,20 @@ def test_every_route_answers_with_nothing_present(cfg):
         assert {"state", "checked_at", "detail"} <= set(r.json())
     assert c.get("/api/scraper/latest/nope").status_code == 404
     assert not cfg.db_path.exists()                     # reads never create the hub database
-    assert comps["link"]["state"] == "unknown" and "puntmore init" in comps["link"]["detail"]
+    assert comps["daemon"]["state"] == "unknown"
 
 
 def test_tab_routes_with_the_fixture(wcfg):
     c = client(wcfg)
     w = c.get("/api/scraper").json()
     assert {"heartbeat_age_s", "targets", "alerts", "sites"} <= set(w)
-    assert {"service", "outbox", "outbox_rows", "inbox_drops"} <= set(c.get("/api/link").json())
+    assert {"service", "last_inbox", "last_mail", "inbox_drops"} <= set(c.get("/api/daemon").json())
     assert {"dry_run", "kill_switch", "bets", "accounts"} <= set(c.get("/api/placement").json())
     assert {"open", "resolved"} <= set(c.get("/api/escalations").json())
     assert {"tips", "sources"} <= set(c.get("/api/tips").json())
     assert {"health", "props", "slots"} <= set(c.get("/api/model").json())
     assert {"service", "journal", "profiles"} <= set(c.get("/api/hermes").json())
-    assert {"ready", "last_link_check"} <= set(c.get("/api/render").json())
+    assert {"ready"} <= set(c.get("/api/render").json()) and "last_link_check" not in c.get("/api/render").json()
     lr = c.get("/api/scraper/latest/bb-saves")
     assert lr.status_code == 200 and lr.headers["content-type"].startswith("application/json")
     assert lr.json()["rows"][0]["event"] == XSS        # untrusted text comes back as JSON data
@@ -265,7 +262,7 @@ def test_static_files_are_shipped_in_the_package():
 
 # ---- actions ----------------------------------------------------------------------------------
 
-ACTIONS = ["kill-on", "kill-off", "escalation-resolve", "inbox-now", "link-check", "heartbeat-now"]
+ACTIONS = ["kill-on", "kill-off", "escalation-resolve", "inbox-now", "heartbeat-now"]
 
 
 @pytest.mark.parametrize("path", ACTIONS)
@@ -307,41 +304,15 @@ def test_escalation_resolve(cfg):
     r = c.post("/api/actions/escalation-resolve", headers=h, json={"id": esc, "outcome": "looked, fine"})
     assert r.status_code == 200
     assert st.escalation(esc)["outcome"] == "looked, fine"
-    assert [r["type"] for r in st.outbox_unacked()] == ["escalation_outcome"]
+    assert "Render" not in r.json()["message"]                        # nothing is queued anywhere
     assert c.post("/api/actions/escalation-resolve", headers=h, json={"id": esc, "outcome": "again"}).status_code == 409
 
 
-def test_inbox_heartbeat_and_link_check(wcfg):
+def test_inbox_and_heartbeat(wcfg):
     c = client(wcfg, TOKEN)
     h = {"X-Puntmore-Token": TOKEN}
     r = c.post("/api/actions/inbox-now", headers=h)
     assert r.status_code == 200 and r.json()["counts"]["new_tips"] == 1
     r = c.post("/api/actions/heartbeat-now", headers=h)
     assert r.status_code == 200 and "heartbeat 24h" in r.json()["message"]
-    r = c.post("/api/actions/link-check", headers=h)
-    assert r.status_code == 200 and r.json()["ok"] is False and "not configured" in r.json()["message"]
-    assert c.get("/api/render").json()["last_link_check"]["ok"] is False
-
-
-def test_link_check_against_the_mock_render(cfg):
-    """The console's link-check is the CLI's `check`, against the same mock Render the link tests use."""
-    import asyncio
-    import threading
-
-    from puntmore_hub.link.mock_render import MockRender
-    loop = asyncio.new_event_loop()
-    started = threading.Event()
-    holder: dict = {}
-
-    async def run():
-        m = MockRender(api_key="k")
-        await m.start()
-        holder["url"] = f"ws://127.0.0.1:{m.port}"
-        started.set()
-        await asyncio.Event().wait()
-
-    t = threading.Thread(target=lambda: loop.run_until_complete(run()), daemon=True)
-    t.start()
-    assert started.wait(5), "mock Render did not start"
-    out = actions.link_check(cfg.with_overrides(render_ws_url=holder["url"], render_api_key="k"))
-    assert out["ok"] is True, out
+    assert c.post("/api/actions/link-check", headers=h).status_code in (404, 405)

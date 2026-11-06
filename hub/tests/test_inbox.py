@@ -1,4 +1,4 @@
-"""The Scraper's drop folders -> stored tips for Hermes (never queued for Render), and escalations.
+"""The Scraper's drop folders -> stored tips for HubAI, and escalations.
 
 Every file the Scraper writes is one protocol envelope (schemas/protocol.schema.json, types
 scraper_tips / scraper_event); `_drop` here writes exactly that and checks it against the schema,
@@ -38,8 +38,7 @@ def test_tips_are_stored_once_and_not_queued(cfg, store):
     _drop(cfg, "tips", "tips-a", body, check=False)   # the Scraper's sink keeps such rows out; the Hub still checks
     counts = inbox.ingest(store, cfg, notify=False)
     assert counts == {"tip_files": 1, "tips": 2, "new_tips": 2, "rejected": 2, "events": 0}
-    # Tips go to Hermes (`puntmore finder new`), never to Render's retired `tip` message.
-    assert store.outbox_pending() == []
+    # Tips go to HubAI (`puntmore finder new`).
     new = finder.new_tips(store)
     assert [t["source_id"] for t in new] == ["tips-a", "tips-a"] and new[0]["origin"] == "tipster"
     extra = json.loads(store.conn.execute("SELECT extra FROM tips WHERE tip_id=?", (new[0]["tip_id"],)).fetchone()[0])

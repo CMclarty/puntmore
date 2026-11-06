@@ -1,4 +1,4 @@
-"""The client engine."""
+"""The placement engine (see placement/__init__.py). `ClientEngine` keeps its old name."""
 from __future__ import annotations
 
 import logging
@@ -35,14 +35,15 @@ class ClientEngine:
         self.cfg = cfg
         self.adapter = adapter or DryRunAdapter()
         self.sub_clients = sub_clients if sub_clients is not None else load_sub_clients(cfg.sub_clients_file)
-        self.enqueue = enqueue or (lambda type_, body: store.outbox_add(type_, body))
+        # Where a report goes. The bets table is the record; by default a report is only logged.
+        self.enqueue = enqueue or (lambda type_, body: log.info("%s %s", type_, body))
         self.notify = notify
 
     def _report(self, rep: schemas.Report) -> None:
         self.enqueue("report", rep.to_dict())
 
-    def handle_bet_list(self, bets: list[Bet]) -> list[str]:
-        """Process a bet list. Returns the status assigned to each bet, in order."""
+    def handle_bets(self, bets: list[Bet]) -> list[str]:
+        """Process several bets. Returns the status assigned to each bet, in order."""
         statuses = []
         for bet in bets:
             statuses.append(self.handle_bet(bet))

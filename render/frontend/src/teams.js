@@ -1,11 +1,11 @@
-// The names Shalgo shows clubs by: the short, common name a punter uses, not
+// The names Paddy and Hills show clubs by: the short, common name a punter uses, not
 // the feed's official one. OddsPapi says "Tottenham Hotspur", Paddy says
 // "Nottm Forest"; both are shown as people say them ("Spurs", "Forest").
 // Display only: the API still matches teams on their full names
 // (api/app/normalise.py).
 //
 // Each entry is the short name, then every spelling the feeds use for it.
-// It covers every club OddsPapi listed in Shalgo's competitions on 30 Oct 2026
+// It covers every club OddsPapi listed in Paddy's competitions on 30 Oct 2026
 // (api/app/config.py oddspapi_tournament_ids), plus Paddy's own spellings.
 // A club missing here is shown as the feed names it: add it.
 // Matching ignores case and only replaces a whole name, so "Inter Miami" is

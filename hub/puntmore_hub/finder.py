@@ -1,12 +1,12 @@
-"""Finder on the Hub: tips go to Hermes, Hermes posts its verdicts to Render.
+"""Finder on the Hub: tips go to HubAI, HubAI posts its verdicts to Render.
 
-Render's Finder (docs/finder-spec.md) keeps, serves and expires the bets; the judging is
-Hermes's, here. The intake (the Scraper's drops, inbox.py; tipster emails, mail.py) stores
-each tip once; Hermes reads the ones it has not posted yet (`puntmore finder new`), judges
+Render's Finder (docs/finder-spec.md) keeps, serves and expires the rows; the judging is
+HubAI's, here. The intake (the Scraper's drop files, inbox.py; tipster emails, mail.py) stores
+each tip once; HubAI reads the ones it has not posted yet (`puntmore finder new`), judges
 each (offer / ask / reject, the spec's step 2) and posts the rows (`puntmore finder post`); a tip
-it cannot post at all it skips (`puntmore finder skip`), so the list moves on. The placer reports
+it cannot post at all it skips (`puntmore finder skip`), so the list moves on. The Bet Placer reports
 `placed` or `gone` (`puntmore finder status`). What the Hub records for a posted tip is the status
-Render says it stored, never the one Hermes sent.
+Render says it stored, never the one HubAI sent.
 
 Both posts go over HTTPS to PUNTMORE_RENDER_HTTP with PUNTMORE_RENDER_API_KEY as a Bearer key:
 a Render API client key carrying `ingest` (`python -m app.apikeys create <name> --tools ingest`,
@@ -28,12 +28,12 @@ Opener = Callable[..., Any]
 
 
 def new_tips(store: Store, limit: int = 50) -> list[dict]:
-    """Stored tips with no Finder post yet, oldest first, as the dicts Hermes reads."""
+    """Stored tips with no Finder post yet, oldest first, as the dicts HubAI reads."""
     return [dict(r) for r in store.finder_unposted(limit)]
 
 
 def skip(store: Store, tip_id: str, reason: str | None = None) -> dict:
-    """Mark a tip Hermes cannot post (another sport, nothing readable) as `skipped`, so it leaves
+    """Mark a tip HubAI cannot post (another sport, nothing readable) as `skipped`, so it leaves
     `new_tips` and never reaches Render. ValueError: an unknown tip, or one already posted (it is
     on Render; withdraw it there by re-posting it `rejected`). Skipping a skipped tip again
     replaces its reason."""
@@ -89,7 +89,7 @@ def post_rows(cfg: Settings, rows: list[dict], *, opener: Opener | None = None,
 
 def post_status(cfg: Settings, tip_id: str, status: str, at: str, *, opener: Opener | None = None,
                 store: Store | None = None) -> dict:
-    """The placer's report on an offered row: `placed` or `gone` at `at` (ISO). A row that is
+    """The Bet Placer's report on an offered row: `placed` or `gone` at `at` (ISO). A row that is
     already final answers 409, returned as {"refused": "final"}; anything else but 200 raises."""
     path = f"/api/finder/rows/{urllib.parse.quote(tip_id, safe='')}/status"
     code, text = _post(cfg, path, {"status": status, "at": at}, opener)

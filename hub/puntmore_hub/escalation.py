@@ -1,9 +1,9 @@
-"""Escalation to the local AI.
+"""Escalation to HubAI.
 
-The spec gives the local AI (Hermes on this box) ownership of what happens after a failure:
-a failed bet, an unhealthy source, a kill-switch trigger. Nothing here retries or re-routes.
-We record the escalation, hand it to Hermes with a self-contained brief, and store whatever it
-decides. The outcome is queued for Render as ``escalation_outcome``.
+HubAI (the Hermes layer on this box) owns what happens after a failure: a failed bet, an
+unhealthy source, a kill-switch trigger. Nothing here retries or re-routes. We record the
+escalation, hand it to a Hermes profile with a self-contained brief, and store whatever it
+decides; the outcome stays in the Hub's store.
 
 Hermes is called as a subprocess (``hermes -p <profile> chat -q ...``) so this module has no
 dependency on how the agent is wired. If the binary is missing or disabled, the escalation is
@@ -38,8 +38,8 @@ def raise_escalation(store: Store, kind: str, ref: str, detail: str, *, cfg: Set
         raise ValueError(f"unknown escalation kind {kind!r}")
     esc_id = store.add_escalation(kind, ref, detail)
     alerts.send(store, f"escalation:{kind}:{ref}", f"escalation #{esc_id} {kind} {ref}: {detail}", level="error", cfg=cfg)
-    if notify and cfg.escalate_to_local_ai:
-        notify_local_ai(store, esc_id, cfg=cfg)
+    if notify and cfg.escalate_to_hubai:
+        notify_hubai(store, esc_id, cfg=cfg)
     return esc_id
 
 
@@ -70,11 +70,11 @@ def brief_for(store: Store, esc_id: int) -> str:
            if row["kind"] in SCRAPER_KINDS else "")
         + "Investigate with the puntmore CLI (status, runs, raw archive) and resolve with:\n"
         f"  puntmore escalation resolve {row['id']} --outcome \"<what you decided and did>\"\n"
-        "If a human decision is needed, say so in the outcome and ask Cal on Telegram."
+        "If a human decision is needed, say so in the outcome and ask Callum on Telegram."
     )
 
 
-def notify_local_ai(store: Store, esc_id: int, *, cfg: Settings = default_settings) -> bool:
+def notify_hubai(store: Store, esc_id: int, *, cfg: Settings = default_settings) -> bool:
     """Start Hermes on the escalation in the background. Returns True if it was launched."""
     binary = Path(cfg.hermes_bin) if cfg.hermes_bin else None
     if binary is None or not binary.is_file():
@@ -96,7 +96,5 @@ def notify_local_ai(store: Store, esc_id: int, *, cfg: Settings = default_settin
 
 
 def resolve(store: Store, esc_id: int, outcome: str) -> None:
+    """Record HubAI's (or a person's) outcome. It stays in the store; nothing is sent anywhere."""
     store.resolve_escalation(esc_id, outcome)
-    row = store.escalation(esc_id)
-    store.outbox_add("escalation_outcome", {"escalation_id": esc_id, "kind": row["kind"], "ref": row["ref"],
-                                            "outcome": outcome})

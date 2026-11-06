@@ -27,5 +27,25 @@ def test_hermes_is_launched_with_the_profile_for_the_kind(cfg, store, tmp_path, 
     live = cfg.with_overrides(hermes_bin=str(fake))
     a = escalation.raise_escalation(store, "blocked_source", "generic", "HTTP 403", cfg=live, notify=False)
     b = escalation.raise_escalation(store, "failed_bet", "b-1", "x", cfg=live, notify=False)
-    assert escalation.notify_local_ai(store, a, cfg=live) and escalation.notify_local_ai(store, b, cfg=live)
+    assert escalation.notify_hubai(store, a, cfg=live) and escalation.notify_hubai(store, b, cfg=live)
     assert [c[:3] for c in launched] == [[str(fake), "-p", "scraper-manager"], [str(fake), "-p", "default"]]
+
+
+def test_escalate_to_hubai_reads_the_new_name_and_still_the_old(monkeypatch):
+    from puntmore_hub.config import _env_bool_first
+    names = ("PUNTMORE_ESCALATE_TO_HUBAI", "PUNTMORE_ESCALATE_TO_LOCAL_AI")
+    for n in names:
+        monkeypatch.delenv(n, raising=False)
+    assert _env_bool_first(*names, default=True) is True
+    monkeypatch.setenv("PUNTMORE_ESCALATE_TO_LOCAL_AI", "0")       # an old .env
+    assert _env_bool_first(*names, default=True) is False
+    monkeypatch.setenv("PUNTMORE_ESCALATE_TO_HUBAI", "1")          # the new name wins
+    assert _env_bool_first(*names, default=True) is True
+    # A blank new name counts as unset, as in _env_first: the old name is read.
+    monkeypatch.setenv("PUNTMORE_ESCALATE_TO_HUBAI", "")
+    monkeypatch.setenv("PUNTMORE_ESCALATE_TO_LOCAL_AI", "1")
+    assert _env_bool_first(*names, default=False) is True
+    monkeypatch.setenv("PUNTMORE_ESCALATE_TO_LOCAL_AI", " ")
+    assert _env_bool_first(*names, default=True) is True
+    from puntmore_hub.config import Settings
+    assert "escalate_to_hubai" in {f.name for f in __import__("dataclasses").fields(Settings)}

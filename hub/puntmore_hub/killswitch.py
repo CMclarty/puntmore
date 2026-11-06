@@ -1,9 +1,5 @@
-"""The kill switch: the file ``data/KILL``. One code path for the CLI, the Hub Console and
-Render's ``kill_switch`` message (``puntmore link``); Hermes uses the CLI.
-
-Anyone may turn it on; only Cal turns it off (hub/AGENTS.md). Render's message can turn it ON
-and never off (PROTOCOL.md, "Kill switches"): an ``on: false`` from Render is escalated and
-otherwise ignored.
+"""The kill switch: the file ``data/KILL``. One code path for the CLI and the Console; HubAI
+uses the CLI. Anyone may turn it on; only Callum turns it off (hub/AGENTS.md).
 """
 from __future__ import annotations
 
@@ -19,18 +15,6 @@ def turn_on(store: Store, cfg: Settings = default_settings, *, by: str = "the CL
     f.write_text(f"set {utcnow().isoformat()} from {by}\n")
     escalation.raise_escalation(store, "kill_switch", "global", f"kill switch turned ON from {by}",
                                 cfg=cfg, notify=notify)
-
-
-def from_render(store: Store, body: dict, cfg: Settings = default_settings) -> bool:
-    """Apply Render's ``kill_switch`` message: ON turns the file on; OFF never removes it.
-    Returns whether the switch is on afterwards."""
-    if body.get("on") is False:
-        escalation.raise_escalation(store, "kill_switch", "render",
-                                    "Render asked to turn the kill switch OFF; ignored: only Cal turns it off",
-                                    cfg=cfg)
-        return cfg.kill_switch_on()
-    turn_on(store, cfg, by="Render", notify=True)
-    return True
 
 
 def turn_off(cfg: Settings = default_settings) -> None:

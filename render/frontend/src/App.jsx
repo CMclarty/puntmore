@@ -1,11 +1,11 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { getMe, logout as apiLogout } from './api'
+import { getMe, getSite, logout as apiLogout } from './api'
 import BottomNav, { landingFor } from './components/BottomNav'
 import PageIdentity from './components/PageIdentity'
 import TrackerPage from './pages/TrackerPage'
 import LoginPage from './pages/LoginPage'
-import { PUNTMORE, SITE, SITE_NAME, otherSiteUrl, siteTools, toolSite } from './site'
+import { PUNTMORE, SITE, SITE_NAME, otherSiteUrl, setMeHost, siteTools, toolSite } from './site'
 import styles from './App.module.css'
 
 // The tracker and login are the entry points, so they stay in the main bundle.
@@ -34,11 +34,11 @@ const FOCUSED_ROOTS = ['/pnl', '/virtuals']
 const IS_FOCUSED = FOCUSED_ROOTS.some(r => ENTRY_PATH === r || ENTRY_PATH.startsWith(r + '/'))
 
 // CardsPage is surfaced only to a grant that includes it (i.e. "*"), reached
-// via the nav's "More" sheet. The acca boost page was removed with TheOddsApi
-// (PLAN.md item 11); it returns as a 365 tab on OddsPapi.
+// via the nav's "More" sheet. The acca boost returns as a 365 tab on OddsPapi.
 
-// Each site shows only its own tools (site.js): Shalgo's four there, the rest
-// on Puntmore. The grant itself is unchanged and shared by both.
+// Each site shows only its own tools (site.js): Callum's personal tools on Me,
+// every public tool on the main domain; with no Me (ME_HOST blank) the main
+// domain shows them all. The grant itself is shared by both.
 const forSite = u => u && { ...u, tools: siteTools(u.tools) }
 
 export default function App() {
@@ -49,8 +49,10 @@ export default function App() {
   const adopt = u => setUser(forSite(u))
 
   useEffect(() => {
-    getMe()
-      .then(u => { setUser(forSite(u)); setBootError(null) })
+    // Which host is Me, if any (ME_HOST), is settled before the user: it
+    // decides which of the user's tools this site shows (site.js).
+    Promise.all([getSite(), getMe()])
+      .then(([s, u]) => { setMeHost(s?.me_host); setUser(forSite(u)); setBootError(null) })
       .catch(e => {
         // A 401 is not an error — getMe returns null for it and we fall through
         // to the login route. Anything reaching here is the API being reachable
@@ -83,8 +85,9 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginRoute user={user} onLogin={adopt} />} />
           {/* The tracker opens on its landing page; /t/<code> is one coupon.
-              Shalgo and Me have no tracker: "/" lands on the first tool granted. */}
-          <Route path="/" element={SITE === PUNTMORE
+              Me has no tracker, and an account without the tracker (Paddy and
+              Hills only) has none either: "/" lands on the first tool granted. */}
+          <Route path="/" element={SITE === PUNTMORE && (!user || user.tools?.includes('coupons'))
             ? protectTool(<TrackerPage />, 'coupons')
             : <SiteHome user={user} onLogout={handleLogout} />} />
           <Route path="/t/:code" element={protectTool(<TrackerPage />, 'coupons')} />
@@ -118,7 +121,7 @@ export default function App() {
           <Route path="/kelly" element={protectTool(<KellyPage />, 'kelly')} />
           <Route path="/boost" element={<Navigate to="/virtuals" replace />} />
           <Route path="/shop" element={protectTool(<ShopPage />, 'shop')} />
-          {/* Finder, the private Bet Finder: on the me site (site.js). */}
+          {/* Finder, Callum's tips: on me, or the main domain while there is no me (site.js). */}
           <Route path="/finder" element={protectTool(<FinderPage />, 'finder')} />
           {/* AW 26 was retired (docs/retired.md): an old link lands home. */}
           <Route path="/aw26" element={<Navigate to="/" replace />} />
@@ -181,7 +184,8 @@ function OtherSite({ path, site }) {
   return <div className={styles.boot}>Opening…</div>
 }
 
-// Shalgo's and Me's "/": the first of the site's tools the account has.
+// "/" on Me, or on the main domain for an account without the tracker: the
+// first of the site's tools the account has.
 function SiteHome({ user, onLogout }) {
   if (!user) return <Navigate to="/login" replace />
   const to = landingFor(user.tools)

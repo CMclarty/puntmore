@@ -250,7 +250,7 @@ def _targets_parser():
 def targets_cmd(argv):
     """`python -m scraper targets ...`: list, show, add, set, enable, disable,
     remove, through scraper/targets.py. --json prints machine output (the
-    console and Hermes); a refused change exits 2 with the reason."""
+    Console and HubAI); a refused change exits 2 with the reason."""
     import json
     import pathlib
     from . import targets as T

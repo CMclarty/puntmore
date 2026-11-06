@@ -1,13 +1,14 @@
 # Handoff: Puntmore — Betting Intelligence PWA
 
-> **History (superseded 5 Nov 2026).** The original design handoff: three
-> feeds (coupon, tennis, C/C) and their bottom tabs. The app's tools, routes
-> and navigation have changed since; what is true now is `docs/decisions.md`
-> and `docs/architecture.md`. The paper theme and type rules live on in
-> `PLAN.md` → Decisions → Design.
-
 ## Overview
-Puntmore is a mobile betting-intelligence **Progressive Web App (PWA)**. Users log in to a provisioned account and track value bets across three feeds: a **coupon tracker** (accumulators they've uploaded), a **tennis tracker**, and a **corners & cards (C/C) tracker**. The app surfaces "value" — the model's edge (positive EV %) on each bet. Support flows let users **switch coupons** and **upload new coupon files**.
+Puntmore's design reference: the look of the app (the paper theme, colours, type, spacing and
+interaction states) drawn as a phone flow. Users log in to a provisioned account and see value
+bets, the model's edge (positive EV %) on each, with support flows to switch coupons and upload
+new ones. The mock draws three tools on a three-tab bar: the **coupon tracker**, a tennis tab
+(today the **365 tool**) and a "C/C" tab (corners and cards; today **Paddy**). The app's tools,
+routes and navigation are those in `docs/architecture.md`; what this file still decides is the
+look, and the screens below are read for that. The paper theme and type rules are also in
+`PLAN.md` → Decisions → Design.
 
 This handoff covers a 6-screen user flow plus 2 sub-flows.
 

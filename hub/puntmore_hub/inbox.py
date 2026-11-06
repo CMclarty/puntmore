@@ -1,10 +1,10 @@
 """Ingest what the Scraper (`scraper/`) drops for the Hub.
 
-The Scraper is the only thing on the Hub that loads a page. For Bet Finder sources it
-writes one JSON file per run into `<scraper data>/hub/tips/` and, when something needs a
-decision (a block, a source parsing too few rows), one into `<scraper data>/hub/events/`.
-This module turns tips into stored, deduplicated candidate tips queued for Render, and
-events into escalations for the local AI. The storage step, `ingest_rows`, is the one path
+The Scraper service is the only thing on the Hub that loads a page. For Finder's sources it
+writes one drop file per run into `<scraper data>/hub/tips/` and, when something needs a
+decision (a block, a source parsing too few rows), one into `<scraper data>/hub/events/`
+(`hub/PROTOCOL.md`). This module, part of Scraper control, turns tips into stored,
+deduplicated tips for HubAI, and events into escalations for HubAI. The storage step, `ingest_rows`, is the one path
 for a source's rows whoever parsed them: the tipster emails `mail.py` reads go through it
 too. Files are moved to `done/` once handled, so a crash between the two never loses or
 doubles anything: a tip is deduplicated by its id, an event by its file name.
@@ -12,7 +12,7 @@ doubles anything: a tip is deduplicated by its id, an event by its file name.
 A tip's id is the Scraper's: each row of a drop carries `tip_id`, minted where the tip
 was first seen (`ids.py`). Only an old drop without one has it minted here.
 
-Each file is one protocol envelope (`schemas/protocol.schema.json`, type `scraper_tips` or
+Each file is one envelope (`schemas/protocol.schema.json`, type `scraper_tips` or
 `scraper_event`); this reads its `body`. A file written before the envelope (a bare body) is
 read as it is, so an update never strands what is already on disk.
 """
@@ -26,7 +26,7 @@ from pathlib import Path
 
 from . import escalation
 from .config import Settings, settings as default_settings
-from .schemas import FILE_TYPES, CandidateTip
+from .schemas import FILE_TYPES, Tip
 from .store import Store, utcnow
 
 log = logging.getLogger("puntmore.inbox")
@@ -57,7 +57,7 @@ def _body(d: dict) -> dict:
     return d
 
 
-def tips_from_rows(source: str, rows: list[dict], *, at: str, trust_weight: float) -> tuple[list[tuple[str | None, CandidateTip]], list[str]]:
+def tips_from_rows(source: str, rows: list[dict], *, at: str, trust_weight: float) -> tuple[list[tuple[str | None, Tip]], list[str]]:
     """The good rows of one source as (tip_id or None, tip): None when the row carries no
     usable tip_id (an old drop), so the store mints it. A row with no event, market or
     selection, or a price outside the band, is a problem, never a guess."""
@@ -72,7 +72,7 @@ def tips_from_rows(source: str, rows: list[dict], *, at: str, trust_weight: floa
             problems.append(f"price {price} out of range: {row}")
             continue
         tid = row.get("tip_id")
-        good.append((tid if isinstance(tid, str) and _TIP_ID.match(tid) else None, CandidateTip(
+        good.append((tid if isinstance(tid, str) and _TIP_ID.match(tid) else None, Tip(
             source_id=source, event=str(row["event"]), market=str(row["market"]), selection=str(row["selection"]),
             advised_price=None if price is None else float(price),
             advised_stake_units=row.get("advised_stake_units"),
@@ -86,9 +86,8 @@ def tips_from_rows(source: str, rows: list[dict], *, at: str, trust_weight: floa
 def ingest_rows(store: Store, source: str, rows: list[dict], *, at: str, trust_weight: float) -> dict:
     """The one storage path for a source's rows, whoever parsed them (the Scraper's drops here,
     a tipster's email in `mail.py`): the good rows become stored tips, deduplicated on `tip_id`.
-    A new tip waits for Hermes (`puntmore finder new`, finder.py), who judges it and posts the
-    verdict to Render's Finder; nothing is queued for Render here (the `tip` message was
-    retired with the socket, 6 Nov 2026). `at` (ISO) is the tip_time of a row that has none.
+    A new tip waits for HubAI (`puntmore finder new`, finder.py), which judges it and posts the
+    verdict to Render's Finder. `at` (ISO) is the tip_time of a row that has none.
     The row's own `tip_id`, minted where the tip was first seen, is kept; only a row without
     one has it minted by the store. Returns the counts and the problems."""
     tips, problems = tips_from_rows(source, rows, at=at, trust_weight=trust_weight)

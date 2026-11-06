@@ -12,7 +12,8 @@ bookiebashing  Your subscription, logged in by a person (over VNC only in the
                or logout alerts once and backs off (15 min doubling to 2 h)
                until a person has sorted it. Its one target (bb-saves) is an
                OPEN item for Callum in docs/decisions.md.
-generic        Any other site: the Bet Finder's sources (tipster pages, listings).
+generic        Any other site: Finder's sources (tipster pages, listings) and any
+               other page a tool needs.
                Never Paddy or Bookie Bashing. Budget 60/h, 400/day across ALL
                generic targets, 20 s+ between loads. A target is loaded, parsed
                and closed - nothing kept open. A block (403/429/Cloudflare)

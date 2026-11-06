@@ -1,5 +1,5 @@
-"""Finder on the Hub (puntmore_hub/finder.py): the new tips Hermes reads, the rows it posts to
-Render's /api/finder/rows on the ingest key, the placer's status, and the link without a socket."""
+"""Finder on the Hub (puntmore_hub/finder.py): the new tips HubAI reads, the rows it posts to
+Render's /api/finder/rows on the ingest key, and the Bet Placer's status."""
 import asyncio
 import json
 import logging
@@ -8,7 +8,6 @@ import urllib.request
 import pytest
 
 from puntmore_hub import cli, finder
-from puntmore_hub.link.client import RenderLink
 
 NOW_ISO = "2026-11-07T10:00:00+00:00"
 TIP_A = {"source_id": "tipster-a", "event": "A v B", "market": "Match Result", "selection": "A",
@@ -42,11 +41,6 @@ def _marked(store, tip_id):
 @pytest.fixture
 def cfg(cfg):
     return cfg.with_overrides(render_http="https://puntmore.example/", render_api_key="k-ingest")
-
-
-@pytest.fixture
-def cfg_without_ws(cfg):
-    return cfg.with_overrides(render_ws_url="")
 
 
 def test_new_tips_are_those_not_yet_posted(store):
@@ -125,13 +119,6 @@ def test_post_status_sends_the_placers_word(cfg):
         finder.post_status(cfg, "nope", "gone", NOW_ISO, opener=lambda req, timeout: _Resp(404, {"detail": "Unknown"}))
 
 
-def test_the_link_runs_offline_without_a_socket(caplog, cfg_without_ws, store):
-    caplog.set_level(logging.INFO, logger="puntmore.link")
-    asyncio.run(RenderLink(store, cfg_without_ws).run())
-    assert "no socket configured" in caplog.text
-    assert caplog.text.count("no socket configured") == 1
-
-
 def test_the_cli_reads_new_tips_and_posts_a_file(store, cfg, monkeypatch, tmp_path, capsys):
     store.add_tip(TIP_A, tip_id="a")
     monkeypatch.setattr(cli, "_store", lambda: store)
@@ -149,25 +136,6 @@ def test_the_cli_reads_new_tips_and_posts_a_file(store, cfg, monkeypatch, tmp_pa
     monkeypatch.setattr(finder, "_open", lambda req, timeout: _Resp(409, {"detail": "final"}))
     cli.main(["finder", "status", "a", "gone"])
     assert json.loads(capsys.readouterr().out) == {"refused": "final"}
-
-
-def test_the_link_daemon_without_a_socket_polls_the_inbox_in_the_foreground(cfg_without_ws, monkeypatch, caplog):
-    import time
-    from puntmore_hub import inbox
-    calls = []
-
-    def ingest(store, cfg):
-        calls.append(cfg.render_ws_url)
-        if len(calls) == 3:
-            raise KeyboardInterrupt          # stands in for the service being stopped
-        return {"tip_files": 0, "events": 0}
-    monkeypatch.setattr(cli, "settings", cfg_without_ws)
-    monkeypatch.setattr(inbox, "ingest", ingest)
-    monkeypatch.setattr(time, "sleep", lambda s: None)
-    caplog.set_level(logging.INFO, logger="puntmore.link")
-    cli.cmd_link(None)                       # returns only when the loop is stopped
-    assert calls == ["", "", ""]             # polled in the foreground, the same process
-    assert caplog.text.count("no socket configured") == 1 and "reconnecting" not in caplog.text
 
 
 # --- the final review's fixes (FR5, finder-ledger.md) ---------------------------

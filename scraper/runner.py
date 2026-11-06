@@ -117,9 +117,9 @@ class Runner:
         self.snapshots: set = set()                    # (target, why) saved this run
         (settings.data_dir / "latest").mkdir(parents=True, exist_ok=True)
         (settings.data_dir / "requests").mkdir(parents=True, exist_ok=True)
-        # Bet Finder (fetch) targets: next run per target, and the health state
-        # the Hub is told about (min_rows breaches, blocks) so it only wakes
-        # the local AI on a change.
+        # Fetch targets (Finder's sources): next run per target, and the health
+        # state the Hub is told about (min_rows breaches, blocks) so it only
+        # wakes HubAI on a change.
         self.next_fetch: dict[str, float] = {}
         self.health_said: dict[str, str] = {}
         self.sinks = Sinks(settings)
@@ -511,7 +511,7 @@ class Runner:
             self._load(t, key, url, now)
 
     def _tick_fetch(self, t, now):
-        """A Bet Finder source: load the page, parse it once, close it. Nothing
+        """A fetch target (a Finder source): load the page, parse it once, close it. Nothing
         is kept open, so each run is one load against its site's budget. The
         next run is scheduled before parsing, so a broken parser can never turn
         into a reload loop; a load that fails backs off five minutes."""

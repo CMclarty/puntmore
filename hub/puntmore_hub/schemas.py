@@ -1,27 +1,25 @@
-"""Message shapes shared with Render.
+"""Data shapes inside the Hub.
 
-These mirror the "Interfaces" section of the 2-Up Engine spec. Cal controls both ends, so this
-file is the authoritative contract for the Hub side. Every message travels in an ``Envelope``
-whose ``msg_id`` makes it idempotent: a replayed envelope is acknowledged and ignored.
+``Bet`` and ``Report`` are the placement engine's own (``placement/engine.py``): a bet it is asked
+to place and what it records about it. ``Tip`` is a row stored from the Scraper's drop files or
+the tipster mailbox (``inbox.py``). ``FILE_TYPES`` names the two envelopes of the Scraper's drop
+files (``PROTOCOL.md``, ``schemas/protocol.schema.json``).
 """
 from __future__ import annotations
 
-import json
-import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Any
 
 
 def utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def new_id() -> str:
-    return uuid.uuid4().hex
+# The Scraper's drop files: one envelope per file, of one of these types.
+FILE_TYPES = ("scraper_tips", "scraper_event")
 
 
-# ---- Bet list in (Render -> Hub) --------------------------------------------------------------
+# ---- A bet for the placement engine -----------------------------------------------------------
 
 @dataclass
 class BetLeg:
@@ -45,7 +43,6 @@ class Bet:
     bet_type: str                      # single | double | treble | fourfold | cover
     not_before: str | None = None      # ISO timestamps; placement window
     not_after: str | None = None
-    source_scope: str = "shared"       # shared (2-up) | owner (Bet Finder)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Bet":
@@ -58,14 +55,13 @@ class Bet:
             bet_type=d.get("bet_type", "single"),
             not_before=d.get("not_before"),
             not_after=d.get("not_after"),
-            source_scope=d.get("source_scope", "shared"),
         )
 
     def to_dict(self) -> dict:
         return asdict(self)
 
 
-# ---- Reports out (Hub -> Render) --------------------------------------------------------------
+# ---- What the placement engine records about a bet --------------------------------------------
 
 REPORT_KINDS = ("placed", "price_changed", "failed", "settled", "balance")
 
@@ -104,10 +100,10 @@ def balance(account_id: str, amount: float) -> Report:
     return Report("balance", {"account_id": account_id, "balance": amount})
 
 
-# ---- Candidate tips out (Bet Finder Hub side -> Render) -----------------------------------------
+# ---- A tip from the Scraper's sources or the tipster mailbox ----------------------------------
 
 @dataclass
-class CandidateTip:
+class Tip:
     source_id: str
     event: str
     market: str
@@ -117,47 +113,7 @@ class CandidateTip:
     tip_time: str
     expiry: str | None = None
     origin: str = "scrape"             # tipster | scrape
-    source_scope: str = "owner"        # Bet Finder output is Cal-only by spec
     extra: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
-
-
-# ---- Scrape jobs in (Render -> Hub) -----------------------------------------------------------
-
-@dataclass
-class ScrapeJob:
-    job_id: str
-    source: str
-    params: dict = field(default_factory=dict)
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "ScrapeJob":
-        return cls(job_id=str(d["job_id"]), source=d["source"], params=d.get("params", {}))
-
-
-# ---- Envelope ---------------------------------------------------------------------------------
-
-INBOUND_TYPES = ("hello_ack", "bet_list", "scrape_job", "kill_switch", "ping", "ack")
-OUTBOUND_TYPES = ("hello", "report", "tip", "scrape_result", "escalation", "escalation_outcome", "pong", "ack")
-# Envelopes the Scraper writes as files for this box (inbox.py); never sent on the wire.
-FILE_TYPES = ("scraper_tips", "scraper_event")
-
-
-@dataclass
-class Envelope:
-    type: str
-    client_id: str
-    body: dict = field(default_factory=dict)
-    msg_id: str = field(default_factory=new_id)
-    ts: str = field(default_factory=utcnow_iso)
-
-    def to_json(self) -> str:
-        return json.dumps(asdict(self), separators=(",", ":"))
-
-    @classmethod
-    def from_json(cls, raw: str | bytes) -> "Envelope":
-        d: dict[str, Any] = json.loads(raw)
-        return cls(type=d["type"], client_id=d.get("client_id", ""), body=d.get("body", {}),
-                   msg_id=d.get("msg_id") or new_id(), ts=d.get("ts") or utcnow_iso())

@@ -1,68 +1,85 @@
 # hub/ — the Hub
 
-> **6 Nov 2026:** Render's end of this protocol (`/api/2up/ws`) is removed; the 2-Up module is a one-way feed; the betting agent tool defines its own Hub endpoint. The Hub code below is unchanged and has no Render end until then.
-
-Hub side of the Puntmore 2-Up Engine, in the same repo as the Render service it talks to (`render/api/`) and the Scraper (`scraper/`), which does every page load on the Hub. Read `docs/decisions.md` first; it wins over this file. The wire contract between this and Render is `PROTOCOL.md` + `schemas/`; change them together. One machine on a residential connection that owns everything touching a bookmaker site or a phone. The cloud side (Render) owns pricing, the 2-up decision model and the per-client ledgers, and never loads a bookmaker page.
+The Hub is Callum's box and the one program on it. Its page loads are the Scraper service's
+(`scraper/`); this directory is the rest: Scraper control's intake (the daemon's inbox of the
+Scraper's drop files and its tipster-mailbox poll), HubAI's side (escalations and the Finder CLI),
+the placement engine the Bet Placer starts from (`docs/placer-spec.md`), and the Console. Read
+`docs/decisions.md` first; it wins over this file.
 
 ```
-Render (render/, cloud)                Hub (hub/ + scraper/, one repo with Render)
-───────────────────────                ───────────────────────────────────────────
-2-up engine, Bet Finder orchestrator   hub/ link/     persistent outbound WebSocket to Render
-odds API client, ledgers    ◄────────► hub/ inbox     the Scraper's tip and event drops -> Render, escalations
-  /api/2up/ws                          hub/ mail      the tipster mailbox (IMAP) -> the same tips and escalations
-                                       hub/ placement client engine: bet lists → phones, reports back
-                 bet lists, kill switch hub/ escalation local AI (Hermes) owns what happens after a failure
-                 reports, tips, outcomes hub/ web      the Hub Console
-                                       scraper/       the Scraper: one real Chrome, every page load, budgets
+Render (render/, cloud)                  Hub (hub/ + scraper/)
+───────────────────────                  ──────────────────────────────────────────────
+Paddy board  ◄── POST /api/paddy/* ───── Scraper service (scraper/): one real Chrome, every page
+                                           │ drop files (PROTOCOL.md)
+                                           ▼
+                                         Scraper control: hub/ daemon (inbox + mailbox), targets.py
+                                           │ tips (hub.sqlite), escalations
+                                           ▼
+Finder board ◄── POST /api/finder/rows ── HubAI (Hermes): judges tips, takes escalations
+Paddy, 2-Up, Finder feeds ── GET ───────► Bet Placer: staking logic, phone interface → DeviceFarmer → phones
+Finder board ◄── placed | gone ────────── Bet Placer
+                                         Console (hub/ web): every part, live; the control page
 ```
 
 ## Layout
 ```
 puntmore_hub/
   config.py        settings from .env; nothing hard-coded
-  schemas.py       the Render contract: Bet, Report, CandidateTip, ScrapeJob, Envelope
-  store.py         SQLite: tips, finder_posted, bets, outbox, escalations
-  inbox.py         the Scraper's drops (tips, events) -> stored tips for Hermes, escalations
-  finder.py        Finder: the tips Hermes has not posted; its rows and the placer's status to Render over HTTPS
+  daemon.py        `puntmore daemon`: the inbox pass every 30 s, the mailbox poll on its own thread
+  inbox.py         the Scraper's drop files (tips, events) -> stored tips for HubAI, escalations
   mail.py          the tipster mailbox (IMAP) -> the same stored tips and escalations, through inbox.ingest_rows
   tipsters/        one parser per email tipster (PARSERS), named in data/tipsters.toml
-  link/client.py   reconnecting WS client, durable outbox, idempotent inbound; returns at once with no PUNTMORE_RENDER_WS
-  placement/       engine.py (client engine) · adapters/{dry_run,phone}.py
-  escalation.py    hands failures to Hermes with a self-contained brief; records the outcome
+  finder.py        Finder: the tips HubAI has not posted; its rows and the Bet Placer's status to Render over HTTPS
+  schemas.py       the drop files' types; Tip; the placement engine's Bet and Report
+  store.py         SQLite: tips, finder_posted, mail_seen, bets, balances, escalations, alerts
+  placement/       the placement engine: engine.py · adapters/{dry_run,phone}.py (README: the adapter interface)
+  escalation.py    hands failures to HubAI with a self-contained brief; records the outcome
   alerts.py        Discord/log alerts with de-dup; daily heartbeat
   update.py        self-update: fast-forward to origin/main, reinstall, restart (`puntmore update`)
   cli.py           `puntmore ...`
-  web/             the Hub Console (`puntmore web`): one page, every component's state, the kill switch
+  web/             the Console (`puntmore web`): one page, every part's state, the kill switch
+PROTOCOL.md        the Scraper's drop files; schemas/ holds their JSON Schema and two examples
 deploy/update.sh   thin wrapper around `puntmore update`, run by the update timer
-deploy/systemd/    link daemon, 09:00 heartbeat timer, 10-minute update timer, the Hub Console
-deploy/hermes-skills/  the Scraper-ops runbook the scraper-manager agent follows (`puntmore update` copies it into that profile)
-data/              runtime state (git-ignored): hub.sqlite, KILL, tipsters.toml, mail-status.json
+deploy/systemd/    the daemon (puntmore-link.service), 09:00 heartbeat timer, 10-minute update timer, the Console
+deploy/hermes-skills/  the Scraper-ops runbook HubAI's scraper-manager follows (`puntmore update` copies it into that profile)
+data/              runtime state (git-ignored): hub.sqlite, KILL, tipsters.toml, mail-status.json, daemon-status.json
 ```
 
-## Relationship to `scraper/`
-The Scraper (`scraper/`) is the only thing on the Hub that loads a page: Paddy Power pages kept open (and one Bookie Bashing page, `bb-saves`, an open item for Callum in `docs/decisions.md`), and the Bet Finder's sources as `generic` targets that are loaded, parsed and closed, all under one Chrome, one guard and one alert path. For a Bet Finder target the Scraper writes one JSON file per run into `<scraper data>/hub/tips/` and, when something needs a decision, into `<scraper data>/hub/events/`. Each file is one envelope of the protocol (`scraper_tips`, `scraper_event` in `schemas/protocol.schema.json`). `puntmore inbox` (run by the link daemon every 30 s) turns those into deduplicated tips for Hermes to judge (Finder, below) and into escalations for Hermes: a source escalation goes to the `scraper-manager` profile (`PUNTMORE_HERMES_SCRAPER_PROFILE`), the rest to `PUNTMORE_HERMES_PROFILE`. `puntmore health` reads the Scraper's heartbeat and `status.json` from the same directory (`PUNTMORE_SCRAPER_DATA`, the native service's data dir `/opt/puntmore-scraper/data`; the old name `PUNTMORE_WORKER_DATA` is still read for one release; in the Docker fallback, the container's volume on the host).
+## The Scraper's drop files
+The Scraper service is the only thing on the Hub that loads a page: Paddy Power pages kept open
+(and one Bookie Bashing page, `bb-saves`, an open item for Callum in the register), and Finder's
+sources as `generic` targets that are loaded, parsed and closed, all under one Chrome, one guard
+and one alert path. For a Finder target it writes one JSON file per run into
+`<scraper data>/hub/tips/` and, when something needs a decision, one into
+`<scraper data>/hub/events/` (`PROTOCOL.md`). The daemon's inbox pass (`puntmore inbox`, every
+30 s) turns those into deduplicated tips for HubAI to judge (Finder, below) and into escalations
+for HubAI: a source escalation goes to the `scraper-manager` profile
+(`PUNTMORE_HERMES_SCRAPER_PROFILE`), the rest to `PUNTMORE_HERMES_PROFILE`. `puntmore health`
+reads the Scraper's heartbeat and `status.json` from the same directory (`PUNTMORE_SCRAPER_DATA`,
+the native service's `/opt/puntmore-scraper/data`; the old name `PUNTMORE_WORKER_DATA` is still
+read; on a box with no screen, the container's volume).
 
 ## Tipster emails
-The Bet Finder's email tipsters (spec, "Tipsters by email") arrive in one dedicated mailbox that the Hub polls over IMAP with SSL (`PUNTMORE_IMAP_HOST`, `_PORT` 993, `_USER`, `_PASSWORD`, `_FOLDER` INBOX, `_EVERY_MIN` 10); a blank host means not configured. Render never polls a mailbox and the Scraper never reads one. Which senders are tipsters is `data/tipsters.toml` (copy `tipsters.example.toml`; `PUNTMORE_TIPSTERS_FILE` points elsewhere): a `name` (the source id Render sees), a `from` rule (an address, or a domain suffix, matched case-insensitively), a `parser` in `puntmore_hub/tipsters/` with the same row contract as the Scraper's parsers, a `trust_weight` and an `enabled` flag; it is validated and re-read every poll, and a file that will not load is reported and that poll does nothing. `puntmore mail` (run by the link daemon on its own thread) fetches the messages the mailbox has not shown us (`UNSEEN`, then flagged), skips any whose Message-ID the `mail_seen` table already holds, hands each message from a tipster to its parser, mints the `tip_id` there, at first sight, and stores the rows down the inbox's own path (`inbox.ingest_rows`), so a mail tip is a tip like any other on its way to Hermes and Finder. A parser that reads zero rows or raises is an `unhealthy_source` escalation for that tipster (subject and error, never the body); mail from no configured tipster is ignored and counted; a mailbox that cannot be reached is one de-duplicated alert and the poll stops. `puntmore mail --dry-run` prints what the parsers would store and changes nothing, not even the mailbox flags. Each poll writes `data/mail-status.json`, which `puntmore status` shows and `puntmore health` judges (unhealthy if the last poll errored or is older than three intervals while a host is configured).
+Finder's email tipsters arrive in one dedicated mailbox that the Hub polls over IMAP with SSL (`PUNTMORE_IMAP_HOST`, `_PORT` 993, `_USER`, `_PASSWORD`, `_FOLDER` INBOX, `_EVERY_MIN` 10); a blank host means not configured. Render never polls a mailbox and the Scraper never reads one. Which senders are tipsters is `data/tipsters.toml` (copy `tipsters.example.toml`; `PUNTMORE_TIPSTERS_FILE` points elsewhere): a `name` (the source id HubAI sees), a `from` rule (an address, or a domain suffix, matched case-insensitively), a `parser` in `puntmore_hub/tipsters/` with the same row contract as the Scraper's parsers, a `trust_weight` and an `enabled` flag; it is validated and re-read every poll, and a file that will not load is reported and that poll does nothing. `puntmore mail` (run by the daemon on its own thread) fetches the messages the mailbox has not shown us (`UNSEEN`, then flagged), skips any whose Message-ID the `mail_seen` table already holds, hands each message from a tipster to its parser, mints the `tip_id` there, at first sight, and stores the rows down the inbox's own path (`inbox.ingest_rows`), so a mail tip is a tip like any other on its way to HubAI and Finder. A parser that reads zero rows or raises is an `unhealthy_source` escalation for that tipster (subject and error, never the body); mail from no configured tipster is ignored and counted; a mailbox that cannot be reached is one de-duplicated alert and the poll stops. `puntmore mail --dry-run` prints what the parsers would store and changes nothing, not even the mailbox flags. Each poll writes `data/mail-status.json`, which `puntmore status` shows and `puntmore health` judges (unhealthy if the last poll errored or is older than three intervals while a host is configured).
 
 ## Finder
-Finder is Callum's private Bet Finder (`docs/finder-spec.md`): the tips the Hub stores (the Scraper's drops, the tipster mailbox) are judged here by Hermes and the verdicts posted to Render, which keeps, serves and expires them; the Bet Placer reads them back from Render. Nothing about a tip is queued on the old socket (the `tip` message is retired) and the link daemon runs with `PUNTMORE_RENDER_WS` blank.
+Finder is Callum's tips board (`docs/finder-spec.md`): the tips the Hub stores (the drop files, the tipster mailbox) are judged here by HubAI and the verdicts posted to Render, which keeps, serves and expires them; the Bet Placer reads them back from Render.
 
-- `puntmore finder new [--limit N]` — the stored tips Hermes has not posted yet (no `finder_posted` row), oldest first, one JSON object per line: `tip_id, source_id, event, market, selection, advised_price, advised_stake_units, tip_time, expiry, origin, first_seen`.
-- `puntmore finder post FILE` (or `-` for stdin) — a JSON list of rows to `POST /api/finder/rows`; prints Render's answer `{stored, updated, refused, duplicates, rows}`. Each row is the spec's: `tip_id` (as given by `new`, never re-minted), `origin`, `sport` (`football` | `horse`), `bookmaker`, `event` ("Home v Away" or "Course HH:MM"), `event_id` (the canonical key, below), `kickoff` (UTC), `market` (`win` | `each_way` for a horse), `selection`, `odds` (the price the tip quotes), `fair` (the fair price it quotes, or null), `advised_stake` (pounds, or null), `reason` (one line), `status`, optional `home`, `away`, `line`, `side`, `expiry`. An `offered` row must carry `kickoff`, `odds` and `fair` (without one, Render refuses the whole post, 422); an `asked` row, and the `rejected` answer to it, may leave all three out. On a 200 each tip is marked in `finder_posted` with the status Render's answer (`rows: [{tip_id, status}]`) says it stored, not the one Hermes sent: an offer stored as a duplicate is marked `rejected`, a withdrawal of a placed row `placed`, and a tip with no row on Render stays new. On anything else nothing is marked and the command fails, so the tips stay new.
-- `puntmore finder skip TIP_ID [--reason TEXT]` — a tip Hermes cannot post at all (another sport, nothing readable): marked `skipped` with the reason, so it leaves `finder new` and never reaches Render. Refused for an unknown tip or one already posted (withdraw that one on Render by re-posting it `rejected`).
-- `puntmore finder status TIP_ID placed|gone` — the placer's report; a row already final answers `{"refused": "final"}`.
+- `puntmore finder new [--limit N]` — the stored tips HubAI has not posted yet (no `finder_posted` row), oldest first, one JSON object per line: `tip_id, source_id, event, market, selection, advised_price, advised_stake_units, tip_time, expiry, origin, first_seen`.
+- `puntmore finder post FILE` (or `-` for stdin) — a JSON list of rows to `POST /api/finder/rows`; prints Render's answer `{stored, updated, refused, duplicates, rows}`. Each row is the spec's: `tip_id` (as given by `new`, never re-minted), `origin`, `sport` (`football` | `horse`), `bookmaker`, `event` ("Home v Away" or "Course HH:MM"), `event_id` (the canonical key, below), `kickoff` (UTC), `market` (`win` | `each_way` for a horse), `selection`, `odds` (the price the tip quotes), `fair` (the fair price it quotes, or null), `advised_stake` (pounds, or null), `reason` (one line), `status`, optional `home`, `away`, `line`, `side`, `expiry`. An `offered` row must carry `kickoff`, `odds` and `fair` (without one, Render refuses the whole post, 422); an `asked` row, and the `rejected` answer to it, may leave all three out. On a 200 each tip is marked in `finder_posted` with the status Render's answer (`rows: [{tip_id, status}]`) says it stored, not the one HubAI sent: an offer stored as a duplicate is marked `rejected`, a withdrawal of a placed row `placed`, and a tip with no row on Render stays new. On anything else nothing is marked and the command fails, so the tips stay new.
+- `puntmore finder skip TIP_ID [--reason TEXT]` — a tip HubAI cannot post at all (another sport, nothing readable): marked `skipped` with the reason, so it leaves `finder new` and never reaches Render. Refused for an unknown tip or one already posted (withdraw that one on Render by re-posting it `rejected`).
+- `puntmore finder status TIP_ID placed|gone` — the Bet Placer's report; a row already final answers `{"refused": "final"}`.
 
-The Hermes contract (the spec's step 2, which Callum tightens in use): **offer** when the tip gives both prices and the quoted price beats the fair one (its advised stake where it gives one, and a one-line reason); **ask** Callum on Telegram when the tip gives no fair price, cannot be read with confidence, or names an event Hermes cannot place on a day and time (post it `asked` with what Hermes wants to know as the reason, leaving out the kick-off, odds or fair it does not have, and re-post `offered` or `rejected` on his answer; an asked row with no kick-off expires at the tip's own expiry, else 48 h after Hermes last posted it); **reject** when the quoted price does not beat the fair one, with the reason; **withdraw** an offered row (a tipster's retraction) by re-posting it `rejected` with the reason, which Render refuses once the placer has placed it; **skip** (`finder skip`) a tip that cannot be posted even as a question. No price is looked up. A second row for a bet already asked, offered or placed is stored `rejected` as a duplicate; after kick-off a re-post changes nothing.
+HubAI's contract (the spec's step 2, which Callum tightens in use): **offer** when the tip gives both prices and the quoted price beats the fair one (its advised stake where it gives one, and a one-line reason); **ask** Callum on Telegram when the tip gives no fair price, cannot be read with confidence, or names an event HubAI cannot place on a day and time (post it `asked` with what HubAI wants to know as the reason, leaving out the kick-off, odds or fair it does not have, and re-post `offered` or `rejected` on his answer; an asked row with no kick-off expires at the tip's own expiry, else 48 h after HubAI last posted it); **reject** when the quoted price does not beat the fair one, with the reason; **withdraw** an offered row (a tipster's retraction) by re-posting it `rejected` with the reason, which Render refuses once the Bet Placer has placed it; **skip** (`finder skip`) a tip that cannot be posted even as a question. No price is looked up. A second row for a bet already asked, offered or placed is stored `rejected` as a duplicate; after kick-off a re-post changes nothing.
 
-**`event_id`, the canonical fixture key.** Render's duplicate rule matches the fixture on `event_id` (the event's words, folded, only when a row has none), so two tipsters' wordings of one fixture must give the same key. Hermes fills it on every row it can place on a day and time:
+**`event_id`, the canonical fixture key.** Render's duplicate rule matches the fixture on `event_id` (the event's words, folded, only when a row has none), so two tipsters' wordings of one fixture must give the same key. HubAI fills it on every row it can place on a day and time:
 - football: `football:<YYYY-MM-DD>:<home>-v-<away>`, the date of kick-off in UK time, home side first;
 - racing: `horse:<YYYY-MM-DD>:<course>:<HH:MM>`, the date and the off in UK time, 24-hour clock;
 - each name is the club's or the course's full common name, not the tip's nickname ("Man Utd" and "Spurs" are `manchester-united` and `tottenham-hotspur`; "FC"/"AFC" left off), in lower-case ASCII (accents dropped: "Atlético" is `atletico`), words joined by hyphens, no punctuation ("St. Mirren" is `st-mirren`, "Brighton & Hove Albion" is `brighton-hove-albion`).
 
 Examples: `football:2026-11-07:manchester-united-v-tottenham-hotspur`, `horse:2026-11-07:cheltenham:13:30`. A key spelt two ways makes a duplicate look like a new bet, so this is the part of the contract to get right; leave `event_id` out of an asked row that has no day and time.
 
-Env: `PUNTMORE_RENDER_HTTP` (the https base of Render) and `PUNTMORE_RENDER_API_KEY`, a Render API client key carrying `ingest` (in Render's shell: `python -m app.apikeys create <name> --tools ingest`), sent as a Bearer key. `PUNTMORE_RENDER_WS` stays blank.
+Env: `PUNTMORE_RENDER_HTTP` (the https base of Render) and `PUNTMORE_RENDER_API_KEY`, a Render API client key carrying `ingest` (in Render's shell: `python -m app.apikeys create <name> --tools ingest`), sent as a Bearer key.
 
 ## Setup (from `hub/`)
 ```bash
@@ -74,32 +91,31 @@ puntmore init && pytest -q
 Services (user units, headful Chrome needs the desktop session):
 ```bash
 cp deploy/systemd/* ~/.config/systemd/user/ && systemctl --user daemon-reload
-systemctl --user enable --now puntmore-link puntmore-heartbeat.timer puntmore-update.timer
+systemctl --user enable --now puntmore-link puntmore-heartbeat.timer puntmore-update.timer   # puntmore-link runs the daemon
 ```
 
 ## Everyday commands
 ```
 puntmore status                      one screen: mode, the Scraper's targets and their state
-puntmore inbox                       one pass over the Scraper's drops
+puntmore inbox                       one pass over the drop files
 puntmore mail [--dry-run]            one poll of the tipster mailbox (--dry-run: what the parsers read, nothing stored)
 puntmore health                      exit 1 if the Scraper is down, a source is blocked or unhealthy, or an escalation is open
 puntmore kill on|off|status          the kill switch (a file: data/KILL)
 puntmore escalation list|show|resolve
-puntmore tips                        candidate bets found
-puntmore finder new [--limit N]      tips Hermes has not posted to Finder yet, one JSON object per line
-puntmore finder post FILE|-          POST Hermes's rows (a JSON list) to Render's /api/finder/rows
-puntmore finder skip TIP [--reason T] a tip Hermes cannot post: skipped, so `finder new` moves on
-puntmore finder status TIP placed|gone  the placer's report on an offered row
+puntmore tips                        recent stored tips
+puntmore finder new [--limit N]      tips HubAI has not posted to Finder yet, one JSON object per line
+puntmore finder post FILE|-          POST HubAI's rows (a JSON list) to Render's /api/finder/rows
+puntmore finder skip TIP [--reason T] a tip HubAI cannot post: skipped, so `finder new` moves on
+puntmore finder status TIP placed|gone  the Bet Placer's report on an offered row
 puntmore heartbeat                   the daily summary, on demand
-puntmore link                        the link daemon: the inbox and the mail poll (and the socket, if PUNTMORE_RENDER_WS is set; blank since 6 Nov 2026)
-puntmore link-check <url> --key K    handshake with a Render build
-puntmore web                         the Hub Console on PUNTMORE_WEB_BIND (default http://127.0.0.1:8090)
+puntmore daemon                      the daemon: the inbox every 30 s and the mailbox poll (`puntmore link` is the same command)
+puntmore web                         the Console on PUNTMORE_WEB_BIND (default http://127.0.0.1:8090)
 puntmore update [--dry-run|--check]  fast-forward to origin/main, reinstall, restart (deploy/update.sh)
 python -m scraper status|dump|resume the Scraper's own commands, from scraper/
 ```
 
-## Hub Console
-One web page, served on the Hub itself, that shows what every Hub component is doing, live: a status strip (Scraper, Link, Placement, Escalations, Tips, Model, Hermes, Render), each chip coloured up / warn / down / off / unknown with one line of detail, and a tab per component that polls every 5 s and says "stale" when its last good poll is over 20 s old. It is plain HTML, CSS and JS shipped in `puntmore_hub/web/static/`: no build, no CDN, so it loads with the box offline. It reads the same things the CLI reads, through the same functions; it never loads a page and never talks to a bookmaker.
+## The Console
+One web page, served on the Hub itself, that shows what every Hub component is doing, live: a status strip (Scraper, Daemon, Placement, Escalations, Tips, Model, HubAI, Render), each chip coloured up / warn / down / off / unknown with one line of detail, and a tab per component that polls every 5 s and says "stale" when its last good poll is over 20 s old. It is plain HTML, CSS and JS shipped in `puntmore_hub/web/static/`: no build, no CDN, so it loads with the box offline. It reads the same things the CLI reads, through the same functions; it never loads a page and never talks to a bookmaker.
 
 ```bash
 ~/.venvs/puntmore/bin/pip install -e '.[web,dev]'          # FastAPI + uvicorn are the optional `web` extra
@@ -108,17 +124,17 @@ systemctl --user enable --now puntmore-web
 # open http://127.0.0.1:8090   (or run it by hand: puntmore web / python -m puntmore_hub.web, --bind host:port)
 ```
 
-**Actions** are POSTs that need the header `X-Puntmore-Token` equal to `PUNTMORE_WEB_TOKEN` (type it into the Token box on the page; that browser remembers it). With the token blank every action answers 403 and the buttons are greyed out; the read-only views still work. The actions are exactly: kill switch on (one click, any time); kill switch off (type `OFF` to confirm; only Cal turns it off); resolve an escalation with an outcome; one inbox pass; link-check; heartbeat now; and the Scraper tab's target edits (below). Nothing else: no Scraper commands (`resume` stays the Scraper's own CLI), no placement triggers, no `.env` writes. Every action, done or refused, is a line in `data/console-actions.log`.
+**Actions** are POSTs that need the header `X-Puntmore-Token` equal to `PUNTMORE_WEB_TOKEN` (type it into the Token box on the page; that browser remembers it). With the token blank every action answers 403 and the buttons are greyed out; the read-only views still work. The actions are exactly: kill switch on (one click, any time); kill switch off (type `OFF` to confirm; only Callum turns it off); resolve an escalation with an outcome; one inbox pass; heartbeat now; and the Scraper tab's target edits (below). Nothing else: no Scraper commands (`resume` stays the Scraper's own CLI), no placement triggers, no `.env` writes. Every action, done or refused, is a line in `data/console-actions.log`.
 
-**The Scraper tab** is the one place a person changes what the Scraper loads and how often. Its table is `scraper.targets.summary()` over `<PUNTMORE_SCRAPER_DATA>/targets.toml` and `status.json`: every target (disabled ones muted) with its site, mode, `every_min`, `stale_min`, the kick-off sweep (`near_min` in the last `near_hours`) and its next kick-off, priority, window, parser and post, and the Scraper's last word on it (state, last ok, next due, rows, detail). "Next due" is last load + `every_min`, approximate because the Scraper jitters each reload ×0.75–1.35; a target with no `every_min` reloads when its page has been quiet for `stale_min`. Per row: enable / disable, edit (`every_min`, `stale_min`, `near_min`, `near_hours`, `priority`, `window`, `min_rows`, `trust_weight`, `wait_for`, `url`; blank clears to the default) and remove (type the name to confirm); below, an "Add target" form with the fields of `targets add` (site `paddypower`, `bookiebashing` or `generic`; added disabled unless "enabled now" is ticked). Every write is a POST under the token rule, logged like the others: `/api/actions/scraper/targets/add`, `…/<name>/set`, `…/<name>/enable`, `…/<name>/disable`, `…/<name>/remove` (body `{"confirm": "<name>"}`). Each one is `scraper/targets.py`'s own function, so the rules are the CLI's: a refusal (a frequency below the floor, a bookmaker host on a generic target) is the library's message, shown beside the field, and nothing is written; the library's lock held by Hermes or the CLI answers 409 "being changed by something else", try again. After a write the tab re-reads at once; the Scraper applies the change within 60 s. No targets file yet shows an empty table and the add form (the first add creates it). Under it, the site budgets from `status.json` (loads this hour and today, cool-off, needs resume) are read-only, with the exact `python -m scraper resume <site>` command to run on the Hub when one needs it. On a phone (under 700 px) the tables become one card per row.
+**The Scraper tab** is the one place a person changes what the Scraper loads and how often. Its table is `scraper.targets.summary()` over `<PUNTMORE_SCRAPER_DATA>/targets.toml` and `status.json`: every target (disabled ones muted) with its site, mode, `every_min`, `stale_min`, the kick-off sweep (`near_min` in the last `near_hours`) and its next kick-off, priority, window, parser and post, and the Scraper's last word on it (state, last ok, next due, rows, detail). "Next due" is last load + `every_min`, approximate because the Scraper jitters each reload ×0.75–1.35; a target with no `every_min` reloads when its page has been quiet for `stale_min`. Per row: enable / disable, edit (`every_min`, `stale_min`, `near_min`, `near_hours`, `priority`, `window`, `min_rows`, `trust_weight`, `wait_for`, `url`; blank clears to the default) and remove (type the name to confirm); below, an "Add target" form with the fields of `targets add` (site `paddypower`, `bookiebashing` or `generic`; added disabled unless "enabled now" is ticked). Every write is a POST under the token rule, logged like the others: `/api/actions/scraper/targets/add`, `…/<name>/set`, `…/<name>/enable`, `…/<name>/disable`, `…/<name>/remove` (body `{"confirm": "<name>"}`). Each one is `scraper/targets.py`'s own function, so the rules are the CLI's: a refusal (a frequency below the floor, a bookmaker host on a generic target) is the library's message, shown beside the field, and nothing is written; the library's lock held by HubAI or the CLI answers 409 "being changed by something else", try again. After a write the tab re-reads at once; the Scraper applies the change within 60 s. No targets file yet shows an empty table and the add form (the first add creates it). Under it, the site budgets from `status.json` (loads this hour and today, cool-off, needs resume) are read-only, with the exact `python -m scraper resume <site>` command to run on the Hub when one needs it. On a phone (under 700 px) the tables become one card per row.
 
 `scraper` is not an installed package: the console imports `scraper.targets` from `PUNTMORE_SCRAPER_SRC` (the directory holding `scraper/`; blank = the repo this `hub/` is in, so the console and the library are always the same commit). It uses an importable `scraper` if there is one (`PYTHONPATH=.` from the repo root) and otherwise loads the package by file location, without touching `sys.path`.
 
-**The LAN warning.** `PUNTMORE_WEB_BIND` defaults to `127.0.0.1:8090`, this box only. To open it from a phone, bind it to the box's LAN address (e.g. `PUNTMORE_WEB_BIND=192.168.1.20:8090`). That exposes the actions to anyone on the LAN, so the token is then required: set a long random `PUNTMORE_WEB_TOKEN` first. The reads have no token at all: anyone on the LAN can see bets, balances, tips, escalation details and the last 50 lines of the Hermes gateway journal. There is no TLS, so the token crosses the LAN in clear; treat it as a LAN-only secret. The console answers only to the Host names it was bound for (localhost, the bound address, this machine's hostname), which stops a web page in a browser on this box from reading it through DNS rebinding; bind `0.0.0.0` and that check is off.
+**The LAN warning.** `PUNTMORE_WEB_BIND` defaults to `127.0.0.1:8090`, this box only. To open it from a phone, bind it to the box's LAN address (e.g. `PUNTMORE_WEB_BIND=192.168.1.20:8090`). That exposes the actions to anyone on the LAN, so the token is then required: set a long random `PUNTMORE_WEB_TOKEN` first. The reads have no token at all: anyone on the LAN can see bets, balances, tips, escalation details and the last 50 lines of HubAI's gateway journal (Hermes). There is no TLS, so the token crosses the LAN in clear; treat it as a LAN-only secret. The console answers only to the Host names it was bound for (localhost, the bound address, this machine's hostname), which stops a web page in a browser on this box from reading it through DNS rebinding; bind `0.0.0.0` and that check is off.
 
 Settings (`.env`): `PUNTMORE_WEB_BIND`, `PUNTMORE_WEB_TOKEN`, `PUNTMORE_SCRAPER_SRC` (above), `PUNTMORE_LLAMA_URL` (llama-server, default `http://127.0.0.1:8080`), `PUNTMORE_RENDER_HTTP` (the https base of Render for its `/api/ready`; blank = the Render card says "not configured").
 
-What the states mean: **down** is a source that is there and says it is broken (stale or missing Scraper heartbeat, a failed unit, Render not ready or unreachable); **warn** needs a look (a blocked or unhealthy source, open escalations, kill switch on, failed bets, a message Render has not acked for 5 min, no tip for a day); **off** is not configured or not running and allowed not to be (the link not configured, llama-server not answering); **unknown** is when the console cannot tell (no Scraper data dir, no systemctl, no hub database yet). Reads never create the hub database.
+What the states mean: **down** is a source that is there and says it is broken (stale or missing Scraper heartbeat, a failed unit, Render not ready or unreachable); **warn** needs a look (a blocked or unhealthy source, open escalations, kill switch on, failed bets, no inbox pass for 5 min, no tip for a day); **off** is not configured or not running and allowed not to be (Render's URL not set, llama-server not answering); **unknown** is when the console cannot tell (no Scraper data dir, no systemctl, no hub database yet). Reads never create the hub database.
 
 ## Updating the Hub
 A change merged to `main` reaches the box within 10 minutes. `puntmore-update.timer` runs `deploy/update.sh` (a wrapper around `puntmore update`, code in `puntmore_hub/update.py`) against the box's checkout, `~/Projects/puntmore`:
@@ -153,18 +169,3 @@ hub/deploy/update.sh             # update now
 tail hub/data/update.log
 ```
 `git fetch` runs from a systemd user unit with no ssh-agent: the checkout's `origin` must be reachable without a prompt (https, or a key with no passphrase).
-
-## Behaviour that is fixed by the spec
-- **Dry-run by default.** Placement logs what it would do and reports `placed` with `dry_run: true`.
-- **Kill switch** at `data/KILL`, global, no code change, honoured by placements (scrapes run on the Scraper's own schedule).
-- **Idempotency**: `bet_id` and `msg_id` are never processed twice.
-- **Failures**: no auto-retry, no re-routing. `failed` is reported and escalated to the local AI.
-- **Scraping is the Scraper's** (`scraper/`): real headful Chrome with one persistent profile, no stealth, budgets in code (generic sources 60/h and 400/day), 24 h cool-off and alert on any challenge, daily 09:00 heartbeat, silence means broken.
-- **Bet Finder output is owner-scoped** (`source_scope: owner`): never offered to other clients.
-- **Bookie Bashing** is not a Bet Finder source, and the 2-Up rescue model is tuned against BB's tracker by hand (BB's terms ban automated access). The Scraper's one BB target, `bb-saves`, predates that rule: OPEN for Callum in `docs/decisions.md` (keep it as the named exception, or disable it).
-
-## Testing the contract with Render
-`pytest` runs the real link against `puntmore_hub/link/mock_render.py` over a localhost socket, and validates every example in `schemas/examples/` against `schemas/protocol.schema.json`. Against a real Render build: `puntmore link-check wss://puntmore.com/api/2up/ws --key <key>` (the `2up` subdomain once it exists).
-
-## Status
-Scaffold. The client engine, link protocol, inbox, escalation path and CLI are implemented and tested with fakes; the Bet Finder's sources run in the Scraper. Not yet done: the phone placement adapter. (The Render end of the WebSocket and the IMAP tipster source, `mail.py`, landed in Nov 2026; the kick-off sweep is the Scraper's `near_min`, 6 Nov 2026.)
