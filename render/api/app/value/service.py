@@ -143,7 +143,10 @@ def coupon_rows(db: Session, floor: float, now: datetime) -> list[ValueSelection
     return out
 
 
-def twoup_rows(twoup_feed, floor: float, now: datetime) -> list[ValueSelection]:
+def twoup_rows(twoup_feed, floor: float,
+               now: datetime) -> tuple[list[ValueSelection], str | None]:
+    """2-Up's rows and its note (killed, stale, not yet refreshed) — see
+    `twoup.feed.value_rows`."""
     from ..twoup.feed import value_rows
     return value_rows(twoup_feed, floor, now)
 
@@ -165,14 +168,17 @@ def collect(
 
     `min_edge` None means edge > 0 (value at all); a number means edge >= it,
     and may be negative to see near-value rows. A source that raises is left
-    out and named in the returned errors — the rest still answer.
+    out and named in the returned errors — the rest still answer. A source
+    may also answer with a note (2up: killed, stale, not yet refreshed),
+    named in the errors beside whatever rows it did return.
     """
     now = now or datetime.now(timezone.utc)
     floor = 0.0 if min_edge is None else min_edge
-    builders: dict[str, Callable[[], list[ValueSelection]]] = {
-        "paddy": lambda: paddy_rows(cards_client, floor, now),
-        "scorers": lambda: scorer_rows(db, floor, now),
-        "coupon": lambda: coupon_rows(db, floor, now),
+    # Each builder answers (rows, note); a note is reported like an error.
+    builders: dict[str, Callable[[], tuple[list[ValueSelection], str | None]]] = {
+        "paddy": lambda: (paddy_rows(cards_client, floor, now), None),
+        "scorers": lambda: (scorer_rows(db, floor, now), None),
+        "coupon": lambda: (coupon_rows(db, floor, now), None),
         "2up": lambda: twoup_rows(twoup_feed, floor, now),
     }
     rows: list[ValueSelection] = []
@@ -182,7 +188,10 @@ def collect(
         if want_book and src.bookmaker != want_book:
             continue
         try:
-            rows.extend(builders[src.name]())
+            got, note = builders[src.name]()
+            rows.extend(got)
+            if note:
+                errors[src.name] = note[:300]
         except Exception as exc:          # one broken vendor must not blank the rest
             logger.error("value feed: %s failed: %s", src.name, exc)
             errors[src.name] = f"{type(exc).__name__}: {exc}"[:300]

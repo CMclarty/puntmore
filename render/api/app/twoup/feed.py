@@ -22,8 +22,11 @@ One log line per pass, never one per fixture.
 
 The served board: the scheduler's `twoup_refresh` job calls `refresh()` every
 `twoup_feed_ttl`; the route and the `2up` value source read `served()`, which
-never fetches. A pass in which every request failed (errors, nothing priced)
-keeps the last good board and marks it stale; any other pass replaces it.
+never fetches. A pass in which every request failed (errors, nothing priced),
+no configured tournament resolved, or the pass itself raised keeps the last
+good board and marks it stale; any other pass replaces it. A chunk whose
+request failed beside one that priced is named in `cannot_price` (degraded),
+its rows simply absent: there is no chunk-level carry-forward.
 """
 from __future__ import annotations
 
@@ -111,10 +114,20 @@ class TwoUpFeed:
         """One pass, always fetching (through the client's own cache): what
         the `twoup_refresh` job calls. Returns this pass's rows. A pass with
         errors and nothing priced (every request failed, reference data
-        down) leaves the served board as it was and marks it stale; any
-        other pass, an honest empty one included, replaces it."""
+        down, no tournament resolved, the pass itself raising) leaves the
+        served board as it was and marks it stale; any other pass, an honest
+        empty one included, replaces it."""
         now = now or datetime.now(timezone.utc)
-        rows, lp = self._refresh(now)
+        try:
+            rows, lp = self._refresh(now)
+        except Exception as exc:
+            # A malformed market, a resolver bug: the pass is a failed pass,
+            # never a silently ageing board with a healthy status.
+            logger.exception("2up feed: the pricing pass raised; any served board is kept, stale")
+            rows, lp = [], self._new_pass(now)
+            lp["errors"].append(f"pass failed: {exc}"[:300])
+            lp["cannot_price"].append(f"ALL — the pricing pass raised: {exc}"[:300])
+            lp["requests_today"] = getattr(self._client, "requests_today", None)
         with self._lock:
             self.last_pass = lp
             if lp["errors"] and not lp["priced_fixtures"]:
@@ -165,12 +178,17 @@ class TwoUpFeed:
             return [int(e) for e in entries], []
         return resolve_tournaments(entries, known)
 
+    @staticmethod
+    def _new_pass(now: datetime) -> dict:
+        """An empty pass record: what `last_pass` holds."""
+        return {"at": now.isoformat(), "fixtures_listed": 0, "in_horizon": 0,
+                "no_pinnacle": 0, "no_bet365": 0, "unnamed": 0, "priced_fixtures": 0,
+                "candidates": 0, "value": 0, "errors": [], "cannot_price": []}
+
     def _refresh(self, now: datetime) -> tuple[list[Candidate], dict]:
         """One pass: (rows, what it saw). Touches no shared state; `refresh`
         publishes the result."""
-        lp: dict = {"at": now.isoformat(), "fixtures_listed": 0, "in_horizon": 0,
-                    "no_pinnacle": 0, "no_bet365": 0, "unnamed": 0, "priced_fixtures": 0,
-                    "candidates": 0, "value": 0, "errors": [], "cannot_price": []}
+        lp = self._new_pass(now)
         try:
             ml = moneyline_markets(self._client.catalogue())
             names = participant_names(self._client.participants())
@@ -186,12 +204,21 @@ class TwoUpFeed:
         ids, unresolved = self._ids(known)
         lp["tournaments"] = len(ids)
         lp["unresolved_tournaments"] = unresolved
+        if not ids:
+            # Nothing to ask for is a failed pass (the last good board is
+            # kept), not an empty board and not "every request failed".
+            why = "no configured tournament resolved" + (
+                f" ({', '.join(unresolved)})" if unresolved else "")
+            lp["errors"].append(why[:300])
+            lp["cannot_price"].append(f"ALL — {why}"[:300])
+            return self._finish(lp, [])
         pin = self._client.resolve_book((settings.oddspapi_fair_book or "pinnacle").strip())
         b365 = self._client.resolve_book(BET365)
         lp["books"] = {"fair": pin, "priced": b365}
         per = max(1, settings.oddspapi_tournaments_per_request)
         boards: dict[str, list] = {pin: [], b365: []}
         fetched = 0
+        failed: list[str] = []      # "<book> chunk [ids]: <error>", one per failed request
         # tournamentId -> when its chunk's prices were fetched: the EARLIER of
         # the two books', the stalest price behind a row.
         priced_at: dict[int, datetime] = {}
@@ -204,6 +231,7 @@ class TwoUpFeed:
                     fetched += 1
                 except Exception as exc:
                     lp["errors"].append(f"{book} {chunk}: {exc}"[:300])
+                    failed.append(f"{book} chunk {chunk}: {exc}"[:300])
                     continue
                 # Read right after this book's own call, so another thread's
                 # later fetch of the same chunk cannot make it look newer.
@@ -259,6 +287,11 @@ class TwoUpFeed:
                     f"is '{b365}' on the OddsPapi plan?")
             if lp["no_pinnacle"]:
                 lp["cannot_price"].append(f"Pinnacle 1X2 missing on {lp['no_pinnacle']} fixture(s)")
+        # Some requests failed but others priced: the board is replaced, and
+        # what the failed chunks would have carried is named — degraded, so a
+        # missing competition never looks like a quiet one.
+        if lp["priced_fixtures"]:
+            lp["cannot_price"].extend(failed)
         # Requests failed and nothing priced: `refresh` keeps the last good
         # board, and the reason must say so even when no fixture was listed.
         if lp["errors"] and not lp["priced_fixtures"] and not lp["cannot_price"]:
@@ -286,22 +319,34 @@ class TwoUpFeed:
         return rows, lp
 
 
-def value_rows(feed: TwoUpFeed | None, floor: float, now: datetime):
-    """The feed as the cross-tool `ValueSelection` shape (value/service.py).
+def value_rows(feed: TwoUpFeed | None, floor: float,
+               now: datetime) -> tuple[list, str | None]:
+    """The feed as the cross-tool `ValueSelection` shape (value/service.py),
+    and a note for `ValueFeedOut.errors` when the source is not answering
+    fresh: killed (no rows), stale (the last good board's rows, each with
+    its own `seen_at`), or not yet refreshed (no rows).
 
     `fair` there is the 2-up-ADJUSTED fair price, 1 / (P(win) + P(rescue)),
     so `edge` keeps that shape's meaning — odds / fair - 1, the expected
-    return per pound — rather than the probability-unit edge the decision
-    ranks by."""
+    return per pound — rather than the probability-unit edge the 2-Up feed
+    ranks its own rows by. `seen_at` is the row's `priced_at`: a stale
+    board's prices are as old as they are, never stamped with now."""
     from ..schemas import ValueSelection
     if feed is None:
         # No OddsPapi key on this deploy: no rows, like the other sources
         # without a client. /api/ready's twoup_detail names it as degraded.
-        return []
+        return [], None
     if settings.twoup_kill_switch:
         # The global kill switch empties the feed, and so this source too:
         # /api/value must not show rows /api/2up/feed withholds.
-        return []
+        return [], "killed: TWOUP_KILL_SWITCH is on"
+    status = feed.status()
+    if status["not_yet_refreshed"]:
+        return [], "not yet refreshed"
+    note = None
+    if status["stale"]:
+        at = datetime.fromisoformat(status["served_at"]).astimezone(timezone.utc)
+        note = f"stale: prices from {at:%H:%M} UTC — OddsPapi not answering"
     out = []
     _, served = feed.served(now)            # the scheduled board; never a fetch
     for c in served:
@@ -314,6 +359,6 @@ def value_rows(feed: TwoUpFeed | None, floor: float, now: datetime):
             home=c.home, away=c.away, kickoff=c.kickoff, sport="soccer",
             market="h2h", selection=c.selection, side=c.side,
             odds=c.price, fair=1.0 / c.payout_prob, edge=c.ev, basis="2up",
-            seen_at=now,
+            seen_at=c.priced_at or now,
         ))
-    return out
+    return out, note

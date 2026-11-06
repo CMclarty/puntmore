@@ -95,7 +95,11 @@ Response (`ValueFeedOut`):
 ```
 
 `errors` names a source that FAILED, as opposed to one with no value — an
-empty list is never ambiguous. Selections are sorted by edge, best first.
+empty list is never ambiguous. It also names a source answering but not
+fresh: `2up` is `"killed: TWOUP_KILL_SWITCH is on"` (no rows), `"not yet
+refreshed"` (no rows) or `"stale: prices from HH:MM UTC — OddsPapi not
+answering"` beside the last good board's rows, each with `seen_at` = when its
+prices were fetched. Selections are sorted by edge, best first.
 
 `ValueSelection` — one shape for every tool:
 
@@ -116,7 +120,7 @@ empty list is never ambiguous. Selections are sorted by edge, best first.
 | `edge` | `odds / fair - 1` |
 | `basis` | how the fair was reached (`ladder`, `hybrid`, `saves`, `devig`, `grid`, …) |
 | `url` | null unless known |
-| `seen_at` | when the price was read or the row computed (UTC) |
+| `seen_at` | when the price was read or the row computed (UTC); on `2up` rows the row's `priced_at` |
 
 Each source is the tool's own feed builder (`app/cards/feed.py`,
 `app/twoup/feed.py`, the stored goalscorer rows (parked), the coupon tracker's
@@ -181,11 +185,16 @@ under the edge floor (each row also carries the `value` flag).
 }
 ```
 
-On a total fetch failure the last good board is kept with its old `priced_at`
-and `status.stale` is true; before the first pass and with the kill switch on
-the list is empty. With no OddsPapi key `status` is just `degraded: true`,
+On a failed pass — every request failed, reference data down, no configured
+tournament resolved, or the pass itself raised — the last good board is kept
+with its old `priced_at` and `status.stale` is true. A pass where one chunk's
+request failed but another priced replaces the board and names the failed
+chunk in `cannot_price` (`degraded: true`, `stale: false`). Before the first
+pass and with the kill switch on the list is empty. `served_at: null` with
+`not_yet_refreshed: false` means no pass has priced yet; see `cannot_price`. With no OddsPapi key `status` is just `degraded: true`,
 `killed` and `cannot_price: ["ALL — ODDSPAPI_API_KEY unset"]`. The kill switch
-also empties the `2up` source of `GET /api/value`.
+also empties the `2up` source of `GET /api/value` (and names it in its
+`errors`).
 
 `GET /api/2up/diagnostics` returns `{feed, rescue_table, global_kill_switch,
 settings}`: `feed` is the same `status` block as above (without `killed`),
@@ -220,6 +229,10 @@ new optional fields, new enum values in documented open sets (a new `source`,
 Python client does. Nothing is renamed, retyped or removed in place: a
 breaking change ships beside the old one under `/api/v2/...`, and `/api/...`
 keeps its v1 behaviour until every caller has moved.
+
+6 Nov 2026 exception, by decision (`docs/decisions.md`): the 2-Up ledger,
+clients, hub and betfinder routes and `source_scope` were removed without a
+/v2.
 
 ## Code map
 

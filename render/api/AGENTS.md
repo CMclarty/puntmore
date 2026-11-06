@@ -141,11 +141,19 @@ Settings are `twoup_*` in `config.py`, each with a default and a reason.
   drops out at `twoup_min_lead_minutes` before kick-off while its board is
   served.
 - **Last good board on failure.** A pass with errors that priced nothing
-  (every request failed, reference data down) leaves the served board as it
-  was, with its old `priced_at` and `generated_at`, and sets
-  `status.stale: true`; an honest empty pass (no errors) replaces the board.
-  The next good pass replaces it and clears `stale`. Before the first pass
-  the list is empty and `status.not_yet_refreshed` is true.
+  (every request failed, reference data down, no configured tournament
+  resolved, or the pass itself raised — `refresh` catches it and records
+  `pass failed: ...`) leaves the served board as it was, with its old
+  `priced_at` and `generated_at`, and sets `status.stale: true`; an honest
+  empty pass (no errors) replaces the board. The next good pass replaces it
+  and clears `stale`. Before the first pass the list is empty and
+  `status.not_yet_refreshed` is true. A pass where one chunk's request failed
+  but another priced replaces the board and names each failed request in
+  `cannot_price` (`<book> chunk [ids]: <error>`), so it is degraded; the failed
+  chunk's rows are not carried forward.
+- **The `2up` value source says when it is not fresh.** Its rows' `seen_at`
+  is their `priced_at`, never now; killed, stale and not yet refreshed are
+  named in `/api/value`'s `errors["2up"]` (stale beside the last good rows).
 - `status()` (`/api/ready` → `providers.twoup_detail`, the feed's `status`,
   and `diagnostics.feed`) reports `provider`, `degraded`, `cannot_price`,
   `stale`, `served_at`, `not_yet_refreshed` and `last_pass`; a deploy that
@@ -154,8 +162,9 @@ Settings are `twoup_*` in `config.py`, each with a default and a reason.
 Invariants — do not relax:
 - **Kill switch** (global `TWOUP_KILL_SWITCH`, read per request): the feed
   returns no rows with `status.killed: true`, and the `2up` source of
-  `/api/value` returns none either, so the two never disagree. There is no
-  per-client switch; there are no clients.
+  `/api/value` returns none either (and names `killed` in its `errors`), so
+  the two never disagree. There is no per-client switch; there are no
+  clients.
 - **One feed, no per-reader view.** Every reader gets the same rows; a row's
   identity is `event_id` + `side`. Nothing comes back from a reader.
 - **No ledger and no Hub endpoint.** The `twoup_*`, `tips`,
@@ -641,7 +650,9 @@ shell (`cd /app`), which has `DATABASE_URL`. Full API docs: `docs/api.md`.
 has a `response_model` and a per-tool tag (`tests/test_openapi.py` fails
 otherwise); `/api/docs` and `/api/openapi.json` are served behind a session or
 any key, never public. Changes are ADDITIVE ONLY — a breaking change goes to
-`/api/v2/...`. `GET /api/value` is the cross-tool value feed in one
+`/api/v2/...`. (6 Nov 2026 exception, by decision (`docs/decisions.md`): the
+2-Up ledger, clients, hub and betfinder routes and `source_scope` were removed
+without a /v2.) `GET /api/value` is the cross-tool value feed in one
 `ValueSelection` shape, built from each tool's own feed builder (never a
 second pricing path). Tool logic lives in services (`cards/feed.py`,
 `coupons/service.py`, `pnl/service.py`,
