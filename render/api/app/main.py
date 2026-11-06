@@ -44,9 +44,8 @@ from .routers import auth as auth_router
 from .routers import state as state_router
 from .routers import diagnostics as diagnostics_router
 from .routers import value as value_router
-from .routers import hub_ws as hub_ws_router
 from .routers import twoup as twoup_router
-from .routers import betfinder as betfinder_router
+from .routers import finder as finder_router
 from . import diagnostics
 
 logger = logging.getLogger("uvicorn.error")
@@ -65,16 +64,6 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed(db)
-        # 2-Up clients named in TWOUP_CLIENTS that do not exist yet (dry-run
-        # on, kill switch off). Existing rows are never touched.
-        from .twoup.ledger import ensure_clients
-        if ensure_clients(db):
-            logger.info("2up: seeded client(s)/account(s) from TWOUP_CLIENTS")
-        # Bet Finder sources named in BETFINDER_SOURCES that have no row.
-        # Existing rows (trust, active, stake mode) are never touched.
-        from .betfinder.sources import ensure_sources
-        if ensure_sources(db):
-            logger.info("betfinder: seeded source(s) from BETFINDER_SOURCES")
         created, regranted = seed_users(db, settings.auth_users)
         if created:
             logger.info("Seeded %d user(s) from AUTH_USERS", created)
@@ -308,9 +297,8 @@ app.include_router(auth_router.router)
 # part of the coupon tracker, so it shares the "coupons" grant.
 app.include_router(coupons.router, dependencies=[Depends(require_tool("coupons"))])
 app.include_router(upload_router, dependencies=[Depends(require_tool("coupons"))])
-# AccaBonus and Cards/Corners are hidden for now (coupon-tracker-only mode,
-# PLAN.md v5). Code is kept; the routers are only mounted when re-enabled via
-# the ENABLE_ACCABONUS / ENABLE_CARDS flags in .env.
+# Paddy (the old Cards/Corners) is mounted on ENABLE_CARDS. (The AccaBonus
+# package and ENABLE_ACCABONUS were removed 5 Nov 2026; docs/decisions.md.)
 if settings.enable_cards:
     # The tool is "Paddy" now — corners, cards, goals and saves — so it lives
     # under /paddy. /cards stays as an alias for installed app shells and
@@ -345,17 +333,15 @@ app.include_router(shop_router.router, dependencies=[Depends(require_tool("shop"
 # not ENABLE_ACCABONUS: the acca page can stay hidden while 2-Up runs dry.
 if settings.enable_twoup:
     app.include_router(twoup_router.router, dependencies=[Depends(require_tool("accabonus"))])
-    # The Bet Finder's operator routes: same tool, same grant.
-    app.include_router(betfinder_router.router,
-                       dependencies=[Depends(require_tool("accabonus"))])
+# Finder, Callum's private Bet Finder (docs/finder-spec.md). No router-level
+# grant: its POSTs take the ingest key (Hermes, the placer) and its GETs the
+# `finder` grant, each on the route itself.
+if settings.enable_finder:
+    app.include_router(finder_router.router)
 
 # The cross-tool value feed: `value` grant sees every source, a tool grant its
 # own rows (routers/value.py resolves that itself, through user_permissions).
 app.include_router(value_router.router)
-
-# The Hub link (hub/PROTOCOL.md): /2up/ws authenticates its own handshake (an
-# API client granted `hub`); its operator routes carry the 365 grant per route.
-app.include_router(hub_ws_router.router)
 
 # /state self-guards with a static API key (machine consumers, no session).
 app.include_router(state_router.router, tags=["state"])

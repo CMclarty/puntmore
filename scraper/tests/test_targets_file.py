@@ -124,3 +124,16 @@ def test_parsers_are_modules():
     with pytest.raises(Exception) as exc:
         PARSERS["bb_saves"](None, None)
     assert not isinstance(exc.value, NotImplementedError)
+
+
+def test_a_timing_change_reschedules_a_fetch_target_in_place(tmp_path):
+    tips = {"name": "tips", "site": "generic", "url": "https://tips.example.org/"}
+    s = SimpleNamespace(data_dir=tmp_path, capture_mb=10, capture_tab_mb=1, targets_file=None,
+                        targets=[config._target({**tips, "every_min": 600})])
+    guard = Guard(tmp_path / "g.sqlite3", {k: (v.per_hour, v.per_day) for k, v in SITES.items()})
+    r = Runner(s, ctx=None, guard=guard, alerts=Alerts(tmp_path / "alerts.log", None),
+               run_dir=tmp_path / "run")
+    now = time.time()
+    r.last_load_at["tips"], r.next_fetch["tips"] = now, now + 36_000
+    r.apply_targets([config._target({**tips, "every_min": 60})])
+    assert now + 0.75 * 3600 <= r.next_fetch["tips"] <= now + 1.35 * 3600

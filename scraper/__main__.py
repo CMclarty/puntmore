@@ -2,12 +2,16 @@
 
   run              The service: one Chrome, every target kept open. Targets are
                    data/targets.toml on the Hub; an edit applies without a
-                   restart. This is what the container runs.
+                   restart. This is what the service runs.
   status           Budget spent, cool-offs, each target's state, heartbeat age.
   resume <site>    End a cool-off early-ish: it still needs its hours to pass.
   dump <target>    Ask the RUNNING service to save that target's open page(s)
                    (HTML + screenshot) to data/dumps/ - no extra page load.
   check            Load targets.toml and print the targets.
+  targets ...      The only way targets.toml is changed: list, show <name>,
+                   add --name --site --url [...], set <name> --every-min 15
+                   [...], enable/disable/remove <name>; --json for machine
+                   output, --file for another file. `targets -h` for more.
   selfcheck        What a site sees of this browser: navigator.webdriver,
                    userAgent, language, timezone, window, and that Chrome
                    runs without --enable-automation. Asks the running service
@@ -121,7 +125,7 @@ def _prune(root, keep):
 def status(s):
     """Per site: budget and cool-off. Per target: the running service's last
     report (data/status.json) - the same file the Hub reads."""
-    from .runner import site_status
+    from .status import site_status
     for st in site_status(_guard(s), time.time()):
         line = (f"{st['site']:14} loads {st['loads_hour']}/{st['per_hour']} this hour, "
                 f"{st['loads_day']}/{st['per_day']} today")
@@ -176,12 +180,148 @@ def selfcheck(s):
     print("\n".join(browser.selfcheck_lines(seen, source)))
 
 
+def _none_or(kind):
+    """An option value; "none" clears an optional field (`targets set`)."""
+    def parse(v):
+        if v.lower() in ("none", "null", ""):
+            return None
+        try:
+            return kind(v)
+        except ValueError:
+            import argparse
+            raise argparse.ArgumentTypeError(f"not a {kind.__name__}: {v!r}") from None
+    parse.__name__ = kind.__name__
+    return parse
+
+
+def _matches_json(v):
+    import argparse
+    import json
+    if v.lower() in ("none", "null"):
+        return None
+    try:
+        m = json.loads(v)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"--matches is not JSON: {exc}") from None
+    if not isinstance(m, dict):
+        raise argparse.ArgumentTypeError("--matches must be a JSON object")
+    return m
+
+
+# (option, field, type) for `targets add` and `targets set`
+_TARGET_OPTS = (
+    ("--site", "site", str), ("--url", "url", str),
+    ("--parser", "parser", _none_or(str)), ("--post", "post", _none_or(str)),
+    ("--every-min", "every_min", _none_or(float)), ("--stale-min", "stale_min", float),
+    ("--min-rows", "min_rows", int), ("--trust-weight", "trust_weight", float),
+    ("--wait-for", "wait_for", _none_or(str)), ("--mode", "mode", str),
+    ("--priority", "priority", int), ("--window", "window", _none_or(str)),
+    ("--matches", "matches", _matches_json),
+)
+
+
+def _targets_parser():
+    import argparse
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--file", help="targets.toml (default: SCRAPER_TARGETS, "
+                                       "else SCRAPER_DATA_DIR/targets.toml)")
+    common.add_argument("--json", action="store_true", help="machine output")
+    p = argparse.ArgumentParser(prog="python -m scraper targets",
+                                description="Change targets.toml - the only way it is changed.")
+    sub = p.add_subparsers(dest="op", required=True)
+    sub.add_parser("list", parents=[common], help="every target, joined to status.json")
+    for op in ("show", "enable", "disable", "remove"):
+        sub.add_parser(op, parents=[common]).add_argument("name")
+    a = sub.add_parser("add", parents=[common], help="add a target")
+    a.add_argument("--name", required=True)
+    s = sub.add_parser("set", parents=[common], help="change fields of a target; 'none' clears one")
+    s.add_argument("name")
+    for opt, field, kind in _TARGET_OPTS:
+        a.add_argument(opt, dest=field, type=kind, default=argparse.SUPPRESS,
+                       required=field in ("site", "url"))
+        s.add_argument(opt, dest=field, type=kind, default=argparse.SUPPRESS)
+    a.add_argument("--disabled", dest="enabled", action="store_false", default=argparse.SUPPRESS)
+    en = s.add_mutually_exclusive_group()
+    en.add_argument("--enabled", dest="enabled", action="store_true", default=argparse.SUPPRESS)
+    en.add_argument("--disabled", dest="enabled", action="store_false", default=argparse.SUPPRESS)
+    return p
+
+
+def targets_cmd(argv):
+    """`python -m scraper targets ...`: list, show, add, set, enable, disable,
+    remove, through scraper/targets.py. --json prints machine output (the
+    console and Hermes); a refused change exits 2 with the reason."""
+    import json
+    import pathlib
+    from . import targets as T
+    args = vars(_targets_parser().parse_args(argv))
+    op, as_json = args.pop("op"), args.pop("json")
+    path = pathlib.Path(args.pop("file") or T.default_path())
+    status_json = pathlib.Path(os.environ.get("SCRAPER_DATA_DIR", config.HERE / "data")) / "status.json"
+
+    def show(t):
+        return next(d for d in T.summary(path, status_json) if d["name"] == t.name)
+    try:
+        if op == "list":
+            out = T.summary(path, status_json)
+        elif op == "show":
+            out = show(T.get(path, args["name"]))
+        elif op == "add":
+            out = show(T.add(path, args))
+        elif op == "set":
+            name = args.pop("name")
+            if not args:
+                raise T.TargetsError("nothing to change: give at least one --field")
+            out = show(T.set(path, name, **args))
+        elif op in ("enable", "disable"):
+            out = show(getattr(T, op)(path, args["name"]))
+        else:                                   # remove
+            T.remove(path, args["name"])
+            out = {"removed": args["name"], "targets": [t.name for t in T.load(path)]}
+    except T.TargetsError as exc:
+        if as_json:
+            print(json.dumps({"error": str(exc)}))
+        else:
+            print(f"error: {exc}", file=sys.stderr)
+        sys.exit(2)
+    if as_json:
+        print(json.dumps(out, indent=1))
+    elif op == "list":
+        print(f"targets in {path}")
+        for d in out:
+            print(_target_line(d))
+        print(f"{len(out)} target(s), {sum(d['enabled'] for d in out)} enabled. "
+              "The running Scraper picks up a change within 60 s.")
+    elif op == "remove":
+        print(f"removed {out['removed']}; left: {', '.join(out['targets']) or 'none'}")
+    else:
+        print(_target_line(out))
+        for k, v in out.items():
+            if k != "status" and v is not None:
+                print(f"  {k:13} {v}")
+        if op != "show":
+            print("saved; the running Scraper picks it up within 60 s.")
+
+
+def _target_line(d):
+    st = d["status"]
+    state = "disabled" if not d["enabled"] else (st["state"] if st else "not reported")
+    every = f"every {d['every_min']:g} min" if d["every_min"] else f"when quiet {d['stale_min']:g} min"
+    extra = "".join((f"  priority {d['priority']}" if d["priority"] else "",
+                     f"  window {d['window']}" if d["window"] else ""))
+    return (f"{d['name']:28} {d['site']:13} {state:12} {every}{extra}"
+            + (f"  ({st['detail']})" if st and st.get("detail") else ""))
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
         return
     cmd, rest = argv[0], argv[1:]
+    if cmd == "targets":            # not config.load(): it would exit on a file that does not load
+        targets_cmd(rest)
+        return
     s = config.load()
     if cmd == "run":
         run(s)

@@ -23,15 +23,19 @@ from .time_utils import utcnow
 # Every tool the suite knows about. "*" in a permission string means all of
 # these plus any added later (so an admin never needs their entry edited when a
 # tool ships). Keep in sync with the routers mounted in main.py.
-ALL_TOOLS = ("coupons", "accabonus", "cards", "hills", "goalscorers", "pnl", "kelly", "boost", "shop")
+# `finder` (Nov 2026) is Callum's private Bet Finder on the me site
+# (docs/finder-spec.md): owner-only, so a key or account issued to anyone but
+# Callum never carries "*", only named grants.
+ALL_TOOLS = ("coupons", "accabonus", "cards", "hills", "goalscorers", "pnl", "kelly", "boost", "shop",
+             "finder")
 
 # Grants that name no page — they exist for machine callers. `value` reads the
 # cross-tool value feed (GET /api/value); `state` is the whole-app snapshot
 # (GET /api/state); `ingest` is the scraper / Bookie Bashing write paths.
 # STATE_API_KEY and SAVES_INGEST_KEY are these last two, as static keys.
-# `hub` is a Hub's key for the 2-Up link socket (/api/2up/ws, hub/PROTOCOL.md);
-# the client's name must equal the Hub's X-Client-Id. No static key grants it.
-MACHINE_GRANTS = ("value", "state", "ingest", "hub")
+# (`hub` was a fourth, for the 2-Up link socket; a Hub endpoint is per tool and
+# the 2-Up module has none. A key still holding it loads and is granted nothing.)
+MACHINE_GRANTS = ("value", "state", "ingest")
 ALL_GRANTS = ALL_TOOLS + MACHINE_GRANTS
 
 
@@ -278,6 +282,10 @@ def enabled_tools() -> list[str]:
     # Hills (the Paddy tool against William Hill): no flag of its own — the
     # grant alone gates it, and its source exists whenever OddsPapi does.
     tools.append("hills")
+    # Finder (the private Bet Finder, on me): rows come from the Hub's
+    # Hermes; ENABLE_FINDER switches the routes, jobs and page off together.
+    if settings.enable_finder:
+        tools.append("finder")
     return tools
 
 
@@ -331,8 +339,9 @@ def require_tool(tool: str):
 
 
 def require_any_grant(perms: str = Depends(user_permissions)) -> str:
-    """Any authenticated caller with at least one grant — the docs gate."""
-    if not parse_permissions(perms):
+    """Any authenticated caller with at least one KNOWN grant — the docs gate.
+    A name that is no longer a grant (the dead `hub`) counts for nothing."""
+    if not parse_permissions(perms) & set(ALL_GRANTS):
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     return perms
 

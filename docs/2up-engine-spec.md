@@ -1,8 +1,53 @@
 # 2-Up Engine — Module Spec (for One Bet's Journey)
 
-Written 3 Nov 2026 by Cal; moved into the repo 5 Nov 2026 as the single source. The Claude Doc it came from is retired. Where a section below disagrees with **Decisions, 5 Nov 2026**, the decisions win; edit this file in the same pull request as the code it changes.
+Written 3 Nov 2026 by Cal; moved into the repo 5 Nov 2026 as the single source. The Claude Doc it came from is retired. Where a section below disagrees with a **Decisions** section, the decisions win, newest first; edit this file in the same pull request as the code it changes.
 
-Decision layer for 2-up betting on Bet365, the 2-Up engine inside the 365 tool on Render: takes OddsPapi prices, emits a bet list, consumes results. Placement belongs to the client engine on the Hub; pricing belongs to the engine on Render.
+The 2-Up module inside the 365 tool on Render: takes OddsPapi prices and serves a feed of the 2-up value bets that exist right now. Since 6 Nov 2026 it does nothing else: staking, placement and the books belong to the client; the betting agent that reads the feed is a separate tool with its own spec.
+
+## Decisions, 6 Nov 2026
+
+Callum's, in conversation on 6 Nov 2026; recorded in `docs/decisions.md` the same day. They narrow the module to one job and supersede the sections marked below.
+
+### What the module is
+
+- **A feed of current value bets, nothing more.** The 2-Up module prices every side of every match-result market in bet365's early-payout competitions against Pinnacle's fair line plus the 2-up rescue, and serves the rows whose price beats fair. That feed is the product.
+- **Two readers of the one feed.** The betting agent (a separate tool, spec'd separately) reads it over the API and does the placing. The 2-Up tab on the 365 page shows the same rows so a person can place by hand when the agent is not running. The page is the manual backup: it gets no row, column or filter the API does not serve.
+- **Staking lives in the client.** Kelly, the account-preservation rules, the betting window, exposure, stake rounding and ceilings, bet types (doubles, trebles, fourfolds), cover bets, dry-run and the per-account kill switch are the client's. None of it is computed on Render.
+- **No account, no ledger.** Render keeps no record of what any client placed or how it settled. Nothing comes back from a client to this module: no `placed`, `price_changed`, `failed`, `settled` or `balance`. The feed is one-way. The tenancy model (client → sub-client, pooled bankrolls, per-client ledgers, payback terms) is out of this module.
+- **Bet Finder is not a Render instance.** Finding tips from tipsters and scrapes is a client function. The Bet Finder orchestrator, the `owner` candidate scope, Render's `tips` table and the `tip` message on the wire go. What a client does with its own tips is settled in that client's spec, not here.
+- **The rescue table stays hand-tuned** against Bookie Bashing's 2-up tracker with `tools/twoup_backtest.py` over an exported CSV. With no ledger on Render, that CSV is the only results source, as the 5 Nov decision already said.
+
+### The feed (the builder's contract; items marked *call* are the author's defaults, not Callum's words)
+
+- **A row is one side of one fixture**: `event_id`, `event`, `home`, `away`, **`kickoff`** (the match's kick-off time, UTC; Callum's requirement), `competition`, `selection`, `side` (`home` | `away`), `market` (`Match Result`), **`price`** (the decimal odds bet365 quotes for that selection at `priced_at`; Callum's requirement), Pinnacle-fair `p_win` and `fair_price`, `rescue`, `edge` (`p_win + rescue − 1/price`), `ev`, and `priced_at` (when the prices behind the row were fetched). *Call:* a row's identity is `event_id` + `side`, stable across refreshes, so a reader can tell a re-price from a new row without any state on Render.
+- **A row is in the feed while** the fixture is in a configured competition and inside the horizon (`twoup_horizon_hours`, 24 h), both books price all three outcomes, the price is inside the band (`twoup_min_price` .. `twoup_max_price`) and the edge is at or above the floor (`twoup_min_edge`). It leaves at `twoup_min_lead_minutes` before kick-off, or as soon as a refresh no longer meets one of those. *Call:* the full priced board stays available with a per-row `value` flag (today's `value_only=false`) so the page can show why a fixture is not value; the agent reads `value_only=true`.
+- **Pre-match only.** No in-play rows and no in-play prices; the module has no idea of the score.
+- **Refresh.** The board is rebuilt on a schedule from the shared `OddsPapiClient` cache (`twoup_feed_ttl`, 5 min at the defaults; the client's own kick-off-tiered TTLs still apply underneath), never on a page request. The response carries `generated_at`, every row carries `priced_at`, and `status` says what could not be priced and why (missing book, held chunk, quota). *Call:* a failed refresh keeps serving the last good board with its old `priced_at`, and marks `status.degraded`; it never serves an empty feed because of a transient fetch error. (The Paddy tool's silent hourly tier and missing priced-at time, 6 Nov 2026, is the lesson.)
+- **Transport is HTTP pull.** `GET /api/2up/feed` is the whole API. *Call:* no push, no per-client view of the feed: every reader gets the same rows.
+- **365 is one permission.** A betting agent's machine key (`app/apikeys.py`) carries the `accabonus` grant, the same grant as the page; there is no feed-only grant, and whatever else sits under 365 (diagnostics, the acca boost when it returns) is open to that key. (6 Nov 2026, Callum)
+- **The 2-Up module has no Hub endpoint.** A Hub endpoint belongs to the tool that needs one, one per tool; the betting agent brings its own. The Render end of the WebSocket (`/api/2up/ws`, `app/hub/`, the `hub` grant, the `hub_*` tables and the `/api/2up/hub/*` operator routes) is removed with this work. The Hub-side link client (`hub/puntmore_hub/link`, the Console's Render card, `puntmore link-check`) then has no Render end until the betting agent defines its own; that is the betting agent's spec, and `hub/` is not changed here beyond its docs. (6 Nov 2026, Callum)
+- **Kill switch.** *Call:* the global `TWOUP_KILL_SWITCH` stays and empties the feed with `status.killed=true`; the per-client flag goes with the clients.
+- **Diagnostics stay**: `/api/2up/diagnostics` and the `twoup_detail` block in `/api/ready` report the last refresh, the account's request count and what could not be priced.
+
+### What this supersedes
+
+| Section below | Status from 6 Nov 2026 |
+|---|---|
+| Purpose and boundaries, "Owns" | owns price ingestion, the fair line, the rescue model and the value feed only; bet selection, staking, exposure and daily stats are the client's |
+| Deployment topology, Bet Finder orchestrator and per-client ledgers on Render | removed |
+| What's shared vs what's Cal's; `source_scope` | removed: one feed, no owner scope |
+| Multi-client access, per-client auth and onboarding | reduced to machine keys for readers of the feed; no client records |
+| Tenancy model | out of this module |
+| Decision model, Account-preservation rules | the client's |
+| Interfaces: bet list out, reports back | removed; the row above is the only interface |
+| Cover bets and failure handling | the client's |
+| Bet Finder (sibling module) | not on Render; kept below as history |
+| Operational safeguards: per-client kill, idempotent `bet_id`, dry-run | the client's; the global kill switch stays |
+| Open questions: Kelly fraction, stake ceiling, cover budget, payback terms, daily stats | the client's or the betting agent's |
+
+### What goes from the code, what stays
+
+*Call, from reading the code on 6 Nov 2026; the plan settles the order.* Stays: `app/twoup/feed.py`, the pricing half of `model.py` (`fair_1x2`, `RescueTable`, `edge`, `price_fixture`), `rescue_table.json`, `tools/twoup_backtest.py`, `GET /api/2up/feed`, `/api/2up/diagnostics`, the `2up` source in `/api/value`, the Feed on the 2-Up tab. Goes: the staking half of `model.py`, `decision.py`, `ledger.py` and the `twoup_*` client, account, bet and balance tables, the clients and ledger routes, the scheduled decision pass and the bet-list dispatcher, the Ledger on the 2-Up tab, `app/betfinder/` and its routes and tables, and the Hub endpoint on Render (`app/hub/`, `routers/hub_ws.py`, its grant, tables and routes; the vendored protocol schema and its byte-identical test with it). Settings that only fed staking (`twoup_kelly_fraction` through `twoup_decision_minutes`) go with it.
 
 ## Decisions, 5 Nov 2026
 
@@ -13,8 +58,8 @@ Settled in build; the sections below are updated where they said otherwise.
 - 365 and 2-Up are one tool, **365**: acca boost, goalscorers, 2-Up engine. Goalscorers is parked until rebuilt on OddsPapi; the acca boost returns on OddsPapi.
 - **OddsPapi is the only odds source.** The other vendors are removed from the code.
 - **Hermes owns the Hub**: a chief of staff on Telegram plus four specialists, on the local model. It runs the schedules and takes every escalation.
-- The /scraper control page on Render is removed; the Worker's config lives on the Hub.
-- The Bet Finder's scrape sources fold into the Worker (`scraper/`): one Chrome, one budget, one alert path.
+- The /scraper control page on Render is removed; the Scraper's config lives on the Hub.
+- The Bet Finder's scrape sources fold into the Scraper (`scraper/`): one Chrome, one budget, one alert path.
 - The 2-up edge is proven. The rescue model is tuned during testing against Bookie Bashing's 2-up tracker, by hand (BB bans automated access).
 - Render stays one deploy serving three subdomains; it is not expected to scale beyond this.
 - Code: github.com/CMclarty/puntmore (monorepo). Hub side in `hub/`; the wire contract in `hub/PROTOCOL.md` and `hub/schemas/`.
@@ -34,23 +79,23 @@ Two physical systems. The boundary between them is the WebSocket/queue layer, so
 
 **Render (cloud) — the bet engines; one deploy, three subdomains**
 
-- 365 tool: acca boost + goalscorers (parked) + the 2-Up engine (pricing + decision), one tool
-- Bet Finder orchestrator (scheduler, state, parsers, dedupe)
+- 365 tool: the 2-Up engine (pricing + decision), one tool; the acca boost returns on OddsPapi and goalscorers is parked
+- Bet Finder orchestrator (scheduler, state, matching, dedupe; parsing is the Scraper's, on the Hub)
 - Per-client ledgers and reporting
 - Odds API client
 
-**Subdomains (rough, subject to change):**
+**Subdomains (fixed 5 Nov 2026, `docs/decisions.md`):**
 
 - `2up.puntmore.com` — the 2-up tool and its client API. REST for auth, onboarding, ledger reads; WebSocket on the same host for bet lists out and reports back.
-- `shalgo.puntmore.com` — the Paddy Power tool (WOP Finder / PP scraper orchestrator) and the coupon tracker.
-- `me.puntmore.com` — Cal's personal tools: dogs, virtuals, and the private multi-bookmaker engine (PP bet builders, 2-ups, 365 goalscorer arbs, tipsters, scrapes). Owner-only; not a client product.
+- `shalgo.puntmore.com` — the Paddy Power tools (a setup of their own, fed by the Scraper) and the coupon tracker.
+- `me.puntmore.com` — Cal's personal tools: dogs, virtuals, and the private multi-bookmaker engine (PP bet builders, 2-ups, 365 goalscorer arbs (parked), tipsters, scrapes). Owner-only; not a client product.
 
 The 2-up engine spec'd in this doc is `2up`. The private engine on `me` is a separate, broader system that consumes `2up` as one of several bet sources and has its own staking layer across all bookmakers — to be spec'd separately.
 
 **Hub (Cal's box, residential IP) — owned by Hermes**
 
 - Phones — the sub-clients; the client engine drives placement on them
-- Scraper worker — Playwright in headful Chrome, persistent profile (home side of the WOP Finder / PP scraper split)
+- The Scraper (`scraper/`) — Playwright driving real headful Chrome on the Hub's desktop, persistent profile; user service `puntmore-scraper` (Docker the fallback for a box with no screen)
 - Claude Desktop
 - Hermes (owner of the Hub), on the local model — the higher-level reasoning layer: receives escalations (failed bets, unhealthy sources, kill-switch triggers), decides, and instructs the engines
 
@@ -91,7 +136,7 @@ Constrained optimisation. Objective: maximise expected log bankroll growth (Kell
 
 Per account, per day: rank candidates by edge, size with fractional Kelly, apply constraints 3 → 1 → 2, drop what fails.
 
-**2-up rescue model.** Bet365 does not price the 2-up concession into its odds — the match-result price is identical with or without the promo; they carry it as a marketing cost managed by restricting qualifying leagues. So the value is a pure overlay on the standard line: edge = P(win) + P(two up but fails to win) − 1/price. No published model conditions the rescue rate on match odds (unconditioned base rate ≈ 1.8% of matches, \~5–7% of two-goal leads). Build it from historical results with goal timings and closing Pinnacle odds, bucketed by implied win probability.
+**2-up rescue model.** Bet365 does not price the 2-up concession into its odds — the match-result price is identical with or without the promo; they carry it as a marketing cost managed by restricting qualifying leagues. So the value is a pure overlay on the standard line: edge = P(win) + P(two up but fails to win) − 1/price. No published model conditions the rescue rate on match odds (unconditioned base rate ≈ 1.8% of matches, \~5–7% of two-goal leads). The rescue table (`render/api/app/twoup/rescue_table.json`) is bucketed by implied win probability and tuned by hand against Bookie Bashing's 2-up tracker (`tools/twoup_backtest.py` over an exported CSV); there is no historical-data build.
 
 **Decision 5 Nov 2026: the edge is proven; do not gate the build on a literature review. The rescue model is fine-tuned during testing against Bookie Bashing's 2-up tracker, by hand (BB bans automated access).**
 
@@ -138,7 +183,7 @@ Scraper/ingest engine. Sources bets from outside the 2-up model and normalises t
 
 - Tipsters by email — IMAP poll of a dedicated mailbox; one parser per tipster.
 - Tipsters by Substack — RSS/email delivery into the same mailbox; same parser path.
-- Regular scrapes — scheduled scrapers (Playwright/requests), one per site, on a cron.
+- Regular scrapes — the Scraper's `generic` targets (`site = "generic"` in `targets.toml` on the Hub), each on its own interval under the generic site budget.
 
 **Pipeline**
 
@@ -150,9 +195,11 @@ Scraper/ingest engine. Sources bets from outside the 2-up model and normalises t
 
 **Existing scraper tooling (reuse, don't rebuild)**
 
+> History (superseded 5 Nov 2026): the WOP Finder, Watchtower and `~/apitest/` builds below are the record of where the Scraper came from; what runs now is `scraper/` (`scraper/HANDOVER.md`, `scraper/README.md`).
+
 Two prior builds cover the scrape side; the Bet Finder's "regular scrapes" should be those, adapted to emit candidate bets.
 
-Decision, 5 Nov 2026: the Bet Finder's scrape sources (`hub/`, YAML + parser + fixture each) fold into this Worker, so one Chrome, one request budget and one alert path serve both. The Worker's targets live on the Hub; the /scraper page on Render is removed.
+Decision, 5 Nov 2026: the Bet Finder's scrape sources (`hub/`, YAML + parser + fixture each) fold into the Scraper (`scraper/`), so one Chrome, one request budget and one alert path serve both. The Scraper's targets live on the Hub; the /scraper page on Render is removed.
 
 - **WOP Finder** — Paddy Power scraper for tiered bet-builder packages (WOPs) and corners/cards O/U lines. Split deployment: Render-hosted orchestrator (scheduler, JSON state keyed on PP event IDs, FlashScore fixture join, Discord reporting) + home-machine Docker worker running Playwright in real headful Chrome on a residential connection, persistent profile, Watchtower auto-update from GitHub. Cadence: fixture generation Mon/Thu, daily market sweep. Handoff doc already written.
 - **PP saves/cards scraper** (`HANDOVER.md` on the home server, `~/apitest/`) — compares Paddy Power goalkeeper saves, cards and corners against BookieBashing fair odds. Carries the hard rules below.
@@ -160,7 +207,7 @@ Decision, 5 Nov 2026: the Bet Finder's scrape sources (`hub/`, YAML + parser + f
 **Hard rules inherited from the PP scraper** — apply to every scrape source:
 
 - Real headful Chrome, one persistent profile, no stealth/fingerprint-spoofing tooling, no fake mouse movement.
-- Request budget \~60 pages/hour, \~400/day, random pauses, human-like page interaction. Sweeps every 2–4 h, \~30 min in the last 3 h before kick-off; nearest kick-offs first if the budget runs short.
+- Request budget per site, in code (`scraper/sites.py`): Paddy Power 15 loads/h with quiet hours 01–07, Bookie Bashing 8/h, generic sources 60/h and 400/day; random pauses, human-like page interaction. Sweeps every 2–4 h, \~30 min in the last 3 h before kick-off; nearest kick-offs first if the budget runs short.
 - On any challenge/CAPTCHA/block: 24 h cool-off + alert.
 - Daily 09:00 Discord heartbeat with 24 h summary; crash alert with traceback, startup message, hang watchdog, stale-data check, alert de-dup. Silence means broken.
 - Paddy Power is blocked in Claude in Chrome; all PP automation runs on the home machine via Playwright.
@@ -176,12 +223,12 @@ Decision, 5 Nov 2026: the Bet Finder's scrape sources (`hub/`, YAML + parser + f
 **Open questions**
 
 - [ ] Initial tipster list and scrape targets
-- [ ] Does a tipster bet pass through Kelly or use the tipster's advised stake units?
+- [ ] Does a tipster bet pass through Kelly or use the tipster's advised stake units? (OPEN, Callum to decide: `docs/decisions.md`, "how a Bet Finder tip is staked")
 - [ ] (resolved) Bet Finder bets are Cal-only; 2-up bets go to all clients
 
 ## Operational safeguards
 
-- **Kill switch** — a pause flag at global and per-client level, set from config or a single command, that halts the bet feed immediately with no code change.
+- **Kill switch** — a file on the Hub (`hub/data/KILL`) and a per-client flag on Render (plus the global `TWOUP_KILL_SWITCH`), that halts the bet feed immediately with no code change.
 - **Idempotency** — every bet carries a unique `bet_id`; the client engine echoes it on every report. A replayed or duplicated message never causes a second placement.
 - **Dry-run mode** — the engine produces bet lists and full reports but sends nothing to any client. Run for at least two weeks against live prices to validate staking and the rescue model before real money moves.
 
@@ -190,7 +237,7 @@ Decision, 5 Nov 2026: the Bet Finder's scrape sources (`hub/`, YAML + parser + f
 - [ ] Kelly fraction
 - [ ] Dynamic stake-ceiling formula (window, max step)
 - [ ] Cover-bet budget as % of turnover
-- [ ] Historical data source for the rescue model (goal timings + Pinnacle closing odds)
+- [x] (closed 5 Nov 2026) Historical data source for the rescue model: none; the table is tuned by hand against BB's 2-up tracker
 - [ ] (resolved) Hermes on the Hub; the escalation contract is in hub/PROTOCOL.md
 - [ ] Daily stats report: contents and destination
 

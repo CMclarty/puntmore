@@ -1,10 +1,23 @@
 #!/bin/sh
+# Docker FALLBACK for a box with no screen (docs/decisions.md). The default is
+# the user service puntmore-scraper on the Hub's desktop, updated by
+# puntmore-update.timer.
 # Root only long enough to fix the volume's owner, then everything runs as pwuser.
 # setpriv EXECs (no wrapper process), so python gets docker's SIGTERM itself
 # and closes Chrome cleanly; run with --init so Chrome's children are reaped.
 set -e
 AS_PW="setpriv --reuid=pwuser --regid=pwuser --init-groups env HOME=/home/pwuser"
 mkdir -p /data/profile
+# The desktop Scraper (deploy/native/, the Hub's default) may be running on this
+# same data dir: its heartbeat is fresh. Two Chromes on one profile corrupt it,
+# so wait it out (Docker's restart policy tries again). After this container's
+# own exit the heartbeat goes stale within 90 s and the restart goes through.
+if [ -f /data/heartbeat ] && \
+   [ $(( $(date +%s) - $(cat /data/heartbeat) )) -lt 90 ]; then
+  echo "the heartbeat in /data is fresh: another Scraper (the desktop one?) runs on this data dir; not starting"
+  sleep 30
+  exit 1
+fi
 chown -R pwuser:pwuser /data
 # A container that was killed leaves Chrome's profile lock behind, and Chrome
 # then refuses the profile - which would stop an unattended restart dead.

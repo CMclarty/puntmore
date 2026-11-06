@@ -272,3 +272,85 @@ def test_install_command_tolerates_a_missing_web_extra(tmp_path, monkeypatch):
 def test_update_sh_parses():
     script = Path(__file__).resolve().parent.parent / "deploy" / "update.sh"
     subprocess.run(["bash", "-n", str(script)], check=True)
+
+
+# ---- the Scraper (scraper/) on the desktop --------------------------------------------------------
+
+class ScraperFakes(Fakes):
+    def units(self):
+        return ["puntmore-link.service", update.SCRAPER_UNIT]
+
+    def scraper_installer(self, repo):
+        self.calls.append(("install-scraper", Path(repo)))
+
+    def kw(self):
+        return dict(super().kw(), scraper_installer=self.scraper_installer)
+
+
+def test_scraper_is_an_updater_unit():
+    assert update.SCRAPER_UNIT == "puntmore-scraper.service"
+    assert update.SCRAPER_UNIT in update.enabled_units.__defaults__[0]
+
+
+def test_a_scraper_change_restarts_the_scraper(repos, cfg):
+    box, dev, _ = repos
+    push(dev, "scraper/parsers/pp_most.py")
+    f = ScraperFakes()
+    res = update.run(cfg, box, **f.kw())
+    assert res.outcome == "updated", res.detail
+    assert f.calls == [("install", box), ("restart", ["puntmore-link.service", update.SCRAPER_UNIT])]
+
+
+def test_a_hub_only_change_leaves_the_scraper_running(repos, cfg):
+    """A Scraper restart reopens every kept-open page, out of the sites' budgets."""
+    box, dev, _ = repos
+    push(dev, "hub/puntmore_hub/new.py")
+    f = ScraperFakes()
+    assert update.run(cfg, box, **f.kw()).outcome == "updated"
+    assert f.calls == [("install", box), ("restart", ["puntmore-link.service"])]
+
+
+def test_new_scraper_requirements_are_installed_before_the_restart(repos, cfg):
+    box, dev, _ = repos
+    push(dev, "scraper/requirements.txt", "playwright==1.56.0\n")
+    f = ScraperFakes()
+    res = update.run(cfg, box, dry_run=True, **f.kw())
+    assert any("-r " + str(box / "scraper" / "requirements.txt") in step for step in res.plan)
+    assert update.run(cfg, box, **f.kw()).outcome == "updated"
+    assert [c[0] for c in f.calls] == ["install", "install-scraper", "restart"]
+    assert update.SCRAPER_UNIT in f.calls[-1][1]
+
+
+def test_scraper_not_enabled_is_not_restarted(repos, cfg):
+    box, dev, _ = repos
+    push(dev, "scraper/browser.py")
+    f = Fakes()                                   # the scraper unit is not enabled on this box
+    res = update.run(cfg, box, **f.kw(), scraper_installer=lambda r: f.calls.append(("x", r)))
+    assert res.outcome == "updated"
+    assert f.calls == [("install", box), ("restart", ["puntmore-link.service", "puntmore-heartbeat.timer"])]
+
+
+# ---- the Hermes runbooks -------------------------------------------------------------------------
+
+def test_update_copies_the_runbook_into_its_profile(repos, cfg):
+    box, dev, _ = repos
+    push(dev, "hub/deploy/hermes-skills/puntmore-scraper-ops/SKILL.md", "# v2\n")
+    profile = cfg.hermes_home / "profiles" / "scraper-manager"
+    stale = profile / "skills" / "puntmore-scraper-ops"
+    stale.mkdir(parents=True)
+    (stale / "SKILL.md").write_text("# v1\n")
+    (stale / "old-note.md").write_text("gone after the sync\n")
+    f = Fakes()
+    res = update.run(cfg, box, **f.kw())
+    assert res.outcome == "updated", res.detail
+    assert "runbooks: puntmore-scraper-ops -> scraper-manager" in res.detail
+    assert (stale / "SKILL.md").read_text() == "# v2\n" and not (stale / "old-note.md").exists()
+    # a second sync with nothing changed copies nothing
+    assert update.sync_hermes_skills(box, cfg) == []
+
+
+def test_a_profile_that_is_not_on_the_box_is_skipped(repos, cfg):
+    box, dev, _ = repos
+    push(dev, "hub/deploy/hermes-skills/puntmore-scraper-ops/SKILL.md", "# v2\n")
+    assert update.sync_hermes_skills(box, cfg) == []
+    assert not (cfg.hermes_home / "profiles").exists()

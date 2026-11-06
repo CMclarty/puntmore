@@ -1,24 +1,27 @@
 """SQLite state for the Hub.
 
-One file, plain tables, so any agent can inspect it with ``sqlite3 data/home.sqlite``.
+One file, plain tables, so any agent can inspect it with ``sqlite3 data/hub.sqlite``.
 Tables:
-    tips          candidate bets from the Worker's sources, deduped, with settled outcome for ROI
+    tips          candidate bets from the Scraper's sources, deduped, with settled outcome for ROI
     bets          bet lists received from Render and their placement status
     outbox        messages queued for Render (survive restarts, sent at least once)
     inbox_seen    msg_ids already processed (idempotency)
+    mail_seen     Message-IDs of tipster emails already read (mail.py; idempotency)
+    finder_posted tips Hermes has posted to Render's Finder, with the status Render stored, or
+                  skipped (with a reason) when Hermes cannot post it (finder.py)
     escalations   things handed to the local AI and what it decided
     alerts        sent alerts, for de-dup
     balances      balance snapshots per account
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .ids import tip_id_for  # noqa: F401  (the one tip id; re-exported)
 from .schemas import new_id
 
 SCHEMA = """
@@ -32,11 +35,13 @@ CREATE TABLE IF NOT EXISTS bets(
 CREATE TABLE IF NOT EXISTS outbox(
     id INTEGER PRIMARY KEY, msg_id TEXT UNIQUE, type TEXT, body TEXT, created TEXT, sent_at TEXT, acked_at TEXT);
 CREATE TABLE IF NOT EXISTS inbox_seen(msg_id TEXT PRIMARY KEY, ts TEXT);
+CREATE TABLE IF NOT EXISTS mail_seen(message_id TEXT PRIMARY KEY, ts TEXT);
 CREATE TABLE IF NOT EXISTS escalations(
     id INTEGER PRIMARY KEY, kind TEXT, ref TEXT, detail TEXT, created TEXT,
     outcome TEXT, resolved TEXT, reported INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY, key TEXT, ts TEXT, message TEXT);
 CREATE TABLE IF NOT EXISTS balances(account_id TEXT, balance REAL, ts TEXT);
+CREATE TABLE IF NOT EXISTS finder_posted(tip_id TEXT PRIMARY KEY, status TEXT, ts TEXT, reason TEXT);
 """
 
 
@@ -55,12 +60,6 @@ def parse_iso(s: str | None) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def tip_id_for(source_id: str, event: str, market: str, selection: str, tip_time: str) -> str:
-    """Stable id so the same tip seen twice (or from two sweeps) is stored once."""
-    key = f"{source_id}|{event.strip().lower()}|{market.strip().lower()}|{selection.strip().lower()}|{tip_time[:10]}"
-    return hashlib.sha1(key.encode()).hexdigest()[:16]
-
-
 class Store:
     def __init__(self, path: Path | str = ":memory:"):
         self.path = str(path)
@@ -75,9 +74,11 @@ class Store:
         self.conn.close()
 
     # ---- tips ------------------------------------------------------------------------------------
-    def add_tip(self, tip: dict[str, Any]) -> str | None:
-        """Insert a candidate tip. Returns its tip_id, or None if it was already stored."""
-        tid = tip_id_for(tip["source_id"], tip["event"], tip["market"], tip["selection"], tip["tip_time"])
+    def add_tip(self, tip: dict[str, Any], tip_id: str | None = None) -> str | None:
+        """Insert a candidate tip under `tip_id` (the Scraper's, minted where the tip was
+        first seen), or one minted here when none is given. Returns its tip_id, or None
+        if it was already stored."""
+        tid = tip_id or tip_id_for(tip["source_id"], tip["event"], tip["market"], tip["selection"], tip["tip_time"])
         cur = self.conn.execute(
             """INSERT OR IGNORE INTO tips(tip_id, source_id, event, market, selection, advised_price,
                advised_stake_units, tip_time, expiry, origin, first_seen, extra)
@@ -87,6 +88,30 @@ class Store:
              iso(utcnow()), json.dumps(tip.get("extra") or {})))
         self.conn.commit()
         return tid if cur.rowcount else None
+
+    # ---- Finder (finder.py): which tips Hermes has posted to Render -------------------------------
+    def finder_unposted(self, limit: int = 50) -> list[sqlite3.Row]:
+        """Stored tips Hermes has not yet posted to Finder, oldest first."""
+        return self.conn.execute(
+            """SELECT t.tip_id, t.source_id, t.event, t.market, t.selection, t.advised_price,
+                      t.advised_stake_units, t.tip_time, t.expiry, t.origin, t.first_seen
+               FROM tips t LEFT JOIN finder_posted f ON f.tip_id = t.tip_id
+               WHERE f.tip_id IS NULL ORDER BY t.first_seen, t.rowid LIMIT ?""", (limit,)).fetchall()
+
+    def finder_mark(self, tip_id: str, status: str, reason: str | None = None) -> None:
+        """Record `tip_id`'s Finder status: the one Render stored for it, or `skipped` with the
+        reason Hermes gave (the latest mark wins)."""
+        self.conn.execute("INSERT OR REPLACE INTO finder_posted(tip_id, status, ts, reason) VALUES(?,?,?,?)",
+                          (tip_id, status, iso(utcnow()), reason))
+        self.conn.commit()
+
+    def finder_status(self, tip_id: str) -> str | None:
+        """The status `tip_id` was last marked with, or None if it never was."""
+        row = self.conn.execute("SELECT status FROM finder_posted WHERE tip_id=?", (tip_id,)).fetchone()
+        return row["status"] if row else None
+
+    def tip_exists(self, tip_id: str) -> bool:
+        return self.conn.execute("SELECT 1 FROM tips WHERE tip_id=?", (tip_id,)).fetchone() is not None
 
     def settle_tip(self, tip_id: str, outcome: str, settled_return: float) -> None:
         self.conn.execute("UPDATE tips SET outcome=?, settled_return=? WHERE tip_id=?", (outcome, settled_return, tip_id))
@@ -132,6 +157,10 @@ class Store:
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(outbox)").fetchall()}
         if "acked_at" not in cols:
             self.conn.execute("ALTER TABLE outbox ADD COLUMN acked_at TEXT")
+            self.conn.commit()
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(finder_posted)").fetchall()}
+        if "reason" not in cols:
+            self.conn.execute("ALTER TABLE finder_posted ADD COLUMN reason TEXT")
             self.conn.commit()
 
     # ---- outbox / inbox --------------------------------------------------------------------------
@@ -181,6 +210,16 @@ class Store:
         cur = self.conn.execute("INSERT OR IGNORE INTO inbox_seen(msg_id, ts) VALUES(?,?)", (msg_id, iso(utcnow())))
         self.conn.commit()
         return cur.rowcount == 0
+
+    # ---- mail ------------------------------------------------------------------------------------
+    # The mailbox's \Seen flag only says the Hub downloaded a message; this table says it was
+    # read, so a message is never turned into tips or an escalation twice, whatever the flag says.
+    def mail_seen(self, message_id: str) -> bool:
+        return self.conn.execute("SELECT 1 FROM mail_seen WHERE message_id=?", (message_id,)).fetchone() is not None
+
+    def mail_mark_seen(self, message_id: str) -> None:
+        self.conn.execute("INSERT OR IGNORE INTO mail_seen(message_id, ts) VALUES(?,?)", (message_id, iso(utcnow())))
+        self.conn.commit()
 
     # ---- escalations -----------------------------------------------------------------------------
     def add_escalation(self, kind: str, ref: str, detail: str) -> int:

@@ -2,7 +2,6 @@ import json
 
 from sqlalchemy import (
     Boolean, Column, Integer, String, Float, DateTime, Date, ForeignKey, Text,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -317,7 +316,7 @@ class LadderShadow(Base):
 
 # The scraper control plane (scraper_leagues, scraper_markets,
 # scraper_timings, scraper_target_status, scraper_site_status) was removed on
-# 5 Nov 2026: the Worker reads targets.toml on the Hub. Its tables are left in
+# 5 Nov 2026: the Scraper (then called the Worker) reads targets.toml on the Hub. Its tables are left in
 # the database untouched until someone drops them.
 
 
@@ -359,273 +358,40 @@ class HillsBet(Base):
     placed_at = Column(DateTime, nullable=False, default=utcnow)
 
 
-# --- the Hub link (hub/PROTOCOL.md, app/hub/) ----------------------------------
-# Every table here is bounded by `hub.service.sweep` (retention per table in
-# app/hub/service.py). Times are naive UTC like the rest of the schema.
+class FinderRow(Base):
+    """One tip on Finder, Callum's private Bet Finder (docs/finder-spec.md,
+    app/finder/rows.py): what Hermes posted from the Hub, and where it is in
+    the status machine. Owner-only; kept 30 days from `created_at`.
 
-class HubInboxSeen(Base):
-    """An inbound msg_id from a Hub that Render processed — the idempotency
-    record. A frame whose (client_id, msg_id) is here is acked `replay: true`
-    and otherwise ignored. Swept after 7 days."""
-    __tablename__ = "hub_inbox_seen"
-    __table_args__ = (UniqueConstraint("client_id", "msg_id", name="uq_hub_inbox_seen"),)
+    `odds` and `fair` are the prices the TIP quotes (nothing here looks one
+    up); `edge` = odds / fair - 1, null with no fair. An `offered` row always
+    has `kickoff`, `odds` and `fair`; an `asked` (or `rejected`) row may lack
+    all three. Times are naive UTC
+    like the rest of this file."""
+    __tablename__ = "finder_rows"
 
-    id = Column(Integer, primary_key=True)
-    client_id = Column(String, nullable=False)
-    msg_id = Column(String, nullable=False)
-    type = Column(String, nullable=False)
-    seen_at = Column(DateTime, nullable=False, default=utcnow, index=True)
-
-
-class HubTip(Base):
-    """A candidate tip from a Hub's Bet Finder sources, kept for the Bet Finder
-    orchestrator to consume. `tip_id` is stable per source + event + market +
-    selection + day, so a re-scraped tip is the same row (the first is kept).
-    `body` is the tip as sent (JSON); the named columns are copies for listing."""
-    __tablename__ = "hub_tips"
-
-    id = Column(Integer, primary_key=True)
-    tip_id = Column(String, unique=True, nullable=False)
-    client_id = Column(String, nullable=False)
-    source_id = Column(String, nullable=False)
-    event = Column(String, nullable=False)
-    market = Column(String, nullable=False)
-    selection = Column(String, nullable=False)
-    advised_price = Column(Float, nullable=True)
-    tip_time = Column(String, nullable=False)            # ISO, as sent
-    body = Column(Text, nullable=False)
-    received_at = Column(DateTime, nullable=False, default=utcnow, index=True)
-
-
-class HubEscalation(Base):
-    """Something a Hub handed to its local AI, and (once decided) the outcome.
-    One row per (client_id, escalation_id): `escalation` creates it,
-    `escalation_outcome` fills `outcome` (creating the row if the escalation
-    itself never arrived)."""
-    __tablename__ = "hub_escalations"
-    __table_args__ = (
-        UniqueConstraint("client_id", "escalation_id", name="uq_hub_escalation"),
-    )
-
-    id = Column(Integer, primary_key=True)
-    client_id = Column(String, nullable=False)
-    escalation_id = Column(Integer, nullable=False)
-    kind = Column(String, nullable=False)
-    ref = Column(String, nullable=False)
-    detail = Column(Text, nullable=True)
-    created = Column(String, nullable=True)              # ISO, as sent
-    outcome = Column(Text, nullable=True)
-    received_at = Column(DateTime, nullable=False, default=utcnow, index=True)
-    outcome_at = Column(DateTime, nullable=True)
-
-
-class HubOutbox(Base):
-    """A frame Render sends a Hub (bet_list, kill_switch, scrape_job), kept
-    until the Hub acks it. Unacked frames are re-sent, same msg_id, when the
-    client reconnects. A bet_list's bet_ids are marked sent in the engine only
-    when its ack arrives."""
-    __tablename__ = "hub_outbox"
-
-    id = Column(Integer, primary_key=True)
-    msg_id = Column(String, unique=True, nullable=False)
-    client_id = Column(String, nullable=False, index=True)
-    type = Column(String, nullable=False)
-    frame = Column(Text, nullable=False)                 # the whole envelope, JSON
-    bet_ids = Column(Text, nullable=True)                # bet_list only: JSON list
-    created_at = Column(DateTime, nullable=False, default=utcnow, index=True)
-    sent_at = Column(DateTime, nullable=True)
-    acked_at = Column(DateTime, nullable=True)
-
-
-class HubSentBet(Base):
-    """Every bet_id ever put in a frame to a Hub. A bet_id goes out in exactly
-    ONE frame: that frame may be re-delivered (same msg_id), but the bet is
-    never listed in a new one — PROTOCOL.md: a failed bet is never resent."""
-    __tablename__ = "hub_sent_bets"
-    __table_args__ = (UniqueConstraint("client_id", "bet_id", name="uq_hub_sent_bet"),)
-
-    id = Column(Integer, primary_key=True)
-    client_id = Column(String, nullable=False)
-    bet_id = Column(String, nullable=False)
-    msg_id = Column(String, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=utcnow, index=True)
-
-# --- 2-Up engine ledger (app/twoup/ledger.py) --------------------------------
-# Every row is keyed client_id -> account_id (spec, "Tenancy model"): a client
-# is a separate customer with its own pooled bankroll, an account one phone
-# with one bet365 account on it. Nothing here places a bet; the Hub endpoint
-# sends what is queued and reports come back through ledger.apply_report.
-
-class TwoUpClient(Base):
-    """A 2-Up client. Dry-run is ON for every new client: its bet lists are
-    produced and recorded but never handed to the Hub endpoint."""
-    __tablename__ = "twoup_clients"
-
-    client_id = Column(String, primary_key=True)
-    name = Column(String, nullable=True)
-    # The pooled bankroll Kelly sizes on. 0 = the sum of the client's enabled
-    # accounts' reported balances.
-    bankroll = Column(Float, nullable=False, default=0.0)
-    kill_switch = Column(Boolean, nullable=False, default=False)
-    dry_run = Column(Boolean, nullable=False, default=True)
-    # Only the owner client ever receives `owner`-scope (Bet Finder) bets.
-    is_owner = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow)
-
-
-class TwoUpAccount(Base):
-    """A sub-client: one phone, one bookmaker account."""
-    __tablename__ = "twoup_accounts"
-    __table_args__ = (UniqueConstraint("client_id", "account_id"),)
-
-    id = Column(Integer, primary_key=True)
-    client_id = Column(String, ForeignKey("twoup_clients.client_id"), nullable=False, index=True)
-    account_id = Column(String, nullable=False)
-    balance = Column(Float, nullable=False, default=0.0)
-    balance_at = Column(DateTime, nullable=True)          # ts of the report it came from
-    enabled = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-
-
-class TwoUpBet(Base):
-    """One bet in the PROTOCOL.md Bet shape plus its lifecycle.
-
-    status: queued -> sent -> placed -> settled, or price_changed / failed
-    (terminal: a failed bet_id is never resent). Times are naive UTC."""
-    __tablename__ = "twoup_bets"
-
-    bet_id = Column(String, primary_key=True)
-    client_id = Column(String, ForeignKey("twoup_clients.client_id"), nullable=False, index=True)
-    account_id = Column(String, nullable=False, index=True)
-    list_id = Column(String, nullable=False, index=True)  # the record_bet_list call it came in
-    legs = Column(Text, nullable=False, default="[]")     # JSON, PROTOCOL.md bet_leg list
-    stake = Column(Float, nullable=False)
-    expected_price = Column(Float, nullable=False)
-    bet_type = Column(String, nullable=False, default="single")
-    source_scope = Column(String, nullable=False, default="shared")
-    not_before = Column(DateTime, nullable=True)
-    not_after = Column(DateTime, nullable=True)
-    # The London day the bet belongs to, and the first leg's event/selection —
-    # what the daily cap and the "never bet the same selection twice" check read.
-    day = Column(Date, nullable=False, index=True)
-    event_id = Column(String, nullable=True)
-    selection = Column(String, nullable=True)
-    edge = Column(Float, nullable=True)                   # model edge when decided
-    status = Column(String, nullable=False, default="queued")
-    dry_run = Column(Boolean, nullable=False, default=True)   # Render's dry-run: never sent
-    hub_dry_run = Column(Boolean, nullable=True)          # the Hub's `placed.dry_run`
-    actual_price = Column(Float, nullable=True)
-    new_price = Column(Float, nullable=True)              # price_changed
-    fail_reason = Column(String, nullable=True)
-    outcome = Column(String, nullable=True)               # won | lost | void | partial
-    return_amount = Column("return", Float, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    sent_at = Column(DateTime, nullable=True)
-    placed_at = Column(DateTime, nullable=True)
-    settled_at = Column(DateTime, nullable=True)
-    updated_at = Column(DateTime, nullable=False, default=utcnow)
-
-    @property
-    def legs_list(self) -> list:
-        try:
-            return json.loads(self.legs or "[]")
-        except ValueError:
-            return []
-
-
-class TwoUpBalance(Base):
-    """Every balance report, as history. The account row holds the latest."""
-    __tablename__ = "twoup_balances"
-    __table_args__ = (UniqueConstraint("client_id", "account_id", "ts"),)
-
-    id = Column(Integer, primary_key=True)
-    client_id = Column(String, nullable=False, index=True)
-    account_id = Column(String, nullable=False)
-    balance = Column(Float, nullable=False)
-    ts = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-
-
-class BetFinderSource(Base):
-    """One Bet Finder source (app/betfinder/sources.py): config as data.
-
-    Seeded from BETFINDER_SOURCES on startup (missing rows only, never an
-    edit); a tip from a source not here creates it INACTIVE at trust 0.5.
-    `trust_weight` (0..1) scales the stake and is set by hand, never by the
-    code. `stake_mode`: auto (advised units when the tip carries them, else
-    Kelly) | advised | kelly. `kind`: hub (tips over the Hub link) | imap (a
-    documented seam, not implemented: Render never fetches)."""
-    __tablename__ = "betfinder_sources"
-
-    name = Column(String, primary_key=True)
-    kind = Column(String, nullable=False, default="hub")
-    trust_weight = Column(Float, nullable=False, default=0.5)
-    active = Column(Boolean, nullable=False, default=False)
-    stake_mode = Column(String, nullable=False, default="auto")
-    note = Column(String, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow)
-
-
-class BetFinderTip(Base):
-    """One `hub_tips` row as the Bet Finder pipeline sees it (one per tip_id).
-
-    Kept apart from `hub_tips` (swept at 30 days) so a source's record
-    outlives the raw tip. The `*_raw` columns are the tip's text, truncated,
-    UNTRUSTED: shown, never logged, never put in a prompt. The feed columns
-    (event_id ... edge) are OddsPapi's, set when the tip is priced.
-
-    status: new -> priced -> decided -> settled | not_placed, or quarantined
-    (with a `quarantine` reason), duplicate (of `duplicate_of`), expired."""
-    __tablename__ = "betfinder_tips"
-
-    id = Column(Integer, primary_key=True)
-    tip_id = Column(String, unique=True, nullable=False)
-    hub_client_id = Column(String, nullable=False)
-    source = Column(String, nullable=False, index=True)
-    origin = Column(String, nullable=True)
-    event_raw = Column(String, nullable=False)
-    market_raw = Column(String, nullable=False)
-    selection_raw = Column(String, nullable=False)
-    market = Column(String, nullable=False)              # normalised ("match_result", ...)
-    dedupe_key = Column(String, nullable=False, index=True)
-    tip_time = Column(DateTime, nullable=True)           # naive UTC
-    tip_day = Column(Date, nullable=True)
-    expiry = Column(DateTime, nullable=True)
-    advised_price = Column(Float, nullable=True)
-    advised_stake_units = Column(Float, nullable=True)
-    status = Column(String, nullable=False, default="new", index=True)
-    quarantine = Column(String, nullable=True)
-    duplicate_of = Column(String, nullable=True)
-    # From the 2-Up feed once matched and priced.
-    event_id = Column(String, nullable=True, index=True)
-    event = Column(String, nullable=True)
+    tip_id = Column(String, primary_key=True)          # minted once on the Hub (ids.py)
+    origin = Column(String, nullable=False)            # the tipster or page
+    sport = Column(String, nullable=False)             # football | horse
+    bookmaker = Column(String, nullable=False)         # as the tip names it
+    event = Column(String, nullable=False)             # "Home v Away" or "Course HH:MM"
     home = Column(String, nullable=True)
     away = Column(String, nullable=True)
-    selection = Column(String, nullable=True)
+    event_id = Column(String, nullable=True)
+    kickoff = Column(DateTime, nullable=True)          # kick-off or the off; null on an asked row Hermes cannot place on a day
+    market = Column(String, nullable=False)            # as the tip names it; win | each_way for a horse
+    selection = Column(String, nullable=False)
+    line = Column(Float, nullable=True)
     side = Column(String, nullable=True)
-    kickoff = Column(DateTime, nullable=True)
-    competition = Column(String, nullable=True)
-    match_score = Column(Float, nullable=True)
-    price = Column(Float, nullable=True)                 # bet365
-    p_win = Column(Float, nullable=True)                 # Pinnacle de-vigged
-    fair_price = Column(Float, nullable=True)
-    edge = Column(Float, nullable=True)                  # p_win - 1/price (rescue 0)
-    priced_at = Column(DateTime, nullable=True)
-    # From the 2-Up ledger once bet and settled.
-    bet_ids = Column(Text, nullable=False, default="[]")
-    outcome = Column(String, nullable=True)
-    staked = Column(Float, nullable=True)
-    returned = Column(Float, nullable=True)
-    settled_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow)
-
-    @property
-    def bet_id_list(self) -> list:
-        try:
-            v = json.loads(self.bet_ids or "[]")
-        except ValueError:
-            return []
-        return v if isinstance(v, list) else []
+    odds = Column(Float, nullable=True)                # null on an asked row whose tip quotes none
+    fair = Column(Float, nullable=True)
+    edge = Column(Float, nullable=True)
+    advised_stake = Column(Float, nullable=True)       # pounds; Hermes's advice, the placer decides
+    reason = Column(String, nullable=True)             # one line
+    status = Column(String, nullable=False, index=True)  # asked | offered | rejected | placed | gone | expired
+    expires_at = Column(DateTime, nullable=False, index=True)  # earlier of kickoff and the tip's expiry; neither: seen_at + 48 h
+    asked_at = Column(DateTime, nullable=True)         # first posted as asked
+    answered_at = Column(DateTime, nullable=True)      # posted as offered or rejected
+    seen_at = Column(DateTime, nullable=False)         # last posted by Hermes
+    created_at = Column(DateTime, nullable=False, index=True)
+    updated_at = Column(DateTime, nullable=False)

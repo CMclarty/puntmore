@@ -1,10 +1,34 @@
-# scraper/ — rules for the Worker
+# scraper/ — rules for the Scraper
 
-The repo's `CLAUDE.md` applies everywhere and wins on any conflict. Setup and
+`docs/decisions.md` is read first and wins; the repo's `CLAUDE.md` applies everywhere and wins on any other conflict. Setup and
 day-to-day commands are in `README.md`; the boundaries that still apply are in
-`HANDOVER.md`. The Worker is the ONLY thing on the Hub that loads a page.
+`HANDOVER.md`. The Scraper is the ONLY thing on the Hub that loads a page.
 
-- **Bet Finder sources are Worker targets** (5 Nov 2026, Callum: one Chrome,
+## Module map
+- `runner.py` - the loop: wires the modules below, owns the tabs, loads
+  through the guard, applies a targets.toml edit (in place for a timing-only
+  change).
+- `schedule.py` - when each target is due: `every_min`, `stale_min`, jitter
+  drawn once per load, the per-site load gaps, `window`, `priority`, and the
+  kick-off sweep (`near_min` within `near_hours` of a kick-off the rows
+  report; nearest kick-off first when a budget is short).
+- `sinks.py` - where rows go, by `post`: `/api/...` to Render with the
+  ingest key, `hub:<chan>` drop files for the Hub (each row with its
+  `tip_id`); events for the Hub.
+- `status.py` - the heartbeat, `data/status.json`, the per-site budget summary.
+- `ids.py` - the one tip id, minted here when rows reach the Hub sink (a copy
+  of `hub/puntmore_hub/ids.py`; a test in each suite pins the same vector).
+- `parsers/` - one module per page kind; rows only from what the page shows.
+- `targets.py` - the only writer of targets.toml (CLI, console, Hermes).
+- `config.py` - settings and target validation (`_target`, the clamps).
+- `sites.py` - per-site rules in code: budgets, quiet hours, what a block means.
+- `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite).
+- `browser.py` - the one Chrome: launch, block/logout detection, clicks.
+- `capture.py` / `alerts.py` - what a page receives (and its disk samples) /
+  the alert webhook and log.
+
+## Rules
+- **The client's tip-finding sources are Scraper targets** (5 Nov 2026, Callum: one Chrome,
   one budget, one alert path). `site = "generic"` may name any host except the
   two bookmakers; its budget is in `sites.py` (60/h, 400/day, no quiet hours,
   a block = 24 h cool-off + `resume generic`). A generic target is `fetch`
@@ -15,21 +39,32 @@ day-to-day commands are in `README.md`; the boundaries that still apply are in
   `min_rows` breaches and blocks go to `data/hub/events/`. The Hub's
   `puntmore inbox` reads both. Never let a generic target reach Paddy Power
   or Bookie Bashing; never add a second budget anywhere.
-- The rule below is moved verbatim from `CLAUDE.md` on 5 Nov 2026.
+- targets.toml is edited only through `scraper/targets.py` (the CLI, the
+  console, the scraper-manager); never by hand while the Scraper runs.
+  Validation stays in `config._target`; `targets.py` must not grow its own
+  copy of a clamp, host or site rule.
+- The rule below is moved from `CLAUDE.md` on 5 Nov 2026 (its first lines
+  updated the same day for the move to the Hub's desktop).
 
-- **The scraper (`scraper/`, Oct 2026) is a SEPARATE service** — its own
-  Docker image (`.github/workflows/scraper-image.yml` → GHCR), on its own
-  Linux server, updated by that server's `update.sh` cron. It is NOT part of
-  the Render deploy and the no-docker-compose rule is untouched (plain
-  `docker run`); nothing in it imports the API. One real Chrome on Xvfb keeps
-  every target's page OPEN and listens to what the page receives, so after
+- **The Scraper (`scraper/`, Oct 2026) is a SEPARATE service** — since
+  5 Nov 2026 ONE real Chrome on the Hub's desktop session, the systemd user
+  service `puntmore-scraper` (`deploy/native/`), updated by
+  `puntmore-update.timer` with the rest of the Hub, so the sites see a
+  person's Chrome: the box's GPU, fonts and screen (in the container Chrome
+  had no WebGL at all). Docker (`.github/workflows/scraper-image.yml` → GHCR,
+  plain `docker run`, the no-docker-compose rule untouched) is only the
+  fallback for a box with no screen: Xvfb and VNC exist only there, and the
+  window and language flags apply only there (`SCRAPER_IN_CONTAINER=1`) and
+  headless. Never run both: they share one profile, one budget, one data dir.
+  It is NOT part of the Render deploy; nothing in it imports the API. Its
+  Chrome keeps every target's page OPEN and listens to what the page receives, so after
   the first load most targets cost no requests. WHAT it reads is config, and
   the config is ONE file: **`targets.toml` on the Hub** (`data/targets.toml`,
   or the file `SCRAPER_TARGETS` names), edited by Hermes — nothing on Render
-  configures the Worker (decision 5 Nov 2026; Puntmore's `/scraper` page and
+  configures the Scraper (decision 5 Nov 2026; Puntmore's `/scraper` page and
   its config and status routes are gone). A target is a page, or a
   competition listing whose match links are opened (in-page tabs, parser,
-  ingest path). The Worker checks the file once a minute and applies an edit
+  ingest path). The Scraper checks the file once a minute and applies an edit
   without a restart; a file that will not load is reported and the running
   targets are kept. It writes its state to `data/status.json` once a minute,
   which the Hub reads; the only thing it sends Render is the prices it posts.
@@ -48,5 +83,7 @@ day-to-day commands are in `README.md`; the boundaries that still apply are in
   across sites (`sites.py load_gap_s`); jitter is drawn once per load. Parsers
   (`scraper/parsers/`, one module each) are written only from what the real
   pages were seen to do: `bb_saves` drives the Bookie Bashing bet builder
-  (above); `pp_most` is unwritten (Oct 2026 — no priced most market in the
-  samples yet).
+  (above; **OPEN, Callum to decide** in `docs/decisions.md` whether this one
+  BB target stays as the named exception to "BB is never automated" or is
+  disabled); `pp_most` reads Paddy's most-corners / most-cards three-ways
+  (written from the 29 Oct 2026 capture).

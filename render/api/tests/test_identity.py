@@ -72,7 +72,30 @@ def test_the_host_names_the_site():
 
 
 def test_the_site_lists_agree_with_the_frontend():
-    from app.site import SHALGO_TOOLS
+    from app.site import ME_TOOLS, SHALGO_TOOLS
     site_js = (ROOT / "frontend" / "src" / "site.js").read_text()
-    js = re.search(r"SHALGO_TOOLS = \[([^\]]*)\]", site_js).group(1)
-    assert set(re.findall(r"'([\w-]+)'", js)) == set(SHALGO_TOOLS)
+    for name, tools in (("SHALGO_TOOLS", SHALGO_TOOLS), ("ME_TOOLS", ME_TOOLS)):
+        js = re.search(name + r" = \[([^\]]*)\]", site_js).group(1)
+        assert set(re.findall(r"'([\w-]+)'", js)) == set(tools), name
+
+
+def test_me_is_the_third_site():
+    from app.site import ME, PUNTMORE, SHALGO, site_for
+    assert site_for("me.puntmore.com") == ME and site_for("me.localhost:5173") == ME
+    assert site_for("shalgo.puntmore.com") == SHALGO and site_for("puntmore.com") == PUNTMORE
+    assert site_for("me") == PUNTMORE                       # no dot: not a subdomain
+
+
+def test_each_tool_belongs_to_one_site():
+    from app.site import ME, PUNTMORE, SHALGO, tool_site
+    assert (tool_site("finder"), tool_site("cards"), tool_site("coupons")) == (ME, SHALGO, PUNTMORE)
+
+
+def test_me_has_its_own_default_and_no_tracker():
+    assert identity_for("/login", "me") == {
+        "title": "Me", "svg": "/icons/me.svg", "png": "/icons/me-180.png",
+        "manifest": "/manifests/me.webmanifest",
+    }
+    assert identity_for("/", "me")["title"] == "Me"
+    for key in ("svg", "png", "manifest"):
+        assert (ROOT / "frontend" / "public" / identity_for("/", "me")[key].lstrip("/")).is_file()

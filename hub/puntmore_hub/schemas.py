@@ -1,7 +1,7 @@
 """Message shapes shared with Render.
 
 These mirror the "Interfaces" section of the 2-Up Engine spec. Cal controls both ends, so this
-file is the authoritative contract for the home side. Every message travels in an ``Envelope``
+file is the authoritative contract for the Hub side. Every message travels in an ``Envelope``
 whose ``msg_id`` makes it idempotent: a replayed envelope is acknowledged and ignored.
 """
 from __future__ import annotations
@@ -21,7 +21,7 @@ def new_id() -> str:
     return uuid.uuid4().hex
 
 
-# ---- Bet list in (Render -> home) -------------------------------------------------------------
+# ---- Bet list in (Render -> Hub) --------------------------------------------------------------
 
 @dataclass
 class BetLeg:
@@ -65,7 +65,7 @@ class Bet:
         return asdict(self)
 
 
-# ---- Reports out (home -> Render) -------------------------------------------------------------
+# ---- Reports out (Hub -> Render) --------------------------------------------------------------
 
 REPORT_KINDS = ("placed", "price_changed", "failed", "settled", "balance")
 
@@ -104,7 +104,7 @@ def balance(account_id: str, amount: float) -> Report:
     return Report("balance", {"account_id": account_id, "balance": amount})
 
 
-# ---- Candidate tips out (Bet Finder home side -> Render) ----------------------------------------
+# ---- Candidate tips out (Bet Finder Hub side -> Render) -----------------------------------------
 
 @dataclass
 class CandidateTip:
@@ -124,7 +124,7 @@ class CandidateTip:
         return asdict(self)
 
 
-# ---- Scrape jobs in (Render -> home) ----------------------------------------------------------
+# ---- Scrape jobs in (Render -> Hub) -----------------------------------------------------------
 
 @dataclass
 class ScrapeJob:
@@ -141,6 +141,8 @@ class ScrapeJob:
 
 INBOUND_TYPES = ("hello_ack", "bet_list", "scrape_job", "kill_switch", "ping", "ack")
 OUTBOUND_TYPES = ("hello", "report", "tip", "scrape_result", "escalation", "escalation_outcome", "pong", "ack")
+# Envelopes the Scraper writes as files for this box (inbox.py); never sent on the wire.
+FILE_TYPES = ("scraper_tips", "scraper_event")
 
 
 @dataclass

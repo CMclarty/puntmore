@@ -9,6 +9,7 @@ for Android and the browser tab). The glyphs are the bottom nav's, so a pinned
 tool and its nav entry read as one thing.
 
     python3 scripts/icons.py          # from frontend/; needs google-chrome
+    python3 scripts/icons.py me       # just the named icons
 """
 import pathlib
 import shutil
@@ -44,6 +45,8 @@ ICONS = {
     "puntmore": ("#2F7D55", text("P")),
     # Shalgo: the props side's own app (Paddy, Hills).
     "shalgo": ("#2D2A5F", text("S")),
+    # Me: Callum's own tools (Finder first).
+    "me": ("#3A3A36", text("M")),
     # Coupon tracker: the ticket.
     "coupons": ("#2F7D55", nav('<rect x="4" y="2" width="14" height="18" rx="2"/>'
                                '<line x1="7" y1="7" x2="15" y2="7"/><line x1="7" y1="11" x2="15" y2="11"/>'
@@ -82,7 +85,7 @@ def svg(bg, glyph, rounded=True):
             f'  <rect width="512" height="512"{rx} fill="{bg}"/>\n  {glyph}\n</svg>\n')
 
 
-def main():
+def main(names=()):
     chrome = shutil.which("google-chrome") or shutil.which("chromium")
     if not chrome:
         raise SystemExit("google-chrome not found")
@@ -90,6 +93,8 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = pathlib.Path(tmp)
         for name, (bg, glyph) in ICONS.items():
+            if names and name not in names:
+                continue
             target = (HERE.parent / "public" / "icon.svg") if name == "puntmore" else OUT / f"{name}.svg"
             target.write_text(svg(bg, glyph))
             flat = tmp / f"{name}.svg"
@@ -106,4 +111,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(sys.argv[1:])

@@ -16,13 +16,21 @@ Target kinds:
   matches  a listing page (kept open) whose match links are opened, a few at
            a time, in their own kept-open tabs (e.g. a Paddy competition)
 
-Targets are targets.toml on the Hub. The file is checked every
+Targets are targets.toml on the Hub, changed only through scraper/targets.py
+(an atomic rename, so a half-written file is never read). The file is checked every
 TARGETS_CHECK_S: after an edit a removed or changed target's tabs close, a new
-one opens on the next tick - no restart. A file that will not parse is
-reported and the running targets are kept. The runner writes its state to
+one opens on the next tick - no restart. A change to its timing, priority,
+window, min_rows or trust_weight only is applied to the open tabs in place
+(RESCHEDULE_FIELDS). A file that will not parse is reported and the running
+targets are kept. The runner writes its state to
 data/status.json every STATUS_EVERY_S, which the Hub reads.
+
+This module wires the pieces: schedule.py says when a target is due,
+sinks.py delivers its rows (Render or the Hub), status.py writes the
+heartbeat and status.json, guard.py says yes or no to every load.
 """
 import collections
+import dataclasses
 import json
 import random
 import re
@@ -32,26 +40,24 @@ from urllib.parse import urlparse
 
 from . import browser
 from . import config
+from . import schedule
 from .capture import Capture, DiskBudget
 from .config import host_allowed
 from .parsers import PARSERS
+from .schedule import (ANY_LOAD_GAP_S, CLICK_EVERY_S, CLICK_JITTER, RECYCLE_H,  # noqa: F401
+                       RECYCLE_JITTER, RELIST_JITTER, RELOAD_JITTER)
+from .sinks import Sinks, _safe, deliver_to_hub, emit_event  # noqa: F401  (re-exported)
 from .sites import BACKOFF_MIN, SITES
+from .status import (HEALTH_PING_S, STATUS_EVERY_S, Reporter, market_tabs_said,  # noqa: F401
+                     site_status, target_entry)
 
 PARSE_EVERY_S = 60
-HEALTH_PING_S = 300
+# A change to only these fields is applied to the open tabs in place; a change
+# to any other (url, site, mode, parser, post, wait_for, matches) closes the
+# target's tabs and reopens them.
+RESCHEDULE_FIELDS = ("every_min", "stale_min", "priority", "window", "min_rows", "trust_weight",
+                     "near_min", "near_hours")
 TARGETS_CHECK_S = 60             # a stat of targets.toml; read only when it changed
-STATUS_EVERY_S = 60
-# Jitter on timed reloads, drawn ONCE per load. (Drawing it afresh every 15 s
-# tick, as before, made a reload fire at the low end nearly every time.)
-RELOAD_JITTER = (0.75, 1.35)     # every_min
-RELIST_JITTER = (0.9, 1.3)       # a listing's relist_min
-ANY_LOAD_GAP_S = (20, 45)        # between any two page loads, whatever the site
-RECYCLE_H = 0.5                  # a tab's page is swapped for a fresh one this often
-RECYCLE_JITTER = (0.85, 1.2)
-# A match page polls only the prices of the market tab on screen, so its
-# market tabs are clicked again this often (in-page clicks, not loads).
-CLICK_EVERY_S = 10 * 60
-CLICK_JITTER = (0.8, 1.4)
 
 
 class Tab:
@@ -70,7 +76,7 @@ class Tab:
     def fresh_page(self, page, now):
         self.page = page
         self.crashed = False
-        self.recycle_at = now + RECYCLE_H * 3600 * random.uniform(*RECYCLE_JITTER)
+        self.recycle_at = schedule.recycle_at(now)
         page.on("crash", lambda _p: setattr(self, "crashed", True))
 
     def worn(self, now) -> bool:
@@ -96,16 +102,14 @@ class Runner:
         self.paused_said: dict[str, str] = {}
         self.served_said: dict[str, float] = {}       # site -> cool-off `since` already alerted
         self.next_open: dict[str, float] = {}         # target -> earliest next match-tab open
-        self.next_load_at: dict[str, float] = {}      # site -> earliest next page load
-        self.next_any_load = 0.0                      # ... of any site
+        self.pacer = schedule.Pacer(SITES)            # spacing between page loads
         self.retired: dict[str, collections.deque] = {}
         self.parser_said: dict[str, str] = {}
-        self.next_health = 0.0
         self.targets = list(settings.targets)
         self.targets_file = settings.targets_file
         self.targets_mtime = self._mtime()            # load() has just read it
         self.next_targets_check = 0.0
-        self.next_status = 0.0
+        self.reporter = Reporter(settings)
         self.last_load_at: dict[str, float] = {}       # target name -> last good load
         self.last_parse_at: dict[str, float] = {}      # ... last parse that returned rows
         self.rows_posted: dict[str, int] = {}
@@ -118,8 +122,14 @@ class Runner:
         # the local AI on a change.
         self.next_fetch: dict[str, float] = {}
         self.health_said: dict[str, str] = {}
-        for sub in ("tips", "events"):
-            (settings.data_dir / "hub" / sub).mkdir(parents=True, exist_ok=True)
+        self.sinks = Sinks(settings)
+        self.outside: set[str] = set()                 # targets now outside their window
+        self.wanting_since: dict[str, float] = {}      # target -> when it began wanting a load
+        # The kick-off sweep (schedule.py): the nearest kick-off ahead that a
+        # target's own rows reported, and which targets are inside their near
+        # window now (so a flip is acted on once, not every tick).
+        self.next_kickoff: dict[str, float] = {}
+        self.near: set[str] = set()
 
     # --- site-wide state ----------------------------------------------------
     def _paused(self, site, now) -> str | None:
@@ -160,7 +170,8 @@ class Runner:
                              f"{self.guard.cooloff_hours:g} h. Needs `resume` after that.", image)
             return
         if reason != st.blocked_for:
-            self.alerts.send(f"{site}: {reason}{where} - needs you over VNC. Backing off.", image)
+            where_to = "over VNC" if browser.in_container() else "on the Hub's screen"
+            self.alerts.send(f"{site}: {reason}{where} - needs you {where_to}. Backing off.", image)
         st.blocked_for = reason
         st.retry_at = now + st.backoff * 60 * random.uniform(0.9, 1.2)
         st.backoff = min(st.backoff * 2, BACKOFF_MIN[1])
@@ -227,16 +238,7 @@ class Runner:
 
     # --- loading ------------------------------------------------------------
     def _may_load(self, site, now) -> bool:
-        """Spacing between page loads: one person opens one page, looks at
-        it, and only then opens the next. Nothing is opened in a burst - not
-        at startup, not when quiet hours end, not when several tabs go stale
-        together."""
-        return now >= self.next_load_at.get(site, 0.0) and now >= self.next_any_load
-
-    def _spaced(self, site, now):
-        lo = SITES[site].load_gap_s
-        self.next_load_at[site] = now + lo * random.uniform(1.0, 1.8)
-        self.next_any_load = now + random.uniform(*ANY_LOAD_GAP_S)
+        return self.pacer.may_load(site, now)
 
     def _load(self, target, key, url, now) -> Tab | None:
         """Open (or reload) one tab, through the guard and the spacing. None
@@ -247,7 +249,7 @@ class Runner:
         ok, _why = self.guard.can_load(site, now, quiet_applies=SITES[site].quiet_hours)
         if not ok or not host_allowed(url, site):
             return None
-        self._spaced(site, now)
+        self.pacer.spaced(site, now)
         tab = self.tabs.get(key)
         try:
             if tab is None:
@@ -303,9 +305,20 @@ class Runner:
                 self._close_site(site)
 
         self._check_open(now)
+        live = []
         for t in self.targets:
             if self._paused(t.site, now):
                 continue
+            if not schedule.in_window(t.window, now):
+                self._outside_window(t)
+                continue
+            if t.name in self.outside:
+                self.outside.discard(t.name)
+                print(f"{t.name}: window open - running", flush=True)
+            live.append(t)
+        self._sweep(live, now)
+        for t in schedule.order(live, self._wanting(live, now), lambda site: self._left(site, now),
+                                self.next_kickoff):
             if t.mode == "fetch":
                 self._tick_fetch(t, now)
             elif t.matches:
@@ -321,6 +334,93 @@ class Runner:
         self._requests()
         self._heartbeat(now)
         self._report(now)
+
+    # --- window and priority -------------------------------------------------
+    def _outside_window(self, t):
+        """Outside its window a target is treated like quiet hours: its tabs
+        close and nothing loads. A fetch target forgets its next run, so it
+        runs when the window opens."""
+        if t.name not in self.outside:
+            self.outside.add(t.name)
+            print(f"{t.name}: outside window {t.window} - paused", flush=True)
+        for key in [k for k, tab in self.tabs.items() if tab.target.name == t.name]:
+            self._close(key)
+        self.next_fetch.pop(t.name, None)
+        self.wanting_since.pop(t.name, None)
+
+    def _sweep(self, targets, now):
+        """Enter or leave each target's near window (schedule.near). On a
+        flip the interval in force changes, so the timed reload is redrawn
+        from the last load with the new one (a fetch target's next run
+        likewise); a kick-off that has passed drops out of next_kickoff."""
+        for t in targets:
+            k = self.next_kickoff.get(t.name)
+            if k is not None and k < now:
+                self.next_kickoff.pop(t.name, None)
+                k = None
+            is_near = schedule.near(t, k, now)
+            if is_near == (t.name in self.near):
+                continue
+            (self.near.add if is_near else self.near.discard)(t.name)
+            every = schedule.effective_every(t, k, now)
+            print(f"{t.name}: " + (f"kick-off in {(k - now) / 60:.0f} min - every {every:g} min"
+                                   if is_near else "past the near window - normal interval"), flush=True)
+            for tab in self.tabs.values():
+                if tab.target.name == t.name:
+                    tab.due_at = None
+            last = self.last_load_at.get(t.name)
+            if t.mode == "fetch" and t.name in self.next_fetch and last is not None:
+                self.next_fetch[t.name] = schedule.next_fetch_at(last, every)
+
+    def _every(self, t, now):
+        """The reload interval in force for `t` now (the near window or not)."""
+        return schedule.effective_every(t, self.next_kickoff.get(t.name), now)
+
+    def _left(self, site, now) -> int:
+        """Loads the site has left: this hour's, or today's if fewer."""
+        h, d = self.guard.spent(site, now)
+        return max(0, min(SITES[site].per_hour - h, SITES[site].per_day - d))
+
+    def _wanting(self, targets, now) -> dict:
+        """name -> when the target began wanting a load, for schedule.order.
+        Worked out only for a site that could be contended (fewer loads left
+        than it has targets): elsewhere the order is file order anyway."""
+        tight = {site for site in {t.site for t in targets}
+                 if self._left(site, now) < sum(1 for t in targets if t.site == site)}
+        for t in targets:
+            if t.site not in tight or not self._wants(t, now):
+                self.wanting_since.pop(t.name, None)
+            else:
+                self.wanting_since.setdefault(t.name, self._due_since(t, now))
+        return {t.name: self.wanting_since[t.name] for t in targets if t.name in self.wanting_since}
+
+    def _wants(self, t, now) -> bool:
+        """Would this target load something if it were given the next slot?
+        Asks only what is already known: no page is read."""
+        if t.mode == "fetch":
+            due = self.next_fetch.get(t.name)
+            return due is None or now >= due
+        if not t.matches:
+            tab = self.tabs.get(t.name)
+            return tab is None or schedule.page_due(t, tab, now, self._every(t, now))
+        listing = self.tabs.get(f"{t.name}:list")
+        if listing is None or schedule.listing_due(t, listing, now):
+            return True
+        mine = [tab for k, tab in self.tabs.items() if k.startswith(t.name + ":m:")]
+        if any(schedule.stale(t, tab, now) or tab.worn(now) for tab in mine):
+            return True
+        # Room for another match tab: counted as a want, though the listing
+        # may turn out to have no new link.
+        return len(mine) < t.matches.max_tabs and now >= self.next_open.get(t.name, 0.0)
+
+    def _due_since(self, t, now) -> float:
+        """When a wanted load fell due: the drawn reload time when there is
+        one, else now (the target is first seen wanting it now)."""
+        if t.mode == "fetch":
+            return min(self.next_fetch.get(t.name, now), now)
+        tab = self.tabs.get(f"{t.name}:list" if t.matches else t.name)
+        due = getattr(tab, "due_at", None)
+        return min(due, now) if due is not None else now
 
     # --- targets.toml, re-read when it changes ------------------------------------
     def _mtime(self):
@@ -352,15 +452,22 @@ class Runner:
         self.apply_targets(targets)
 
     def apply_targets(self, targets):
-        """Swap in a new target list. A target that is gone, or whose
-        definition changed, has its tabs closed; new and changed targets open
-        through the normal tick (and its guard) from the next tick on."""
+        """Swap in a new target list. A target that is gone (removed or
+        disabled), or whose page changed (any field but RESCHEDULE_FIELDS),
+        has its tabs closed; new and changed targets open through the normal
+        tick (and its guard) from the next tick on. A change to
+        RESCHEDULE_FIELDS only is applied in place: the open tabs stay and
+        are rescheduled, so it costs no load."""
         old = {t.name: t for t in self.targets}
         new = {t.name: t for t in targets}
         if old == new:
             return
+        in_place = sorted(n for n in set(old) & set(new)
+                          if old[n] != new[n] and reschedule_only(old[n], new[n]))
+        for name in in_place:
+            self._reschedule(new[name])
         for name, t in old.items():
-            if new.get(name) != t:
+            if new.get(name) != t and name not in in_place:
                 for key in [k for k, tab in self.tabs.items() if tab.target.name == name]:
                     self._close(key)
                 self.retired.pop(name, None)
@@ -372,22 +479,35 @@ class Runner:
             self.retired_targets.pop(name, None)
         added = sorted(set(new) - set(old))
         removed = sorted(set(old) - set(new))
-        changed = sorted(n for n in set(old) & set(new) if old[n] != new[n])
+        changed = sorted(n + (" (in place)" if n in in_place else "")
+                         for n in set(old) & set(new) if old[n] != new[n])
         print("config: " + "; ".join(f"{label} {', '.join(names)}" for label, names in
                                      (("added", added), ("removed", removed), ("changed", changed))
                                      if names), flush=True)
         self.targets = list(targets)
+
+    def _reschedule(self, t):
+        """A change to RESCHEDULE_FIELDS only: the open tabs keep their pages
+        and take the new definition. A timed reload is redrawn from the last
+        load with the new every_min; a fetch target's next run likewise. The
+        window and priority apply from the next tick."""
+        for tab in self.tabs.values():
+            if tab.target.name == t.name:
+                if (tab.target.every_min, tab.target.near_min, tab.target.near_hours) != \
+                        (t.every_min, t.near_min, t.near_hours):
+                    tab.due_at = None
+                tab.target = t
+        self.near.discard(t.name)              # re-entered on the next tick with the new fields
+        last = self.last_load_at.get(t.name)
+        if t.name in self.next_fetch and last is not None:
+            self.next_fetch[t.name] = schedule.next_fetch_at(last, t.every_min)
 
     def _tick_page(self, t, key, url, now):
         tab = self.tabs.get(key)
         if tab is None:
             self._load(t, key, url, now)
             return
-        if t.every_min and tab.due_at is None:     # drawn once per load, not per tick
-            tab.due_at = tab.last_load + t.every_min * 60 * random.uniform(*RELOAD_JITTER)
-        due = t.every_min and now >= tab.due_at
-        stale = tab.capture.quiet_for(now) >= t.stale_min * 60 and now - tab.last_load >= t.stale_min * 60
-        if due or stale or tab.worn(now):
+        if schedule.page_due(t, tab, now, self._every(t, now)):
             self._load(t, key, url, now)
 
     def _tick_fetch(self, t, now):
@@ -404,10 +524,9 @@ class Runner:
         key = f"fetch:{t.name}"
         tab = self._load(t, key, t.url, now)
         if tab is None:
-            self.next_fetch[t.name] = now + 300
+            self.next_fetch[t.name] = now + schedule.FETCH_RETRY_S
             return
-        every = (t.every_min or 60) * 60
-        self.next_fetch[t.name] = now + every * random.uniform(*RELOAD_JITTER)
+        self.next_fetch[t.name] = schedule.next_fetch_at(now, self._every(t, now))
         try:
             if t.wait_for:
                 try:
@@ -433,9 +552,7 @@ class Runner:
             self.alerts.send(f"{t.name}: healthy again ({len(rows)} rows)")
 
     def _deliver(self, t, rows, now) -> bool:
-        if t.post.startswith("hub:"):
-            return deliver_to_hub(self.s.data_dir, t, rows, now)
-        return self._post(t, rows)
+        return self.sinks.deliver(t, rows, now)
 
     def _tick_matches(self, t, now):
         m = t.matches
@@ -444,9 +561,7 @@ class Runner:
         if listing is None:
             self._load(t, list_key, t.url, now)
             return
-        if listing.due_at is None:
-            listing.due_at = listing.last_load + m.relist_min * 60 * random.uniform(*RELIST_JITTER)
-        if now >= listing.due_at or listing.worn(now):
+        if schedule.listing_due(t, listing, now):
             self._load(t, list_key, t.url, now)
             return
 
@@ -476,7 +591,7 @@ class Runner:
         for url in match_links(listing.page, m.link_re, t.url):
             if url in open_urls or url in retired:
                 continue
-            self.next_open[t.name] = now + m.open_gap_min * 60 * random.uniform(1.0, 1.6)
+            self.next_open[t.name] = schedule.next_open_at(now, m.open_gap_min)
             tab = self._load(t, f"{t.name}:m:{url}", url, now)
             if tab:
                 self._open_market_tabs(t, tab, now)
@@ -529,7 +644,7 @@ class Runner:
                 browser.read_down(page)
             except Exception:
                 pass
-        tab.next_clicks = now + CLICK_EVERY_S * random.uniform(*CLICK_JITTER)
+        tab.next_clicks = schedule.next_clicks_at(now)
         said = ", ".join(f"{n} {o}" for n, o in tab.market_tabs.items())
         if said and said != tab.tabs_said:
             print(f"{tab.url}: market tabs: {said}", flush=True)
@@ -573,6 +688,9 @@ class Runner:
             self.parser_said[t.name] = f"parser failed: {str(exc).splitlines()[0][:120]}"
             return
         self.parser_said.pop(t.name, None)
+        k = schedule.next_kickoff(rows, now)
+        if k is not None:
+            self.next_kickoff[t.name] = k
         self._check_rows(t, rows, now)
         out = self.s.data_dir / "latest" / f"{_safe(t.name)}.json"
         out.write_text(json.dumps({"at": now, "url": tab.url, "rows": rows}, indent=1))
@@ -580,20 +698,6 @@ class Runner:
             self.last_parse_at[t.name] = now
         if t.post and rows and self._deliver(t, rows, now):
             self.rows_posted[t.name] = self.rows_posted.get(t.name, 0) + len(rows)
-
-    def _post(self, t, rows) -> bool:
-        if not self.s.ingest_key:
-            return False
-        import httpx
-        try:
-            r = httpx.post(self.s.puntmore_url.rstrip("/") + t.post, json={"prices": rows},
-                           headers={"X-API-Key": self.s.ingest_key}, timeout=30)
-            r.raise_for_status()
-            print(f"{t.name}: sent {len(rows)} -> {r.json()}", flush=True)
-            return True
-        except Exception as exc:
-            print(f"{t.name}: send failed: {exc}", flush=True)
-            return False
 
     # --- status, for the Hub and `python -m scraper status` ---------------------------
     def status(self, now) -> dict:
@@ -609,6 +713,8 @@ class Runner:
                 state, detail = "blocked", why
             elif why:
                 state, detail = "paused", why
+            elif not schedule.in_window(t.window, now):
+                state, detail = "paused", "outside window"
             else:
                 mine = [tab for tab in self.tabs.values() if tab.target.name == t.name]
                 n = len(mine)
@@ -616,22 +722,14 @@ class Runner:
                 detail = "; ".join(x for x in (f"{n} tab{'s' if n != 1 else ''} open",
                                                market_tabs_said(mine),
                                                self.parser_said.get(t.name)) if x)
-            targets.append({"name": t.name, "site": t.site, "url": t.url, "state": state, "mode": t.mode,
-                            "detail": detail, "last_load": self.last_load_at.get(t.name),
-                            "last_parse": self.last_parse_at.get(t.name),
-                            "rows_posted": self.rows_posted.get(t.name, 0)})
+            targets.append(target_entry(t, state, detail, self.last_load_at.get(t.name),
+                                        self.last_parse_at.get(t.name), self.rows_posted.get(t.name, 0),
+                                        self.next_kickoff.get(t.name), t.name in self.near))
         return {"at": now, "targets_file": str(self.targets_file) if self.targets_file else None,
                 "targets": targets, "sites": site_status(self.guard, now)}
 
     def _report(self, now):
-        if now < self.next_status:
-            return
-        self.next_status = now + STATUS_EVERY_S
-        body = self.status(now)
-        try:
-            (self.s.data_dir / "status.json").write_text(json.dumps(body, indent=1))
-        except OSError:
-            pass
+        self.reporter.report(now, self.status)
 
     def _requests(self):
         """`python -m scraper dump <target>` drops a file; the running loop
@@ -664,80 +762,16 @@ class Runner:
             print(f"dump {name}: saved {out}", flush=True)
 
     def _heartbeat(self, now):
-        (self.s.data_dir / "heartbeat").write_text(str(int(now)))
-        if self.s.healthcheck_url and now >= self.next_health:
-            self.next_health = now + HEALTH_PING_S
-            import httpx
-            try:
-                httpx.get(self.s.healthcheck_url, timeout=10)
-            except Exception:
-                pass
+        self.reporter.heartbeat(now)
 
     def close_all(self):
         for key in list(self.tabs):
             self._close(key)
 
 
-def _drop(data_dir, sub, name, body) -> bool:
-    """Write one JSON file atomically into data/hub/<sub>/ for the Hub to ingest."""
-    out = data_dir / "hub" / sub
-    out.mkdir(parents=True, exist_ok=True)
-    final = out / f"{int(body['at'] * 1000)}-{_safe(name)}.json"
-    tmp = out / (final.name + ".tmp")
-    try:
-        tmp.write_text(json.dumps(body, indent=1))
-        tmp.rename(final)
-        return True
-    except OSError as exc:
-        print(f"hub drop failed: {exc}", flush=True)
-        return False
-
-
-def deliver_to_hub(data_dir, target, rows, now) -> bool:
-    """Hand a fetch target's rows to the Hub: one file per run, picked up by the
-    Hub's link daemon (`puntmore inbox`) and sent to Render as tips. The channel
-    after `hub:` in the target's post (e.g. `hub:tips`) is passed through."""
-    body = {"source": target.name, "at": now, "url": target.url,
-            "channel": target.post.split(":", 1)[1] or "tips",
-            "trust_weight": target.trust_weight, "rows": rows}
-    ok = _drop(data_dir, "tips", target.name, body)
-    if ok:
-        print(f"{target.name}: {len(rows)} row(s) handed to the Hub", flush=True)
-    return ok
-
-
-def emit_event(data_dir, kind, ref, detail, now) -> bool:
-    """Tell the Hub something needs a decision (a block, an unhealthy source).
-    The Hub turns it into an escalation for the local AI."""
-    return _drop(data_dir, "events", ref, {"kind": kind, "ref": ref, "detail": detail, "at": now})
-
-
-def site_status(guard, now) -> list[dict]:
-    """Budget spent and cool-off per site, off the guard's SQLite."""
-    out = []
-    for site, rules in SITES.items():
-        h, d = guard.spent(site, now)
-        c = guard.cooloff(site)
-        cooling = bool(c) and guard.cooloff_active(site, now)
-        left = (max(0.0, guard.cooloff_hours * 3600 - (now - c["since"])) / 3600) if cooling else None
-        out.append({"site": site, "loads_hour": h, "per_hour": rules.per_hour,
-                    "loads_day": d, "per_day": rules.per_day,
-                    "cooloff": c["reason"] if cooling else None,
-                    "cooloff_left_h": None if left is None else round(left, 2),
-                    "needs_resume": bool(cooling and not c["resumed"])})
-    return out
-
-
-def market_tabs_said(tabs) -> str:
-    """'market tabs: Corners loaded 2/3, Cards not found 1/3' across a
-    target's open match tabs, or '' when none has clicked any."""
-    clicked = [tab for tab in tabs if tab.market_tabs]
-    if not clicked:
-        return ""
-    counts = collections.Counter((name, outcome) for tab in clicked
-                                 for name, outcome in tab.market_tabs.items())
-    return "market tabs: " + ", ".join(f"{name} {outcome} {c}/{len(clicked)}"
-                                       for (name, outcome), c in sorted(counts.items()))
+def reschedule_only(old, new) -> bool:
+    """True when the two definitions differ only in RESCHEDULE_FIELDS."""
+    return dataclasses.replace(old, **{f: getattr(new, f) for f in RESCHEDULE_FIELDS}) == new
 
 
 def match_links(page, link_re, base_url) -> list[str]:
@@ -757,7 +791,3 @@ def match_links(page, link_re, base_url) -> list[str]:
         seen.add(h)
         out.append(h)
     return out
-
-
-def _safe(s: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", s)[:120]

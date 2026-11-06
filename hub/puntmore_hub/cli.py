@@ -1,7 +1,8 @@
 """``puntmore`` command line. Every operation an agent or a human needs, with plain text output.
 
-Scraping is the Worker's (`python -m scraper ...` in `scraper/`); this CLI reads what the
-Worker drops and reports, and owns the link to Render, placement, and escalations.
+Scraping is the Scraper's (`python -m scraper ...` in `scraper/`); this CLI reads what the
+Scraper drops and reports, polls the tipster mailbox, and owns the link to Render, placement,
+and escalations.
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ import sys
 import threading
 from datetime import timedelta
 
-from . import __version__, alerts, escalation, inbox, killswitch
+from . import __version__, alerts, escalation, finder, inbox, killswitch, mail
 from .config import settings
 from .store import Store, utcnow
 
@@ -38,7 +39,7 @@ def cmd_init(a):
     _store().close()
     print(f"initialised {settings.data_dir} (db {settings.db_path})")
     print(f"dry_run={settings.dry_run} kill_switch={settings.kill_switch_on()} link_configured={settings.link_configured}")
-    print(f"worker data: {settings.worker_data_dir} ({'present' if settings.worker_data_dir.exists() else 'not found'})")
+    print(f"scraper data: {settings.scraper_data_dir} ({'present' if settings.scraper_data_dir.exists() else 'not found'})")
 
 
 def cmd_status(a):
@@ -47,13 +48,14 @@ def cmd_status(a):
     print(f"puntmore-hub {__version__}  client={settings.client_id}  dry_run={settings.dry_run}  "
           f"kill_switch={'ON' if settings.kill_switch_on() else 'off'}  link={'configured' if settings.link_configured else 'OFFLINE'}")
     print("last 24h: " + ", ".join(f"{k}={v}" for k, v in s.items()))
-    w = inbox.worker_status(settings)
+    w = inbox.scraper_status(settings)
     age = w["heartbeat_age_s"]
-    print(f"worker: {'running' if w['running'] else 'NOT RUNNING'}"
+    print(f"scraper: {'running' if w['running'] else 'NOT RUNNING'}"
           + (f" (heartbeat {age}s ago)" if age is not None else " (no heartbeat file)")
           + f", {len(w['targets'])} target(s), blocked={w['blocked'] or 'none'}, unhealthy={w['unhealthy'] or 'none'}")
     if w["targets"]:
         _print_rows(w["targets"], ["name", "site", "mode", "state", "detail", "rows_posted"])
+    print(f"mail: {mail.status(settings)['detail']}")
 
 
 def cmd_inbox(a):
@@ -61,19 +63,39 @@ def cmd_inbox(a):
     print(", ".join(f"{k}={v}" for k, v in counts.items()))
 
 
+def cmd_mail(a):
+    """One poll of the tipster mailbox. --dry-run shows what the parsers read and changes nothing."""
+    r = mail.poll(_store(), settings, dry_run=a.dry_run, notify=not a.no_notify)
+    if not r["configured"]:
+        print(r["error"])
+        return
+    if a.dry_run:
+        for row in r["rows"]:
+            print(f"  {row['source_id']}  {row['tip_id']}  {row['event']} | {row['market']} | {row['selection']}"
+                  f" | {row['advised_price'] if row['advised_price'] is not None else '-'}  ({row['tip_time']})")
+        for p in r["problems"]:
+            print(f"  ! {p}")
+    print(("dry-run: " if a.dry_run else "") + ", ".join(f"{k}={r[k]}" for k in mail.COUNT_KEYS))
+    if r["error"]:
+        sys.exit(f"error: {r['error']}")
+
+
 def cmd_health(a):
     st = _store()
-    w = inbox.worker_status(settings)
+    w = inbox.scraper_status(settings)
     open_esc = st.open_escalations()
     bad = []
     if not w["running"]:
-        bad.append("worker not running (stale or missing heartbeat)")
+        bad.append("scraper not running (stale or missing heartbeat)")
     if w["blocked"]:
         bad.append("blocked: " + ", ".join(w["blocked"]))
     if w["unhealthy"]:
         bad.append("unhealthy sources: " + ", ".join(w["unhealthy"]))
-    print(f"worker: {'running' if w['running'] else 'NOT RUNNING'}; blocked: {', '.join(w['blocked']) or 'none'}; "
+    print(f"scraper: {'running' if w['running'] else 'NOT RUNNING'}; blocked: {', '.join(w['blocked']) or 'none'}; "
           f"unhealthy: {', '.join(w['unhealthy']) or 'none'}")
+    m = mail.status(settings)
+    bad.extend(m["problems"])
+    print(f"mail: {m['detail']}")
     print(f"open escalations: {len(open_esc)}")
     for e in open_esc:
         print(f"  #{e['id']} {e['kind']} {e['ref']} ({e['created']}): {e['detail'][:160]}")
@@ -114,11 +136,14 @@ def cmd_tips(a):
 
 
 def cmd_heartbeat(a):
-    print(alerts.heartbeat(_store(), worker=inbox.worker_status(settings)))
+    print(alerts.heartbeat(_store(), scraper=inbox.scraper_status(settings)))
 
 
 def cmd_link(a):
-    """Run the Render link daemon: bet lists -> client engine, Worker drops -> tips and escalations."""
+    """Run the link daemon: Scraper drops and tipster emails -> tips (for Hermes, `finder new`) and
+    escalations, and, only when PUNTMORE_RENDER_WS is set, the socket (bet lists -> client engine).
+    Render has no Hub socket since 6 Nov 2026, so blank is the normal case: the inbox loop then
+    runs in the foreground and keeps the process up."""
     from .link.client import RenderLink, bets_from
     from .placement.engine import ClientEngine
 
@@ -132,17 +157,13 @@ def cmd_link(a):
         log.info("bet_list %s -> %s", env.msg_id, statuses)
 
     def on_scrape_job(env):
-        # Scraping is the Worker's: a job from Render is noted, not run here.
+        # Scraping is the Scraper's: a job from Render is noted, not run here.
         link.enqueue("scrape_result", {"job_id": env.body.get("job_id"), "status": "skipped",
-                                       "error": "scrapes run on the Worker's own schedule (scraper/targets.toml)"})
+                                       "error": "scrapes run on the Scraper's own schedule (scraper/targets.toml)"})
 
     def on_kill(env):
-        on = bool(env.body.get("on", True))
-        if on:
-            settings.kill_switch_file.write_text("set by Render\n")
-        else:
-            settings.kill_switch_file.unlink(missing_ok=True)
-        escalation.raise_escalation(st, "kill_switch", "render", f"kill switch set {'ON' if on else 'off'} by Render")
+        # ON only: Render never turns the file off (killswitch.from_render).
+        killswitch.from_render(st, env.body, settings)
 
     link.handlers.update({"bet_list": on_bet_list, "scrape_job": on_scrape_job, "kill_switch": on_kill})
 
@@ -157,12 +178,51 @@ def cmd_link(a):
                 log.exception("inbox pass failed: %s", exc)
             time.sleep(30)
 
-    threading.Thread(target=ingest_loop, name="inbox", daemon=True).start()
+    def mail_loop():
+        # The tipster mailbox, every PUNTMORE_IMAP_EVERY_MIN; a failed poll is its own alert.
+        import time
+        while True:
+            try:
+                counts = mail.poll(Store(settings.db_path), settings)
+                log.info("mail: %s", {k: counts[k] for k in mail.COUNT_KEYS} | {"error": counts["error"]})
+            except Exception as exc:  # noqa: BLE001
+                log.exception("mail poll failed: %s", exc)
+            time.sleep(max(1, settings.imap_every_min) * 60)
+
+    if settings.mail_configured:
+        threading.Thread(target=mail_loop, name="mail", daemon=True).start()
     alerts.startup(st, "link")
     try:
+        if not settings.render_ws_url:
+            asyncio.run(link.run())          # says "no socket configured" once and returns
+            ingest_loop()                    # the inbox in the foreground; the process stays up
+            return
+        threading.Thread(target=ingest_loop, name="inbox", daemon=True).start()
         asyncio.run(link.run())
     except KeyboardInterrupt:
         pass
+
+
+def cmd_finder(a):
+    """Finder (docs/finder-spec.md): the new tips Hermes judges, the rows it posts to Render,
+    the tips it skips, and the placer's placed|gone."""
+    if a.which == "new":
+        for tip in finder.new_tips(_store(), limit=a.limit):
+            print(json.dumps(tip))
+    elif a.which == "post":
+        raw = sys.stdin.read() if a.file == "-" else open(a.file).read()
+        rows = json.loads(raw)
+        if not isinstance(rows, list):
+            sys.exit("finder post: the file must hold a JSON list of rows")
+        print(json.dumps(finder.post_rows(settings, rows, store=_store())))
+    elif a.which == "skip":
+        try:
+            print(json.dumps(finder.skip(_store(), a.tip_id, a.reason)))
+        except ValueError as exc:
+            sys.exit(f"finder skip: {exc}")
+    else:
+        at = utcnow().isoformat(timespec="seconds")
+        print(json.dumps(finder.post_status(settings, a.tip_id, a.status, at, store=_store())))
 
 
 def cmd_link_check(a):
@@ -196,9 +256,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init", help="create data dirs and the database").set_defaults(fn=cmd_init)
-    sub.add_parser("status", help="one-screen status, including the Worker").set_defaults(fn=cmd_status)
-    ib = sub.add_parser("inbox", help="one pass over the Worker's drop folders (the link daemon does this every 30 s)")
+    sub.add_parser("status", help="one-screen status, including the Scraper").set_defaults(fn=cmd_status)
+    ib = sub.add_parser("inbox", help="one pass over the Scraper's drop folders (the link daemon does this every 30 s)")
     ib.add_argument("--no-notify", action="store_true", help="record escalations without waking the local AI"); ib.set_defaults(fn=cmd_inbox)
+    ml = sub.add_parser("mail", help="one poll of the tipster mailbox (the link daemon does this every PUNTMORE_IMAP_EVERY_MIN)")
+    ml.add_argument("--dry-run", action="store_true", help="show what the parsers read; store nothing, mark nothing seen")
+    ml.add_argument("--no-notify", action="store_true", help="record escalations without waking the local AI"); ml.set_defaults(fn=cmd_mail)
     sub.add_parser("health", help="exit 1 if anything needs attention").set_defaults(fn=cmd_health)
     k = sub.add_parser("kill", help="kill switch"); k.add_argument("action", choices=["on", "off", "status"]); k.set_defaults(fn=cmd_kill)
 
@@ -208,6 +271,15 @@ def build_parser() -> argparse.ArgumentParser:
     rs = es.add_parser("resolve"); rs.add_argument("id", type=int); rs.add_argument("--outcome", required=True); rs.set_defaults(fn=cmd_escalation)
 
     t = sub.add_parser("tips", help="recent candidate tips"); t.add_argument("--limit", type=int, default=30); t.set_defaults(fn=cmd_tips)
+    fd = sub.add_parser("finder", help="Finder: new tips for Hermes, its rows to Render, skips, the placer's status").add_subparsers(dest="which", required=True)
+    fn = fd.add_parser("new", help="tips not yet posted to Finder, one JSON object per line")
+    fn.add_argument("--limit", type=int, default=50); fn.set_defaults(fn=cmd_finder)
+    fp = fd.add_parser("post", help="POST a JSON list of rows (a file, or - for stdin) to /api/finder/rows")
+    fp.add_argument("file"); fp.set_defaults(fn=cmd_finder)
+    fk = fd.add_parser("skip", help="a tip Hermes cannot post: marked skipped, so `finder new` moves on")
+    fk.add_argument("tip_id"); fk.add_argument("--reason"); fk.set_defaults(fn=cmd_finder)
+    fs = fd.add_parser("status", help="the placer's report on an offered row")
+    fs.add_argument("tip_id"); fs.add_argument("status", choices=["placed", "gone"]); fs.set_defaults(fn=cmd_finder)
     sub.add_parser("heartbeat", help="send the daily summary").set_defaults(fn=cmd_heartbeat)
     sub.add_parser("link", help="run the Render link daemon").set_defaults(fn=cmd_link)
     lc = sub.add_parser("link-check", help="handshake with a Render build (hello -> hello_ack)")

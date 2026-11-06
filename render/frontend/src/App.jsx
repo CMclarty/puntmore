@@ -5,7 +5,7 @@ import BottomNav, { landingFor } from './components/BottomNav'
 import PageIdentity from './components/PageIdentity'
 import TrackerPage from './pages/TrackerPage'
 import LoginPage from './pages/LoginPage'
-import { SHALGO, SITE, SITE_NAME, otherSiteUrl, siteTools, toolSite } from './site'
+import { PUNTMORE, SITE, SITE_NAME, otherSiteUrl, siteTools, toolSite } from './site'
 import styles from './App.module.css'
 
 // The tracker and login are the entry points, so they stay in the main bundle.
@@ -20,6 +20,8 @@ const KellyPage = lazy(() => import('./pages/KellyPage'))
 const BoostPage = lazy(() => import('./pages/BoostPage'))
 const ShopPage = lazy(() => import('./pages/ShopPage'))
 const Three65Page = lazy(() => import('./pages/Three65Page'))
+const TwoUpPage = lazy(() => import('./pages/TwoUpPage'))
+const FinderPage = lazy(() => import('./pages/FinderPage'))
 const CardsPage = lazy(() => import('./pages/CardsPage'))
 
 // The path the app was FIRST loaded at, captured once before the router starts
@@ -81,10 +83,10 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginRoute user={user} onLogin={adopt} />} />
           {/* The tracker opens on its landing page; /t/<code> is one coupon.
-              Shalgo has no tracker: its "/" lands on the first tool granted. */}
-          <Route path="/" element={SITE === SHALGO
-            ? <ShalgoHome user={user} onLogout={handleLogout} />
-            : protectTool(<TrackerPage />, 'coupons')} />
+              Shalgo and Me have no tracker: "/" lands on the first tool granted. */}
+          <Route path="/" element={SITE === PUNTMORE
+            ? protectTool(<TrackerPage />, 'coupons')
+            : <SiteHome user={user} onLogout={handleLogout} />} />
           <Route path="/t/:code" element={protectTool(<TrackerPage />, 'coupons')} />
           {/* One ISSUE of a type — the midweek GG Bonus while the weekend one
               is also up. Without this every issue of a type shared one page
@@ -116,11 +118,14 @@ export default function App() {
           <Route path="/kelly" element={protectTool(<KellyPage />, 'kelly')} />
           <Route path="/boost" element={<Navigate to="/virtuals" replace />} />
           <Route path="/shop" element={protectTool(<ShopPage />, 'shop')} />
+          {/* Finder, the private Bet Finder: on the me site (site.js). */}
+          <Route path="/finder" element={protectTool(<FinderPage />, 'finder')} />
           {/* AW 26 was retired (docs/retired.md): an old link lands home. */}
           <Route path="/aw26" element={<Navigate to="/" replace />} />
           {/* 365: the bet365 offers, a tab each. The acca boost tab returns on
               OddsPapi (PLAN.md item 11); its old addresses land on the tool. */}
           <Route path="/365" element={<Three65Page tools={user?.tools} />}>
+            <Route path="2up" element={protectTool(<TwoUpPage />, 'accabonus')} />
             <Route path="acca" element={<Navigate to="/365" replace />} />
             <Route path="scorers" element={protectTool(<GoalscorersPage />, 'goalscorers')} />
           </Route>
@@ -153,9 +158,10 @@ export default function App() {
  */
 function Protected({ user, tool, onLogout, children }) {
   const location = useLocation()
-  // The other site's tool: go there, same path (it has its own login).
+  // Another site's tool: go to the site that owns it, same path (it has its
+  // own login).
   if ([].concat(tool).every(t => toolSite(t) !== SITE)) {
-    return <OtherSite path={location.pathname + location.search} />
+    return <OtherSite path={location.pathname + location.search} site={toolSite([].concat(tool)[0])} />
   }
   if (!user) {
     // In the URL rather than router state: state is lost on a reload, and a
@@ -170,16 +176,18 @@ function Protected({ user, tool, onLogout, children }) {
   return children
 }
 
-function OtherSite({ path }) {
-  useEffect(() => { window.location.replace(otherSiteUrl(path)) }, [path])
+function OtherSite({ path, site }) {
+  useEffect(() => { window.location.replace(otherSiteUrl(path, site)) }, [path, site])
   return <div className={styles.boot}>Opening…</div>
 }
 
-// Shalgo's "/": the first of its tools the account has.
-function ShalgoHome({ user, onLogout }) {
+// Shalgo's and Me's "/": the first of the site's tools the account has.
+function SiteHome({ user, onLogout }) {
   if (!user) return <Navigate to="/login" replace />
-  if (!user.tools?.length) return <NoAccess onLogout={onLogout} />
-  return <Navigate to={landingFor(user.tools)} replace />
+  const to = landingFor(user.tools)
+  // "/" is this very route: a landing that resolves to it would loop.
+  if (!user.tools?.length || to === '/') return <NoAccess onLogout={onLogout} />
+  return <Navigate to={to} replace />
 }
 
 /**

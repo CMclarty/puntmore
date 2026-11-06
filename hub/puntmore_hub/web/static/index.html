@@ -18,7 +18,7 @@
   </div>
   <div class="actions-bar">
     <button id="btn-kill-on" class="danger" type="button" title="Stops every placement now. Anyone may turn it on.">Kill switch ON</button>
-    <button id="btn-inbox" type="button" title="One pass over the Worker's drops (the link daemon does this every 30 s)">Inbox now</button>
+    <button id="btn-inbox" type="button" title="One pass over the Scraper's drops (the link daemon does this every 30 s)">Inbox now</button>
     <button id="btn-heartbeat" type="button" title="Send the daily summary now (Discord + log)">Heartbeat now</button>
     <button id="btn-link-check" type="button" title="hello → hello_ack against the configured Render">Link-check</button>
     <label class="token">Token <input id="token" type="password" autocomplete="off" placeholder="X-Puntmore-Token"></label>
@@ -29,18 +29,71 @@
 <nav id="strip" class="strip" aria-label="Components"></nav>
 
 <main>
-  <section id="tab-worker" class="tab" hidden>
-    <div class="feedhead"><h2>Worker</h2><span class="feedstate"></span></div>
+  <section id="tab-scraper" class="tab" hidden>
+    <div class="feedhead"><h2>Scraper</h2><span class="feedstate"></span></div>
     <div class="summary" data-slot="summary"></div>
     <h3>Targets</h3>
-    <p class="hint">Tap a target's name to see the rows in its <code>latest/&lt;target&gt;.json</code>. The Worker does not write a next-run time, so there is no column for it.</p>
-    <div class="scroll" data-slot="targets"></div>
+    <p class="hint">What <code data-slot="targets-file">targets.toml</code> says, joined to the Scraper's last report. Every change goes through <code>scraper/targets.py</code> (the same rules as <code>python -m scraper targets …</code>); <strong>the Scraper applies changes within 60 s</strong>. Tap a target's name to see the rows in its <code>latest/&lt;target&gt;.json</code>. “next due” is last load + <code>every_min</code>, give or take the Scraper's jitter (×0.75–1.35).</p>
+    <p id="targets-result" class="action-result" role="status" hidden></p>
+    <div class="scroll" data-slot="config"></div>
+    <div data-slot="orphans"></div>
+
+    <form id="target-edit-form" class="card form" autocomplete="off" hidden>
+      <h3>Edit <span id="target-edit-name"></span></h3>
+      <p class="hint">Blank clears a field back to its default. Only changed fields are sent. Name, site, mode, parser and post are not edited here: remove and add the target.</p>
+      <label>every_min <input name="every_min" type="number" step="any" inputmode="decimal" placeholder="only when stale"><span class="field-error" data-err="every_min"></span></label>
+      <label>stale_min <input name="stale_min" type="number" step="any" inputmode="decimal" placeholder="20"><span class="field-error" data-err="stale_min"></span></label>
+      <label>near_min <input name="near_min" type="number" step="any" inputmode="decimal" placeholder="off"><span class="field-error" data-err="near_min"></span></label>
+      <label>near_hours <input name="near_hours" type="number" step="any" inputmode="decimal" placeholder="3"><span class="field-error" data-err="near_hours"></span></label>
+      <label>priority <input name="priority" type="number" step="1" inputmode="numeric" placeholder="0"><span class="field-error" data-err="priority"></span></label>
+      <label>window <input name="window" type="text" placeholder="HH:MM-HH:MM"><span class="field-error" data-err="window"></span></label>
+      <label>min_rows <input name="min_rows" type="number" step="1" inputmode="numeric" placeholder="0"><span class="field-error" data-err="min_rows"></span></label>
+      <label>trust_weight <input name="trust_weight" type="number" step="any" inputmode="decimal" placeholder="1.0"><span class="field-error" data-err="trust_weight"></span></label>
+      <label class="wide">wait_for <input name="wait_for" type="text" placeholder="CSS selector (fetch targets)"><span class="field-error" data-err="wait_for"></span></label>
+      <label class="wide">url <input name="url" type="url"><span class="field-error" data-err="url"></span></label>
+      <p class="field-error" data-err="_"></p>
+      <button type="submit">Save</button>
+      <button type="button" id="target-edit-cancel">Cancel</button>
+    </form>
+
+    <form id="target-remove-form" class="card form" autocomplete="off" hidden>
+      <h3>Remove <span id="target-remove-name"></span></h3>
+      <p class="rule">This deletes the target from <code>targets.toml</code>. To stop it for now, disable it instead. Type the target's name to confirm.</p>
+      <label class="wide">Name <input name="confirm" type="text" autocapitalize="off" spellcheck="false"><span class="field-error" data-err="confirm"></span></label>
+      <p class="field-error" data-err="_"></p>
+      <button type="submit" class="danger">Remove</button>
+      <button type="button" id="target-remove-cancel">Cancel</button>
+    </form>
+
+    <form id="target-add-form" class="card form" autocomplete="off">
+      <h3>Add target</h3>
+      <p class="hint">The fields of <code>targets add</code>. A Bet Finder source is <code>site = generic</code>, <code>post = hub:tips</code>. Add it disabled, check its first parse, then enable it. <code>[target.matches]</code> is set with <code>python -m scraper targets set … --matches</code>.</p>
+      <label>name <input name="name" type="text" required autocapitalize="off" spellcheck="false"><span class="field-error" data-err="name"></span></label>
+      <label>site <select name="site"><option>paddypower</option><option>bookiebashing</option><option selected>generic</option></select><span class="field-error" data-err="site"></span></label>
+      <label class="wide">url <input name="url" type="url" required><span class="field-error" data-err="url"></span></label>
+      <label>mode <select name="mode"><option value="">site default</option><option>keep</option><option>fetch</option></select><span class="field-error" data-err="mode"></span></label>
+      <label>parser <input name="parser" type="text" autocapitalize="off" spellcheck="false"><span class="field-error" data-err="parser"></span></label>
+      <label>post <input name="post" type="text" autocapitalize="off" spellcheck="false" placeholder="hub:tips"><span class="field-error" data-err="post"></span></label>
+      <label>every_min <input name="every_min" type="number" step="any" inputmode="decimal" placeholder="only when stale"><span class="field-error" data-err="every_min"></span></label>
+      <label>stale_min <input name="stale_min" type="number" step="any" inputmode="decimal" placeholder="20"><span class="field-error" data-err="stale_min"></span></label>
+      <label>near_min <input name="near_min" type="number" step="any" inputmode="decimal" placeholder="off"><span class="field-error" data-err="near_min"></span></label>
+      <label>near_hours <input name="near_hours" type="number" step="any" inputmode="decimal" placeholder="3"><span class="field-error" data-err="near_hours"></span></label>
+      <label>priority <input name="priority" type="number" step="1" inputmode="numeric" placeholder="0"><span class="field-error" data-err="priority"></span></label>
+      <label>window <input name="window" type="text" placeholder="HH:MM-HH:MM"><span class="field-error" data-err="window"></span></label>
+      <label>min_rows <input name="min_rows" type="number" step="1" inputmode="numeric" placeholder="0"><span class="field-error" data-err="min_rows"></span></label>
+      <label>trust_weight <input name="trust_weight" type="number" step="any" inputmode="decimal" placeholder="1.0"><span class="field-error" data-err="trust_weight"></span></label>
+      <label class="wide">wait_for <input name="wait_for" type="text" placeholder="CSS selector (fetch targets)"><span class="field-error" data-err="wait_for"></span></label>
+      <label class="check"><input name="enabled" type="checkbox"> enabled now</label>
+      <p class="field-error" data-err="_"></p>
+      <button type="submit">Add target</button>
+    </form>
     <div id="latest" class="latest" hidden>
       <h3 id="latest-title"></h3>
       <p id="latest-meta" class="hint"></p>
       <div class="scroll" id="latest-rows"></div>
     </div>
-    <h3>Sites</h3>
+    <h3>Site budgets</h3>
+    <p class="hint">Read-only. A cool-off that needs <code>resume</code> is ended with the Scraper's own command, run on the Hub; the console does not run it.</p>
     <div class="scroll" data-slot="sites"></div>
     <h3>alerts.log (last 100 lines, newest last)</h3>
     <pre class="log" data-slot="alerts"></pre>

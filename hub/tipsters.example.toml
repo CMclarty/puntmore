@@ -1,0 +1,30 @@
+# The Hub's email tipsters: copy to data/tipsters.toml (git-ignored), or to the file
+# PUNTMORE_TIPSTERS_FILE names. `puntmore mail` (and the link daemon, every
+# PUNTMORE_IMAP_EVERY_MIN) re-reads it on every poll of the mailbox, so an edit
+# needs no restart. A file that will not load is reported (one alert) and that
+# poll does nothing: an unknown parser, a weight outside 0..1, a duplicate name
+# or an unknown key is an error, never a guess.
+#
+# One [[tipster]] per sender:
+#   name          the source id Render sees on every tip (its row in the Bet
+#                 Finder's sources, created inactive at first sight)
+#   from          who the tips come from, matched case-insensitively against
+#                 the sender address: an exact address ("tips@example.com"), or
+#                 a domain, with or without the "@" ("example.com" matches
+#                 tips@example.com and tips@mail.example.com). An exact address
+#                 beats a domain when both match.
+#   parser        a name in puntmore_hub/tipsters/ (PARSERS); it reads the
+#                 subject, text body and HTML body and returns tips, or nothing
+#   trust_weight  0..1 (default 0.5), carried beside each tip; Render IGNORES it
+#                 and sets trust by hand (PATCH /api/2up/betfinder/sources/{name})
+#   enabled       false keeps the entry and ignores the sender's mail (default true)
+#
+# Mail from a sender no entry matches is ignored and counted; it is never guessed
+# at. A tipster whose mail parses to no tips is escalated as an unhealthy source.
+
+[[tipster]]
+name = "example-tipster"
+from = "tips@example.com"
+parser = "example_tipster"
+trust_weight = 0.5
+enabled = false

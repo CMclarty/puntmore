@@ -102,3 +102,35 @@ def test_unacked_messages_are_resent_on_reconnect(cfg, store):
             await server.stop()
 
     asyncio.run(scenario())
+
+
+def test_kill_switch_flip_sends_a_fresh_hello(cfg, store):
+    """PROTOCOL.md, Kill switches: Render reads the Hub's switch from its latest hello, so the
+    Hub says hello again, on the same socket, as soon as its file changes either way."""
+    async def scenario():
+        server = MockRender(api_key="test-key")
+        await server.start()
+        live = cfg.with_overrides(render_ws_url=f"ws://127.0.0.1:{server.port}", render_api_key="test-key")
+        link = RenderLink(store, cfg=live)
+        task = asyncio.create_task(link.run())
+        try:
+            await server.wait_for(lambda: server.of_type("hello"))
+            assert server.of_type("hello")[0].body["kill_switch"] is False
+            live.kill_switch_file.write_text("set by the test\n")
+            await server.wait_for(lambda: len(server.of_type("hello")) == 2)
+            assert server.of_type("hello")[1].body["kill_switch"] is True
+            live.kill_switch_file.unlink()
+            await server.wait_for(lambda: len(server.of_type("hello")) == 3)
+            assert server.of_type("hello")[2].body["kill_switch"] is False
+            await asyncio.sleep(1.5)
+            assert len(server.of_type("hello")) == 3          # steady state: no hello without a change
+        finally:
+            link.stop()
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+            await server.stop()
+
+    asyncio.run(scenario())

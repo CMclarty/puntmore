@@ -1,9 +1,18 @@
 #!/bin/sh
+# Docker FALLBACK for a box with no screen (docs/decisions.md). The default is
+# the user service puntmore-scraper on the Hub's desktop, updated by
+# puntmore-update.timer.
 # (Re)create the container from the current image. Run once by hand, then
 # update.sh calls it whenever a new image is published.
 set -e
 DIR=${SCRAPER_DIR:-/opt/puntmore-scraper}
 IMAGE=${SCRAPER_IMAGE:-ghcr.io/cmclarty/puntmore-scraper:latest}
+# The desktop Scraper (deploy/native/) shares the profile, budget and data dir.
+if XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)} \
+   systemctl --user is-active --quiet puntmore-scraper.service 2>/dev/null; then
+  echo "puntmore-scraper (the desktop Scraper) is running; not starting the container" >&2
+  exit 1
+fi
 docker rm -f puntmore-scraper >/dev/null 2>&1 || true
 docker run -d --name puntmore-scraper \
   --restart unless-stopped \

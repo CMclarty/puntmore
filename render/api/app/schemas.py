@@ -1,6 +1,6 @@
-from datetime import date, datetime
-from typing import Any, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from datetime import date, datetime, timezone
+from typing import Annotated, Any, Literal, Optional
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 
 class LegOut(BaseModel):
@@ -338,6 +338,10 @@ class ValueFeedOut(BaseModel):
     sources: list[str]
     # A source that FAILED (as opposed to having no value) is named here with
     # the reason, so an empty list is never mistaken for "nothing on offer".
+    # So is one answering but not fresh: "2up" is "killed: ...", "not yet
+    # refreshed", "cannot price: ...", "partly priced: ..." beside its rows,
+    # or "stale: prices from HH:MM UTC ..." beside the last good
+    # board's rows (each row's `seen_at` is when its prices were fetched).
     errors: dict[str, str] = Field(default_factory=dict)
     selections: list[ValueSelection]
 
@@ -411,61 +415,13 @@ class ReadyOut(OpenModel):
     providers: dict[str, Any]
 
 
-# --- the Hub link (routers/hub_ws.py, hub/PROTOCOL.md) -------------------------
-
-class HubClientOut(BaseModel):
-    """A Hub client as Render last saw it. dry_run / kill_switch are what the
-    Hub said in its latest `hello`; Render's own switches are separate."""
-    client_id: str
-    connected: bool
-    connected_at: Optional[datetime] = None
-    last_hello_at: Optional[datetime] = None
-    dry_run: Optional[bool] = None
-    kill_switch: Optional[bool] = None
-    hub_version: Optional[str] = None
-    last_frame_at: Optional[datetime] = None
-    unacked: int = 0
-
-
-class HubTipOut(BaseModel):
-    tip_id: str
-    client_id: str
-    source_id: str
-    event: str
-    market: str
-    selection: str
-    advised_price: Optional[float] = None
-    tip_time: str
-    received_at: datetime
-    tip: dict[str, Any]
-
-
-class HubKillSwitchIn(BaseModel):
-    on: bool
-    reason: str = Field("", max_length=500)
-
-
-class HubScrapeJobIn(BaseModel):
-    source: str = Field(..., min_length=1, max_length=200)
-    force: bool = False
-    job_id: Optional[str] = Field(None, min_length=1, max_length=100)
-
-
-class HubQueuedOut(BaseModel):
-    """A frame queued for a Hub. `connected` False = it goes out when the
-    client next connects (unacked frames are kept 7 days)."""
-    client_id: str
-    type: str
-    msg_id: str
-    connected: bool
-    body: dict[str, Any]
-
 # --- 2-Up engine (/api/2up, app/twoup/) ---------------------------------------
 
 class TwoUpCandidateOut(BaseModel):
     """One side of one fixture priced for bet365's 2-up early payout.
-    `edge` is in probability units (p_win + rescue - 1/price), what the
-    decision ranks by; `ev` is the expected return per pound."""
+    `edge` is in probability units (p_win + rescue - 1/price), what the feed
+    ranks its rows by and the edge floor reads; `ev` is the expected return
+    per pound (what the `2up` source of /api/value calls `edge`)."""
     event_id: str
     event: str
     home: str
@@ -482,7 +438,7 @@ class TwoUpCandidateOut(BaseModel):
     edge: float
     ev: float
     value: bool                      # passes the price band and the edge floor
-    source_scope: str
+    priced_at: Optional[datetime] = None   # when the prices behind the row were fetched
 
 
 class TwoUpFeedOut(BaseModel):
@@ -492,174 +448,117 @@ class TwoUpFeedOut(BaseModel):
     candidates: list[TwoUpCandidateOut]
 
 
-class TwoUpClientOut(BaseModel):
-    client_id: str
-    name: Optional[str] = None
-    bankroll: float
-    pooled_bankroll: float
-    kill_switch: bool
-    dry_run: bool
-    is_owner: bool
-
-
-class TwoUpAccountOut(BaseModel):
-    account_id: str
-    balance: float
-    balance_at: Optional[datetime] = None
-    enabled: bool
-    open_exposure: float
-    bets_today: int
-
-
-class TwoUpBetOut(BaseModel):
-    bet_id: str
-    account_id: str
-    legs: list[dict[str, Any]]
-    stake: float
-    expected_price: float
-    bet_type: str
-    source_scope: str
-    not_before: Optional[datetime] = None
-    not_after: Optional[datetime] = None
-    day: date
-    edge: Optional[float] = None
-    status: str
-    dry_run: bool
-    hub_dry_run: Optional[bool] = None
-    actual_price: Optional[float] = None
-    new_price: Optional[float] = None
-    fail_reason: Optional[str] = None
-    outcome: Optional[str] = None
-    return_amount: Optional[float] = None
-    created_at: datetime
-    sent_at: Optional[datetime] = None
-    placed_at: Optional[datetime] = None
-    settled_at: Optional[datetime] = None
-
-
-class TwoUpBalanceOut(BaseModel):
-    account_id: str
-    balance: float
-    ts: datetime
-
-
-class TwoUpLedgerOut(BaseModel):
-    client: TwoUpClientOut
-    accounts: list[TwoUpAccountOut]
-    open_exposure: float
-    staked: float                    # settled bets
-    returned: float
-    pnl: float
-    bets: list[TwoUpBetOut]
-    balances: list[TwoUpBalanceOut]
-
-
-# --- Bet Finder (app/betfinder/) ----------------------------------------------
-
-class BetFinderStatsBlock(BaseModel):
-    settled: int
-    won: int
-    lost: int
-    partial: int
-    void: int
-    strike_rate: Optional[float] = None    # won / (won + lost + partial)
-    roi: Optional[float] = None            # level-stake, per non-void tip
-    staked: float
-    returned: float
-
-
-class BetFinderSourceStats(BaseModel):
-    all: BetFinderStatsBlock
-    rolling: BetFinderStatsBlock           # the last `window` settled tips
-    window: int
-    tips: dict[str, int]                   # tips by pipeline status
-
-
-class BetFinderSourceOut(BaseModel):
-    name: str
-    kind: str                              # hub | imap (a seam: not implemented)
-    trust_weight: float                    # set by hand; never adjusted by the code
-    active: bool
-    stake_mode: str                        # auto | advised | kelly
-    note: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-    stats: Optional[BetFinderSourceStats] = None
-
-
-class BetFinderSourceIn(BaseModel):
-    trust_weight: Optional[float] = Field(None, ge=0.0, le=1.0)
-    active: Optional[bool] = None
-    stake_mode: Optional[str] = Field(None, pattern="^(auto|advised|kelly)$")
-    kind: Optional[str] = Field(None, pattern="^(hub|imap)$")
-    note: Optional[str] = Field(None, max_length=500)
-
-
-class BetFinderTipOut(BaseModel):
-    """A tip as the pipeline holds it. The `*_raw` fields are the source's
-    text, untrusted: display them as text, never interpret them."""
-    tip_id: str
-    hub_client_id: str
-    source: str
-    origin: Optional[str] = None
-    event_raw: str
-    market_raw: str
-    selection_raw: str
-    market: str
-    tip_time: Optional[datetime] = None
-    expiry: Optional[datetime] = None
-    advised_price: Optional[float] = None
-    advised_stake_units: Optional[float] = None
-    status: str
-    quarantine: Optional[str] = None
-    quarantine_detail: Optional[str] = None
-    retry_until: Optional[datetime] = None
-    duplicate_of: Optional[str] = None
-    event_id: Optional[str] = None
-    event: Optional[str] = None
-    selection: Optional[str] = None
-    side: Optional[str] = None
-    kickoff: Optional[datetime] = None
-    competition: Optional[str] = None
-    match_score: Optional[float] = None
-    price: Optional[float] = None          # bet365
-    p_win: Optional[float] = None          # Pinnacle de-vigged
-    fair_price: Optional[float] = None
-    edge: Optional[float] = None           # p_win - 1/price, rescue 0
-    priced_at: Optional[datetime] = None
-    bet_ids: list[str]
-    outcome: Optional[str] = None
-    staked: Optional[float] = None
-    returned: Optional[float] = None
-    settled_at: Optional[datetime] = None
-    created_at: datetime
-
-
-class BetFinderCandidateOut(BaseModel):
-    """What `extra_candidates` would hand the owner's decision now."""
-    event_id: str
-    event: str
-    kickoff: datetime
-    selection: str
-    side: str
-    price: float
-    p_win: float
-    fair_price: Optional[float] = None
-    edge: float
-    source: str
-    source_scope: str
-    extra: dict[str, Any]
-
-
-class BetFinderRunOut(OpenModel):
-    at: str
-
-
 class TwoUpDiagnosticsOut(OpenModel):
     feed: dict[str, Any]
     rescue_table: dict[str, Any]
-    last_decision: dict[str, Any]
-    in_window: bool
     global_kill_switch: bool
-    clients: list[TwoUpClientOut]
     settings: dict[str, Any]
+
+
+# --- Finder (app/finder/, docs/finder-spec.md) ------------------------------
+
+def _as_utc(value: datetime) -> datetime:
+    """A naive datetime is UTC (the table's convention); an aware one is
+    converted. Used both ways: on a post and on the way out."""
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
+UTCDatetime = Annotated[datetime, AfterValidator(_as_utc)]
+
+
+class FinderRowIn(BaseModel):
+    """One tip as Hermes posts it: the tip's own prices, never looked up.
+    `status` is Hermes's verdict. An `asked` or `rejected` row may leave out
+    `kickoff`, `odds` and `fair` (Hermes asks when it cannot place a tip on a
+    day and time, or the tip quotes no price); an `offered` row must carry all
+    three, or the post is a 422."""
+    tip_id: str = Field(min_length=1, max_length=128)
+    origin: str = Field(min_length=1, max_length=120)
+    sport: Literal["football", "horse"]
+    bookmaker: str = Field(min_length=1, max_length=60)
+    event: str = Field(min_length=1, max_length=200)
+    home: Optional[str] = Field(default=None, max_length=100)
+    away: Optional[str] = Field(default=None, max_length=100)
+    event_id: Optional[str] = Field(default=None, max_length=100)
+    kickoff: Optional[UTCDatetime] = None              # kick-off or the off; UTC if no offset
+    market: str = Field(min_length=1, max_length=120)  # win | each_way for a horse
+    selection: str = Field(min_length=1, max_length=200)
+    line: Optional[float] = None
+    side: Optional[str] = Field(default=None, max_length=20)
+    odds: Optional[float] = Field(default=None, gt=1, lt=10000)
+    fair: Optional[float] = Field(default=None, gt=1, lt=10000)
+    advised_stake: Optional[float] = Field(default=None, ge=0, lt=100000)   # pounds
+    reason: Optional[str] = Field(default=None, max_length=500)
+    status: Literal["asked", "offered", "rejected"]
+    expiry: Optional[UTCDatetime] = None               # the tip's own, if it has one
+
+    @model_validator(mode="after")
+    def _offered_is_priced(self):
+        missing = [f for f in ("kickoff", "odds", "fair") if getattr(self, f) is None]
+        if self.status == "offered" and missing:
+            raise ValueError(f"an offered row needs {', '.join(missing)}")
+        return self
+
+
+class FinderRowsIn(BaseModel):
+    rows: list[FinderRowIn] = Field(max_length=500)
+
+
+class FinderRowOut(BaseModel):
+    """A Finder row: every column of `finder_rows`, datetimes in UTC."""
+    model_config = ConfigDict(from_attributes=True)
+
+    tip_id: str
+    origin: str
+    sport: str
+    bookmaker: str
+    event: str
+    home: Optional[str] = None
+    away: Optional[str] = None
+    event_id: Optional[str] = None
+    kickoff: Optional[UTCDatetime] = None              # null on an asked row with no day and time
+    market: str
+    selection: str
+    line: Optional[float] = None
+    side: Optional[str] = None
+    odds: Optional[float] = None                       # null on an asked row whose tip quotes none
+    fair: Optional[float] = None
+    edge: Optional[float] = None                       # odds / fair - 1
+    advised_stake: Optional[float] = None
+    reason: Optional[str] = None
+    status: str          # asked | offered | rejected | placed | gone | expired
+    expires_at: UTCDatetime                               # earlier of kickoff and expiry; neither: seen_at + 48 h
+    asked_at: Optional[UTCDatetime] = None
+    answered_at: Optional[UTCDatetime] = None
+    seen_at: UTCDatetime                                  # Hermes's latest post of it
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
+
+
+class FinderPostedRow(BaseModel):
+    tip_id: str
+    status: Optional[str] = None                       # as stored after the post; null: no row
+
+
+class FinderPostOut(BaseModel):
+    stored: int
+    updated: int
+    refused: list[tuple[str, str]]                     # [tip_id, "final" | "status" | "<from> → <to>" | "duplicate of <tip_id>"]
+    duplicates: list[str]                              # stored `rejected`, reason "duplicate of <tip_id>"
+    rows: list[FinderPostedRow] = []                   # every posted row, in order, with its stored status
+
+
+class FinderStatusIn(BaseModel):
+    """The placer's report. Any other word is a 422."""
+    status: Literal["placed", "gone"]
+    at: UTCDatetime
+
+
+class FinderFeedOut(BaseModel):
+    generated_at: datetime
+    rows: list[FinderRowOut]                           # offered, soonest kick-off first
+
+
+class FinderBoardOut(BaseModel):
+    generated_at: datetime
+    rows: list[FinderRowOut]                           # every status, newest first

@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     # notifications/routes.py. Unrouted alerts use DISCORD_WEBHOOK_URL.
     discord_routes: str = ""
     upload_dir: str = "uploads"
+    # A coupon and its photo are deleted this many days after upload (PLAN.md
+    # item 4): a coupon's window is a week at most, so after 8 days nothing on
+    # it can still be bet. Rows and image files go together, never one alone.
+    coupon_cleanup_days: int = 8
     # Largest coupon photo accepted, in MB. A phone photo is 2-6 MB, so this is
     # generous — it exists because the request body is held in memory and then
     # decoded and base64-encoded for OCR, so one oversized POST could exhaust a
@@ -62,8 +66,17 @@ class Settings(BaseSettings):
     # defaults: 2 min inside 45 min, 5 min inside 2h, 15 min inside 6h, then
     # hourly — ~15k requests/month on the 13 competitions x 2 books.
     oddspapi_ttl_tiers: str = "2700:120,7200:300,21600:900,inf:3600"
-    # A ceiling, not a target: ~146/day is the planned spend, so this only
-    # bites on a runaway. Keep it below (monthly plan / 30).
+    # A ceiling, not a target, so this only bites on a runaway. Keep it below
+    # (monthly plan / 30). ~146/day was the planned spend before the 2-Up
+    # feed. Its `twoup_refresh` job runs 24/7 every `twoup_feed_ttl` (5 min)
+    # and asks bet365 for two chunks a pass, billed only when the tiered cache
+    # above has expired: ~48/day while neither chunk has a kick-off within 6h,
+    # rising towards a ceiling of ~576/day (both chunks re-billed every pass)
+    # through a run of kick-offs. Its Pinnacle chunks are the coupon
+    # tracker's and Paddy's, so mostly cache hits; when nothing else keeps
+    # them warm they bill at the same tiered rate. Not measured yet: read
+    # `feed.last_pass.requests_today` on /api/2up/diagnostics before
+    # trusting a figure.
     # Plan: 100,000/month (Oct 2026) = 3,333/day. The cap sits under that so
     # one runaway day cannot spend the month.
     oddspapi_daily_request_budget: int = 3000
@@ -144,29 +157,25 @@ class Settings(BaseSettings):
     # Key the local Bookie Bashing script sends (X-API-Key) with fair saves
     # prices to POST /api/paddy/saves-fair. Blank = endpoint disabled (503).
     saves_ingest_key: str = ""
-    # The Hub link (/api/2up/ws, hub/PROTOCOL.md). The client id whose bets may
-    # carry source_scope "owner" (Bet Finder): such a bet is never sent to any
-    # other client. And how often each connected client's pending bet lists are
-    # polled from the 2-Up engine, in seconds.
-    hub_owner_client_id: str = "owner"
-    hub_poll_seconds: float = 5.0
 
     # --- 2-Up engine (app/twoup/, docs/2up-engine-spec.md) -------------------
     # Part of the 365 tool, behind the `accabonus` grant. Prices bet365's 2 Goals
-    # Ahead Early Payout off OddsPapi (bet365 + Pinnacle 1X2), decides stakes per
-    # client and queues bet lists in its ledger. It NEVER places a bet and never
-    # connects to the Hub: the Hub endpoint sends what the ledger has queued.
-    # Mounts /api/2up and runs the decision job. Off = neither.
+    # Ahead Early Payout off OddsPapi (bet365 + Pinnacle 1X2) and serves the value
+    # bets as a one-way feed. It NEVER places a bet, keeps no account and never
+    # connects to a Hub (Render has no Hub endpoint).
+    # Mounts /api/2up. Off = no router.
     enable_twoup: bool = True
-    # Global kill switch: no bet lists are produced or handed out for ANY
-    # client while true. Per-client switches live in the ledger (POST
-    # /api/2up/clients/{id}/kill). An .env change, no code change.
+    # --- Finder (app/finder/, docs/finder-spec.md) ----------------------------
+    # Callum's private Bet Finder on the me site, behind the `finder` grant.
+    # Keeps, serves and expires the bets Hermes posts from the Hub; never loads
+    # a page, never prices a tip, never places a bet. Off = no router, no jobs,
+    # no `finder` tool in the nav.
+    enable_finder: bool = True
+    # Global kill switch: GET /api/2up/feed returns no rows (status.killed)
+    # and the `2up` source of /api/value returns none (errors["2up"] says
+    # killed); /api/2up/diagnostics reports it. An .env change, no code
+    # change. The refresh job keeps pricing, so lifting it serves a fresh board.
     twoup_kill_switch: bool = False
-    # Clients and their sub-client accounts, created on startup if missing and
-    # NEVER modified once they exist (bankroll, flags and balances are the
-    # ledger's): "client_id[:owner]=acc1+acc2;other=acc3". Every client
-    # created here starts in DRY-RUN with the kill switch off.
-    twoup_clients: str = ""
     # Qualifying competitions (ids or names, as `oddspapi_tournament_ids`).
     # bet365's early payout runs on the major leagues and the European club
     # cups. The default is the first ten entries of the shared list ON
@@ -175,8 +184,9 @@ class Settings(BaseSettings):
     # nothing extra and bet365 adds 2 requests per refresh (tiered, cached by
     # the client like every other OddsPapi call).
     twoup_tournament_ids: str = "17,18,24,8,23,35,34,238,7,679"
-    # How long one priced feed is reused by the decision job and GET /2up/feed.
-    # The OddsPapi client's own tiered cache decides what is actually billed.
+    # The `twoup_refresh` job's interval (seconds): how often the served board
+    # is re-priced. The OddsPapi client's own tiered cache decides what is
+    # actually billed.
     twoup_feed_ttl: int = 300
     # Which fixtures are candidates: kicking off within this many hours and at
     # least this many minutes from now (a bet must have time to be placed).
@@ -191,68 +201,6 @@ class Settings(BaseSettings):
     twoup_max_price: float = 8.0
     # Where the rescue-rate table lives. Blank = app/twoup/rescue_table.json.
     twoup_rescue_table_path: str = ""
-    # Fractional Kelly on the client's POOLED bankroll, then a hard ceiling on
-    # any one selection's total stake as a fraction of that bankroll.
-    twoup_kelly_fraction: float = 0.25
-    twoup_max_selection_fraction: float = 0.02
-    # Account preservation (spec, "Account-preservation rules"). Bets are
-    # produced only inside this local window, and each bet's not_before /
-    # not_after is clipped to it.
-    twoup_window_start: str = "07:30"
-    twoup_window_end: str = "22:00"
-    twoup_timezone: str = "Europe/London"
-    # Hard max bets per account per London day — every bet recorded counts,
-    # failed ones included (a refused slip is still activity on the account).
-    twoup_max_bets_per_account_day: int = 20
-    # Dynamic stake ceiling per bet: never above the hard cap, never above
-    # this fraction of the account's own balance. No floor.
-    twoup_stake_hard_cap: float = 200.0
-    twoup_stake_balance_fraction: float = 0.10
-    # Stake growth: a stake may not exceed the mean of the account's trailing
-    # stakes by more than this fraction, whatever the account has won. Until
-    # the account has `twoup_growth_min_history` stakes, the initial cap holds.
-    twoup_stake_growth_cap: float = 0.25
-    twoup_trailing_stakes: int = 20
-    twoup_growth_min_history: int = 5
-    twoup_initial_stake_cap: float = 10.0
-    # The decision job's cadence, in minutes. It reads the cached feed, so a
-    # tighter cadence costs CPU, not OddsPapi requests.
-    twoup_decision_minutes: int = 10
-
-    # --- Bet Finder orchestrator (app/betfinder/) ----------------------------
-    # Turns the Hub's `tip` frames (hub_tips) into OWNER-ONLY 2-Up candidates.
-    # It never fetches anything (no IMAP, no tipster pages): tips arrive over
-    # the Hub link, prices come from the 2-Up feed's cache. Off = no job and
-    # `extra_candidates` returns nothing; the routes still read.
-    enable_betfinder: bool = True
-    # Sources created on startup if missing, NEVER modified once they exist
-    # (trust, active and stake mode are set by hand through the routes):
-    # "name:trust=0.6,active=1,stake=advised,kind=hub;other:trust=0.4".
-    # Keys are optional; defaults are trust 0.5, inactive, stake auto, kind hub.
-    # A tip from a source not listed creates it INACTIVE at trust 0.5.
-    betfinder_sources: str = ""
-    # One advised unit in pounds: a tip's advised_stake_units x this is its
-    # stake in `advised` mode, before the trust weight and the 2-Up caps.
-    betfinder_unit_stake: float = 5.0
-    # Advised units above this are not believed: the tip is quarantined.
-    betfinder_max_units: float = 10.0
-    # Edge floor for Bet Finder rows, in probability units, p_win - 1/price
-    # with rescue 0 (the 2-Up floor is for the 2-up edge, which a tip does not
-    # claim). 0 = never back a tip bet365 prices below Pinnacle's fair line.
-    betfinder_min_edge: float = 0.0
-    # How long after its tip_time an unmatched tip keeps being retried (the
-    # fixture may not be in the 2-Up feed's horizon yet), and how far after
-    # the tip a fixture may kick off and still be the one it means.
-    betfinder_match_days: float = 3.0
-    # A priced tip older than this is not offered to the decision: its price
-    # is re-read every pass, so a stale one means the fixture left the feed.
-    betfinder_max_price_age_minutes: int = 30
-    # The pipeline's cadence, in minutes. It prices off the 2-Up feed's CACHE
-    # only (never a refresh), and the 2-Up pass re-prices open tips off the
-    # feed it has just read, so the Bet Finder adds no OddsPapi request.
-    betfinder_minutes: int = 5
-    # Rolling window for the per-source strike rate and ROI (settled tips).
-    betfinder_stats_window: int = 50
 
     # Session cookie signing key. If blank, a random key is generated at startup
     # (sessions reset on restart — fine for dev; set a fixed value in prod).

@@ -1,2 +1,0 @@
-[console_scripts]
-puntmore = puntmore_hub.cli:main

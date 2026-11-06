@@ -259,6 +259,14 @@ export const removeHillsBet = (id) => del(`/hills/bets/${id}`)
 // the scheduler near kickoff and stored, so this just reads the current set.
 export const getGoalscorerFeed = () => get('/goalscorers/feed')
 
+// 2-Up (the 365 tool's live tab): the engine's value feed, a one-way read of
+// the server's scheduled board. Nothing here places a bet.
+export const getTwoUpFeed = () => get('/2up/feed?value_only=true')
+export const getTwoUpDiagnostics = () => get('/2up/diagnostics')
+
+// Finder (me): the board of the last `days` days, every status.
+export const getFinderBoard = (days = 3) => get(`/finder/board?days=${days}`)
+
 // Private P&L bet tracker (per-user ledger). Each user has two independent
 // ledgers, `category` = "dogs" | "virtuals", carried as a path segment.
 export const getBets = (category) => get(`/pnl/${category}/bets`)

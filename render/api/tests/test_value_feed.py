@@ -141,3 +141,77 @@ def test_a_failing_source_is_named_and_the_rest_still_answer(monkeypatch):
     body = _get("/value").json()
     assert "paddy" in body["errors"] and "vendor down" in body["errors"]["paddy"]
     assert {r["source"] for r in body["selections"]} == {"coupon"}
+
+
+# --- Finder: a private source (Finder plan, Task 5) ----------------------------
+
+from contextlib import contextmanager  # noqa: E402
+
+
+@contextmanager
+def grant(perms):
+    app.dependency_overrides[user_permissions] = lambda: perms
+    try:
+        yield
+    finally:
+        app.dependency_overrides[user_permissions] = lambda: "*"
+
+
+def _finder_tip(**over):
+    tip = {"tip_id": "f1", "origin": "tipster-a", "sport": "football", "bookmaker": "bet365",
+           "event": "A v B", "home": "A", "away": "B", "kickoff": SOON.replace(tzinfo=timezone.utc),
+           "market": "Match Result", "selection": "A", "odds": 3.0, "fair": 2.5, "status": "offered"}
+    tip.update(over)
+    return tip
+
+
+@pytest.fixture
+def db_with_finder_row():
+    from app.finder import rows
+    db = Session()
+    try:
+        rows.upsert(db, [_finder_tip(),
+                         _finder_tip(tip_id="f2", selection="B", fair=None),       # asked: never served
+                         _finder_tip(tip_id="f3", selection="Draw", bookmaker="paddypower",
+                                     odds=2.0, fair=2.0)],                          # offered at fair
+                    datetime.now(timezone.utc))
+    finally:
+        db.close()
+
+
+def test_finder_is_private_to_its_grant_and_absent_from_the_combined_feed(db_with_finder_row):
+    with grant("value"):
+        assert "finder" not in TestClient(app).get("/value").json()["sources"]
+        assert TestClient(app).get("/value/finder").status_code == 403
+    with grant("finder"):
+        body = TestClient(app).get("/value/finder").json()
+        [r] = [r for r in body["selections"] if r["selection"] == "A"]
+        assert (r["source"], r["bookmaker"], r["selection"], r["edge"]) == ("finder", "bet365", "A", pytest.approx(0.2))
+        assert "finder" not in TestClient(app).get("/value").json()["sources"]
+    with grant("*"):
+        assert "finder" not in TestClient(app).get("/value").json()["sources"]
+        assert TestClient(app).get("/value/finder").status_code == 200
+
+
+def test_finder_serves_every_offered_row_and_filters_on_the_rows_own_bookmaker(db_with_finder_row):
+    with grant("finder"):
+        body = TestClient(app).get("/value/finder").json()
+        assert body["sources"] == ["finder"] and body["errors"] == {}
+        # Every offered row (the edge floor is the tip's business, not this
+        # feed's), never the asked one.
+        assert sorted(r["selection"] for r in body["selections"]) == ["A", "Draw"]
+        r = next(r for r in body["selections"] if r["selection"] == "A")
+        assert (r["home"], r["away"], r["sport"], r["market"], r["basis"]) == \
+            ("A", "B", "football", "Match Result", "tip")
+        assert r["kickoff"].startswith(SOON.isoformat()) and r["seen_at"]
+        pp = TestClient(app).get("/value/finder", params={"bookmaker": "paddypower"}).json()
+        assert [r["selection"] for r in pp["selections"]] == ["Draw"]
+        assert TestClient(app).get("/value/finder", params={"min_edge": 0.1}).json()["selections"][0]["selection"] == "A"
+        assert len(TestClient(app).get("/value/finder", params={"min_edge": 0.1}).json()["selections"]) == 1
+
+
+def test_finder_is_not_a_source_with_its_flag_off(monkeypatch, db_with_finder_row):
+    from app.config import settings
+    monkeypatch.setattr(settings, "enable_finder", False)
+    with grant("*"):
+        assert TestClient(app).get("/value/finder").status_code == 404

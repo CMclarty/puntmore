@@ -51,7 +51,7 @@ Playwright/Puppeteer required.
 2. **Run Vite + screenshot.** Vite bumps the port to 5174+ if 5173 is busy, so
    read the port it prints:
    ```bash
-   cd frontend && npm run dev > /tmp/vite.log 2>&1 &
+   cd render/frontend && npm run dev > /tmp/vite.log 2>&1 &
    until grep -qE 'Local:.*http' /tmp/vite.log; do sleep 0.3; done
    PORT=$(grep -oE 'localhost:[0-9]+' /tmp/vite.log | head -1 | cut -d: -f2)
    google-chrome --headless=new --disable-gpu --no-sandbox --hide-scrollbars \

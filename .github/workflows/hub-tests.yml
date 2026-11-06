@@ -1,14 +1,15 @@
-# Tests the home-box package (hub/). Nothing is deployed from here: the Hub pulls
-# its own checkout. Runs on PRs and on main so the contract tests in hub/tests/test_protocol.py
+# Tests the Hub package (hub/). Nothing is deployed from here: the Hub pulls
+# its own checkout. The console imports scraper/targets.py (and what it imports), so a change
+# there runs these too. Runs on PRs and on main so the contract tests in hub/tests/test_protocol.py
 # gate any change to the Render side that touches the shared schema.
 name: hub tests
 
 on:
   push:
     branches: [main]
-    paths: ["hub/**", ".github/workflows/hub-tests.yml"]
+    paths: ["hub/**", "scraper/targets.py", "scraper/config.py", "scraper/sites.py", ".github/workflows/hub-tests.yml"]
   pull_request:
-    paths: ["hub/**", ".github/workflows/hub-tests.yml"]
+    paths: ["hub/**", "scraper/targets.py", "scraper/config.py", "scraper/sites.py", ".github/workflows/hub-tests.yml"]
   workflow_dispatch:
 
 jobs:

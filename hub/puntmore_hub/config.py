@@ -4,8 +4,8 @@ Everything comes from environment variables (a ``.env`` in ``hub/`` is loaded if
 Nothing operational is hard-coded, so an agent changes behaviour by editing ``.env``, never
 code. See ``.env.example`` for every variable.
 
-Scraping is not configured here: the Worker (``scraper/``) owns every page load and its
-own settings. The Hub only knows where the Worker's data directory is.
+Scraping is not configured here: the Scraper (``scraper/``) owns every page load and its
+own settings. The Hub only knows where the Scraper's data directory is.
 """
 from __future__ import annotations
 
@@ -38,6 +38,15 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() not in ("0", "false", "no", "off", "")
 
 
+def _env_first(*names: str, default: str) -> str:
+    """The first of ``names`` that is set and non-blank (a renamed variable, then its old name)."""
+    for name in names:
+        raw = os.environ.get(name)
+        if raw is not None and raw.strip():
+            return raw
+    return default
+
+
 @dataclass(frozen=True)
 class Settings:
     # Identity on Render. The Hub is one client of the Render service, with admin scope.
@@ -55,15 +64,27 @@ class Settings:
     db_path: Path = ROOT / "data" / "hub.sqlite"
     sub_clients_file: Path = ROOT / "sub_clients.yaml"
 
-    # The Worker (scraper/) writes its heartbeat, status.json and the hub/ drop folders here.
-    # In the Docker setup that is the container's /data volume on the host.
-    worker_data_dir: Path = Path(os.environ.get("PUNTMORE_WORKER_DATA", "/opt/puntmore-scraper/data"))
-    worker_stale_minutes: int = int(os.environ.get("PUNTMORE_WORKER_STALE_MINUTES", "10"))
+    # The Scraper (scraper/) writes its heartbeat, status.json and the hub/ drop folders here:
+    # the native service's data dir (in the Docker fallback, the container's /data volume).
+    # PUNTMORE_WORKER_DATA / PUNTMORE_WORKER_STALE_MINUTES are the old names, still read for
+    # one release when the new ones are unset.
+    scraper_data_dir: Path = Path(_env_first("PUNTMORE_SCRAPER_DATA", "PUNTMORE_WORKER_DATA",
+                                             default="/opt/puntmore-scraper/data"))
+    scraper_stale_minutes: int = int(_env_first("PUNTMORE_SCRAPER_STALE_MINUTES",
+                                                "PUNTMORE_WORKER_STALE_MINUTES", default="10"))
+    # Where the Scraper's code is (the directory holding the `scraper/` package), for the console's
+    # Scraper tab, which changes targets.toml through `scraper.targets` and nothing else. Default:
+    # the repo this package was checked out in, so the console and the library are the same commit.
+    scraper_src: Path = Path(os.environ.get("PUNTMORE_SCRAPER_SRC") or Path(__file__).resolve().parents[2])
 
     # Alerting and the local AI
     discord_webhook: str = os.environ.get("PUNTMORE_DISCORD_WEBHOOK", "")
     hermes_bin: str = os.environ.get("PUNTMORE_HERMES_BIN", str(Path.home() / ".local" / "bin" / "hermes"))
     hermes_profile: str = os.environ.get("PUNTMORE_HERMES_PROFILE", "default")
+    # The profile that gets a Scraper escalation (unhealthy_source, blocked_source) and follows
+    # the runbook hub/deploy/hermes-skills/puntmore-scraper-ops; everything else goes to hermes_profile.
+    hermes_scraper_profile: str = os.environ.get("PUNTMORE_HERMES_SCRAPER_PROFILE", "scraper-manager")
+    hermes_home: Path = Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
     escalate_to_local_ai: bool = _env_bool("PUNTMORE_ESCALATE_TO_LOCAL_AI", True)
     alert_dedup_hours: float = float(os.environ.get("PUNTMORE_ALERT_DEDUP_HOURS", "6"))
 
@@ -78,6 +99,17 @@ class Settings:
     # The https base of Render, for its /api/ready health gate. Blank = not configured.
     render_http: str = os.environ.get("PUNTMORE_RENDER_HTTP", "")
 
+    # Tipster emails (mail.py): one mailbox polled over IMAP (SSL) on this box, never on Render.
+    # A blank host means not configured and the poll is a no-op. Which senders are tipsters, and
+    # which parser reads each, is the tipsters file (tipsters.example.toml), re-read every poll.
+    imap_host: str = os.environ.get("PUNTMORE_IMAP_HOST", "")
+    imap_port: int = int(os.environ.get("PUNTMORE_IMAP_PORT", "993"))
+    imap_user: str = os.environ.get("PUNTMORE_IMAP_USER", "")
+    imap_password: str = os.environ.get("PUNTMORE_IMAP_PASSWORD", "")
+    imap_folder: str = os.environ.get("PUNTMORE_IMAP_FOLDER", "INBOX")
+    imap_every_min: int = int(os.environ.get("PUNTMORE_IMAP_EVERY_MIN", "10"))
+    tipsters_file: Path = Path(os.environ.get("PUNTMORE_TIPSTERS_FILE") or ROOT / "data" / "tipsters.toml")
+
     def with_overrides(self, **changes) -> "Settings":
         return dataclasses.replace(self, **changes)
 
@@ -86,8 +118,22 @@ class Settings:
         return bool(self.render_ws_url and self.render_api_key)
 
     @property
+    def mail_configured(self) -> bool:
+        return bool(self.imap_host.strip())
+
+    @property
+    def mail_status_file(self) -> Path:
+        """What the last mail poll did (mail.py writes it; status and health read it)."""
+        return self.data_dir / "mail-status.json"
+
+    @property
     def inbox_dir(self) -> Path:
-        return self.worker_data_dir / "hub"
+        return self.scraper_data_dir / "hub"
+
+    @property
+    def scraper_targets_file(self) -> Path:
+        """What the Scraper reads (scraper/config.py `load`, with SCRAPER_DATA_DIR = our data dir)."""
+        return self.scraper_data_dir / "targets.toml"
 
     @property
     def web_host_port(self) -> tuple[str, int]:

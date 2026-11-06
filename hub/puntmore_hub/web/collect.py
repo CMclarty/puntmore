@@ -2,14 +2,17 @@
 
 Each collector returns a plain dict: ``state`` (up | warn | down | off | unknown), ``checked_at``
 (ISO, UTC), ``detail`` (one line for the status strip) and the component's own rows. A collector
-never raises: a missing source (no Worker data dir, no llama-server, no systemd) comes back as
+never raises: a missing source (no Scraper data dir, no llama-server, no systemd) comes back as
 ``unknown`` or ``off`` with a detail saying why.
 
 The rule for the two grey states: ``off`` is a thing that is not configured or not running and is
 allowed not to be (the link before a Render endpoint exists, llama-server not answering); ``unknown``
-is when the console cannot tell (no systemctl, no Worker data dir).
+is when the console cannot tell (no systemctl, no Scraper data dir).
 
-Nothing here writes, loads a page or talks to a bookmaker. Everything read from the Worker's files,
+The Scraper tab's ``config`` is ``scraper.targets.summary()`` (``scraper_targets.view``): targets.toml
+joined to status.json, read through the Scraper's own library.
+
+Nothing here writes, loads a page or talks to a bookmaker. Everything read from the Scraper's files,
 tips, escalations and logs is untrusted text and is returned as data for the page to insert with
 ``textContent``.
 """
@@ -18,7 +21,9 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 import re
+import shlex
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -29,6 +34,7 @@ from typing import Any
 from .. import inbox
 from ..config import Settings
 from ..store import Store, iso, parse_iso, utcnow
+from . import scraper_targets
 
 STATES = ("up", "warn", "down", "off", "unknown")
 HERMES_HOME = Path.home() / ".hermes"
@@ -84,12 +90,12 @@ def _tail(path: Path, lines: int, max_bytes: int = 256_000) -> list[str]:
 
 
 def _safe(s: str) -> str:
-    """The Worker's own file-name rule (scraper/runner.py `_safe`)."""
+    """The Scraper's own file-name rule (scraper/runner.py `_safe`)."""
     return re.sub(r"[^A-Za-z0-9._-]+", "_", s)[:120]
 
 
 def _ts_iso(v: Any) -> str | None:
-    """The Worker writes epoch seconds; show ISO."""
+    """The Scraper writes epoch seconds; show ISO."""
     try:
         return iso(_from_epoch(float(v))) if v is not None else None
     except (TypeError, ValueError):
@@ -107,11 +113,11 @@ def _guard(name: str, fn: Callable[[], dict[str, Any]]) -> dict[str, Any]:
         return _result("unknown", f"{name}: could not read ({exc.__class__.__name__}: {str(exc)[:160]})")
 
 
-# ---- Worker ----------------------------------------------------------------------------------
+# ---- Scraper ----------------------------------------------------------------------------------
 
 def latest_rows(cfg: Settings, target: str) -> dict[str, Any] | None:
-    """``latest/<target>.json`` as the Worker wrote it: ``{at, url, rows}``. None if absent."""
-    latest = cfg.worker_data_dir / "latest"
+    """``latest/<target>.json`` as the Scraper wrote it: ``{at, url, rows}``. None if absent."""
+    latest = cfg.scraper_data_dir / "latest"
     path = latest / f"{_safe(target)}.json"
     if path.parent != latest or not path.is_file():
         return None
@@ -121,13 +127,25 @@ def latest_rows(cfg: Settings, target: str) -> dict[str, Any] | None:
             "count": len(rows), "truncated": len(rows) > LATEST_ROWS_MAX, "rows": rows[:LATEST_ROWS_MAX]}
 
 
-def worker(cfg: Settings) -> dict[str, Any]:
+def _latest_count(cfg: Settings, target: str) -> int | None:
+    lr = latest_rows(cfg, target)
+    return lr["count"] if lr else None
+
+
+def resume_command(cfg: Settings, site: str) -> str:
+    """The exact command that ends a site's cool-off (the Scraper's own CLI; the console never runs it)."""
+    return (f"cd {shlex.quote(str(cfg.scraper_src))} && SCRAPER_DATA_DIR={shlex.quote(str(cfg.scraper_data_dir))} "
+            f"{shlex.quote(sys.executable)} -m scraper resume {shlex.quote(site)}")
+
+
+def scraper(cfg: Settings) -> dict[str, Any]:
     def go():
-        d = cfg.worker_data_dir
+        d = cfg.scraper_data_dir
+        config = scraper_targets.view(cfg, lambda name: _latest_count(cfg, name), _ts_iso)
         if not d.is_dir():
-            return _result("unknown", f"Worker data dir {d} not found", heartbeat_age_s=None, targets=[], sites=[],
-                           alerts=[], status_at=None, data_dir=str(d))
-        w = inbox.worker_status(cfg)
+            return _result("unknown", f"Scraper data dir {d} not found", heartbeat_age_s=None, targets=[], sites=[],
+                           alerts=[], status_at=None, data_dir=str(d), config=config)
+        w = inbox.scraper_status(cfg)
         status_at = None
         try:
             status_at = _ts_iso(json.loads((d / "status.json").read_text()).get("at"))
@@ -159,10 +177,12 @@ def worker(cfg: Settings) -> dict[str, Any]:
                                            w["unhealthy"] and "unhealthy: " + ", ".join(w["unhealthy"])) if x)
         else:
             state, detail = "up", f"{n} target{'s' if n != 1 else ''}, heartbeat {age}s ago"
+        sites = [{**s, "resume_command": resume_command(cfg, str(s.get("site")))} if isinstance(s, dict) else s
+                 for s in w.get("sites", [])]
         return _result(state, detail, heartbeat_age_s=age, running=w["running"], blocked=w["blocked"],
-                       unhealthy=w["unhealthy"], targets=targets, sites=w.get("sites", []), alerts=alerts,
-                       status_at=status_at, data_dir=str(d))
-    return _guard("worker", go)
+                       unhealthy=w["unhealthy"], targets=targets, sites=sites, alerts=alerts,
+                       status_at=status_at, data_dir=str(d), config=config)
+    return _guard("scraper", go)
 
 
 # ---- Link ------------------------------------------------------------------------------------
@@ -392,13 +412,13 @@ def render(cfg: Settings, timeout: float = 5.0) -> dict[str, Any]:
 
 # ---- all at once -----------------------------------------------------------------------------
 
-COMPONENTS = ("worker", "link", "placement", "escalations", "tips", "model", "hermes", "render")
+COMPONENTS = ("scraper", "link", "placement", "escalations", "tips", "model", "hermes", "render")
 
 
 def collect(name: str, cfg: Settings, store_factory: Callable[[], Store]) -> dict[str, Any]:
     """One component by name. Opens (and closes) its own Store, so it is safe in a thread."""
-    if name in ("worker", "model", "hermes", "render"):
-        return {"worker": worker, "model": model, "hermes": hermes, "render": render}[name](cfg)
+    if name in ("scraper", "model", "hermes", "render"):
+        return {"scraper": scraper, "model": model, "hermes": hermes, "render": render}[name](cfg)
     if not cfg.db_path.exists():
         # Reads never create the database: that is `puntmore init`'s (or the link daemon's) job.
         return _result("unknown", f"no hub database at {cfg.db_path} (puntmore init)")

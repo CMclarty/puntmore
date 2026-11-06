@@ -7,7 +7,7 @@ import pytest
 from jsonschema import Draft202012Validator, ValidationError
 
 from puntmore_hub import schemas
-from puntmore_hub.schemas import CandidateTip, Envelope, INBOUND_TYPES, OUTBOUND_TYPES
+from puntmore_hub.schemas import CandidateTip, Envelope, FILE_TYPES, INBOUND_TYPES, OUTBOUND_TYPES
 from puntmore_hub.store import tip_id_for
 
 HOME = Path(__file__).resolve().parent.parent
@@ -27,7 +27,7 @@ def test_example_validates(path):
 
 def test_examples_cover_every_message_type():
     types = {json.loads(p.read_text())["type"] for p in EXAMPLES}
-    assert types == set(INBOUND_TYPES) | set(OUTBOUND_TYPES)
+    assert types == set(INBOUND_TYPES) | set(OUTBOUND_TYPES) | set(FILE_TYPES)
 
 
 def frame(type_, body):

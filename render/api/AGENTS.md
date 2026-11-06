@@ -1,6 +1,7 @@
 # api/ — rules for the Render service
 
-The repo's `CLAUDE.md` applies everywhere and wins on any conflict. This file is
+`docs/decisions.md` is read first and wins over this file; the repo's
+`CLAUDE.md` applies everywhere and wins over this file on any other conflict. This file is
 what is specific to the FastAPI backend: moved verbatim from `CLAUDE.md` on
 5 Nov 2026, reasons and incident history included, because the rules are
 scars and the next agent "fixes" a rule it does not understand.
@@ -102,129 +103,122 @@ because that rules out the key and the network in one line.
 
 Both live behind their seams. Core logic never calls a vendor API directly.
 
-## 365 tool (acca boost + goalscorers + 2-Up, one tool — PLAN item 11)
+## 365 tool (the 2-Up engine; acca boost returns on OddsPapi, goalscorers parked — one tool, PLAN item 11)
 - **The 2-up edge is proven** (Callum, 5 Nov 2026). Do not re-litigate it,
   model it from scratch, or gate the build on a literature review.
 - **The rescue model is fine-tuned during testing against Bookie Bashing's
-  2-up tracker.** By hand: BB's terms ban automated access (see the
-  BookieBashing constraint under Cards & Corners), so neither the engine nor
-  the Hub's Worker ever fetches the tracker. The comparison is a
+  2-up tracker.** By hand: BB's terms ban automated access
+  (`docs/decisions.md`, "Scraping conduct"), so neither the engine nor
+  the Hub's Scraper ever fetches the tracker. The comparison is a
   user-triggered step and its results are recorded in the tool's notes.
-- Bet lists it emits go to the Hub over `hub/PROTOCOL.md`; nothing in `api/`
-  places a bet.
+- The module is a one-way HTTP feed of current value bets (6 Nov 2026,
+  `docs/2up-engine-spec.md`, "Decisions, 6 Nov 2026"). Staking, placement, the
+  books and the tips a client finds are the client's: nothing in `api/` places
+  a bet, keeps an account or connects to a Hub.
 
 ### The 2-Up engine (`app/twoup/`, Nov 2026)
-Router `routers/twoup.py` at `/api/2up/*` (feed, `ledger/{client_id}`,
-`clients/{id}/kill|resume`, diagnostics), behind the `accabonus` grant and its
-own flag `ENABLE_TWOUP`. Settings are `twoup_*` in `config.py`, each with a
-default and a reason.
+Router `routers/twoup.py` at `/api/2up/*` (`feed`, `diagnostics`; both
+read-only), behind the `accabonus` grant and its own flag `ENABLE_TWOUP`.
+Settings are `twoup_*` in `config.py`, each with a default and a reason.
 - `model.py` — pure: Pinnacle 1X2 de-vigged with `devigd_multi` (power),
   rescue rate from `rescue_table.json` by fair-P(win) bucket, edge =
-  P(win) + P(two up, fails to win) − 1/bet365 price, fractional Kelly,
-  1-2-5 stake rounding, account-preservation limits. `Candidate` lives here.
+  P(win) + P(two up, fails to win) − 1/bet365 price, and the filters (price
+  band, edge floor, minimum lead). `Candidate` lives here; every row carries
+  `priced_at`, when the prices behind it were fetched.
 - `feed.py` — OddsPapi only, through the SHARED `OddsPapiClient` (budget,
   spacing, quota guard, tiered cache unchanged). Both books via
   `resolve_book`. The default competition list chunks into the same Pinnacle
   requests the coupon tracker makes, so bet365 is the only new spend. One log
-  line per pass; `status()` feeds `/api/ready` → `providers.twoup_detail`
-  (`degraded`, `cannot_price`) so a deploy that cannot price 2-Up never looks
-  healthy. Also a `ValueSelection` source (`source="2up"`, `bookmaker="bet365"`,
-  `edge` = EV per pound there, `basis="2up"`).
-- `ledger.py` — `twoup_*` tables. The Hub endpoint calls `record_bet_list`,
-  `apply_report`, `open_exposure`, `pending_bet_lists`, `mark_sent`: keep
-  their names and signatures. Everything is scoped by `client_id`.
-- `decision.py` — per client per day; singles only (multiples are a noted
-  follow-up). `extra_candidates` is the Bet Finder seam (`app/betfinder/`,
-  below); one row per selection per pass, the higher edge kept.
-- `scheduler.run_twoup` — every `twoup_decision_minutes`, and a no-op outside
-  the betting window (no feed read, no request).
+  line per pass. Also a `ValueSelection` source (`source="2up"`,
+  `bookmaker="bet365"`, `edge` = EV per pound there, `basis="2up"`).
+- **A served board, refreshed by a job, never by a request.** The scheduler
+  job `twoup_refresh` (`scheduler.refresh_twoup`, every `twoup_feed_ttl`
+  seconds, first run at start, registered only when `ENABLE_TWOUP` is on and
+  there is an OddsPapi client) calls `TwoUpFeed.refresh()`, which prices a
+  board and swaps it in whole under a lock. `served()` hands out
+  `(generated_at, rows)` of that board and never fetches; `GET /api/2up/feed`,
+  and the `2up` source of `/api/value`, read only `served()`. A row still
+  drops out at `twoup_min_lead_minutes` before kick-off while its board is
+  served.
+- **Last good board on failure.** A pass with errors that priced nothing
+  (every request failed, reference data down, no configured tournament
+  resolved, or the pass itself raised — `refresh` catches it and records
+  `pass failed: ...`) leaves the served board as it was, with its old
+  `priced_at` and `generated_at`, and sets `status.stale: true`; an honest
+  empty pass (no errors) replaces the board. The next good pass replaces it
+  and clears `stale`. Before the first pass the list is empty and
+  `status.not_yet_refreshed` is true. A pass where one chunk's request failed
+  but another priced replaces the board and names each failed request in
+  `cannot_price` (`<book> chunk [ids]: <error>`), so it is degraded; the failed
+  chunk's rows are not carried forward.
+- **The `2up` value source says when it is not fresh.** Its rows' `seen_at`
+  is their `priced_at`, never now; killed, stale, not yet refreshed, cannot
+  price (no board since boot: every pass failed or raised, named by the first
+  `cannot_price` entry) and partly priced (a board with a failed chunk, every
+  gap named, beside its rows) are named in `/api/value`'s `errors["2up"]`
+  (stale beside the last good rows).
+- `status()` (`/api/ready` → `providers.twoup_detail`, the feed's `status`,
+  and `diagnostics.feed`) reports `provider`, `degraded`, `cannot_price`,
+  `stale`, `served_at`, `not_yet_refreshed` and `last_pass`; a deploy that
+  cannot price 2-Up never looks healthy. `/api/2up/feed` adds `killed`.
 
 Invariants — do not relax:
-- **Dry-run is ON for every new client.** Its bets are recorded and never
-  returned by `pending_bet_lists`. Turning it off is a deliberate ledger edit.
-- **Kill switch** (global `TWOUP_KILL_SWITCH`, or per client): nothing is
-  decided and nothing is handed out while it is on.
-- **Idempotent on bet_id.** `bet_id` is a hash of (client, account, event,
-  selection, London day); a replayed bet or report changes nothing. A
-  `price_changed` bet is re-decided under a NEW id (`-r1`, …) at the lower of
-  the feed and reported prices. **A failed bet is never resent** and its
-  selection is not re-bet that day.
-- **`owner` candidates reach the owner client only** — refused in the
-  decision, in `record_bet_list` and again in `pending_bet_lists`.
-- Account preservation per account: 07:30–22:00 London, ≤ 20 bets a day
-  (every recorded bet counts, failed included), one bet per event, stake ≤
-  min(hard cap, 10% of balance, trailing-stake mean × 1.25 — or £10 until 5
-  stakes of history). The growth cap reads STAKES, never results.
+- **Kill switch** (global `TWOUP_KILL_SWITCH`, read per request): the feed
+  returns no rows with `status.killed: true`, and the `2up` source of
+  `/api/value` returns none either (and names `killed` in its `errors`), so
+  the two never disagree. There is no per-client switch; there are no
+  clients.
+- **One feed, no per-reader view.** Every reader gets the same rows; a row's
+  identity is `event_id` + `side`. Nothing comes back from a reader.
+- **No ledger and no Hub endpoint.** The `twoup_*`, `tips`,
+  `betfinder_sources` and `hub_*` tables are dead and left on the disk, not
+  dropped; the ORM classes are gone.
 - The rescue table is tuned BY HAND (`tools/twoup_backtest.py` over a CSV
   you exported from Bookie Bashing's tracker; `--merge` writes a new table).
   Nothing here or on the Hub ever fetches the tracker.
 
-### Bet Finder (`app/betfinder/`, Nov 2026)
-Turns the tips a Hub sends (`tip` frames, stored in `hub_tips` by the Hub
-endpoint) into owner-only 2-Up candidates. Routes `routers/betfinder.py` at
-`/api/2up/betfinder/*` (sources list/edit, stats, tips, quarantine,
-candidates preview, run), behind the `accabonus` grant; settings
-`betfinder_*`; flag `ENABLE_BETFINDER`. Tests: `tests/test_betfinder.py`.
-- `sources.py` — the registry as data (`betfinder_sources`): name, kind,
-  trust weight 0..1, active, stake mode. Seeded from `BETFINDER_SOURCES`
-  (missing rows only). A tip from an unknown source creates it INACTIVE at
-  trust 0.5.
-- `pipeline.py` — ingest (one `betfinder_tips` row per hub tip), dedupe
-  (source + event + market + selection + London day of tip_time, on
-  NORMALISED text), match to a 2-Up feed fixture with the coupon tracker's
-  comparison (`GridCouponProvider._pair_score` over `team_similarity`,
-  `MATCH_THRESHOLD`, `fixture_checks`' senior check) and side reader
-  (`picks.side_of`), price: bet365's price and Pinnacle's de-vigged p_win
-  from the feed, rescue 0, edge = p_win − 1/price. Then link to the
-  owner client's ledger bets on that selection and copy the outcome back.
-- `candidates.py` — `extra_candidates`: priced, active-source, unexpired,
-  fresh (`betfinder_max_price_age_minutes`), not-yet-bet tips, owner client
-  only. Two sources on one selection → one row, the more trusted.
-  Stake mode per source: `advised` (units × `betfinder_unit_stake`),
-  `kelly` (the engine's), `auto` (advised when the tip has units). Either
-  is scaled by the trust weight and then bounded by every 2-Up cap
-  (`decision.target_stake`); the mode applied is in `Candidate.extra`.
-- `stats.py` — per source: strike rate (voids out) and LEVEL-STAKE ROI,
-  all-time and over the last `betfinder_stats_window` settled tips.
-- Scheduling: `scheduler.run_betfinder` every `betfinder_minutes`, day and
-  night, reads only the feed's cache (`TwoUpFeed.cached()`); the 2-Up pass
-  also re-prices open tips off the feed it has just read, so the decision
-  sees current prices. Neither adds an OddsPapi request.
-
-Invariants — do not relax:
-- **Never fetches.** No IMAP, no HTTP to a tipster, no page load, no
-  OddsPapi request of its own. Tips come over the Hub link; prices come
-  from the 2-Up feed. `kind=imap` on a source is a documented SEAM only: an
-  email/Substack tipster is read on the Hub and arrives as a `tip`.
-- **Never guesses.** Only Match Result is priced. Any other market, a draw
-  (the feed has no draw price), an event that is not "A v B", no fixture or
-  two equally good ones, a selection that names neither side, a side bet365
-  does not price, a non-owner Hub, bad advised units: QUARANTINED with a
-  fixed reason (`pipeline.REASONS`), shown at `/quarantine`, never a
-  candidate. "No fixture" / "no bet365 price" are retried until
-  `betfinder_match_days` after the tip; the rest are final. A feed that
-  cannot price quarantines nothing.
-- **Owner-only.** Rows are `source_scope="owner"` and are produced for
-  `HUB_OWNER_CLIENT_ID` only when the ledger also marks it `is_owner`; tips
-  from any other Hub are quarantined. The decision, `record_bet_list` and
-  `pending_bet_lists` refuse owner rows for anyone else regardless.
-- **Trust weight is set by hand.** Nothing in the code changes it; the
-  stats sit beside it so Cal can.
-- **Tip text is untrusted.** Stored truncated with control characters
-  removed, returned as text by the routes, never logged (log lines carry
-  counts only), never evaluated, never put in a prompt. Source names are
-  reduced to `[a-z0-9._- ]`. A tip's own `extra.trust_weight` is ignored.
-- **The ledger is read, never written** by the Bet Finder. A tip's record
-  is the owner client's bets on its selection, whichever row was bet, so
-  returns are bet365's real ones (an early payout counts as a win). In
-  dry-run no bet is ever sent or settled, so no source has a record yet.
-- **Rescue 0 has a consequence.** Every priced tip is a selection the 2-Up
-  feed prices too, at an edge higher by the rescue, and the decision bets a
-  selection once (higher edge). At `BETFINDER_MIN_EDGE=0` a tip is never
-  staked as a Bet Finder row where 2-Up would bet it anyway; its advised
-  stake applies only below the 2-Up floor, which in practice means a
-  negative `BETFINDER_MIN_EDGE` — backing a tipster against Pinnacle, a
-  call for Cal, not a default.
+## Finder (`app/finder/`, Nov 2026)
+Callum's private Bet Finder, on the me site (`docs/finder-spec.md`; the
+register's "Finder rows are Callum's only"). The tips are judged on the Hub by
+Hermes; Render only keeps, serves and expires what Hermes decided. It never
+loads a page, never prices a tip (no OddsPapi request) and never places a bet.
+- **One table, `finder_rows`** (`models.FinderRow`, `app/finder/rows.py`),
+  keyed on the Hub's `tip_id`; `odds` and `fair` are the prices the TIP
+  quotes, `edge = odds / fair - 1` (null with no fair). Kept 30 days from
+  `created_at` (`finder_sweep`, daily).
+- **The status machine is the spec's, and nothing else**: `asked → offered |
+  rejected | expired`, `offered → placed | gone | rejected | expired`;
+  `placed`, `gone`, `rejected`, `expired` are final. `offered → rejected` is
+  Hermes withdrawing a row; a `placed` row cannot be withdrawn. A re-post
+  against a final row is refused (409 at the status route, `refused` in the
+  rows answer), and so is a move the machine lacks (`offered → asked`). An
+  `offered` row has `kickoff`, `odds` and `fair` (the schema 422s one
+  without); an `asked` or `rejected` row may lack all three (Hermes asks when
+  it cannot place a tip on a day and time). `expires_at` is the earlier of
+  kick-off and the tip's own `expiry`, with neither `seen_at` + 48 h;
+  `finder_expire` sets `expired` every minute, on `asked` rows too, and the
+  rows route runs it first, so an answer after kick-off changes nothing. The
+  rows answer carries each posted row's STORED status (`rows`), and the Hub
+  records that, never what Hermes sent.
+- **One bet per (event_id or event, market, line, selection)**, compared
+  case- and space-folded: a second row while one is `asked`, `offered` or
+  `placed` is stored `rejected`, reason `duplicate of <tip_id>` (a placed bet
+  is the one most worth not repeating). `event_id` is the canonical key
+  Hermes fills (`football:<YYYY-MM-DD>:<home>-v-<away>`,
+  `horse:<YYYY-MM-DD>:<course>:<HH:MM>`; `hub/README.md`, "Finder"), the event's words the
+  fallback. `tip_id` alone (a hash of the tip's words and day) cannot stop a
+  reworded tip being placed twice.
+- **Two keys, never a session for writes.** `POST /finder/rows` (Hermes) and
+  `POST /finder/rows/{tip_id}/status` (the placer: `placed | gone`) take the
+  `ingest` grant (`require_ingest_key`). `GET /finder/feed` (offered, soonest
+  first) and `GET /finder/board` (every status, `?days=3`) take the `finder`
+  grant on the route itself; the router has no router-level grant.
+- **A private value source.** `GET /api/value/finder` serves the offered rows
+  in the `ValueSelection` shape to the `finder` grant only: Finder is never in
+  the combined `GET /api/value` ("*" included) and the `value` grant does not
+  reach it (`Source.private`, `value/service.py`).
+- `ENABLE_FINDER` (default on) switches the routes, the two jobs and the
+  `finder` tool off together.
 
 ## Hard rules (do not violate)
 - The provider seams MUST stay behind their interfaces (see Provider guide
@@ -366,9 +360,10 @@ Invariants — do not relax:
     title, the period and the ladder. Strips are told the headings in print
     order (`OcrHint.headings`) because the header is usually above the cut,
     and are told to leave out any row the cut slices through.
-- (History: the old vendor's free tier was 500 credits/month. The 24-hour
-  cache (`Settings.odds_cache_ttl`, `app/odds/client.py`) keeps this safe — do
-  not lower the default. A paid-tier upgrade is an `.env` change only.
+- (History: the old vendor's free tier was 500 credits/month and a 24-hour
+  cache in `app/odds/client.py` kept it safe; both are gone, 5 Nov 2026.) Now:
+  the coupon board reads through `Settings.coupon_odds_cache_ttl` (600 s, the
+  refresh cadence) on the shared OddsPapi client's budget.
 - The refresh loop runs every 10 minutes; it recomputes value locally and reads
   through the odds cache, so it never increases API call frequency. Never make
   it bypass the cache.
@@ -494,11 +489,11 @@ Refresh cadence is 10 min, reading through the cache — it never adds vendor
 calls. To add a provider, implement `OddsProvider` and add an `elif` on
 `settings.coupon_odds_source` in the `main.py` lifespan.
 
-### Cards & Corners (`app/cards/`) — TWO vendors, on purpose
+### Paddy (`app/cards/`) — OddsPapi
 Both sides come from **OddsPapi** (Oct 2026, below): Paddy Power's prices and
-Pinnacle's fair reference, joined on the same fixture id. The two-vendor split
-in the heading is history (TheOddsApi for Paddy, bettingiscool for Pinnacle);
-the regions lesson from it still holds.
+Pinnacle's fair reference, joined on the same fixture id. (History: it was two
+vendors, TheOddsApi for Paddy and bettingiscool for Pinnacle; the regions
+lesson from that still holds.)
 - **Regions describe the BOOKMAKER, not the league.** Paddy Power prices La Liga
   from `uk` perfectly well; the competition is chosen by sport key and the
   fixture list is free. Getting this backwards is what produced the original
@@ -506,8 +501,7 @@ the regions lesson from it still holds.
 - **OddsPapi is the ONLY source for the Paddy tool** (Oct 2026): Paddy's prices
   and Pinnacle's fair side, joined on the same fixture id. The TheOddsApi Paddy
   path (`CardsApiClient`, its tiered window/cadence, `probe-books`, the daily
-  call budget) is gone; TheOddsApi serves goalscorers
-  only, guarded by `cards_quota_reserve` on its `x-requests-remaining` header.
+  call budget) is gone, and TheOddsApi with it (5 Nov 2026).
 - **Every line PADDY POWER quotes is priced, off Pinnacle's fitted ladder**
   (`cards/laddered.py`) — or the team split where Pinnacle posts one line, or
   Pinnacle's own rung de-vigged where nothing fits. The matched-line path is
@@ -644,11 +638,13 @@ the regions lesson from it still holds.
   means fewer than N, not the standard line. The builder lists a game only
   when some bookmaker has posted a saves line for it (the Premier League is
   often empty until a day or two before kickoff). Its docstring has the rest.
-- `cards/pinnacle.py` returns **RAW** prices. De-vigging lives in
+  **OPEN, Callum to decide** (`docs/decisions.md`, "Scraping conduct"): this
+  BB target (`bb-saves`, driven after a person logs in) predates the rule that
+  BB is never automated; keep it as the single named exception, or disable it.
+- `cards/oddspapi.py` returns **RAW** prices. De-vigging lives in
   `cards/value.py`; handing it fair prices would de-vig them twice.
-- `merge_pinnacle` joins the two vendors into one event so `value.py` stays
-  vendor-agnostic — swapping either side back is a change in that function
-  alone.
+- `merge_books` (`cards/oddspapi.py`) joins the books into one event on the
+  fixture id so `value.py` stays vendor-agnostic.
 - The sweep's Discord dedupe (`scheduler._cards_notified`) is IN MEMORY and is
   swept each pass. Cards rows are computed, never stored, so there is no row to
   flag — but the map must keep dropping bets that fall off the sweep, or it is
@@ -661,7 +657,8 @@ the regions lesson from it still holds.
 `notify_rows(notifier, tool, header, rows)`, which routes each row to its
 tool's channel — or a higher edge band's (`paddy@0.08=URL`) — and falls back
 to the default webhook; system messages always use the default. Tools:
-`coupons`, `paddy`, `365` (acca boost + goalscorers). Value-bet alerts from the refresh loop
+`coupons`, `paddy`, `365` (the 365 tool's channel; only parked goalscorers
+wrote to it, and 2-Up sends no value alerts yet). Value-bet alerts from the refresh loop
 are deduped via `legs.notified_tier` (notify only on new/changed tier) — keep
 that behaviour when touching the loop, or live coupons re-alert every 10 min.
 
@@ -689,65 +686,25 @@ python -m app.apikeys create <name> --tools paddy,value  # prints the key ONCE
 python -m app.apikeys list                              # never shows keys
 python -m app.apikeys revoke <name>                     # disables at once
 ```
-Grants are the tool names plus `value`, `state`, `ingest`, `hub` (or `*`); `paddy` =
-`cards`, `365` = `accabonus+goalscorers`. In production run it in Render's
+Grants are the tool names plus `value`, `state`, `ingest` (or `*`); `paddy` =
+`cards`, `365` = `accabonus+goalscorers`. `finder` (Nov 2026) is Callum's
+private Bet Finder: the placer's key carries `finder+ingest`, Hermes's on the
+Hub `ingest`. `*` includes `finder` as it includes every tool, so **a key or
+account issued to anyone but Callum never carries `*`**, only named grants. (`hub` was a fourth machine grant, for
+the 2-Up link socket, until 6 Nov 2026; a key still holding it is granted
+nothing.) In production run it in Render's
 shell (`cd /app`), which has `DATABASE_URL`. Full API docs: `docs/api.md`.
 
 **The API is a contract** (`docs/api.md`, Oct 2026): every route under `/api`
 has a `response_model` and a per-tool tag (`tests/test_openapi.py` fails
 otherwise); `/api/docs` and `/api/openapi.json` are served behind a session or
 any key, never public. Changes are ADDITIVE ONLY — a breaking change goes to
-`/api/v2/...`. `GET /api/value` is the cross-tool value feed in one
+`/api/v2/...`. (6 Nov 2026 exception, by decision (`docs/decisions.md`): the
+2-Up ledger, clients, hub and betfinder routes and `source_scope` were removed
+without a /v2.) `GET /api/value` is the cross-tool value feed in one
 `ValueSelection` shape, built from each tool's own feed builder (never a
 second pricing path). Tool logic lives in services (`cards/feed.py`,
 `coupons/service.py`, `pnl/service.py`,
 `shop/service.py`); routers stay thin. The Python client is
 `clients/python/puntmore`. Nothing in the API places a bet — read and
 report — and no bookmaker-account automation is ever added here.
-
-### Hub endpoint (`routers/hub_ws.py`, `app/hub/`, Nov 2026)
-The Render end of `hub/PROTOCOL.md` (version 1): the Hub opens ONE WebSocket
-to `/api/2up/ws` and Render never connects out. Invariants — each has a test
-in `tests/test_hub_ws.py`:
-- **Auth is on the handshake, before accept.** `Authorization: Bearer <key>`
-  resolves through `security.resolve_api_key` to an API client granted `hub`
-  whose NAME equals `X-Client-Id` (`python -m app.apikeys create owner --tools
-  hub`). Bad, missing or someone else's key → 401; a key without `hub` → 403;
-  static env keys never open it. The refusal is sent as raw ASGI denial
-  messages with no headers (`hub_ws._deny`): uvicorn's websockets-sansio
-  protocol (`--ws auto`) duplicates Content-Length on a Starlette Response and
-  the Hub then sees "invalid HTTP response", not a 401. That protocol also
-  logs a spurious "returned without completing handshake" per refusal — noise,
-  not a fault. `test_a_real_uvicorn_refuses...` runs a real server for this.
-- **One live socket per client id**; a newer connection closes the older (4000).
-- **Idempotent on msg_id.** Every non-control frame is acked `{"msg_id"}`; a
-  msg_id already in `hub_inbox_seen` is acked `"replay": true` and NOT
-  processed again. The seen row commits in the same transaction as the
-  frame's effect. Seen ids are swept after 7 days (`service.sweep`, hourly).
-- **Invalid frames are acked with an `error` field and dropped**, logged once
-  per problem per connection (`LogOnce`), never crashing the socket. A frame
-  whose processing FAILS (the engine raises) is NOT acked and not marked seen,
-  so a redelivery retries it.
-- **Every frame is validated against `app/hub/protocol.schema.json`, a COPY of
-  `hub/schemas/protocol.schema.json`** (the image is built from `render/api/`
-  alone). A test asserts the two are byte-identical: change the Hub's schema,
-  copy it here, same PR. Outbound bets are validated too; a bet that breaks
-  the schema is withheld and logged, never "fixed".
-- **Never resend a failed bet.** A bet_id goes out in exactly ONE frame
-  (`hub_sent_bets`). An unacked frame is re-delivered, same msg_id, after a
-  reconnect (the Hub dedupes msg_id and bet_id); the engine's `mark_sent`
-  runs only on the Hub's ack. However the engine lists a bet again, it is
-  never put in a new frame.
-- **`owner`-scope bets go only to `HUB_OWNER_CLIENT_ID`** (default `owner`).
-- **The API never decides what to bet.** The dispatcher forwards what
-  `app.twoup.ledger.pending_bet_lists` returns and reports what the Hub says
-  (`apply_report`). The engine is reached ONLY through `app/hub/engine.py`,
-  which falls back to in-memory stubs while `app/twoup/` is absent (a deploy
-  without the engine sends no bets). Its docstring is the interface.
-- Tips land in `hub_tips` (unique `tip_id`, first kept) for the Bet Finder;
-  escalations and their outcomes in `hub_escalations`; scrape results are
-  logged. Retention: tips and sent bets 30 days, outbox 7, escalations 90.
-- Operator routes are under the 365 grant (`accabonus`): `GET
-  /api/2up/hub/clients`, `GET /api/2up/hub/tips`, `POST
-  /api/2up/hub/{client_id}/kill_switch` and `/scrape_job` (queued in
-  `hub_outbox`, delivered now or on the next connect).

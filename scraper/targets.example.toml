@@ -1,29 +1,48 @@
-# The Worker's targets: copy to data/targets.toml on the Hub (or point
-# SCRAPER_TARGETS at a file). Nothing else configures it. The running service
+# The Scraper's targets: copy to data/targets.toml on the Hub (or point
+# SCRAPER_TARGETS at a file). Nothing else configures it. After that first
+# copy, change it only with `python -m scraper targets ...` (scraper/targets.py,
+# also behind the Hub Console and Hermes); its first save rewrites the file
+# without these comments and keeps this one as targets.toml.bak. The running service
 # checks the file once a minute and applies an edit without a restart; a file
 # that will not load is logged and the running targets are kept.
 #
-# Any mix of the two sites. Each site's budget, quiet hours and block
+# Any mix of the three site kinds. Each site's budget, quiet hours and block
 # handling are fixed in code (sites.py), whatever is listed here.
 #
 #   name       unique; used for samples, dumps and `dump <name>`
-#   site       paddypower | bookiebashing
+#   site       paddypower | bookiebashing | generic
 #   url        the page
 #   every_min  reload on this interval (min 5). Leave out to reload only
 #              when the page has gone quiet for stale_min (default 20, min 10)
+#   near_min   the kick-off sweep: while a kick-off the target's own rows
+#              report is within near_hours (default 3) ahead, reload (or run)
+#              every near_min instead, and go first among equals when the
+#              site's budget is short. Leave out for no sweep.
 #   parser     name in parsers/ (leave out to just capture)
 #   post       puntmore path the parsed rows are POSTed to
 #   [target.matches]  treat url as a listing: open its match links in
 #              kept-open tabs (max_tabs, at most 6), clicking market_tabs once
 #
-# Bet Finder sources use site = "generic" (any host except the two bookmakers):
+# The client's tip-finding sources use site = "generic" (any host except the two bookmakers):
 #   mode       "fetch" (the default for generic): load, parse, close
 #   post       "hub:tips" hands the rows to the Hub instead of POSTing to Puntmore
 #   min_rows   fewer parsed rows than this = unhealthy, alert + an event for the Hub
-#   trust_weight  0..1, sent to the Hub beside the rows
+#   trust_weight  0..1, carried to the Hub beside the rows; Render has no tip handling
+#              (removed 6 Nov 2026), so what reads the drops decides what it means
 #   wait_for   CSS selector to wait for before parsing
 #   enabled    false keeps the entry but never runs it
+#
+# Any target (scraper/schedule.py):
+#   priority   whole number, default 0. Higher goes first when a site's
+#              hourly budget has fewer loads left than targets want one;
+#              ties go to the more overdue
+#   window     "HH:MM-HH:MM", local time (may wrap midnight, "22:00-02:00").
+#              Outside it the target is not loaded and its tabs are closed;
+#              they reopen when the window starts
 
+# OPEN, Callum to decide (docs/decisions.md, "Scraping conduct"): this one BB
+# target predates the rule that BB is never automated; keep it as the named
+# exception, or disable it. Left enabled until he decides.
 [[target]]
 name = "bb-saves"
 site = "bookiebashing"
@@ -38,12 +57,14 @@ site = "paddypower"
 url = "https://www.paddypower.com/football/english-premier-league"
 parser = "pp_most"
 post = "/api/paddy/most-prices"
+priority = 1
+window = "07:00-23:30"
   [target.matches]
   link_re = "-v-"
   max_tabs = 3
   market_tabs = ["Corners", "Cards"]
 
-# A Bet Finder source. Disabled: it exists as the worked example for
+# A tip-finding source. Disabled: it exists as the worked example for
 # parsers/example_tipster.py and the tests.
 [[target]]
 name = "example-tipster"
@@ -54,4 +75,4 @@ every_min = 360
 parser = "example_tipster"
 post = "hub:tips"
 min_rows = 2
-trust_weight = 0.5
+trust_weight = 0.5   # ignored by Render; trust is set on Render

@@ -1,0 +1,25 @@
+{
+  "type": "scraper_tips",
+  "client_id": "scraper",
+  "msg_id": "c0ffee0000000010",
+  "ts": "2026-11-06T09:30:00+00:00",
+  "body": {
+    "source": "example-tipster",
+    "at": 1793957400.0,
+    "url": "https://tips.example.com/today",
+    "channel": "tips",
+    "trust_weight": 0.5,
+    "rows": [
+      {
+        "tip_id": "1461ee403d77791e",
+        "event": "A v B",
+        "market": "Match Result",
+        "selection": "A",
+        "advised_price": 2.1,
+        "advised_stake_units": 1.0,
+        "tip_time": "2026-11-05T08:00:00+00:00",
+        "origin": "tipster"
+      }
+    ]
+  }
+}

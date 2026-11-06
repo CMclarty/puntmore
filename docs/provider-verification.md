@@ -1,5 +1,9 @@
 # Provider verification
 
+> **History: vendors removed 5 Nov 2026; OddsPapi only** (`docs/decisions.md`).
+> TheOddsApi and bettingiscool are no longer in the code; the findings below
+> are kept so nobody spends credits re-deriving them.
+
 Findings verified against live vendor APIs. Recorded because re-deriving them
 costs API credits — read this before spending more.
 

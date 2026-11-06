@@ -164,6 +164,16 @@ class _Fake(op.OddsPapiClient):
         return [_fixture(hours=5)]
 
 
+def test_fetched_at_is_the_wall_clock_time_of_the_real_request(monkeypatch):
+    client = _Fake()
+    assert client.fetched_at([17], "bet365") is None
+    client.odds_by_tournaments([17], bookmaker="bet365")
+    first = client.fetched_at([17], "bet365")
+    assert first is not None and first.tzinfo is not None and len(client.calls) == 1
+    client.odds_by_tournaments([17], bookmaker="bet365")       # a cache hit: no new time
+    assert client.fetched_at([17], "bet365") == first and len(client.calls) == 1
+
+
 def test_a_sweep_costs_a_few_requests_however_many_games_and_caches(monkeypatch):
     from app.config import settings
     monkeypatch.setattr(settings, "oddspapi_tournament_ids", "17,18,24,8,23,35,34,238,7,679,10783")

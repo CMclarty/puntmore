@@ -1,0 +1,8 @@
+/* The 2-Up tab's own bits; the list is FeedPage.module.css. */
+
+/* The header's right side: the board's "updated" time beside the refresh button. */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

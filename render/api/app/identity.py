@@ -11,13 +11,13 @@ served: manifest, apple-touch-icon, favicon and title. PageIdentity still runs
 in the page for client-side navigation. The table below MIRRORS
 frontend/src/identity.js (tests/test_identity.py checks they agree).
 
-Two sites share the shell (app/site.py): Paddy and Hills carry
-Shalgo's name, and a path with no tool of its own (/login, a Shalgo
+Three sites share the shell (app/site.py): Paddy and Hills carry
+Shalgo's name, and a path with no tool of its own (/login, a Shalgo or Me
 landing) takes the identity of the site whose host served it.
 """
 import re
 
-from .site import PUNTMORE, SHALGO
+from .site import ME, PUNTMORE, SHALGO
 
 # (path matcher, title, icon name, manifest name or None when it is the icon's)
 IDENTITIES = [
@@ -33,15 +33,16 @@ IDENTITIES = [
     (lambda p: p.startswith("/hills"), "Shalgo — Hills", "hills", None),
 ]
 DEFAULT = ("Puntmore", "puntmore", None)
-DEFAULTS = {PUNTMORE: DEFAULT, SHALGO: ("Shalgo", "shalgo", None)}
+DEFAULTS = {PUNTMORE: DEFAULT, SHALGO: ("Shalgo", "shalgo", None), ME: ("Me", "me", None)}
 
 
 def identity_for(path: str, site: str = PUNTMORE) -> dict:
     """title, svg, png and manifest paths for a page path on `site` — the
     same answer frontend/src/identity.js gives."""
     path = "/" + path.strip("/") if path.strip("/") else "/"
-    # Shalgo's "/" is no page of its own (it lands on a tool): its default.
-    rows = [] if site == SHALGO and path == "/" else IDENTITIES
+    # Shalgo's and Me's "/" is no page of its own (it lands on a tool): the
+    # site's default.
+    rows = [] if site != PUNTMORE and path == "/" else IDENTITIES
     for match, title, icon, manifest in rows:
         if match(path):
             break

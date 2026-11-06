@@ -1,31 +1,35 @@
 # puntmore scraper
 
-One real Chrome on a Linux server, keeping a few Paddy Power and Bookie Bashing
-pages **open** and listening to what they receive. After the first load the
-site's own scripts keep each page fresh, so most targets cost no further
-requests. Runs unattended in Docker and updates itself from GHCR.
+The Scraper: one real Chrome on the Hub's desktop, keeping a few Paddy Power
+and Bookie Bashing pages **open** and listening to what they receive. After
+the first load the site's own scripts keep each page fresh, so most targets
+cost no further requests. Runs as the user service `puntmore-scraper` on the
+logged-in desktop session, updated by `puntmore-update.timer` with the rest of
+the Hub. Docker is the fallback for a box with no screen.
 
 **What it reads is `data/targets.toml` on the Hub**, edited by Hermes; an
 edit applies without a restart. Its state goes to `data/status.json`, which
 the Hub reads. Nothing on Puntmore configures it: Puntmore only receives the
-prices it posts. Any Linux box with Docker can run it.
+prices it posts.
 
 The parsers (`parsers/`, one module each) are written only from what the real
 pages were seen to do. `bb_saves` DRIVES Bookie Bashing's Bet Builder (select
 the game, type each line, read "Total Odds" — see its docstring; needs the
-box's Chrome logged in over VNC). `pp_most` is unwritten: see its docstring
-for what the samples hold.
+box's Chrome logged in by a person; over VNC in the Docker fallback).
+`pp_most` reads Paddy's most-corners / most-cards three-ways (written from
+the 29 Oct 2026 capture; see its docstring).
 
 ## What it will and won't do
-- Opens pages only on `paddypower.com` and `bookiebashing.net`, within fixed
-  budgets (`sites.py`): Paddy 15 loads/h and 120/day, Bookie Bashing 8/h and
-  120/day. Nothing in config can raise them.
+- Opens pages on `paddypower.com`, `bookiebashing.net` (one target, an open
+  item in `docs/decisions.md`) and the Bet Finder's `generic` sources, within
+  fixed budgets (`sites.py`): Paddy 15 loads/h and 120/day, Bookie Bashing 8/h
+  and 120/day, generic 60/h and 400/day. Nothing in config can raise them.
 - No Paddy traffic between 01:00 and 07:00 (Europe/London). Its pages are
   closed for those hours.
 - Paddy 403/429 or Cloudflare check → every Paddy page closes and a 24 h
   cool-off starts. It also needs `resume`, and you get an alert.
 - Bookie Bashing logout or check → one alert and a back-off, with the tab left
-  open so you can sort it over VNC.
+  open so you can sort it on the Hub's screen (over VNC in Docker).
 - A block is also caught on a page that is already open: 3+ refused
   requests in 10 min, a Cloudflare page, or a logout. Every block alert
   carries a screenshot (also in `data/blocks/`). A Paddy cool-off alerts once
@@ -36,13 +40,16 @@ for what the samples hold.
   burst at startup or after quiet hours; timed reloads are jittered once per
   load. Market tabs are clicked through the mouse, then read down.
 - It never answers a challenge, never types a password, and never fakes a
-  fingerprint. Chrome is set up the ordinary way for one UK reader
-  (en-GB from the environment, London time, a 1600x1000 window on a
-  1920x1080 screen) and started as a person's Chrome, not a test run
-  (Playwright's `--enable-automation` is not passed); `selfcheck` shows
-  exactly what a site sees.
-- **A datacentre IP is more likely to be challenged than a home one.** If Paddy
-  challenges this server, the scraper stops and tells you. It does not work
+  fingerprint. On the Hub's desktop Chrome keeps its own defaults on the real
+  display: en-GB from the session's locale, London time, the box's own GPU,
+  fonts and screen. In Docker, with no screen, Chrome gets a 1600x1000 window
+  on Xvfb's 1920x1080 screen and the en-GB language list by flag. Either way
+  it is started as a person's Chrome, not a test run (Playwright's
+  `--enable-automation` is not passed); `selfcheck` shows exactly what a
+  site sees, the WebGL renderer included.
+- **It runs on the Hub's residential connection**, which is less likely to be
+  challenged than a datacentre IP. If Paddy challenges it anyway, the
+  scraper stops and tells you. It does not work
   around the challenge.
 
 ## Bet Finder sources
@@ -53,6 +60,117 @@ Bashing). The parser returns tips; `post = "hub:tips"` writes them to
 `data/hub/tips/` for the Hub's `puntmore inbox`, which queues them for Render.
 Too few rows (`min_rows`) or a block raises an alert here and an event in
 `data/hub/events/` that the Hub turns into an escalation for the local AI.
+
+## Changing targets
+`targets.toml` is changed only through `scraper/targets.py`: this CLI, the
+Hub Console and Hermes's scraper-manager all call it, so there is one config
+store. It works on `SCRAPER_TARGETS`, else `SCRAPER_DATA_DIR/targets.toml`
+(`--file` for another), and needs no browser.
+
+```sh
+python -m scraper targets list                 # every target, joined to status.json
+python -m scraper targets show pp-epl-most --json
+python -m scraper targets add --name racing-tips --site generic \
+    --url https://tips.example.org/racing --parser racing_tips --post hub:tips \
+    --every-min 360 --min-rows 2 --trust-weight 0.5 --disabled
+python -m scraper targets set pp-epl-most --every-min 15 --priority 2 --window 07:00-23:30
+python -m scraper targets set racing-tips --window none     # "none" clears a field
+python -m scraper targets set pp-epl-most --matches '{"max_tabs": 2, "market_tabs": ["Corners"]}'
+python -m scraper targets enable racing-tips
+python -m scraper targets disable racing-tips
+python -m scraper targets remove racing-tips
+```
+
+- Every change is validated as a whole by `config._target` (sites, hosts,
+  clamps) before anything is written. A value the clamps would change is
+  refused, not quietly raised: `--every-min 2` is an error, not 5. A refusal
+  exits 2 with the reason (`{"error": "..."}` with `--json`).
+- `--json` prints machine output: `list` the `targets.summary()` list,
+  `show`/`add`/`set`/`enable`/`disable` that target's entry, `remove`
+  `{"removed": name, "targets": [names left]}`. Each entry is every field of
+  the target plus `status`: the running Scraper's last report on it from
+  `status.json` (`state`, `detail`, `last_load`, `last_parse`,
+  `rows_posted`, `reported_at`), or `null` when it has none (disabled, or
+  not reported yet).
+- Saves are atomic (temp file + rename in the same directory) under an
+  `flock` on `targets.toml.lock`, so the console, the CLI and Hermes cannot
+  interleave and the running Scraper never reads half a file. The file is
+  rewritten whole, so comments are lost: the first save keeps the
+  hand-written file as `targets.toml.bak`.
+- The running Scraper picks a change up within 60 s (its re-read of the
+  file). A change to only `every_min`, `stale_min`, `near_min`, `near_hours`,
+  `priority`, `window`, `min_rows` or `trust_weight` is applied in place: the open tabs stay and
+  are rescheduled (a timed reload is redrawn from the last load), so it
+  costs no load. A change to `url`, `site`, `mode`, `parser`, `post`,
+  `wait_for` or `matches` closes the target's tabs and reopens them on the
+  next tick. Disabling or removing a target closes its tabs.
+- `priority` (higher goes first when a site's hourly budget is short) and
+  `window` (`"HH:MM-HH:MM"` local time; outside it the target's tabs close)
+  are acted on by the runner (`schedule.py`).
+
+## Running on the Hub's desktop (the default)
+Since 5 Nov 2026 the Scraper runs on the Hub's real desktop session, so the
+sites see a person's Chrome: real GPU, real fonts, real screen. Measured that
+day, Chrome 157 in the container reported no WebGL at all (Xvfb, no GPU) and
+the container's fonts; the same binary on the Hub's
+Wayland session reports `ANGLE (AMD, AMD Radeon 8060S Graphics (radeonsi
+strix_halo ACO), OpenGL ES 3.2)`.
+
+What it needs: a desktop session logged in as the Hub's user (the unit is
+tied to `graphical-session.target`: it starts with the session and stops
+with it, so the Hub should log in automatically), `/usr/bin/google-chrome`,
+the venv `~/.venvs/puntmore` with `requirements.txt` installed, and
+`/opt/puntmore-scraper/.env` and `/opt/puntmore-scraper/data/targets.toml`
+as below. GNOME hands the session's `WAYLAND_DISPLAY`, `DISPLAY` and
+`XAUTHORITY` to the user manager, so the unit sets nothing about the display.
+
+```sh
+docker stop puntmore-scraper                       # if the Docker Scraper runs: never both
+scraper/deploy/native/install.sh                   # from the box's checkout, ~/Projects/puntmore
+crontab -l | grep -v puntmore-scraper/update.sh | crontab -   # the container's updater
+```
+
+`install.sh` is idempotent: it gives your user `/opt/puntmore-scraper` (sudo,
+once; the container's files belong to its uid), copies
+`deploy/native/puntmore-scraper.service` into `~/.config/systemd/user/` with
+the checkout it was run from as its working directory, and enables and starts
+it. It refuses while the container `puntmore-scraper` runs, and so does the
+unit (`deploy/native/preflight.sh`, which also clears the profile lock the
+container's Chrome left behind); `deploy/run.sh` refuses the other way round.
+
+The unit runs `~/.venvs/puntmore/bin/python -m scraper run` with the data in
+`/opt/puntmore-scraper/data` (heartbeat, `status.json`, budget, profile,
+targets, the Hub's drops), so the Hub reads it where it always has. It
+restarts on any exit (the Scraper exits on its own every 1.5-2 h for a fresh
+driver), gives Chrome 90 s to close cleanly, and is capped at 4 GB.
+
+**Updates:** a merge to `main` that touches `scraper/` reaches the box through
+`puntmore-update.timer`, which pulls the checkout and restarts
+`puntmore-scraper` (and installs `requirements.txt` when it changed). A change
+to the unit file itself needs `install.sh` run again.
+
+Logging in to Bookie Bashing or looking at a check: the Chrome window is on
+the Hub's screen. No VNC.
+
+```sh
+journalctl --user -u puntmore-scraper -f
+systemctl --user status|restart|stop puntmore-scraper
+# from ~/Projects/puntmore; the commands find the service through its data dir:
+export SCRAPER_DATA_DIR=/opt/puntmore-scraper/data
+~/.venvs/puntmore/bin/python -m scraper status
+~/.venvs/puntmore/bin/python -m scraper selfcheck   # what a site sees, WebGL renderer included
+~/.venvs/puntmore/bin/python -m scraper dump bb-saves
+~/.venvs/puntmore/bin/python -m scraper resume paddypower
+```
+
+## Running in Docker (a box with no screen)
+The fallback: one real Chrome on Xvfb inside a container, for a box with no
+desktop. The image sets `SCRAPER_IN_CONTAINER=1`, which is what gives Chrome
+its fixed window and language flags (`browser.py`). Expect no WebGL there.
+The container will not start while `data/heartbeat` is under 90 s old
+(`deploy/entrypoint.sh`): another Scraper, the desktop one, runs on that data
+dir. So a cron `update.sh` left behind on the Hub cannot put a second Chrome
+on the profile.
 
 ## Server setup (once)
 Any Linux host with Docker, amd64, about 3 GB RAM free.
@@ -71,11 +189,12 @@ echo "$GHCR_PAT" | docker login ghcr.io -u cmclarty --password-stdin
 ```
 
 **Updates:** push to `main` with changes under `scraper/`. CI runs the
-tests and publishes the image, and within 15 minutes the server's cron restarts
-onto it. Profile, budget and cool-off state live in `data/`, so they survive
+tests; `puntmore-update.timer` fast-forwards the Hub and restarts the service
+within 10 minutes (in the Docker fallback, CI publishes the image and the
+server's 15-minute cron restarts onto it). Profile, budget and cool-off state live in `data/`, so they survive
 the restart.
 
-## Logging in to Bookie Bashing, or clearing a check (VNC)
+### Logging in to Bookie Bashing, or clearing a check (VNC, Docker only)
 VNC listens on the server's `127.0.0.1:5900` only. From your machine:
 
 ```sh
@@ -85,7 +204,7 @@ ssh -L 5900:localhost:5900 you@server     # then open a VNC viewer on localhost:
 You'll see the live Chrome window. Log in on the Bookie Bashing tab. The
 next read finds it logged in, and you get a "clear again" alert.
 
-## Day to day
+### Day to day (Docker)
 ```sh
 docker logs -f puntmore-scraper
 docker exec puntmore-scraper python -m scraper status          # budget, cool-offs, each target, heartbeat
@@ -95,6 +214,7 @@ docker exec puntmore-scraper python -m scraper check            # load targets.t
 docker exec puntmore-scraper python -m scraper selfcheck        # what a site sees of the browser (no network)
 ```
 
+## Each tab's state
 Each match tab's status says what its market-tab clicks did (`loaded`,
 `clicked, nothing new`, `not found`, ...). A tab that is not found saves the
 page once per run to `data/samples/<run>/<target>-market-tab-not-found/`.
@@ -104,15 +224,19 @@ Samples: each tab keeps its first distinct payloads on disk
 first-party hosts only, repeats of the same URL+size skipped, plus the page's
 HTML once. `index.jsonl` marks each market-tab click and labels what followed it.
 
-Health: Docker's healthcheck fails if the loop hasn't ticked for 5 minutes.
+Health: on the desktop the Hub Console's Worker card goes down when the
+heartbeat is 10 minutes stale (`PUNTMORE_WORKER_STALE_MINUTES`); in Docker the
+healthcheck fails at 5.
 Set `SCRAPER_HEALTHCHECK_URL` (e.g. healthchecks.io) for an alert when the
 whole server goes quiet.
 
 ## Targets
 One file: `data/targets.toml` (see `targets.example.toml`), or the file
-`SCRAPER_TARGETS` names. It lives on the Hub and Hermes edits it. The running
+`SCRAPER_TARGETS` names. It lives on the Hub and is changed only through
+`scraper/targets.py` (Changing targets, above). The running
 service checks it once a minute and applies an edit without a restart: a
-removed or changed target's tabs close, a new one opens on the next tick. A
+removed target's tabs close, a new one opens on the next tick, and a changed
+one is rescheduled in place or reopened (Changing targets, above). A
 file that will not load (a half-written save, a bad target) is reported in the
 log and the running targets are kept. The service writes its state to
 `data/status.json` once a minute; the Hub reads it and `status` prints it.
@@ -129,6 +253,34 @@ Targets are of these kinds:
 
 Timings are clamped to the floors in `config._target`, and `sites.py`
 budgets stay the ceiling whatever the file says.
+
+Four fields say when and who first (`schedule.py`):
+- **`near_min`** and **`near_hours`** (default 3): the kick-off sweep. A
+  parser's rows may carry a `kickoff` (ISO 8601; `pp_most` and `bb_saves`
+  do); the nearest one still ahead is the target's next kick-off (`status`
+  shows it). While it is within `near_hours`, the target reloads, or a fetch
+  target runs, every `near_min` instead of `every_min`, and among targets of
+  equal priority the nearest kick-off gets a short budget's next load. After
+  the kick-off the normal interval is back. The spec's "every 2-4 h, ~30 min
+  in the last 3 h before kick-off, nearest first" is `every_min = 180,
+  near_min = 30`. The site's budget is still the ceiling; a sweep that would
+  exceed it simply waits.
+- **`window`** (`"HH:MM-HH:MM"`, local time, may wrap midnight as
+  `"22:00-02:00"`; the start minute is inside, the end minute is not): the
+  hours a target may load at all. Outside it nothing is loaded and its open
+  tabs are closed, within a tick of the window's end; `status` shows it
+  `paused`, "outside window". When the window starts it opens again through
+  the normal spacing and guard; a fetch target runs at the start. No window
+  means always. A site's quiet hours and cool-offs still apply inside it.
+- **`priority`** (whole number, default 0): who gets a site's loads when they
+  are short. Loads are spaced, so one goes out at a time, to the first target
+  in the tick's order that wants one. While a site has at least as many
+  loads left (this hour, or today if fewer) as targets wanting one, that
+  order is file order. When more of its targets want a load than it has
+  left, the highest priority goes first, ties to whichever has been waiting
+  longer (overdue the longest). A lower-priority target still gets the loads
+  a higher one does not want: priority orders the queue, it does not reserve
+  budget.
 
 ## Tests
 ```sh

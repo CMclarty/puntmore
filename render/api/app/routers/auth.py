@@ -6,7 +6,7 @@ from ..config import settings
 from ..database import get_db
 from ..models import User
 from ..schemas import OkOut
-from ..site import SHALGO, SHALGO_TOOLS, site_for
+from ..site import site_for, tool_site
 from ..security import (
     KeyAuth,
     LoginThrottle,
@@ -61,10 +61,12 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
 
     _throttle.reset(body.username, ip)
     # Sign in only on a site holding one of the user's tools: a Shalgo-only
-    # account (cards, hills) is refused on Puntmore, and the reverse. The
-    # session cookie is per host, so this keeps them to their own site.
+    # account (cards, hills) is refused on Puntmore and Me, a Finder-only one
+    # everywhere but Me, and the reverse. The session cookie is per host, so
+    # this keeps them to their own site.
     tools = _user_out(user).tools
-    on_site = [t for t in tools if (t in SHALGO_TOOLS) == (site_for(request.headers.get("host")) == SHALGO)]
+    site = site_for(request.headers.get("host"))
+    on_site = [t for t in tools if tool_site(t) == site]
     if tools and not on_site:
         raise HTTPException(status_code=403, detail="This account signs in on the other site")
     # Drop any pre-existing session contents before establishing identity, so

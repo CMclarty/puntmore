@@ -34,6 +34,11 @@ from .store import Store, iso, parse_iso, utcnow
 REMOTE = "origin"
 BRANCH = "main"
 UNITS = ("puntmore-link.service", "puntmore-web.service", "puntmore-heartbeat.timer")
+# The Scraper (scraper/) on the Hub's desktop. Restarted only when a pull changes scraper/: a
+# restart closes and reopens every kept-open page, and those loads come out of the sites'
+# budgets. (A pending update whose diff is not known restarts it too.)
+SCRAPER_UNIT = "puntmore-scraper.service"
+SCRAPER_DIR = "scraper"
 IN_FLIGHT = ("received", "placing")        # placement/engine.py: not yet a final status
 STALE_IN_FLIGHT = timedelta(minutes=30)    # a bet stuck this long is a crash, not a placement
 VENV_PYTHON = Path.home() / ".venvs" / "puntmore" / "bin" / "python"
@@ -110,6 +115,46 @@ def in_flight_bets(db_path: Path) -> list[dict]:
         conn.close()
 
 
+# ---- the Hermes runbooks ----------------------------------------------------------------------------
+# hub/deploy/hermes-skills/<skill>/ is the runbook an agent follows; a profile's copy lives at
+# <hermes home>/profiles/<profile>/skills/<skill>/. An update copies each one over, so the agent
+# follows the runbook of the commit on the box, not the one from the day it was installed.
+SKILLS_DIR = "hub/deploy/hermes-skills"
+
+
+def skill_profiles(cfg: Settings) -> dict[str, str]:
+    """skill name -> the profile that follows it."""
+    return {"puntmore-scraper-ops": cfg.hermes_scraper_profile}
+
+
+def sync_hermes_skills(repo: Path, cfg: Settings = default_settings) -> list[str]:
+    """Copy each runbook into its profile's skills directory. Returns what changed, as
+    ``<skill> -> <profile>``; a profile that does not exist on the box is skipped, and a copy
+    that already matches is left alone."""
+    changed = []
+    for skill, profile in skill_profiles(cfg).items():
+        src = repo / SKILLS_DIR / skill
+        profile_dir = cfg.hermes_home / "profiles" / profile
+        if not src.is_dir() or not profile_dir.is_dir():
+            continue
+        dst = profile_dir / "skills" / skill
+        if dst.is_dir() and _same_tree(src, dst):
+            continue
+        tmp = dst.with_name(dst.name + ".new")
+        shutil.rmtree(tmp, ignore_errors=True)
+        shutil.copytree(src, tmp)
+        shutil.rmtree(dst, ignore_errors=True)
+        tmp.rename(dst)
+        changed.append(f"{skill} -> {profile}")
+    return changed
+
+
+def _same_tree(a: Path, b: Path) -> bool:
+    fa = {p.relative_to(a): p.read_bytes() for p in a.rglob("*") if p.is_file()}
+    fb = {p.relative_to(b): p.read_bytes() for p in b.rglob("*") if p.is_file()}
+    return fa == fb
+
+
 # ---- install and restart ------------------------------------------------------------------------
 
 def _has_extra(hub_dir: Path, extra: str) -> bool:
@@ -133,8 +178,24 @@ def install_command(repo: Path, python: Path = VENV_PYTHON) -> list[str]:
     return [str(python), "-m", "pip", "install", "--quiet", "-e", spec]
 
 
+def scraper_install_command(repo: Path, python: Path = VENV_PYTHON) -> list[str]:
+    """``uv pip install -r scraper/requirements.txt --python <venv>``: the Scraper's deps, same venv."""
+    req = str(repo / SCRAPER_DIR / "requirements.txt")
+    uv = os.environ.get("PUNTMORE_UV") or shutil.which("uv")
+    if uv:
+        return [uv, "pip", "install", "--quiet", "-r", req, "--python", str(python)]
+    return [str(python), "-m", "pip", "install", "--quiet", "-r", req]
+
+
+def install_scraper(repo: Path, python: Path = VENV_PYTHON) -> None:
+    _install(scraper_install_command(repo, python))
+
+
 def install(repo: Path, python: Path = VENV_PYTHON) -> None:
-    cmd = install_command(repo, python)
+    _install(install_command(repo, python))
+
+
+def _install(cmd: list[str]) -> None:
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -147,7 +208,7 @@ def _systemctl(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True, timeout=60)
 
 
-def enabled_units(units: tuple[str, ...] = UNITS) -> list[str]:
+def enabled_units(units: tuple[str, ...] = UNITS + (SCRAPER_UNIT,)) -> list[str]:
     """The units that exist and are enabled (``is-enabled`` prints 'enabled' for exactly those)."""
     try:
         return [u for u in units if _systemctl("is-enabled", u).stdout.strip() == "enabled"]
@@ -215,7 +276,8 @@ def _alert(cfg: Settings, key: str, message: str, level: str = "error") -> None:
 def run(cfg: Settings = default_settings, repo: Path | None = None, *, dry_run: bool = False,
         installer: Callable[[Path], None] | None = None,
         restarter: Callable[[list[str]], None] | None = None,
-        units: Callable[[], list[str]] | None = None) -> Result:
+        units: Callable[[], list[str]] | None = None,
+        scraper_installer: Callable[[Path], None] | None = None) -> Result:
     """One update pass. Logs the result (not in a dry run) and alerts on failure."""
     repo = Path(repo or default_repo())
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
@@ -225,13 +287,14 @@ def run(cfg: Settings = default_settings, repo: Path | None = None, *, dry_run: 
         except BlockingIOError:
             res = Result("busy", detail="another update run holds the lock")
         else:
-            res = _run(cfg, repo, dry_run, installer or install, restarter or restart, units or enabled_units)
+            res = _run(cfg, repo, dry_run, installer or install, restarter or restart, units or enabled_units,
+                       scraper_installer or install_scraper)
     if not dry_run:
         write_log(cfg, res.log_line())
     return res
 
 
-def _run(cfg: Settings, repo: Path, dry_run: bool, installer, restarter, units) -> Result:
+def _run(cfg: Settings, repo: Path, dry_run: bool, installer, restarter, units, scraper_installer) -> Result:
     pending_file = cfg.data_dir / "UPDATE_PENDING"
     res = Result("failed")
     try:
@@ -257,10 +320,22 @@ def _run(cfg: Settings, repo: Path, dry_run: bool, installer, restarter, units) 
     if gs.behind:
         res.to_sha = gs.target
     to_restart = units()
+    # What the pull brings under scraper/; None when not known (finishing a pending update).
+    try:
+        scraper_changes = (git(repo, "diff", "--name-only", gs.head, gs.target, "--", SCRAPER_DIR).split()
+                          if gs.behind else None)
+    except UpdateError as exc:
+        return _fail(cfg, res, exc, dry_run)
+    if SCRAPER_UNIT in to_restart and scraper_changes == []:
+        to_restart = [u for u in to_restart if u != SCRAPER_UNIT]
+    scraper_deps = SCRAPER_UNIT in to_restart and (
+        scraper_changes is None or f"{SCRAPER_DIR}/requirements.txt" in scraper_changes)
     res.plan = ([f"git pull --ff-only {REMOTE} {BRANCH}  ({gs.head[:12]} -> {gs.target[:12]}, {gs.behind} commit(s))"]
                 if gs.behind else [f"finish the update left pending at {pending[:12]}"])
-    res.plan += [" ".join(install_command(repo)),
-                 ("systemctl --user restart " + " ".join(to_restart)) if to_restart else "no enabled units to restart"]
+    res.plan.append(" ".join(install_command(repo)))
+    if scraper_deps:
+        res.plan.append(" ".join(scraper_install_command(repo)))
+    res.plan += [("systemctl --user restart " + " ".join(to_restart)) if to_restart else "no enabled units to restart"]
 
     flying = in_flight_bets(cfg.db_path)
     if flying:
@@ -281,12 +356,23 @@ def _run(cfg: Settings, repo: Path, dry_run: bool, installer, restarter, units) 
             git(repo, "pull", "--ff-only", "--quiet", REMOTE, BRANCH)
             res.to_sha = git(repo, "rev-parse", "HEAD")
             pending_file.write_text(res.to_sha + "\n")
-            changed = git(repo, "diff", "--name-only", gs.head, res.to_sha, "--", "hub/deploy/systemd").split()
+            changed = git(repo, "diff", "--name-only", gs.head, res.to_sha, "--", "hub/deploy/systemd",
+                          f"{SCRAPER_DIR}/deploy/native/{SCRAPER_UNIT}").split()
             if changed:
-                res.detail = "unit files changed, copy them to ~/.config/systemd/user: " + " ".join(changed)
+                res.detail = ("unit files changed, copy them to ~/.config/systemd/user (the Scraper's: "
+                              "run scraper/deploy/native/install.sh): " + " ".join(changed))
                 _alert(cfg, f"update:units:{res.to_sha[:12]}", f"hub updated to {res.to_sha[:12]}; {res.detail}",
                        level="warn")
         installer(repo)
+        if scraper_deps:
+            scraper_installer(repo)
+        try:
+            synced = sync_hermes_skills(repo, cfg)
+        except OSError as exc:   # a runbook that did not copy is not a reason to leave the box half-updated
+            synced = []
+            _alert(cfg, "update:skills", f"hub updated but a Hermes runbook did not copy: {exc}", level="warn")
+        if synced:
+            res.detail = (res.detail + "; " if res.detail else "") + "runbooks: " + ", ".join(synced)
         flying = in_flight_bets(cfg.db_path)   # a bet may have arrived during the pull and the install
         if flying:
             res.outcome = "blocked"

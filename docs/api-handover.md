@@ -1,7 +1,11 @@
 # Puntmore as an API — handover (26 Oct 2026)
 
 > Historical (Oct 2026). AW 26 has since been retired (`docs/retired.md`); its
-> routes, package and client methods below no longer exist on main.
+> routes, package and client methods below no longer exist on main. Also gone
+> (5 Nov 2026, `docs/decisions.md`): the AccaBonus package and its feed, and
+> the `/scraper` control page with its `/api/scraper*` routes. Paths such as
+> `/home/callum/bettingtools` are now `~/Projects/puntmore`, with the app
+> under `render/`.
 
 For the agent doing this build. Verified against the repo on 26 Oct 2026;
 nothing here is a guess. Worktree `/home/callum/bettingtools-api`, branch

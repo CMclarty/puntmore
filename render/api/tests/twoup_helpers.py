@@ -1,4 +1,4 @@
-"""Shared fakes for the 2-Up tests: an in-memory ledger DB, a stub OddsPapi
+"""Shared fakes for the 2-Up tests: an in-memory DB, a stub OddsPapi
 client (never live) and candidate builders."""
 from datetime import datetime, timedelta, timezone
 
@@ -14,8 +14,7 @@ engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": 
 Session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # 10:00 UTC TOMORROW: inside the London window in GMT and BST alike, and in
-# the future, so the ledger's real-clock checks (a queued bet's window closing)
-# see these bets as live.
+# the future, so real-clock checks see these fixtures as live.
 NOW = (datetime.now(timezone.utc) + timedelta(days=1)).replace(hour=10, minute=0, second=0,
                                                                microsecond=0)
 
@@ -52,6 +51,7 @@ class FakeOddsPapi:
         self.boards = boards
         self.grants = grants
         self.calls: list[tuple] = []
+        self.fetched: dict[tuple, datetime] = {}
         self.requests_today = 0
 
     def catalogue(self):
@@ -72,7 +72,11 @@ class FakeOddsPapi:
     def odds_by_tournaments(self, ids, bookmaker="paddypower"):
         self.calls.append((tuple(ids), bookmaker))
         self.requests_today += 1
+        self.fetched[(tuple(ids), bookmaker)] = NOW
         return self.boards.get(bookmaker, [])
+
+    def fetched_at(self, ids, bookmaker):
+        return self.fetched.get((tuple(ids), bookmaker))
 
 
 def standard_boards(now=NOW):
@@ -92,10 +96,9 @@ def standard_boards(now=NOW):
 
 
 def cand(event_id="e1", selection="Arsenal", price=2.2, p_win=0.5, rescue=0.02,
-         kickoff=None, side="home", scope="shared", now=NOW):
+         kickoff=None, side="home", now=NOW):
     return model.Candidate(
         event_id=event_id, event=f"{selection} v Other", home=selection, away="Other",
         kickoff=kickoff or now + timedelta(hours=6), selection=selection, side=side,
         price=price, p_win=p_win, rescue=rescue, edge=model.edge(p_win, rescue, price),
-        source_scope=scope,
     )

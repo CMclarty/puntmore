@@ -1,4 +1,6 @@
-# Home ↔ Render protocol, version 1
+# Hub ↔ Render protocol, version 1
+
+> **6 Nov 2026:** Render's end of this protocol (`/api/2up/ws`) is removed; the 2-Up module is a one-way feed; the betting agent tool defines its own Hub endpoint. The Hub code below is unchanged and has no Render end until then.
 
 This is the complete wire contract between the Puntmore Hub (this repo) and the Render
 service. It is written so that a separate team or a separate AI can build the Render end from
@@ -8,7 +10,8 @@ this file alone. The machine-readable form is `schemas/protocol.schema.json`; ev
 ## Transport
 
 - One WebSocket per client, **opened by the Hub** to Render. Render never connects inbound.
-- URL: whatever Render publishes, e.g. `wss://2up.puntmore.com/ws`.
+- URL: Render's `/api/2up/ws`: `wss://puntmore.com/api/2up/ws` until the `2up` subdomain exists,
+  then `wss://2up.puntmore.com/api/2up/ws`.
 - Auth on the handshake: `Authorization: Bearer <client api key>` and `X-Client-Id: <client_id>`.
   Render rejects the handshake (HTTP 401) if the key is unknown or does not belong to that client.
 - Text frames only, one JSON envelope per frame, UTF-8. Max frame 8 MiB.
@@ -27,7 +30,7 @@ Every frame, both directions:
 | field | meaning |
 |---|---|
 | `type` | message type, see tables below |
-| `client_id` | the home client this concerns. On frames from Render it is the recipient; on frames from home it is the sender. |
+| `client_id` | the Hub client this concerns. On frames from Render it is the recipient; on frames from the Hub it is the sender. |
 | `msg_id` | unique per message, at least 8 characters. **Idempotency key.** |
 | `ts` | ISO 8601 with timezone, UTC preferred |
 | `body` | type-specific object |
@@ -53,8 +56,8 @@ ones. Render should order by `ts`, not arrival.
 |---|---|---|
 | `hello_ack` | `{"server_time": ts, "protocol_version": 1}` | none; confirms auth |
 | `bet_list` | `{"bets": [Bet, …]}` | each bet goes to the client engine |
-| `scrape_job` | `{"job_id", "source", "params": {"force": bool}}` | runs that source now; answers with `scrape_result` |
-| `kill_switch` | `{"on": bool, "reason": str}` | sets or clears the global kill switch file, escalates |
+| `scrape_job` | `{"job_id", "source", "params": {"force": bool}}` | the Hub answers `scrape_result` with `status: "skipped"`: scrapes run on the Scraper's own schedule (`targets.toml`), not on request |
+| `kill_switch` | `{"on": bool, "reason": str}` | `on: true` sets the global kill switch file and escalates; `on: false` is escalated and ignored (see Kill switches) |
 | `ping` | `{}` | answered with `pong` |
 | `ack` | `{"msg_id"}` | marks the Hub's outbox item as delivered |
 
@@ -88,7 +91,7 @@ ones. Render should order by `ts`, not arrival.
 |---|---|---|
 | `hello` | `{"protocol_version": 1, "dry_run": bool, "kill_switch": bool, "version": "0.1.0"}` | first frame after connect |
 | `report` | Report (below) | placement lifecycle and balances |
-| `tip` | CandidateTip (below) | each new candidate bet a scrape or tipster source produced |
+| `tip` | CandidateTip (below) | each new candidate bet a scrape or tipster source produced; its `tip_id` was minted by the Scraper at first sight |
 | `scrape_result` | `{"job_id", "status", "items", "error"}` | after a `scrape_job` |
 | `escalation` | `{"escalation_id", "kind", "ref", "detail", "created"}` | something was handed to the local AI |
 | `escalation_outcome` | `{"escalation_id", "kind", "ref", "outcome"}` | the local AI (or a human) decided |
@@ -103,7 +106,7 @@ All reports carry `kind` and `ts`; the rest depends on the kind.
 |---|---|---|
 | `placed` | `bet_id, actual_price, dry_run` | placed; `dry_run: true` means nothing real happened |
 | `price_changed` | `bet_id, new_price` | not placed; Render re-runs the decision at the new price and may send a new bet with a new `bet_id` |
-| `failed` | `bet_id, reason` | not placed; dropped and escalated on the home side. **Render must not resend the same bet_id.** |
+| `failed` | `bet_id, reason` | not placed; dropped and escalated on the Hub side. **Render must not resend the same bet_id.** |
 | `settled` | `bet_id, outcome, return` | `outcome`: `won | lost | void | partial`; `return` is the gross return in account currency |
 | `balance` | `account_id, balance` | snapshot |
 
@@ -129,9 +132,31 @@ A bet gets at most one of `placed`, `price_changed` or `failed`, then optionally
 ```
 
 - `tip_id` is stable for the same source + event + market + selection + day, so Render can dedupe too.
+  It is minted by the Scraper when it first sees the tip (`scraper/ids.py`, written on each row of its
+  drop file); the Hub forwards it unchanged and mints one (`hub/puntmore_hub/ids.py`, the same function)
+  only for an old drop without it. Render never mints one.
 - `event` is free text as the source printed it. Resolving it to a real `event_id` and a current price is
   Render's job (Bet Finder pipeline step 3).
 - `origin`: `tipster | scrape`. `source_scope` is always `owner` for tips.
+
+## Files from the Scraper (on the Hub, never on the wire)
+
+The Scraper hands the Hub its rows and its problems as files, and each file is one envelope of
+this protocol, so one schema file covers the whole chain (`docs/dataflow.md`, rule 1). Two types,
+`client_id` always `scraper`, one `msg_id` per file; Render refuses them on the wire like any
+other type it does not accept from a Hub.
+
+| Type | Where | Body |
+|---|---|---|
+| `scraper_tips` | `<scraper data>/hub/tips/<ms>-<source>.json`, one per run of a Bet Finder target | `source, at, url, channel, trust_weight, rows[]`; every row has `event, market, selection` and its `tip_id` (`$defs/scraper_tip_row`) |
+| `scraper_event` | `<scraper data>/hub/events/<ms>-<ref>.json` | `kind` (`unhealthy_source` or `blocked_source`), `ref`, `detail`, `at` |
+
+The Scraper's sink keeps out any row the Hub would reject (no event, market or selection, or a
+price outside 1.01-1000), so a file it writes always validates; the Hub checks again on ingest
+(`puntmore_hub/inbox.py`). `at` is unix seconds. The canonical examples are
+`schemas/examples/scraper_tips.json` and `scraper_event.json`; `scraper/tests/test_sinks_schema.py`
+checks what the sinks write and `hub/tests/test_inbox.py` checks what the inbox reads, both
+against `schemas/protocol.schema.json`.
 
 ## Modes and safety flags
 
@@ -140,6 +165,26 @@ A bet gets at most one of `placed`, `price_changed` or `failed`, then optionally
   bet is answered with `failed` reason `kill switch on`.
 - Render's own kill switch and dry-run are independent of these and are not part of this protocol.
 
+## Kill switches
+
+There are three, and they are independent on purpose, never synced:
+
+- **The Hub's file** (`hub/data/KILL`) stops placement on that Hub at once and is the last word for
+  that box. Anyone may turn it on (CLI, Hub Console, Hermes through the CLI, or Render's
+  `kill_switch` message, all through `puntmore_hub/killswitch.py`); only Callum turns it off, on the
+  box. Render's message turns it ON and never off: an `on: false` is escalated and otherwise ignored,
+  and Render's route refuses to send one.
+- **Render's global switch** (`TWOUP_KILL_SWITCH`) stops the production of bet lists for every client.
+- **Render's per-client flag** (`twoup_clients.kill_switch`) stops production for that client.
+
+A Hub that has lost its link must still be stoppable (its file), and Render must be able to stop a
+client whose Hub is unreachable (its own switches). When both sides have one, either ON means no bets
+move for that client. Render reads the Hub's state from `hello`: while the last `hello` said
+`kill_switch: true` it sends that Hub no `bet_list`, new or re-delivered. The Hub sends a fresh
+`hello` on the same socket within a second of its file changing either way (`link/client.py`), so
+Render's view lags the file by about that long; and the Hub fails any bet that reaches it while its
+file exists anyway, so a switch turned on in that second is still honoured.
+
 ## Versioning
 
 `protocol_version` in `hello` / `hello_ack`. A breaking change increments it; Render should refuse
@@ -147,7 +192,7 @@ a client whose version it does not support with a close code 1008 and a reason s
 
 ## Testing against this contract
 
-- `pytest` runs the home-box link against `puntmore_hub/link/mock_render.py`, a minimal Render that
+- `pytest` runs the Hub's link against `puntmore_hub/link/mock_render.py`, a minimal Render that
   implements the handshake, acks, and a `bet_list`. Use it as the reference behaviour.
 - `puntmore link-check wss://…` connects to a real Render, sends `hello`, and reports whether a
   `hello_ack` came back within 10 seconds. Run it against a new Render build before pointing the

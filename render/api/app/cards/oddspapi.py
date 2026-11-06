@@ -528,6 +528,11 @@ class OddsPapiClient:
         # Reference data (catalogue, names) changes rarely; odds per TTL.
         self._ref = TTLCache(ttl=24 * 3600, maxsize=16)
         self._odds = TTLCache(ttl=self._ttl, maxsize=64)
+        # When each odds entry was really fetched (wall clock, UTC), keyed as
+        # `_odds` is and set only on a real request, so a cache hit keeps the
+        # earlier time. Same ttl as `_odds`; a larger ceiling so a still-live
+        # odds entry never outlives its time.
+        self._fetched = TTLCache(ttl=self._ttl, maxsize=256)
         self.requests_today = 0
         self._day = None
         self._last_request = 0.0
@@ -704,9 +709,21 @@ class OddsPapiClient:
                 hit = self._odds.get(key, ttl=ttl_for(cached, self._tiers))
                 if hit is not MISS:
                     return hit
-        return self._cached(self._odds, key, "/odds-by-tournaments",
-                            tournamentIds=",".join(str(i) for i in ids),
-                            bookmakers=bookmaker)
+        hit = self._odds.get(key)
+        if hit is not MISS:
+            return hit
+        data = self.get("/odds-by-tournaments",
+                        tournamentIds=",".join(str(i) for i in ids), bookmakers=bookmaker)
+        self._odds.set(key, data)
+        self._fetched.set(key, datetime.now(timezone.utc))
+        return data
+
+    def fetched_at(self, ids: list[int], bookmaker: str) -> datetime | None:
+        """When `odds_by_tournaments(ids, bookmaker)` last really went to
+        OddsPapi (aware UTC), or None if it never has. A read of a recorded
+        time: never a request."""
+        hit = self._fetched.get(("odds", tuple(ids), bookmaker))
+        return None if hit is MISS else hit
 
 
 def tournament_names(data) -> dict[int, str]:

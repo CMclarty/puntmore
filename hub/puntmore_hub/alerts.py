@@ -54,22 +54,22 @@ def startup(store: Store, what: str, cfg: Settings = default_settings) -> None:
          level="info", cfg=cfg, dedup=False)
 
 
-def heartbeat(store: Store, cfg: Settings = default_settings, worker: dict | None = None) -> str:
+def heartbeat(store: Store, cfg: Settings = default_settings, scraper: dict | None = None) -> str:
     """Daily summary of the last 24 h. Always sent, never de-duped."""
     s = store.summary_since(utcnow() - timedelta(hours=24))
-    worker = worker or {}
+    scraper = scraper or {}
     lines = [
         f"heartbeat 24h: tips {s['tips']}, bets received {s['bets_received']}, placed {s['bets_placed']}, "
         f"failed {s['bets_failed']}",
         f"open escalations {s['escalations_open']}, outbox pending {s['outbox_pending']}",
     ]
-    if worker:
-        lines.append(f"worker: {'running' if worker.get('running') else 'NOT RUNNING'}, "
-                     f"{len(worker.get('targets', []))} target(s)")
-        if worker.get("blocked"):
-            lines.append("blocked: " + ", ".join(worker["blocked"]))
-        if worker.get("unhealthy"):
-            lines.append("unhealthy sources: " + ", ".join(worker["unhealthy"]))
+    if scraper:
+        lines.append(f"scraper: {'running' if scraper.get('running') else 'NOT RUNNING'}, "
+                     f"{len(scraper.get('targets', []))} target(s)")
+        if scraper.get("blocked"):
+            lines.append("blocked: " + ", ".join(scraper["blocked"]))
+        if scraper.get("unhealthy"):
+            lines.append("unhealthy sources: " + ", ".join(scraper["unhealthy"]))
     if cfg.kill_switch_on():
         lines.append("KILL SWITCH IS ON")
     if cfg.dry_run:

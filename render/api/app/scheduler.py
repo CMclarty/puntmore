@@ -1,5 +1,6 @@
 """APScheduler setup: 10-min odds refresh + daily 30-day cleanup + the daily
-first-goalscorer watchlist that schedules each fixture's pre-kickoff scan."""
+first-goalscorer watchlist that schedules each fixture's pre-kickoff scan +
+the 2-Up board's refresh."""
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -26,11 +27,14 @@ from .time_utils import utcnow
 logger = logging.getLogger("uvicorn.error")
 
 
-def cleanup_old_coupons(db=None, *, cutoff_days: int = 30, notifier=None) -> int:
-    """Delete coupons older than cutoff_days, including their image files.
+def cleanup_old_coupons(db=None, *, cutoff_days: int | None = None, notifier=None) -> int:
+    """Delete coupons older than cutoff_days (default `Settings.coupon_cleanup_days`),
+    including their image files: a row and its file go together, never one alone.
 
     Returns the number of coupons deleted.
     """
+    if cutoff_days is None:
+        cutoff_days = settings.coupon_cleanup_days
     close = False
     if db is None:
         db = SessionLocal()
@@ -347,27 +351,42 @@ def paddy_health(notifier=None) -> list[str]:
     return lines
 
 
-def run_twoup(feed) -> dict:
-    """The 2-Up decision pass (app/twoup/decision.py): inside the betting
-    window, price the feed once (through its cache) and queue each client's
-    bet lists in the ledger. Nothing here sends or places anything — the Hub
-    endpoint sends what `ledger.pending_bet_lists` returns."""
-    from .twoup.decision import run_all
+def refresh_twoup(feed) -> None:
+    """Price the 2-Up board the feed serves (TwoUpFeed.refresh). A fetch
+    failure is already the feed's to report (stale, degraded); anything that
+    escapes is logged here rather than alerted every `twoup_feed_ttl`."""
+    try:
+        feed.refresh()
+    except Exception:
+        logger.exception("2up refresh failed")
+
+
+def expire_finder() -> int:
+    """Finder rows past kick-off (or the tip's own expiry) → `expired`, on
+    Render's clock: every minute, so a row leaves the feed on time."""
+    from .finder import rows
     db = SessionLocal()
     try:
-        return run_all(db, feed)
+        return rows.expire(db, datetime.now(timezone.utc))
+    except Exception:
+        logger.exception("finder expiry failed")
+        return 0
     finally:
         db.close()
 
 
-def run_betfinder(feed=None) -> dict:
-    """The Bet Finder pass (app/betfinder/pipeline.py): bring new Hub tips
-    in, price them off the 2-Up feed's CACHE (never a refresh), link and
-    settle them against the ledger. Fetches nothing of any kind."""
-    from .betfinder.pipeline import run_pass
+def sweep_finder() -> int:
+    """Finder rows older than 30 days are deleted (docs/finder-spec.md)."""
+    from .finder import rows
     db = SessionLocal()
     try:
-        return run_pass(db, feed)
+        n = rows.sweep(db, datetime.now(timezone.utc))
+        if n:
+            logger.info("finder sweep: %d row(s) older than 30 days deleted", n)
+        return n
+    except Exception:
+        logger.exception("finder sweep failed")
+        return 0
     finally:
         db.close()
 
@@ -432,6 +451,29 @@ def start_scheduler(
             },
         )
 
+    # The 2-Up board: refreshed on a schedule, never on a request, and once
+    # now so a restart is serving again within one pass.
+    if settings.enable_twoup and twoup_feed is not None:
+        scheduler.add_job(
+            refresh_twoup,
+            trigger="interval",
+            seconds=settings.twoup_feed_ttl,
+            id="twoup_refresh",
+            replace_existing=True,
+            next_run_time=datetime.now(),
+            # A pass that overruns skips the next tick rather than queueing it.
+            coalesce=True,
+            max_instances=1,
+            kwargs={"feed": twoup_feed},
+        )
+
+    # Finder: expiry on Render's own clock, every minute; the 30-day sweep daily.
+    if settings.enable_finder:
+        scheduler.add_job(expire_finder, trigger="interval", minutes=1, id="finder_expire",
+                          replace_existing=True, coalesce=True, max_instances=1)
+        scheduler.add_job(sweep_finder, trigger="interval", hours=24, id="finder_sweep",
+                          replace_existing=True, coalesce=True, max_instances=1)
+
     # Hand freed heap back to the OS between sweeps (diagnostics.trim_memory):
     # the 512 MB instance was climbing to its cap and restarting (Oct 2026).
     scheduler.add_job(
@@ -443,38 +485,6 @@ def start_scheduler(
         coalesce=True,
         max_instances=1,
     )
-
-    # 2-Up decision: every few minutes; outside the betting window the pass
-    # returns before touching the feed, so it costs nothing overnight. The
-    # feed's own TTL and the OddsPapi client's tiered cache bound the
-    # requests, whatever the cadence. No feed (no OddsPapi key) = no job.
-    if settings.enable_twoup and twoup_feed is not None:
-        scheduler.add_job(
-            run_twoup,
-            trigger="interval",
-            minutes=max(1, settings.twoup_decision_minutes),
-            id="twoup_decision",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-            kwargs={"feed": twoup_feed},
-        )
-
-    # Bet Finder: every few minutes, day and night — ingest, dedupe and the
-    # ledger link cost nothing, and pricing reads only the feed's cache, so
-    # it never spends an OddsPapi request. Without a feed it still ingests
-    # and quarantines; nothing is priced.
-    if settings.enable_twoup and settings.enable_betfinder:
-        scheduler.add_job(
-            run_betfinder,
-            trigger="interval",
-            minutes=max(1, settings.betfinder_minutes),
-            id="betfinder",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-            kwargs={"feed": twoup_feed},
-        )
 
     # First-goalscorer pipeline: rebuild the watchlist daily, and once now so a
     # restart re-populates today's per-fixture scans instead of waiting a day.

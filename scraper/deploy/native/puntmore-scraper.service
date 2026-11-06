@@ -1,0 +1,42 @@
+[Unit]
+Description=Puntmore Scraper: one real Chrome on the Hub's desktop, every target kept open (scraper/)
+# Chrome runs on the logged-in desktop session, so the Scraper starts with it and
+# stops with it. GNOME imports WAYLAND_DISPLAY, DISPLAY and XAUTHORITY into the
+# user manager when the session starts (checked on the Hub with
+# `systemctl --user show-environment`, 5 Nov 2026), and every unit started after
+# graphical-session.target inherits them: nothing about the display is set here.
+After=graphical-session.target
+PartOf=graphical-session.target
+# A crash loop (a bad deploy) must not reload pages forever: 5 starts in 10 min,
+# then the unit stays failed and the Hub Console shows the Scraper down.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# install.sh writes the checkout's path here (the box's ~/Projects/puntmore).
+WorkingDirectory=%h/Projects/puntmore
+EnvironmentFile=/opt/puntmore-scraper/.env
+Environment=SCRAPER_DATA_DIR=/opt/puntmore-scraper/data
+Environment=SCRAPER_PROFILE_DIR=/opt/puntmore-scraper/data/profile
+Environment=SCRAPER_CHROME_PATH=/usr/bin/google-chrome
+Environment=TZ=Europe/London
+Environment=PYTHONUNBUFFERED=1
+# Refuses to start while the Docker Scraper runs (one profile, one budget), and
+# clears the lock a stopped container's Chrome left behind in the profile.
+ExecStartPre=/bin/sh %h/Projects/puntmore/scraper/deploy/native/preflight.sh
+ExecStart=%h/.venvs/puntmore/bin/python -m scraper run
+# The Scraper exits on its own every 1.5-2 h (a fresh Playwright driver) and on
+# its watchdog; both come back here.
+Restart=always
+RestartSec=10
+# SIGTERM to python only: it closes its pages and Chrome itself. Whatever is
+# left after TimeoutStopSec is killed.
+KillMode=mixed
+TimeoutStopSec=90
+# The container had 3 GB; the box's RAM also holds the local model. Over
+# this the kernel kills Chrome and the unit restarts it.
+MemoryMax=4G
+
+[Install]
+WantedBy=graphical-session.target

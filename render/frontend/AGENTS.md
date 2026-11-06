@@ -1,7 +1,8 @@
 # frontend/ — rules for the React app
 
-The repo's `CLAUDE.md` applies everywhere and wins on any conflict. Moved
-verbatim from `CLAUDE.md` on 5 Nov 2026.
+`docs/decisions.md` is read first and wins over this file; the repo's
+`CLAUDE.md` applies everywhere and wins on any other conflict. Moved verbatim
+from `CLAUDE.md` on 5 Nov 2026.
 
 ## UI rules — these are TOOLS, build only what is asked
 Callum has had to strip unrequested additions out repeatedly (Oct 2026). A
@@ -22,12 +23,28 @@ screen is for finding a bet and placing it in seconds.
   "best acca", "suggested" or "pick of the day" blocks unless asked.
 - **Every live-price screen refreshes itself** (`hooks/useAutoRefresh.js`):
   every 2 min while on screen, and at once when the app is reopened after
-  30 s away — silently, in place. Paddy, 365 acca, scorers and the coupon
-  tracker use it; a new tool showing prices must too. A failed refresh must
+  30 s away — silently, in place. Paddy, the coupon tracker and the 2-Up
+  tab use it (as did the 365 acca, removed 5 Nov 2026, and scorers,
+  parked); a new tool
+  showing prices must too. A failed refresh must
   never leave old prices looking current. The feeds read the server's
   caches, so refreshing costs no vendor quota.
 - When asked to change one thing, change that thing. Don't tidy, restyle or
   "improve" the rest of the page alongside it.
+
+## The 2-Up tab (`pages/TwoUpPage.jsx`, 6 Nov 2026)
+The Feed alone: every value side on the server's scheduled board
+(`/api/2up/feed?value_only=true`), best edge down, price and edge as % of
+fair, with the board's **updated** time beside the refresh button and each
+row's **priced** time. A line in the error style says when the board is stale
+(an older board kept while OddsPapi is not answering), stopped by the kill
+switch (`TWOUP_KILL_SWITCH`, global, `.env`) or not yet refreshed since boot.
+An older API mid-deploy may send no `generated_at`, `priced_at` or `status`
+keys: the page shows "—" and never throws. Nothing on it places a bet, keeps
+an account or configures the engine: the dials are `.env` on Render. (History:
+until 6 Nov 2026 a **Ledger** view sat behind a Feed / Ledger switch with a
+per-client kill switch; the ledger left Render with the accounts.) Helpers in
+`twoup.js`, pinned by `twoup.test.js`.
 
 ## The acca maths (client-side, pinned by vitest)
 - **Acca insurance** (`frontend/src/accaInsurance.js`, Oct 2026): the Acca Min
