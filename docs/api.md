@@ -235,7 +235,7 @@ prices a tip or loads a page.
   An `offered` row must carry `kickoff`, `odds` and `fair`, or the whole post
   is a `422`; an `asked` or `rejected` row may leave all three out.
   `event_id` is the canonical fixture key (`football:<YYYY-MM-DD>:<home>-v-<away>`
-  or `horse:<course>:<HH:MM>`, defined in `hub/README.md`, "Finder").
+  or `horse:<YYYY-MM-DD>:<course>:<HH:MM>`, defined in `hub/README.md`, "Finder").
   Upsert on `tip_id`. Answers `{stored, updated, refused: [[tip_id, reason]],
   duplicates: [tip_id], rows: [{tip_id, status}]}`: `refused` is a post
   against a final row (`final`) or a move the status machine lacks
