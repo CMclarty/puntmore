@@ -1,8 +1,53 @@
 # 2-Up Engine — Module Spec (for One Bet's Journey)
 
-Written 3 Nov 2026 by Cal; moved into the repo 5 Nov 2026 as the single source. The Claude Doc it came from is retired. Where a section below disagrees with **Decisions, 5 Nov 2026**, the decisions win; edit this file in the same pull request as the code it changes.
+Written 3 Nov 2026 by Cal; moved into the repo 5 Nov 2026 as the single source. The Claude Doc it came from is retired. Where a section below disagrees with a **Decisions** section, the decisions win, newest first; edit this file in the same pull request as the code it changes.
 
-Decision layer for 2-up betting on Bet365, the 2-Up engine inside the 365 tool on Render: takes OddsPapi prices, emits a bet list, consumes results. Placement belongs to the client engine on the Hub; pricing belongs to the engine on Render.
+The 2-Up module inside the 365 tool on Render: takes OddsPapi prices and serves a feed of the 2-up value bets that exist right now. Since 6 Nov 2026 it does nothing else: staking, placement and the books belong to the client; the betting agent that reads the feed is a separate tool with its own spec.
+
+## Decisions, 6 Nov 2026
+
+Callum's, in conversation on 6 Nov 2026; recorded in `docs/decisions.md` the same day. They narrow the module to one job and supersede the sections marked below.
+
+### What the module is
+
+- **A feed of current value bets, nothing more.** The 2-Up module prices every side of every match-result market in bet365's early-payout competitions against Pinnacle's fair line plus the 2-up rescue, and serves the rows whose price beats fair. That feed is the product.
+- **Two readers of the one feed.** The betting agent (a separate tool, spec'd separately) reads it over the API and does the placing. The 2-Up tab on the 365 page shows the same rows so a person can place by hand when the agent is not running. The page is the manual backup: it gets no row, column or filter the API does not serve.
+- **Staking lives in the client.** Kelly, the account-preservation rules, the betting window, exposure, stake rounding and ceilings, bet types (doubles, trebles, fourfolds), cover bets, dry-run and the per-account kill switch are the client's. None of it is computed on Render.
+- **No account, no ledger.** Render keeps no record of what any client placed or how it settled. Nothing comes back from a client to this module: no `placed`, `price_changed`, `failed`, `settled` or `balance`. The feed is one-way. The tenancy model (client → sub-client, pooled bankrolls, per-client ledgers, payback terms) is out of this module.
+- **Bet Finder is not a Render instance.** Finding tips from tipsters and scrapes is a client function. The Bet Finder orchestrator, the `owner` candidate scope, Render's `tips` table and the `tip` message on the wire go. What a client does with its own tips is settled in that client's spec, not here.
+- **The rescue table stays hand-tuned** against Bookie Bashing's 2-up tracker with `tools/twoup_backtest.py` over an exported CSV. With no ledger on Render, that CSV is the only results source, as the 5 Nov decision already said.
+
+### The feed (the builder's contract; items marked *call* are the author's defaults, not Callum's words)
+
+- **A row is one side of one fixture**: `event_id`, `event`, `home`, `away`, **`kickoff`** (the match's kick-off time, UTC; Callum's requirement), `competition`, `selection`, `side` (`home` | `away`), `market` (`Match Result`), **`price`** (the decimal odds bet365 quotes for that selection at `priced_at`; Callum's requirement), Pinnacle-fair `p_win` and `fair_price`, `rescue`, `edge` (`p_win + rescue − 1/price`), `ev`, and `priced_at` (when the prices behind the row were fetched). *Call:* a row's identity is `event_id` + `side`, stable across refreshes, so a reader can tell a re-price from a new row without any state on Render.
+- **A row is in the feed while** the fixture is in a configured competition and inside the horizon (`twoup_horizon_hours`, 24 h), both books price all three outcomes, the price is inside the band (`twoup_min_price` .. `twoup_max_price`) and the edge is at or above the floor (`twoup_min_edge`). It leaves at `twoup_min_lead_minutes` before kick-off, or as soon as a refresh no longer meets one of those. *Call:* the full priced board stays available with a per-row `value` flag (today's `value_only=false`) so the page can show why a fixture is not value; the agent reads `value_only=true`.
+- **Pre-match only.** No in-play rows and no in-play prices; the module has no idea of the score.
+- **Refresh.** The board is rebuilt on a schedule from the shared `OddsPapiClient` cache (`twoup_feed_ttl`, 5 min at the defaults; the client's own kick-off-tiered TTLs still apply underneath), never on a page request. The response carries `generated_at`, every row carries `priced_at`, and `status` says what could not be priced and why (missing book, held chunk, quota). *Call:* a failed refresh keeps serving the last good board with its old `priced_at`, and marks `status.degraded`; it never serves an empty feed because of a transient fetch error. (The Paddy tool's silent hourly tier and missing priced-at time, 6 Nov 2026, is the lesson.)
+- **Transport is HTTP pull.** `GET /api/2up/feed` is the whole API. *Call:* no push, no per-client view of the feed: every reader gets the same rows.
+- **365 is one permission.** A betting agent's machine key (`app/apikeys.py`) carries the `accabonus` grant, the same grant as the page; there is no feed-only grant, and whatever else sits under 365 (diagnostics, the acca boost when it returns) is open to that key. (6 Nov 2026, Callum)
+- **The 2-Up module has no Hub endpoint.** A Hub endpoint belongs to the tool that needs one, one per tool; the betting agent brings its own. The Render end of the WebSocket (`/api/2up/ws`, `app/hub/`, the `hub` grant, the `hub_*` tables and the `/api/2up/hub/*` operator routes) is removed with this work. The Hub-side link client (`hub/puntmore_hub/link`, the Console's Render card, `puntmore link-check`) then has no Render end until the betting agent defines its own; that is the betting agent's spec, and `hub/` is not changed here beyond its docs. (6 Nov 2026, Callum)
+- **Kill switch.** *Call:* the global `TWOUP_KILL_SWITCH` stays and empties the feed with `status.killed=true`; the per-client flag goes with the clients.
+- **Diagnostics stay**: `/api/2up/diagnostics` and the `twoup_detail` block in `/api/ready` report the last refresh, the account's request count and what could not be priced.
+
+### What this supersedes
+
+| Section below | Status from 6 Nov 2026 |
+|---|---|
+| Purpose and boundaries, "Owns" | owns price ingestion, the fair line, the rescue model and the value feed only; bet selection, staking, exposure and daily stats are the client's |
+| Deployment topology, Bet Finder orchestrator and per-client ledgers on Render | removed |
+| What's shared vs what's Cal's; `source_scope` | removed: one feed, no owner scope |
+| Multi-client access, per-client auth and onboarding | reduced to machine keys for readers of the feed; no client records |
+| Tenancy model | out of this module |
+| Decision model, Account-preservation rules | the client's |
+| Interfaces: bet list out, reports back | removed; the row above is the only interface |
+| Cover bets and failure handling | the client's |
+| Bet Finder (sibling module) | not on Render; kept below as history |
+| Operational safeguards: per-client kill, idempotent `bet_id`, dry-run | the client's; the global kill switch stays |
+| Open questions: Kelly fraction, stake ceiling, cover budget, payback terms, daily stats | the client's or the betting agent's |
+
+### What goes from the code, what stays
+
+*Call, from reading the code on 6 Nov 2026; the plan settles the order.* Stays: `app/twoup/feed.py`, the pricing half of `model.py` (`fair_1x2`, `RescueTable`, `edge`, `price_fixture`), `rescue_table.json`, `tools/twoup_backtest.py`, `GET /api/2up/feed`, `/api/2up/diagnostics`, the `2up` source in `/api/value`, the Feed on the 2-Up tab. Goes: the staking half of `model.py`, `decision.py`, `ledger.py` and the `twoup_*` client, account, bet and balance tables, the clients and ledger routes, the scheduled decision pass and the bet-list dispatcher, the Ledger on the 2-Up tab, `app/betfinder/` and its routes and tables, and the Hub endpoint on Render (`app/hub/`, `routers/hub_ws.py`, its grant, tables and routes; the vendored protocol schema and its byte-identical test with it). Settings that only fed staking (`twoup_kelly_fraction` through `twoup_decision_minutes`) go with it.
 
 ## Decisions, 5 Nov 2026
 

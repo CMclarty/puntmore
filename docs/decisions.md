@@ -74,6 +74,21 @@ the code. Older product decisions (coupon tracker, pricing, design) stay in
 
 ## The 2-Up engine and placement
 
+- **The 2-Up module is a one-way feed of current value bets and nothing
+  else.** It prices bet365's early-payout match-result markets against
+  Pinnacle plus the rescue and serves the rows that beat fair, over HTTP, to
+  two readers: the betting agent (a separate tool, its own spec) and the
+  2-Up tab as the manual backup. **Staking lives in the client**: Kelly, the
+  account rules, bet types, cover bets, dry-run and the per-account kill
+  switch. **No account, no ledger on Render**: nothing is reported back and
+  Render keeps no log of bets. **Bet Finder is not a Render instance**: tip
+  finding lives on the clients. **A Hub endpoint is per tool**: the 2-Up
+  module has none, so Render's end of the WebSocket (`/api/2up/ws`) goes with
+  this work and the betting agent brings its own. **365 is one permission**:
+  a betting agent's key carries `accabonus`, no feed-only grant. The lines
+  below that speak of bet lists, reports, `bet_id` or the Bet Finder on
+  Render describe the client's side or are history. (6 Nov 2026, Callum;
+  `docs/2up-engine-spec.md`, "Decisions, 6 Nov 2026")
 - **The 2-Up edge is proven. Do not spend effort questioning it.** The rescue
   table is tuned by hand against BB's tracker as part of testing. (5 Nov 2026,
   Callum)
