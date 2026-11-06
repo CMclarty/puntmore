@@ -45,6 +45,7 @@ from .routers import state as state_router
 from .routers import diagnostics as diagnostics_router
 from .routers import value as value_router
 from .routers import twoup as twoup_router
+from .routers import finder as finder_router
 from . import diagnostics
 
 logger = logging.getLogger("uvicorn.error")
@@ -332,6 +333,11 @@ app.include_router(shop_router.router, dependencies=[Depends(require_tool("shop"
 # not ENABLE_ACCABONUS: the acca page can stay hidden while 2-Up runs dry.
 if settings.enable_twoup:
     app.include_router(twoup_router.router, dependencies=[Depends(require_tool("accabonus"))])
+# Finder, Callum's private Bet Finder (docs/finder-spec.md). No router-level
+# grant: its POSTs take the ingest key (Hermes, the placer) and its GETs the
+# `finder` grant, each on the route itself.
+if settings.enable_finder:
+    app.include_router(finder_router.router)
 
 # The cross-tool value feed: `value` grant sees every source, a tool grant its
 # own rows (routers/value.py resolves that itself, through user_permissions).

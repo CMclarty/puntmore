@@ -1,6 +1,6 @@
-from datetime import date, datetime
-from typing import Any, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from datetime import date, datetime, timezone
+from typing import Annotated, Any, Literal, Optional
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 
 class LegOut(BaseModel):
@@ -453,3 +453,96 @@ class TwoUpDiagnosticsOut(OpenModel):
     rescue_table: dict[str, Any]
     global_kill_switch: bool
     settings: dict[str, Any]
+
+
+# --- Finder (app/finder/, docs/finder-spec.md) ------------------------------
+
+def _as_utc(value: datetime) -> datetime:
+    """A naive datetime is UTC (the table's convention); an aware one is
+    converted. Used both ways: on a post and on the way out."""
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
+UTCDatetime = Annotated[datetime, AfterValidator(_as_utc)]
+
+
+class FinderRowIn(BaseModel):
+    """One tip as Hermes posts it: the tip's own prices, never looked up.
+    `status` is Hermes's verdict; a row with no `fair` is stored `asked`."""
+    tip_id: str = Field(min_length=1, max_length=128)
+    origin: str = Field(min_length=1, max_length=120)
+    sport: Literal["football", "horse"]
+    bookmaker: str = Field(min_length=1, max_length=60)
+    event: str = Field(min_length=1, max_length=200)
+    home: Optional[str] = Field(default=None, max_length=100)
+    away: Optional[str] = Field(default=None, max_length=100)
+    event_id: Optional[str] = Field(default=None, max_length=100)
+    kickoff: UTCDatetime                               # kick-off or the off; UTC if no offset
+    market: str = Field(min_length=1, max_length=120)  # win | each_way for a horse
+    selection: str = Field(min_length=1, max_length=200)
+    line: Optional[float] = None
+    side: Optional[str] = Field(default=None, max_length=20)
+    odds: float = Field(gt=1, lt=10000)
+    fair: Optional[float] = Field(default=None, gt=1, lt=10000)
+    advised_stake: Optional[float] = Field(default=None, ge=0, lt=100000)   # pounds
+    reason: Optional[str] = Field(default=None, max_length=500)
+    status: Literal["asked", "offered", "rejected"]
+    expiry: Optional[UTCDatetime] = None               # the tip's own, if it has one
+
+
+class FinderRowsIn(BaseModel):
+    rows: list[FinderRowIn] = Field(max_length=500)
+
+
+class FinderRowOut(BaseModel):
+    """A Finder row: every column of `finder_rows`, datetimes in UTC."""
+    model_config = ConfigDict(from_attributes=True)
+
+    tip_id: str
+    origin: str
+    sport: str
+    bookmaker: str
+    event: str
+    home: Optional[str] = None
+    away: Optional[str] = None
+    event_id: Optional[str] = None
+    kickoff: UTCDatetime
+    market: str
+    selection: str
+    line: Optional[float] = None
+    side: Optional[str] = None
+    odds: float
+    fair: Optional[float] = None
+    edge: Optional[float] = None                       # odds / fair - 1
+    advised_stake: Optional[float] = None
+    reason: Optional[str] = None
+    status: str          # asked | offered | rejected | placed | gone | expired
+    expires_at: UTCDatetime
+    asked_at: Optional[UTCDatetime] = None
+    answered_at: Optional[UTCDatetime] = None
+    seen_at: UTCDatetime                                  # Hermes's latest post of it
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
+
+
+class FinderPostOut(BaseModel):
+    stored: int
+    updated: int
+    refused: list[tuple[str, str]]                     # [tip_id, "final" | "status" | "<from> → <to>" | "duplicate of <tip_id>"]
+    duplicates: list[str]                              # stored `rejected`, reason "duplicate of <tip_id>"
+
+
+class FinderStatusIn(BaseModel):
+    """The placer's report. Any other word is a 422."""
+    status: Literal["placed", "gone"]
+    at: UTCDatetime
+
+
+class FinderFeedOut(BaseModel):
+    generated_at: datetime
+    rows: list[FinderRowOut]                           # offered, soonest kick-off first
+
+
+class FinderBoardOut(BaseModel):
+    generated_at: datetime
+    rows: list[FinderRowOut]                           # every status, newest first

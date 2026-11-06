@@ -361,6 +361,36 @@ def refresh_twoup(feed) -> None:
         logger.exception("2up refresh failed")
 
 
+def expire_finder() -> int:
+    """Finder rows past kick-off (or the tip's own expiry) → `expired`, on
+    Render's clock: every minute, so a row leaves the feed on time."""
+    from .finder import rows
+    db = SessionLocal()
+    try:
+        return rows.expire(db, datetime.now(timezone.utc))
+    except Exception:
+        logger.exception("finder expiry failed")
+        return 0
+    finally:
+        db.close()
+
+
+def sweep_finder() -> int:
+    """Finder rows older than 30 days are deleted (docs/finder-spec.md)."""
+    from .finder import rows
+    db = SessionLocal()
+    try:
+        n = rows.sweep(db, datetime.now(timezone.utc))
+        if n:
+            logger.info("finder sweep: %d row(s) older than 30 days deleted", n)
+        return n
+    except Exception:
+        logger.exception("finder sweep failed")
+        return 0
+    finally:
+        db.close()
+
+
 def start_scheduler(
     odds_provider, notifier=None, odds_client=None, cards_client=None,
     twoup_feed=None,
@@ -436,6 +466,13 @@ def start_scheduler(
             max_instances=1,
             kwargs={"feed": twoup_feed},
         )
+
+    # Finder: expiry on Render's own clock, every minute; the 30-day sweep daily.
+    if settings.enable_finder:
+        scheduler.add_job(expire_finder, trigger="interval", minutes=1, id="finder_expire",
+                          replace_existing=True, coalesce=True, max_instances=1)
+        scheduler.add_job(sweep_finder, trigger="interval", hours=24, id="finder_sweep",
+                          replace_existing=True, coalesce=True, max_instances=1)
 
     # Hand freed heap back to the OS between sweeps (diagnostics.trim_memory):
     # the 512 MB instance was climbing to its cap and restarting (Oct 2026).
