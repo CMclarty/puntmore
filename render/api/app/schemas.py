@@ -411,55 +411,6 @@ class ReadyOut(OpenModel):
     providers: dict[str, Any]
 
 
-# --- the Hub link (routers/hub_ws.py, hub/PROTOCOL.md) -------------------------
-
-class HubClientOut(BaseModel):
-    """A Hub client as Render last saw it. dry_run / kill_switch are what the
-    Hub said in its latest `hello`; Render's own switches are separate."""
-    client_id: str
-    connected: bool
-    connected_at: Optional[datetime] = None
-    last_hello_at: Optional[datetime] = None
-    dry_run: Optional[bool] = None
-    kill_switch: Optional[bool] = None
-    hub_version: Optional[str] = None
-    last_frame_at: Optional[datetime] = None
-    unacked: int = 0
-
-
-class HubTipOut(BaseModel):
-    tip_id: str
-    client_id: str
-    source_id: str
-    event: str
-    market: str
-    selection: str
-    advised_price: Optional[float] = None
-    tip_time: str
-    received_at: datetime
-    tip: dict[str, Any]
-
-
-class HubKillSwitchIn(BaseModel):
-    on: bool
-    reason: str = Field("", max_length=500)
-
-
-class HubScrapeJobIn(BaseModel):
-    source: str = Field(..., min_length=1, max_length=200)
-    force: bool = False
-    job_id: Optional[str] = Field(None, min_length=1, max_length=100)
-
-
-class HubQueuedOut(BaseModel):
-    """A frame queued for a Hub. `connected` False = it goes out when the
-    client next connects (unacked frames are kept 7 days)."""
-    client_id: str
-    type: str
-    msg_id: str
-    connected: bool
-    body: dict[str, Any]
-
 # --- 2-Up engine (/api/2up, app/twoup/) ---------------------------------------
 
 class TwoUpCandidateOut(BaseModel):

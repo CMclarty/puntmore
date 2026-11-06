@@ -163,3 +163,14 @@ def test_cli_prints_the_key_once_and_never_again(monkeypatch, capsys):
     assert apikeys.main(["revoke", "placer"]) == 0
     assert TestClient(app).get("/shop", headers=bearer(key)).status_code == 401
 
+
+
+def test_hub_is_no_longer_a_grant_the_cli_accepts():
+    with pytest.raises(ValueError, match="unknown tool 'hub'"):
+        apikeys.parse_tools("hub")
+
+
+def test_a_key_issued_with_the_dead_hub_grant_still_loads_and_is_refused():
+    from app.security import has_permission, parse_permissions
+    assert parse_permissions("hub") == {"hub"}
+    assert has_permission("hub", "accabonus") is False

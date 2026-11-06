@@ -148,18 +148,15 @@ class Settings(BaseSettings):
     # Key the local Bookie Bashing script sends (X-API-Key) with fair saves
     # prices to POST /api/paddy/saves-fair. Blank = endpoint disabled (503).
     saves_ingest_key: str = ""
-    # The Hub link (/api/2up/ws, hub/PROTOCOL.md). The client id whose bets may
-    # carry source_scope "owner" (Bet Finder): such a bet is never sent to any
-    # other client. And how often each connected client's pending bet lists are
-    # polled from the 2-Up engine, in seconds.
+    # The client id whose bets may carry source_scope "owner" (Bet Finder): such
+    # a bet is never offered to any other client. (Goes with the Bet Finder.)
     hub_owner_client_id: str = "owner"
-    hub_poll_seconds: float = 5.0
 
     # --- 2-Up engine (app/twoup/, docs/2up-engine-spec.md) -------------------
     # Part of the 365 tool, behind the `accabonus` grant. Prices bet365's 2 Goals
     # Ahead Early Payout off OddsPapi (bet365 + Pinnacle 1X2), decides stakes per
     # client and queues bet lists in its ledger. It NEVER places a bet and never
-    # connects to the Hub: the Hub endpoint sends what the ledger has queued.
+    # connects to a Hub (Render has no Hub endpoint).
     # Mounts /api/2up and runs the decision job. Off = neither.
     enable_twoup: bool = True
     # Global kill switch: no bet lists are produced or handed out for ANY

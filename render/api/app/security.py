@@ -29,9 +29,9 @@ ALL_TOOLS = ("coupons", "accabonus", "cards", "hills", "goalscorers", "pnl", "ke
 # cross-tool value feed (GET /api/value); `state` is the whole-app snapshot
 # (GET /api/state); `ingest` is the scraper / Bookie Bashing write paths.
 # STATE_API_KEY and SAVES_INGEST_KEY are these last two, as static keys.
-# `hub` is a Hub's key for the 2-Up link socket (/api/2up/ws, hub/PROTOCOL.md);
-# the client's name must equal the Hub's X-Client-Id. No static key grants it.
-MACHINE_GRANTS = ("value", "state", "ingest", "hub")
+# (`hub` was a fourth, for the 2-Up link socket; a Hub endpoint is per tool and
+# the 2-Up module has none. A key still holding it loads and is granted nothing.)
+MACHINE_GRANTS = ("value", "state", "ingest")
 ALL_GRANTS = ALL_TOOLS + MACHINE_GRANTS
 
 

@@ -1,12 +1,10 @@
 """/api/2up — the 2-Up engine, part of the 365 tool (`accabonus` grant).
 
 Thin: the logic is app/twoup/. Read and report, plus the per-client kill
-switch. Nothing here places a bet or talks to the Hub; the Hub endpoint
-sends what `ledger.pending_bet_lists` returns.
+switch. Nothing here places a bet or talks to a Hub: Render has no Hub
+endpoint (a Hub endpoint is per tool, and the 2-Up module has none).
 
 These routes are the OPERATOR's view (every client, behind the 365 grant).
-Per-client keys for clients reading their own ledger belong to the Hub
-endpoint, not here.
 """
 from datetime import datetime, timezone
 
