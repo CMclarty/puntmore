@@ -213,13 +213,17 @@ Ordered so the shared prerequisite lands first.
       `TheOddsApiProvider` still hardcoded home until this pass, so which
       provider a deploy ran decided whether away selections were priced as
       their opponent.
-- [ ] **TTS1/2/3** → DIRECT off `home_totals` / `away_totals` at line N−0.5.
-      Note the off-by-one: "Team to Score 2" is over **1.5**.
-- [ ] **GG No Draw** → derive off the grid: Σ g[h][a] for h≥1, a≥1, h≠a.
+- [x] **TTS1/2/3** → DIRECT off `home_totals` / `away_totals` at line N−0.5.
+      Note the off-by-one: "Team to Score 2" is over **1.5**. (Built on the
+      grid provider, OddsPapi's team totals; `tests/test_coupon_markets.py`
+      `test_tts_*`. Box found stale and ticked 6 Nov 2026.)
+- [x] **GG No Draw** → derive off the grid: Σ g[h][a] for h≥1, a≥1, h≠a.
       Never BTTS × (1 − P(draw)) — same correlation trap as Win-and-Over.
-- [ ] **GG Bonus** → a fixture SCREEN, not a priced leg: P(BTTS) per fixture,
-      include when fair odds ≤ 1.80, sort ascending (shortest first). Needs a
-      UI surface of its own; it does not fit the leg table.
+      (`pricing/grid.py::p_gg_no_draw`; `test_gg_no_draw_*`. Ticked 6 Nov.)
+- [x] **GG Bonus** → a fixture SCREEN, not a priced leg: P(BTTS) per fixture,
+      include when fair odds ≤ 1.80, sort ascending (shortest first).
+      (`tests/test_coupons.py::test_gg_bonus_screens_on_price_and_ranks_shortest_first`;
+      shown as a treble, `test_gg_bonus_is_shown_as_a_treble`. Ticked 6 Nov.)
 - DoD: each type prices on a real fixture or refuses cleanly; away-side legs
       verified against home-side; pytest green; build clean.
 

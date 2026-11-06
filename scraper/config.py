@@ -80,6 +80,11 @@ class Target:
     # time) a target is not loaded and its tabs are closed.
     priority: int = 0
     window: str | None = None
+    # The kick-off sweep (schedule.py): while a kick-off the target's own rows
+    # report is within near_hours, it reloads (or runs) every near_min instead
+    # of every_min, and goes first among equals when a site's budget is short.
+    near_min: float | None = None
+    near_hours: float = 3.0
 
 
 @dataclass(frozen=True)
@@ -153,6 +158,8 @@ def _target(t: dict) -> Target:
         wait_for=t.get("wait_for") or None,
         priority=_priority(name, t.get("priority", 0)),
         window=_window(name, t.get("window")),
+        near_min=None if t.get("near_min") is None else _clamp(float(t["near_min"]), lo=5.0),
+        near_hours=_clamp(float(t.get("near_hours", 3.0)), lo=0.5, hi=48.0),
     )
 
 

@@ -9,7 +9,9 @@ day-to-day commands are in `README.md`; the boundaries that still apply are in
   through the guard, applies a targets.toml edit (in place for a timing-only
   change).
 - `schedule.py` - when each target is due: `every_min`, `stale_min`, jitter
-  drawn once per load, the per-site load gaps, `window`, `priority`.
+  drawn once per load, the per-site load gaps, `window`, `priority`, and the
+  kick-off sweep (`near_min` within `near_hours` of a kick-off the rows
+  report; nearest kick-off first when a budget is short).
 - `sinks.py` - where rows go, by `post`: `/api/...` to Render with the
   ingest key, `hub:<chan>` drop files for the Hub (each row with its
   `tip_id`); events for the Hub.

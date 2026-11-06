@@ -29,7 +29,8 @@ from ..config import Settings
 LOCK_WAIT_S = 3.0
 SITES = ("paddypower", "bookiebashing", "generic")
 # What the edit form may change (the rest - name, site, mode, parser, post - is remove + add).
-EDITABLE = ("every_min", "stale_min", "priority", "window", "min_rows", "trust_weight", "wait_for", "url")
+EDITABLE = ("every_min", "stale_min", "near_min", "near_hours", "priority", "window", "min_rows", "trust_weight",
+            "wait_for", "url")
 APPLY_NOTE = "the Scraper applies changes within 60 s"
 BUSY = "being changed by something else"
 
@@ -80,9 +81,10 @@ def view(cfg: Settings, latest_count, ts_iso) -> dict[str, Any]:
         st = r.get("status") or {}
         last_load = st.get("last_load")
         next_due = None
-        if r.get("enabled") and r.get("every_min") and last_load:
+        every = r.get("near_min") if st.get("near") and r.get("near_min") else r.get("every_min")
+        if r.get("enabled") and every and last_load:
             try:
-                next_due = ts_iso(float(last_load) + float(r["every_min"]) * 60)
+                next_due = ts_iso(float(last_load) + float(every) * 60)
             except (TypeError, ValueError):
                 pass
         rows_parsed = None
@@ -92,6 +94,7 @@ def view(cfg: Settings, latest_count, ts_iso) -> dict[str, Any]:
             pass
         r["view"] = {"state": st.get("state"), "detail": st.get("detail"), "last_ok": ts_iso(st.get("last_parse")),
                      "last_load": ts_iso(last_load), "next_due": next_due, "rows_last_parsed": rows_parsed,
+                     "next_kickoff": ts_iso(st.get("next_kickoff")), "near": bool(st.get("near")),
                      "rows_posted": st.get("rows_posted"), "reported_at": ts_iso(st.get("reported_at"))}
     out["targets"] = rows
     return out

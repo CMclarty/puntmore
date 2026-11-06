@@ -14,6 +14,10 @@
 #   url        the page
 #   every_min  reload on this interval (min 5). Leave out to reload only
 #              when the page has gone quiet for stale_min (default 20, min 10)
+#   near_min   the kick-off sweep: while a kick-off the target's own rows
+#              report is within near_hours (default 3) ahead, reload (or run)
+#              every near_min instead, and go first among equals when the
+#              site's budget is short. Leave out for no sweep.
 #   parser     name in parsers/ (leave out to just capture)
 #   post       puntmore path the parsed rows are POSTed to
 #   [target.matches]  treat url as a listing: open its match links in

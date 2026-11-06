@@ -55,7 +55,8 @@ PARSE_EVERY_S = 60
 # A change to only these fields is applied to the open tabs in place; a change
 # to any other (url, site, mode, parser, post, wait_for, matches) closes the
 # target's tabs and reopens them.
-RESCHEDULE_FIELDS = ("every_min", "stale_min", "priority", "window", "min_rows", "trust_weight")
+RESCHEDULE_FIELDS = ("every_min", "stale_min", "priority", "window", "min_rows", "trust_weight",
+                     "near_min", "near_hours")
 TARGETS_CHECK_S = 60             # a stat of targets.toml; read only when it changed
 
 
@@ -124,6 +125,11 @@ class Runner:
         self.sinks = Sinks(settings)
         self.outside: set[str] = set()                 # targets now outside their window
         self.wanting_since: dict[str, float] = {}      # target -> when it began wanting a load
+        # The kick-off sweep (schedule.py): the nearest kick-off ahead that a
+        # target's own rows reported, and which targets are inside their near
+        # window now (so a flip is acted on once, not every tick).
+        self.next_kickoff: dict[str, float] = {}
+        self.near: set[str] = set()
 
     # --- site-wide state ----------------------------------------------------
     def _paused(self, site, now) -> str | None:
@@ -310,7 +316,9 @@ class Runner:
                 self.outside.discard(t.name)
                 print(f"{t.name}: window open - running", flush=True)
             live.append(t)
-        for t in schedule.order(live, self._wanting(live, now), lambda site: self._left(site, now)):
+        self._sweep(live, now)
+        for t in schedule.order(live, self._wanting(live, now), lambda site: self._left(site, now),
+                                self.next_kickoff):
             if t.mode == "fetch":
                 self._tick_fetch(t, now)
             elif t.matches:
@@ -340,6 +348,34 @@ class Runner:
         self.next_fetch.pop(t.name, None)
         self.wanting_since.pop(t.name, None)
 
+    def _sweep(self, targets, now):
+        """Enter or leave each target's near window (schedule.near). On a
+        flip the interval in force changes, so the timed reload is redrawn
+        from the last load with the new one (a fetch target's next run
+        likewise); a kick-off that has passed drops out of next_kickoff."""
+        for t in targets:
+            k = self.next_kickoff.get(t.name)
+            if k is not None and k < now:
+                self.next_kickoff.pop(t.name, None)
+                k = None
+            is_near = schedule.near(t, k, now)
+            if is_near == (t.name in self.near):
+                continue
+            (self.near.add if is_near else self.near.discard)(t.name)
+            every = schedule.effective_every(t, k, now)
+            print(f"{t.name}: " + (f"kick-off in {(k - now) / 60:.0f} min - every {every:g} min"
+                                   if is_near else "past the near window - normal interval"), flush=True)
+            for tab in self.tabs.values():
+                if tab.target.name == t.name:
+                    tab.due_at = None
+            last = self.last_load_at.get(t.name)
+            if t.mode == "fetch" and t.name in self.next_fetch and last is not None:
+                self.next_fetch[t.name] = schedule.next_fetch_at(last, every)
+
+    def _every(self, t, now):
+        """The reload interval in force for `t` now (the near window or not)."""
+        return schedule.effective_every(t, self.next_kickoff.get(t.name), now)
+
     def _left(self, site, now) -> int:
         """Loads the site has left: this hour's, or today's if fewer."""
         h, d = self.guard.spent(site, now)
@@ -366,7 +402,7 @@ class Runner:
             return due is None or now >= due
         if not t.matches:
             tab = self.tabs.get(t.name)
-            return tab is None or schedule.page_due(t, tab, now)
+            return tab is None or schedule.page_due(t, tab, now, self._every(t, now))
         listing = self.tabs.get(f"{t.name}:list")
         if listing is None or schedule.listing_due(t, listing, now):
             return True
@@ -457,9 +493,11 @@ class Runner:
         window and priority apply from the next tick."""
         for tab in self.tabs.values():
             if tab.target.name == t.name:
-                if tab.target.every_min != t.every_min:
+                if (tab.target.every_min, tab.target.near_min, tab.target.near_hours) != \
+                        (t.every_min, t.near_min, t.near_hours):
                     tab.due_at = None
                 tab.target = t
+        self.near.discard(t.name)              # re-entered on the next tick with the new fields
         last = self.last_load_at.get(t.name)
         if t.name in self.next_fetch and last is not None:
             self.next_fetch[t.name] = schedule.next_fetch_at(last, t.every_min)
@@ -469,7 +507,7 @@ class Runner:
         if tab is None:
             self._load(t, key, url, now)
             return
-        if schedule.page_due(t, tab, now):
+        if schedule.page_due(t, tab, now, self._every(t, now)):
             self._load(t, key, url, now)
 
     def _tick_fetch(self, t, now):
@@ -488,7 +526,7 @@ class Runner:
         if tab is None:
             self.next_fetch[t.name] = now + schedule.FETCH_RETRY_S
             return
-        self.next_fetch[t.name] = schedule.next_fetch_at(now, t.every_min)
+        self.next_fetch[t.name] = schedule.next_fetch_at(now, self._every(t, now))
         try:
             if t.wait_for:
                 try:
@@ -650,6 +688,9 @@ class Runner:
             self.parser_said[t.name] = f"parser failed: {str(exc).splitlines()[0][:120]}"
             return
         self.parser_said.pop(t.name, None)
+        k = schedule.next_kickoff(rows, now)
+        if k is not None:
+            self.next_kickoff[t.name] = k
         self._check_rows(t, rows, now)
         out = self.s.data_dir / "latest" / f"{_safe(t.name)}.json"
         out.write_text(json.dumps({"at": now, "url": tab.url, "rows": rows}, indent=1))
@@ -682,7 +723,8 @@ class Runner:
                                                market_tabs_said(mine),
                                                self.parser_said.get(t.name)) if x)
             targets.append(target_entry(t, state, detail, self.last_load_at.get(t.name),
-                                        self.last_parse_at.get(t.name), self.rows_posted.get(t.name, 0)))
+                                        self.last_parse_at.get(t.name), self.rows_posted.get(t.name, 0),
+                                        self.next_kickoff.get(t.name), t.name in self.near))
         return {"at": now, "targets_file": str(self.targets_file) if self.targets_file else None,
                 "targets": targets, "sites": site_status(self.guard, now)}
 

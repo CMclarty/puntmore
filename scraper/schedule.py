@@ -11,10 +11,18 @@ tabs. Its `priority` decides who goes first when a site's budget is short
 Jitter is drawn ONCE per load and kept on the tab (`due_at`), never afresh
 each tick: drawing it every 15 s tick made a reload fire at the low end
 nearly every time.
+
+The kick-off sweep: a target whose rows carry a `kickoff` reports the
+nearest future one to the runner; while that is within `near_hours`, its
+`near_min` replaces `every_min` (`effective_every`) and, when a site's budget
+is short, the nearest kick-off goes first among equal priorities (`order`).
+The spec's shape ("every 2-4 h, ~30 min in the last 3 h before kick-off,
+nearest first if the budget runs short") is `every_min = 180, near_min = 30`
+on the target; nothing here is special to a site.
 """
 import random
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Jitter on timed reloads, drawn once per load.
 RELOAD_JITTER = (0.75, 1.35)     # every_min (and a fetch target's next run)
@@ -74,13 +82,16 @@ def next_fetch_at(now, every_min) -> float:
     return now + (every_min or FETCH_DEFAULT_MIN) * 60 * random.uniform(*RELOAD_JITTER)
 
 
-def page_due(t, tab, now) -> bool:
+def page_due(t, tab, now, every_min=None) -> bool:
     """A kept-open page wants a load: its timed reload is due, it has gone
     quiet for stale_min, or its page is worn (recycle time, or crashed). The
-    timed reload's jitter is drawn once per load and kept on the tab."""
-    if t.every_min and tab.due_at is None:
-        tab.due_at = reload_at(tab.last_load, t.every_min)
-    due = t.every_min and now >= tab.due_at
+    timed reload's jitter is drawn once per load and kept on the tab.
+    `every_min` is the interval in force (`effective_every`); the target's
+    own when not given."""
+    every = t.every_min if every_min is None else every_min
+    if every and tab.due_at is None:
+        tab.due_at = reload_at(tab.last_load, every)
+    due = every and now >= tab.due_at
     return bool(due or stale(t, tab, now) or tab.worn(now))
 
 
@@ -112,7 +123,41 @@ def in_window(window: str | None, now) -> bool:
     return start <= m < end if start < end else (m >= start or m < end)
 
 
-def order(targets, wanting: dict, left) -> list:
+# --- the kick-off sweep -----------------------------------------------------
+def kickoff_ts(value) -> float | None:
+    """A row's `kickoff` (ISO 8601, `Z` or an offset; naive = UTC) as unix
+    seconds, or None when it is not one."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        d = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return d.timestamp()
+
+
+def next_kickoff(rows, now) -> float | None:
+    """The nearest kick-off still ahead among the rows, or None."""
+    ahead = [k for k in (kickoff_ts(r.get("kickoff")) for r in rows if isinstance(r, dict))
+             if k is not None and k >= now]
+    return min(ahead) if ahead else None
+
+
+def near(t, kickoff, now) -> bool:
+    """Inside the target's near window: it has a near_min and a kick-off
+    within near_hours ahead."""
+    return bool(t.near_min and kickoff is not None and 0 <= kickoff - now <= t.near_hours * 3600)
+
+
+def effective_every(t, kickoff, now):
+    """The reload (or fetch) interval in force now: near_min inside the near
+    window, else every_min."""
+    return t.near_min if near(t, kickoff, now) else t.every_min
+
+
+def order(targets, wanting: dict, left, kickoff: dict | None = None) -> list:
     """The order targets are ticked in, and so who gets the next load: the
     runner spaces loads, so at most one goes out per tick and the first
     target in this list that wants one gets it.
@@ -122,8 +167,10 @@ def order(targets, wanting: dict, left) -> list:
     loads the site has left this hour. A site whose wanting targets fit in
     what it has left keeps file order. A contended site (more targets want a
     load than it has left) has its targets' places in the list refilled
-    highest `priority` first, ties by whichever is more overdue, then the
-    ones that want nothing; other sites' places do not move."""
+    highest `priority` first, ties by the nearest kick-off (`kickoff` maps a
+    name to its next one; none = last), then by whichever is more overdue,
+    then the ones that want nothing; other sites' places do not move."""
+    kickoff = kickoff or {}
     by_site = defaultdict(list)
     for t in targets:
         by_site[t.site].append(t)
@@ -131,7 +178,7 @@ def order(targets, wanting: dict, left) -> list:
     for site, ts in by_site.items():
         want = [t for t in ts if t.name in wanting]
         if len(want) > left(site):
-            want.sort(key=lambda t: (-t.priority, wanting[t.name]))
+            want.sort(key=lambda t: (-t.priority, kickoff.get(t.name) or float("inf"), wanting[t.name]))
             ts = want + [t for t in ts if t.name not in wanting]
         queues[site] = iter(ts)
     return [next(queues[t.site]) for t in targets]

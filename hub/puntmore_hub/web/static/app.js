@@ -295,8 +295,8 @@ const RENDER = {
 };
 
 // ---- the Scraper's targets (targets.toml through scraper/targets.py) -------------------------------
-const EDIT_FIELDS = ["every_min", "stale_min", "priority", "window", "min_rows", "trust_weight", "wait_for", "url"];
-const NUMERIC = new Set(["every_min", "stale_min", "priority", "min_rows", "trust_weight"]);
+const EDIT_FIELDS = ["every_min", "stale_min", "near_min", "near_hours", "priority", "window", "min_rows", "trust_weight", "wait_for", "url"];
+const NUMERIC = new Set(["every_min", "stale_min", "near_min", "near_hours", "priority", "min_rows", "trust_weight"]);
 let editing = null;          // {name, original: {field: value}}
 let removing = null;         // name
 
@@ -315,7 +315,11 @@ function renderTargets(sec, d, skew) {
     ["name", (r) => el("button", { class: "link", type: "button", text: show(r.name), onclick: () => showLatest(r.name) })],
     ["site", "site"], ["mode", "mode"],
     ["enabled", (r) => r.enabled ? "yes" : el("span", { class: "st st-off", text: "disabled" })],
-    ["every_min", "every_min", "n"], ["stale_min", "stale_min", "n"], ["priority", "priority", "n"], ["window", "window"],
+    ["every_min", "every_min", "n"], ["stale_min", "stale_min", "n"],
+    ["near", (r) => r.near_min ? `${show(r.near_min)} min in last ${show(r.near_hours)} h` : "—"],
+    ["kick-off", (r) => v(r).next_kickoff ? el("time", { datetime: v(r).next_kickoff, title: v(r).next_kickoff,
+      text: (v(r).near ? "near · " : "") + until(v(r).next_kickoff, skew) }) : "—"],
+    ["priority", "priority", "n"], ["window", "window"],
     ["parser", "parser"], ["post", "post", "mono"],
     ["state", (r) => v(r).state ? el("span", { class: "st st-" + (TARGET_STATE[v(r).state] || "warn"), text: v(r).state })
       : (r.enabled ? "not reported" : "—")],

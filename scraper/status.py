@@ -44,10 +44,11 @@ class Reporter:
             pass
 
 
-def target_entry(t, state, detail, last_load, last_parse, rows_posted) -> dict:
+def target_entry(t, state, detail, last_load, last_parse, rows_posted,
+                 next_kickoff=None, near=False) -> dict:
     return {"name": t.name, "site": t.site, "url": t.url, "state": state, "mode": t.mode,
             "detail": detail, "last_load": last_load, "last_parse": last_parse,
-            "rows_posted": rows_posted}
+            "rows_posted": rows_posted, "next_kickoff": next_kickoff, "near": bool(near)}
 
 
 def site_status(guard, now) -> list[dict]:

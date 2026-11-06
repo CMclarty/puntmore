@@ -98,8 +98,8 @@ python -m scraper targets remove racing-tips
   rewritten whole, so comments are lost: the first save keeps the
   hand-written file as `targets.toml.bak`.
 - The running Scraper picks a change up within 60 s (its re-read of the
-  file). A change to only `every_min`, `stale_min`, `priority`, `window`,
-  `min_rows` or `trust_weight` is applied in place: the open tabs stay and
+  file). A change to only `every_min`, `stale_min`, `near_min`, `near_hours`,
+  `priority`, `window`, `min_rows` or `trust_weight` is applied in place: the open tabs stay and
   are rescheduled (a timed reload is redrawn from the last load), so it
   costs no load. A change to `url`, `site`, `mode`, `parser`, `post`,
   `wait_for` or `matches` closes the target's tabs and reopens them on the
@@ -254,7 +254,17 @@ Targets are of these kinds:
 Timings are clamped to the floors in `config._target`, and `sites.py`
 budgets stay the ceiling whatever the file says.
 
-Two fields say when and who first (`schedule.py`):
+Four fields say when and who first (`schedule.py`):
+- **`near_min`** and **`near_hours`** (default 3): the kick-off sweep. A
+  parser's rows may carry a `kickoff` (ISO 8601; `pp_most` and `bb_saves`
+  do); the nearest one still ahead is the target's next kick-off (`status`
+  shows it). While it is within `near_hours`, the target reloads, or a fetch
+  target runs, every `near_min` instead of `every_min`, and among targets of
+  equal priority the nearest kick-off gets a short budget's next load. After
+  the kick-off the normal interval is back. The spec's "every 2-4 h, ~30 min
+  in the last 3 h before kick-off, nearest first" is `every_min = 180,
+  near_min = 30`. The site's budget is still the ceiling; a sweep that would
+  exceed it simply waits.
 - **`window`** (`"HH:MM-HH:MM"`, local time, may wrap midnight as
   `"22:00-02:00"`; the start minute is inside, the end minute is not): the
   hours a target may load at all. Outside it nothing is loaded and its open

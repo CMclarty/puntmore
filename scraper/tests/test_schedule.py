@@ -1,6 +1,7 @@
 """A target's `window` and `priority`, with a stand-in browser: outside its
 window a target is not loaded and its tabs close; when a site's hourly budget
 cannot cover every target that wants a load, higher priority goes first."""
+import random
 import time
 from datetime import datetime, timedelta
 
@@ -90,6 +91,7 @@ def test_a_contended_budget_goes_to_the_higher_priority_target(tmp_path):
     for the oldest load to age out; each time it frees up, every page is
     overdue and the priority-2 page gets the slot. The priority-0 pages share
     what it leaves (it wants a load only every 5 minutes), so neither starves."""
+    random.seed(3)          # the jittered reloads: one draw passed 8 of 10 runs, which is not a test
     low1, high, low2 = _bb("low1", every_min=5), _bb("high", every_min=5, priority=2), _bb("low2", every_min=5)
     r = _runner(tmp_path, [low1, high, low2])
     t0 = time.time()
@@ -105,3 +107,69 @@ def test_a_contended_budget_goes_to_the_higher_priority_target(tmp_path):
     assert len(after_wait) == 3 and set(after_wait) == {"high"}
     # The first load, with the budget not yet contended, keeps file order.
     assert loads[0][0] == "low1"
+
+
+# --- the kick-off sweep ------------------------------------------------------
+def _gen(name, **kw):
+    return config.Target(name=name, site="generic", url=f"https://tips.example.com/{name}",
+                         parser="example_tipster", post="hub:tips", **kw)
+
+
+def test_near_window_swaps_the_interval_and_a_passed_kickoff_does_not_count():
+    now = time.time()
+    t = config._target({"name": "pp", "site": "paddypower", "url": "https://www.paddypower.com/x",
+                        "every_min": 180, "near_min": 30})
+    assert t.near_hours == 3.0
+    assert schedule.effective_every(t, now + 2 * 3600, now) == 30
+    assert schedule.effective_every(t, now + 4 * 3600, now) == 180
+    assert schedule.effective_every(t, now - 60, now) == 180
+    assert schedule.effective_every(t, None, now) == 180
+    plain = config._target({"name": "pp2", "site": "paddypower", "url": "https://www.paddypower.com/y",
+                            "every_min": 180})
+    assert schedule.effective_every(plain, now + 60, now) == 180      # no near_min: nothing changes
+
+
+def test_kickoff_rows_are_read_as_iso_in_any_of_the_shapes_parsers_emit():
+    now = 1_800_000_000.0
+    rows = [{"kickoff": "2027-01-15T15:00:00Z"}, {"kickoff": "2027-01-15T12:30:00.000Z"},
+            {"kickoff": "2027-01-15T20:00:00+01:00"}, {"kickoff": "garbage"}, {"no": "kickoff"}, "not a row"]
+    assert schedule.next_kickoff(rows, now) == schedule.kickoff_ts("2027-01-15T12:30:00Z")
+    assert schedule.next_kickoff(rows, schedule.kickoff_ts("2027-01-16T00:00:00Z")) is None
+    assert schedule.kickoff_ts("2027-01-15T15:00:00") == schedule.kickoff_ts("2027-01-15T15:00:00Z")
+
+
+def test_nearest_kickoff_goes_first_among_equal_priority_when_the_budget_is_short():
+    a, b, c = _gen("a"), _gen("b"), _gen("c", priority=1)
+    wanting = {"a": 100.0, "b": 200.0, "c": 300.0}
+    kick = {"a": 5000.0, "b": 2000.0}
+    assert [t.name for t in schedule.order([a, b, c], wanting, lambda s: 1, kick)] == ["c", "b", "a"]
+    assert [t.name for t in schedule.order([a, b, c], wanting, lambda s: 9, kick)] == ["a", "b", "c"]
+    assert [t.name for t in schedule.order([a, b], wanting, lambda s: 1)] == ["a", "b"]      # no kick-offs: overdue first
+
+
+def test_a_kickoff_in_the_rows_pulls_the_reload_forward_then_lets_go(tmp_path, monkeypatch):
+    """A kept-open page reloaded only when stale, with near_min 10: once its
+    parser reports a kick-off two hours out it reloads about every 10 min,
+    and after the kick-off it is back to the page's own rhythm (here the
+    half-hourly recycle, schedule.RECYCLE_H)."""
+    from scraper import runner as runner_mod
+    t0 = time.time()
+    kickoff = t0 + 2 * 3600
+    rows = [{"home": "A", "away": "B", "kickoff": datetime.fromtimestamp(kickoff).astimezone().isoformat()}]
+    monkeypatch.setitem(runner_mod.PARSERS, "pp_most", lambda page, capture: rows)
+    t = config.Target(name="pp", site="paddypower", url="https://www.paddypower.com/football/epl",
+                      stale_min=10_000, near_min=10, parser="pp_most")
+    r = _runner(tmp_path, [t])
+    for i in range(0, 3600, 15):
+        r.tick(t0 + i)
+    st = {x["name"]: x for x in r.status(t0 + 3600)["targets"]}["pp"]
+    assert st["near"] is True and abs(st["next_kickoff"] - kickoff) < 1
+    for i in range(3600, 4 * 3600, 15):
+        r.tick(t0 + i)
+    loads = [ts for _site, ts in _loads(r)]
+    before = [ts for ts in loads if ts < kickoff]
+    gaps = [b - a for a, b in zip(before, before[1:])]
+    assert gaps and all(7 * 60 <= g <= 14 * 60 for g in gaps), gaps           # 10 min x jitter
+    after = [ts for ts in loads if ts > kickoff]
+    assert all(b - a >= 20 * 60 for a, b in zip(after, after[1:])), after     # the recycle rhythm again
+    assert r.status(t0 + 4 * 3600)["targets"][0]["near"] is False

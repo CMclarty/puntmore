@@ -48,7 +48,7 @@ HEADER = """\
 FIELDS = tuple(f.name for f in fields(Target))
 MATCH_FIELDS = tuple(f.name for f in fields(Matches))
 # Numbers config._target clamps: a value it would change is refused here.
-_NUMERIC = ("every_min", "stale_min", "min_rows", "trust_weight")
+_NUMERIC = ("every_min", "stale_min", "min_rows", "trust_weight", "near_min", "near_hours")
 _MATCH_NUMERIC = ("max_tabs", "open_gap_min", "tab_max_hours", "relist_min")
 _STRINGS = ("name", "site", "url", "parser", "post", "mode", "wait_for", "window")
 
