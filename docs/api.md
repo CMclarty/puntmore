@@ -191,10 +191,10 @@ with its old `priced_at` and `status.stale` is true. A pass where one chunk's
 request failed but another priced replaces the board and names the failed
 chunk in `cannot_price` (`degraded: true`, `stale: false`). Before the first
 pass and with the kill switch on the list is empty. `served_at: null` with
-`not_yet_refreshed: false` means no pass has priced yet; see `cannot_price`. With no OddsPapi key `status` is just `degraded: true`,
-`killed` and `cannot_price: ["ALL — ODDSPAPI_API_KEY unset"]`. The kill switch
-also empties the `2up` source of `GET /api/value` (and names it in its
-`errors`).
+`not_yet_refreshed: false` means no pass has priced yet; see `cannot_price`.
+With no OddsPapi key `status` is just `degraded: true`, `killed` and
+`cannot_price: ["ALL — ODDSPAPI_API_KEY unset"]`. The kill switch also empties
+the `2up` source of `GET /api/value` (and names it in its `errors`).
 
 `GET /api/2up/diagnostics` returns `{feed, rescue_table, global_kill_switch,
 settings}`: `feed` is the same `status` block as above (without `killed`),
