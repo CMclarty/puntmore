@@ -1,5 +1,5 @@
 """2-Up feed off a stubbed OddsPapi client (never live), the /api/2up routes,
-the value-feed source, /api/ready's twoup_detail and the scheduled pass."""
+the value-feed source, /api/ready's twoup_detail and the ledger routes."""
 import logging
 from datetime import timedelta
 
@@ -10,7 +10,7 @@ from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 from app.security import user_permissions
-from app.twoup import decision, ledger
+from app.twoup import ledger
 from app.twoup.feed import TwoUpFeed
 from app.twoup.model import Params
 
@@ -126,9 +126,12 @@ def test_ledger_kill_resume_and_diagnostics_routes():
     feed.candidates(NOW)
     app.state.twoup_feed = feed
     s = Session()
-    d = decision.run_all(s, feed, now=NOW, params=Params())
+    ledger.record_bet_list(s, "owner", [{
+        "bet_id": "b1", "account_id": "acc-1", "stake": 10.0, "expected_price": 2.05,
+        "legs": [{"event_id": "f1", "selection": "Arsenal"}],
+        "not_before": NOW.isoformat(), "not_after": (NOW + timedelta(hours=2)).isoformat(),
+    }])
     s.close()
-    assert d["clients"]["owner"]["bets"] == 1 and d["clients"]["owner"]["dry_run"] is True
 
     api = TestClient(app)
     body = api.get("/2up/ledger/owner").json()
@@ -146,9 +149,9 @@ def test_ledger_kill_resume_and_diagnostics_routes():
 
     diag = api.get("/2up/diagnostics").json()
     assert diag["rescue_table"]["loaded"] is True and diag["rescue_table"]["buckets"]
-    assert diag["last_decision"]["queued"] == 1
-    assert diag["settings"]["twoup_kelly_fraction"] == settings.twoup_kelly_fraction
-    assert [c["client_id"] for c in diag["clients"]] == ["owner"]
+    assert set(diag) == {"feed", "rescue_table", "global_kill_switch", "settings"}
+    assert diag["settings"]["twoup_min_edge"] == settings.twoup_min_edge
+    assert not any("kelly" in k or "stake" in k for k in diag["settings"])
 
 
 def test_routes_need_the_365_grant():
@@ -188,27 +191,3 @@ def test_ready_reports_the_2up_feed():
     app.state.twoup_feed = feed
     detail = TestClient(app).get("/ready").json()["providers"]["twoup_detail"]
     assert detail["degraded"] is False and detail["last_pass"]["priced_fixtures"] == 2
-
-
-def test_the_scheduled_pass_does_nothing_outside_the_window():
-    feed, client = _feed()
-    s = Session()
-    late = NOW.replace(hour=23)
-    out = decision.run_all(s, feed, now=late, params=Params())
-    s.close()
-    assert out["skipped"] == "outside betting window" and client.calls == []
-
-
-def test_scheduler_adds_the_job_only_with_a_feed():
-    from app.scheduler import start_scheduler
-    without = start_scheduler(odds_provider=None)
-    try:
-        assert without.get_job("twoup_decision") is None
-    finally:
-        without.shutdown(wait=False)
-    feed, _ = _feed()
-    with_feed = start_scheduler(odds_provider=None, twoup_feed=feed)
-    try:
-        assert with_feed.get_job("twoup_decision") is not None
-    finally:
-        with_feed.shutdown(wait=False)

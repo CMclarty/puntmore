@@ -350,19 +350,6 @@ def paddy_health(notifier=None) -> list[str]:
     return lines
 
 
-def run_twoup(feed) -> dict:
-    """The 2-Up decision pass (app/twoup/decision.py): inside the betting
-    window, price the feed once (through its cache) and queue each client's
-    bet lists in the ledger. Nothing here sends or places anything — the Hub
-    endpoint sends what `ledger.pending_bet_lists` returns."""
-    from .twoup.decision import run_all
-    db = SessionLocal()
-    try:
-        return run_all(db, feed)
-    finally:
-        db.close()
-
-
 def run_betfinder(feed=None) -> dict:
     """The Bet Finder pass (app/betfinder/pipeline.py): bring new Hub tips
     in, price them off the 2-Up feed's CACHE (never a refresh), link and
@@ -446,22 +433,6 @@ def start_scheduler(
         coalesce=True,
         max_instances=1,
     )
-
-    # 2-Up decision: every few minutes; outside the betting window the pass
-    # returns before touching the feed, so it costs nothing overnight. The
-    # feed's own TTL and the OddsPapi client's tiered cache bound the
-    # requests, whatever the cadence. No feed (no OddsPapi key) = no job.
-    if settings.enable_twoup and twoup_feed is not None:
-        scheduler.add_job(
-            run_twoup,
-            trigger="interval",
-            minutes=max(1, settings.twoup_decision_minutes),
-            id="twoup_decision",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-            kwargs={"feed": twoup_feed},
-        )
 
     # Bet Finder: every few minutes, day and night — ingest, dedupe and the
     # ledger link cost nothing, and pricing reads only the feed's cache, so

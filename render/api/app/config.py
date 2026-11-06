@@ -195,33 +195,8 @@ class Settings(BaseSettings):
     twoup_max_price: float = 8.0
     # Where the rescue-rate table lives. Blank = app/twoup/rescue_table.json.
     twoup_rescue_table_path: str = ""
-    # Fractional Kelly on the client's POOLED bankroll, then a hard ceiling on
-    # any one selection's total stake as a fraction of that bankroll.
-    twoup_kelly_fraction: float = 0.25
-    twoup_max_selection_fraction: float = 0.02
-    # Account preservation (spec, "Account-preservation rules"). Bets are
-    # produced only inside this local window, and each bet's not_before /
-    # not_after is clipped to it.
-    twoup_window_start: str = "07:30"
-    twoup_window_end: str = "22:00"
+    # The London day the ledger (and, until it goes, the Bet Finder) counts in.
     twoup_timezone: str = "Europe/London"
-    # Hard max bets per account per London day — every bet recorded counts,
-    # failed ones included (a refused slip is still activity on the account).
-    twoup_max_bets_per_account_day: int = 20
-    # Dynamic stake ceiling per bet: never above the hard cap, never above
-    # this fraction of the account's own balance. No floor.
-    twoup_stake_hard_cap: float = 200.0
-    twoup_stake_balance_fraction: float = 0.10
-    # Stake growth: a stake may not exceed the mean of the account's trailing
-    # stakes by more than this fraction, whatever the account has won. Until
-    # the account has `twoup_growth_min_history` stakes, the initial cap holds.
-    twoup_stake_growth_cap: float = 0.25
-    twoup_trailing_stakes: int = 20
-    twoup_growth_min_history: int = 5
-    twoup_initial_stake_cap: float = 10.0
-    # The decision job's cadence, in minutes. It reads the cached feed, so a
-    # tighter cadence costs CPU, not OddsPapi requests.
-    twoup_decision_minutes: int = 10
 
     # --- Bet Finder orchestrator (app/betfinder/) ----------------------------
     # Turns the Hub's `tip` frames (the `tips` table) into OWNER-ONLY 2-Up candidates.

@@ -658,8 +658,5 @@ class BetFinderRunOut(OpenModel):
 class TwoUpDiagnosticsOut(OpenModel):
     feed: dict[str, Any]
     rescue_table: dict[str, Any]
-    last_decision: dict[str, Any]
-    in_window: bool
     global_kill_switch: bool
-    clients: list[TwoUpClientOut]
     settings: dict[str, Any]

@@ -1,8 +1,6 @@
-"""2-Up model: pure functions — de-vig, rescue table, edge, Kelly, rounding,
-account-preservation limits."""
+"""2-Up model: pure functions — de-vig, rescue table, edge, filters."""
 import json
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -90,62 +88,6 @@ def test_price_fixture_prices_both_sides_never_the_draw():
                                pinnacle=(1.9, None, 4.4), bet365=(2, 3, 4), table=t) == []
 
 
-# --- Kelly --------------------------------------------------------------------
-
-def test_kelly_is_zero_without_edge_and_fractional_and_capped():
-    assert model.kelly_fraction(0.45, 2.0) == 0.0
-    assert model.kelly_fraction(0.55, 2.0) == pytest.approx(0.10)
-    c = cand(price=2.0, p_win=0.53, rescue=0.02)       # full Kelly 0.10
-    p = Params(kelly_fraction=0.25, max_selection_fraction=1.0)
-    assert model.kelly_stake(c, 1000, p) == pytest.approx(25.0)
-    assert model.kelly_stake(c, 1000, p.but(max_selection_fraction=0.01)) == pytest.approx(10.0)
-    assert model.kelly_stake(c, 0, p) == 0.0
-
-
-# --- rounding -----------------------------------------------------------------
-
-@pytest.mark.parametrize("raw,want", [
-    (0.4, 0), (0.6, 1), (1.4, 1), (1.6, 2), (3.4, 2), (3.6, 5), (7.4, 5), (7.6, 10),
-    (14, 10), (16, 20), (34, 20), (36, 50), (140, 100), (160, 200), (1600, 2000),
-])
-def test_round_stake_to_the_nearest_1_2_5_rung(raw, want):
-    assert model.round_stake(raw) == want
-
-
-def test_round_stake_never_exceeds_its_cap_and_has_no_floor():
-    assert model.round_stake(18, cap=15) == 10
-    assert model.round_stake(18, cap=0.9) == 0
-    assert model.round_down_stake(7) == 5 and model.round_down_stake(0.9) == 0
-    assert model.stake_ladder(100) == [1, 2, 5, 10, 20, 50, 100]
-
-
-# --- account preservation ----------------------------------------------------
-
-def test_stake_ceiling_from_balance_with_a_hard_cap_and_no_floor():
-    p = Params(stake_hard_cap=200, stake_balance_fraction=0.1)
-    assert model.stake_ceiling(500, p) == 50
-    assert model.stake_ceiling(10_000, p) == 200
-    assert model.stake_ceiling(0, p) == 0
-
-
-def test_growth_cap_reads_trailing_stakes_only():
-    p = Params(stake_growth_cap=0.25, growth_min_history=5, initial_stake_cap=10,
-               trailing_stakes=4)
-    assert model.growth_cap([20, 20], p) == 10                 # too little history
-    p = p.but(growth_min_history=3)
-    assert model.growth_cap([100, 20, 20, 20, 20], p) == pytest.approx(25)   # last 4 only
-    assert model.account_stake_cap(100, [20, 20, 20, 20], p.but(stake_balance_fraction=0.1)) == 10
-
-
-def test_betting_window_is_0730_to_2200_london():
-    tz = ZoneInfo("Europe/London")
-    p = Params()
-    assert not model.in_window(datetime(2026, 11, 5, 7, 29, tzinfo=tz), p)
-    assert model.in_window(datetime(2026, 11, 5, 7, 30, tzinfo=tz), p)
-    assert model.in_window(datetime(2026, 11, 5, 21, 59, tzinfo=tz), p)
-    assert not model.in_window(datetime(2026, 11, 5, 22, 0, tzinfo=tz), p)
-
-
 def test_filters_name_their_reason():
     p = Params(min_edge=0.01, min_price=1.5, max_price=5)
     assert model.passes_filters(cand(price=1.4, p_win=0.75), p) == "price outside band"
@@ -155,7 +97,8 @@ def test_filters_name_their_reason():
 
 def test_params_come_from_settings(monkeypatch):
     from app.config import settings
-    monkeypatch.setattr(settings, "twoup_kelly_fraction", 0.1)
-    monkeypatch.setattr(settings, "twoup_window_start", "08:15")
+    monkeypatch.setattr(settings, "twoup_min_edge", 0.01)
+    monkeypatch.setattr(settings, "twoup_min_lead_minutes", 30)
     p = Params.from_settings()
-    assert p.kelly_fraction == 0.1 and p.window_start.hour == 8 and p.window_start.minute == 15
+    assert (p.min_edge, p.min_price, p.max_price, p.min_lead_minutes) == (0.01, 1.25, 8.0, 30)
+    assert not hasattr(p, "kelly_fraction")

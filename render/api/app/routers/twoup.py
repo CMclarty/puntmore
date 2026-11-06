@@ -9,7 +9,6 @@ Per-client keys for clients reading their own ledger belong to the Hub
 endpoint, not here.
 """
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
@@ -20,9 +19,15 @@ from ..schemas import (
     TwoUpAccountOut, TwoUpBalanceOut, TwoUpBetOut, TwoUpCandidateOut, TwoUpClientOut,
     TwoUpDiagnosticsOut, TwoUpFeedOut, TwoUpLedgerOut,
 )
-from ..twoup import decision, ledger, model
+from ..twoup import ledger, model
 
 router = APIRouter(prefix="/2up", tags=["2up"])
+
+# The dials /diagnostics reports: the four filters plus the feed's own three.
+_DIAGNOSTIC_DIALS = (
+    "twoup_min_edge", "twoup_min_price", "twoup_max_price", "twoup_min_lead_minutes",
+    "twoup_tournament_ids", "twoup_feed_ttl", "twoup_horizon_hours",
+)
 
 
 def _feed(request: Request):
@@ -128,13 +133,10 @@ def resume_client(client_id: str, db: Session = Depends(get_db)):
 
 @router.get("/diagnostics", response_model=TwoUpDiagnosticsOut)
 def get_diagnostics(request: Request, db: Session = Depends(get_db)):
-    """What the feed last saw, the rescue table in use, the last decision
-    pass, and the dials. No secrets."""
+    """What the feed last saw, the rescue table in use, and the dials. No secrets."""
     feed = _feed(request)
-    params = feed.params if feed is not None else model.Params.from_settings()
     table = feed.table if feed is not None else model.load_rescue_table(
         settings.twoup_rescue_table_path or None)
-    now_local = datetime.now(ZoneInfo(params.timezone))
     return TwoUpDiagnosticsOut(
         feed=feed.status() if feed is not None else {
             "degraded": True, "cannot_price": ["ALL — ODDSPAPI_API_KEY unset"]},
@@ -144,9 +146,6 @@ def get_diagnostics(request: Request, db: Session = Depends(get_db)):
             "buckets": [{"lo": b.lo, "hi": b.hi, "rescue": b.rescue, "n": b.n,
                          "source": b.source} for b in table.buckets],
         },
-        last_decision=dict(decision.LAST_RUN),
-        in_window=model.in_window(now_local, params),
         global_kill_switch=settings.twoup_kill_switch,
-        clients=[_client_out(db, c) for c in ledger.clients(db)],
-        settings={k: v for k, v in settings.model_dump().items() if k.startswith("twoup_")},
+        settings={k: getattr(settings, k) for k in _DIAGNOSTIC_DIALS},
     )
