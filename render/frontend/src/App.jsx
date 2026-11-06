@@ -1,11 +1,11 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { getMe, logout as apiLogout } from './api'
+import { getMe, getSite, logout as apiLogout } from './api'
 import BottomNav, { landingFor } from './components/BottomNav'
 import PageIdentity from './components/PageIdentity'
 import TrackerPage from './pages/TrackerPage'
 import LoginPage from './pages/LoginPage'
-import { PUNTMORE, SITE, SITE_NAME, otherSiteUrl, siteTools, toolSite } from './site'
+import { PUNTMORE, SITE, SITE_NAME, otherSiteUrl, setMeHost, siteTools, toolSite } from './site'
 import styles from './App.module.css'
 
 // The tracker and login are the entry points, so they stay in the main bundle.
@@ -37,7 +37,8 @@ const IS_FOCUSED = FOCUSED_ROOTS.some(r => ENTRY_PATH === r || ENTRY_PATH.starts
 // via the nav's "More" sheet. The acca boost returns as a 365 tab on OddsPapi.
 
 // Each site shows only its own tools (site.js): Callum's personal tools on Me,
-// every public tool on the main domain. The grant itself is shared by both.
+// every public tool on the main domain; with no Me (ME_HOST blank) the main
+// domain shows them all. The grant itself is shared by both.
 const forSite = u => u && { ...u, tools: siteTools(u.tools) }
 
 export default function App() {
@@ -48,8 +49,10 @@ export default function App() {
   const adopt = u => setUser(forSite(u))
 
   useEffect(() => {
-    getMe()
-      .then(u => { setUser(forSite(u)); setBootError(null) })
+    // Which host is Me, if any (ME_HOST), is settled before the user: it
+    // decides which of the user's tools this site shows (site.js).
+    Promise.all([getSite(), getMe()])
+      .then(([s, u]) => { setMeHost(s?.me_host); setUser(forSite(u)); setBootError(null) })
       .catch(e => {
         // A 401 is not an error — getMe returns null for it and we fall through
         // to the login route. Anything reaching here is the API being reachable
@@ -118,7 +121,7 @@ export default function App() {
           <Route path="/kelly" element={protectTool(<KellyPage />, 'kelly')} />
           <Route path="/boost" element={<Navigate to="/virtuals" replace />} />
           <Route path="/shop" element={protectTool(<ShopPage />, 'shop')} />
-          {/* Finder, Callum's tips: on me (site.js). */}
+          {/* Finder, Callum's tips: on me, or the main domain while there is no me (site.js). */}
           <Route path="/finder" element={protectTool(<FinderPage />, 'finder')} />
           {/* AW 26 was retired (docs/retired.md): an old link lands home. */}
           <Route path="/aw26" element={<Navigate to="/" replace />} />

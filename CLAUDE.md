@@ -22,7 +22,9 @@ Nothing goes to `main` directly: branch, pull request, path-scoped workflows.
 Every tool is a route in one React app, not a separate build; the backend serves them all under
 namespaced routers. Two hosts: the main domain serves every public tool, `me` serves Callum's
 personal tools (`render/api/app/site.py`, mirrored in `render/frontend/src/site.js`); a retired
-host is redirected to the main domain, same path (`docs/retired.md`).
+host is redirected to the main domain, same path (`docs/retired.md`). `me` exists only once
+`ME_HOST` is set (the register); while it is blank, every tool below said to be "on `me`" is on
+the main domain.
 
 - **Coupon tracker** (`/`, `coupons` grant): photographed coupons priced off the score grid.
 - **Paddy** (`/paddy`, API `/api/paddy/*`, `cards` grant, `ENABLE_CARDS`, package `app/cards/`):

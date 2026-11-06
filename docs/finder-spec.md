@@ -4,7 +4,7 @@ Decided with Callum on 6 Nov 2026 (his decisions marked **(Callum)**, the author
 
 ## What it is and why
 
-A board beside Paddy and 2-Up: Callum's own tips, on `me.puntmore.com` and nowhere else. It turns tips (bets from an external source: tipsters by email, web pages, WhatsApp, or Callum asking for one by hand) into a feed of bets the Bet Placer can act on: the tips HubAI has judged, its feed the ones it offered. The tips Callum follows have no fair line of ours to price against: each one needs judging, and that judgement is HubAI's on the Hub, with Callum asked when HubAI is unsure. **(Callum)**
+A board beside Paddy and 2-Up: Callum's own tips, on `me.puntmore.com` and nowhere else (on the main domain, behind the same grant, until `ME_HOST` switches `me` on). It turns tips (bets from an external source: tipsters by email, web pages, WhatsApp, or Callum asking for one by hand) into a feed of bets the Bet Placer can act on: the tips HubAI has judged, its feed the ones it offered. The tips Callum follows have no fair line of ours to price against: each one needs judging, and that judgement is HubAI's on the Hub, with Callum asked when HubAI is unsure. **(Callum)**
 
 The three boards (Paddy, 2-Up, Finder) are the sources of bet value and feed one consumer, the **Bet Placer** (`docs/placer-spec.md`), which sizes across all of them, runs the phones and keeps the records. Tips on Finder reach only Callum's Bet Placer; a third party's runs on 2-Up only. **(Callum)**
 

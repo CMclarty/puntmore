@@ -222,6 +222,14 @@ class Settings(BaseSettings):
     # contain ":". Example: "callum:s3cret-pw-here:*, dave:otherpw:coupons".
     auth_users: str = ""
 
+    # The host Me (Callum's personal tools) is served on (app/site.py), e.g.
+    # "me.puntmore.com". Blank (the default) = no Me: every tool, Finder and the
+    # personal tools included, is served and signed in to on the main domain,
+    # and nothing redirects to Me. Set it only once the host resolves to this
+    # service: its DNS record and Render custom domain exist (a set value whose
+    # host does not resolve sends the personal tools to a DNS error).
+    me_host: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

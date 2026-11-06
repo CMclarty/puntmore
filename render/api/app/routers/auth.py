@@ -6,7 +6,7 @@ from ..config import settings
 from ..database import get_db
 from ..models import User
 from ..schemas import OkOut
-from ..site import site_for, tool_site
+from ..site import me_host, site_for, tool_site
 from ..security import (
     KeyAuth,
     LoginThrottle,
@@ -63,7 +63,8 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     # Sign in only on a site holding one of the user's tools: an account of
     # Callum's personal tools only (finder, pnl, …) is refused on the main
     # domain, and one of public tools only is refused on Me. The session
-    # cookie is per host, so this keeps them to their own site.
+    # cookie is per host, so this keeps them to their own site. While Me is
+    # off (ME_HOST blank) every tool is the main domain's (site.py).
     tools = _user_out(user).tools
     site = site_for(request.headers.get("host"))
     on_site = [t for t in tools if tool_site(t) == site]
@@ -76,6 +77,17 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     request.session.clear()
     request.session["user"] = user.username
     return _user_out(user)
+
+
+class SiteOut(BaseModel):
+    me_host: str              # Me's host, "" while Me is off (app/site.py)
+
+
+@router.get("/site", response_model=SiteOut)
+def site():
+    """Whether Me exists and its host (`ME_HOST`): the shell reads it at boot,
+    before anyone signs in, to know which tools are this host's (site.js)."""
+    return SiteOut(me_host=me_host())
 
 
 @router.post("/logout", response_model=OkOut)

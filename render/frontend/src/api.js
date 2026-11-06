@@ -154,6 +154,14 @@ async function post(path, body) {
 }
 
 // Auth
+// Whether Me exists and its host (the API's ME_HOST, "" while Me is off):
+// read at boot, before anyone signs in (site.js).
+export async function getSite() {
+  const res = await send('/auth/site', undefined, 'GET')
+  if (!res.ok) throw await fail(res, '/auth/site', 'GET')
+  return res.json()
+}
+
 export async function getMe() {
   const res = await send('/auth/me', undefined, 'GET')
   if (res.status === 401) return null   // not logged in — not an error

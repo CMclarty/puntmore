@@ -41,7 +41,9 @@ The code is in git history (the commit "hub: the wire is gone"); the staking cod
 `shalgo.puntmore.com` was a second product site for Paddy and Hills, with its own name, icon,
 manifest and login. The main domain now serves every public tool; a request to the shalgo host
 is redirected to the same path on the main domain (`render/api/app/site.py`, `ShalgoRedirect`),
-so old links and home-screen icons keep working. The `2up` host was planned and never built.
+so old links and home-screen icons keep working. Its `/sw.js` alone is not redirected: it is a
+worker that unregisters itself and reloads the page on the main domain, which releases an app
+installed from shalgo from its old service worker. The `2up` host was planned and never built.
 
 ## Old names — dropped 6 Nov 2026
 

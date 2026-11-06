@@ -20,9 +20,9 @@ flowchart TB
       T365["365 tool<br/>with the 2-Up board inside<br/><i>live</i>"]
       PUB["Coupon tracker · Hills<br/><i>live</i>"]
     end
-    subgraph ME["me — Callum's personal tools"]
-      FINDER["Finder board<br/>Callum's tips, judged on the Hub<br/><i>live</i>"]
-      PERS["Dogs · Virtuals · P&amp;L · Kelly · shop<br/><i>live</i>"]
+    subgraph ME["me — Callum's personal tools; on the main domain until ME_HOST is set"]
+      FINDER["Finder board<br/>Callum's tips, judged on the Hub<br/><i>live on the main domain until ME_HOST is set</i>"]
+      PERS["Dogs · Virtuals · P&amp;L · Kelly · shop<br/><i>live on the main domain until ME_HOST is set</i>"]
     end
   end
 
@@ -67,12 +67,12 @@ flowchart TB
 
 | Component | What it is | Where | State |
 |---|---|---|---|
-| Render service | FastAPI + React, one origin, SQLite on the disk; the main domain and `me` (`app/site.py`) | Render | live |
+| Render service | FastAPI + React, one origin, SQLite on the disk; the main domain and `me` (`app/site.py`; `me` only once `ME_HOST` is set) | Render | live |
 | Paddy | Corners, cards, goals and saves against Paddy Power (`app/cards/`); OddsPapi plus the Scraper's posts | Render · main | live |
 | 365 tool, 2-Up | bet365's offers; 2-Up (`app/twoup/`) is a served board refreshed by `twoup_refresh`, read at `GET /api/2up/feed` and on the 2-Up tab; acca boost returns on OddsPapi; goalscorers parked | Render · main | live |
 | Coupon tracker, Hills | photographed coupons priced off the score grid; William Hill boosts | Render · main | live |
-| Finder | `finder_rows`, its status machine, `/api/finder/*` (`app/finder/`, `docs/finder-spec.md`) | Render · me | live, Callum only |
-| Personal tools | dogs, Virtuals, P&L, Kelly, shop | Render · me | live |
+| Finder | `finder_rows`, its status machine, `/api/finder/*` (`app/finder/`, `docs/finder-spec.md`) | Render · me | live, Callum only; on the main domain until `ME_HOST` is set |
+| Personal tools | dogs, Virtuals, P&L, Kelly, shop | Render · me | live on the main domain until `ME_HOST` is set |
 | Scraper service | `scraper/`, user service `puntmore-scraper`: one real Chrome on the desktop session, budgets in code (Docker is the fallback for a box with no screen) | Hub | live |
 | Scraper control | `targets.toml` changed only through `scraper/targets.py` (Console, CLI, HubAI); the Hub daemon's inbox of the drop files and its tipster-mailbox poll (`hub/`) | Hub | part built |
 | HubAI | the Hermes layer: chief of staff on Telegram, specialist profiles, Qwen3.5-122B under llama-server; takes every escalation; judges tips for Finder (`puntmore finder`) and takes a tip Callum asks for on Telegram | Hub | live; the Finder skill to build |
@@ -99,7 +99,7 @@ command.
 2. **The kill switch is a file**, `hub/data/KILL`; Render's `TWOUP_KILL_SWITCH` empties the 2-Up feed.
 3. **No retry, no re-route** of a failed bet; it goes to HubAI.
 4. **Real Chrome, no stealth.** Budgets in code, 24 h cool-off on a block.
-5. **Tips on Finder are Callum's only**, behind the `finder` grant and on `me`; never in the combined value feed, never offered to a third party.
+5. **Tips on Finder are Callum's only**, behind the `finder` grant and on `me` (the main domain until `ME_HOST` is set); never in the combined value feed, never offered to a third party.
 6. **OddsPapi is the only odds source.** Render keeps no record of anyone's bets.
 7. **One deploy**, not designed to scale.
 
@@ -109,5 +109,5 @@ command.
 2. **HubAI's Finder skill** (to build): one Hermes skill that reads the new tips (`puntmore finder new`), judges each from its price and fair, asks Callum when unsure, posts the verdict (`puntmore finder post`), and takes a tip Callum types to it on Telegram. The next HubAI work.
 3. **The tunnel** that makes the Console reachable from anywhere, and the link to it from `me`.
 4. **The Bet Placer box**: the phone interface through DeviceFarmer and the staking logic (`docs/placer-spec.md`). It should run as its own Linux user, so no agent can read account credentials whatever a scraped page says.
-5. **Finder's DNS**: `me.puntmore.com` pointed at the Render service.
+5. **Set `ME_HOST` once the DNS points at Render.** Until then `me` is off and its tools (Finder, dogs, Virtuals, P&L, Kelly, the shop) are served on the main domain. The step: add the `me.puntmore.com` DNS record and the Render custom domain, check the host resolves to the service, then set `ME_HOST=me.puntmore.com` on Render.
 6. **Goalscorers** returns only via OddsPapi (`PLAN.md`, Parked).

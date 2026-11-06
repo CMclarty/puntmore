@@ -27,8 +27,17 @@ names and no other; older names appear only in `docs/retired.md`.
   Finder, dogs, Virtuals, P&L, Kelly, the shop. Shalgo is retired as a site
   and a brand: no separate name, icon, login or tool list;
   `shalgo.puntmore.com` redirects to the same path on the main domain so old
-  links and home-screen icons keep working. The `2up` host is dropped.
-  (6 Nov 2026, Callum)
+  links and home-screen icons keep working (its `/sw.js` is a worker that
+  unregisters itself, so an app installed from there follows). The `2up`
+  host is dropped. (6 Nov 2026, Callum)
+  - **`me` is switched on by `ME_HOST`.** Blank (the default) there is no
+    `me`: its tools are served, and their accounts sign in, on the main
+    domain. The deployment step: add the `me.puntmore.com` DNS record and
+    the Render custom domain, check the host resolves to the service, then
+    set `ME_HOST=me.puntmore.com`. (6 Nov 2026, the branch's final review)
+  - **`me` has its own login.** The session cookie is per host, so Callum
+    signs in once per host; a known cost of `me`. (6 Nov 2026, the branch's
+    final review)
 - **The Hub has five sub-components.** **Scraper service**: the one real
   Chrome on the desktop, reads pages, hands rows up. **Scraper control**: the
   layer above it: rules, routing and switches for every source's rows (pages

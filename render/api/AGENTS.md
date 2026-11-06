@@ -6,6 +6,23 @@ what is specific to the FastAPI backend, with the reasons and incidents behind
 each rule, because the rules are scars and the next agent "fixes" a rule it
 does not understand.
 
+## Two hosts (`app/site.py`)
+The main domain serves every public tool; `me` serves Callum's personal tools
+(`ME_TOOLS`), with its own login, because the session cookie is per host.
+- **`me` exists only when `ME_HOST` names it.** Blank (the default) there is
+  one site: `tool_site()` puts every tool on the main domain, login there
+  accepts every account, and nothing points at `me`. Set it only after the
+  host resolves to this service (its DNS record and Render custom domain),
+  or the personal tools are sent to a DNS error. The frontend reads it at
+  boot from the public `GET /api/auth/site` (site.js mirrors this file).
+- **The retired shalgo host** is answered by `ShalgoRedirect` (asgi.py) before
+  the app: a 301 (GET, HEAD) or 308 (anything else) to the same raw path on
+  the main domain, the scheme from X-Forwarded-Proto when it is http or
+  https. Its `/sw.js` is the exception: `shalgo_sw.js`, a worker that
+  unregisters itself and reloads its windows on the main domain. A browser
+  refuses a redirected worker script, so a redirect there would leave every
+  app installed from shalgo on its old worker for good.
+
 ## Odds sources
 **OddsPapi is the only odds source** (Callum, 5 Nov 2026). The coupon tracker
 prices on `OddsPapiCouponProvider` (`providers/oddspapi_coupon.py`,
@@ -176,7 +193,7 @@ Invariants — do not relax:
   Nothing here or on the Hub ever fetches the tracker.
 
 ## Finder (`app/finder/`, Nov 2026)
-Callum's tips, on `me` (`docs/finder-spec.md`; the register's "Tips on Finder are
+Callum's tips, on `me` (the main domain while `ME_HOST` is blank; `docs/finder-spec.md`; the register's "Tips on Finder are
 Callum's only"). The tips are judged on the Hub by HubAI; Render only keeps,
 serves and expires what HubAI decided. It never
 loads a page, never prices a tip (no OddsPapi request) and never places a bet.

@@ -7,7 +7,8 @@ grant. The three boards each serve a one-way feed (`GET /api/paddy/feed`,
 (`docs/placer-spec.md`). `GET /api/value` is a cross-tool view of the same
 value in one shape. **Nothing in this API places a bet**, and nothing automates
 a bookmaker account: read and report. Every route answers on both hosts, the
-main domain and `me`.
+main domain and `me` (`me` once `ME_HOST` is set; `GET /api/auth/site` says
+which host it is, `""` while there is none).
 
 The live, typed reference is **`/api/docs`** (Swagger UI) and
 **`/api/openapi.json`**, behind auth like everything else. This page is the
@@ -25,7 +26,8 @@ Two ways in, one permission model:
 Grants use one grammar: `*` (everything) or names joined by `+`. Tool grants:
 `coupons`, `accabonus` (365 acca), `cards` (Paddy), `goalscorers` (365
 scorers), `hills`, `pnl`, `kelly`, `boost`, `shop`, `finder` (Finder,
-Callum's tips on `me`: Callum's account and his Bet Placer's key only). `*`
+Callum's tips on `me`, or the main domain while `ME_HOST` is blank: Callum's
+account and his Bet Placer's key only). `*`
 includes `finder`, so a key or account issued to anyone but Callum never
 carries `*`, only named grants. Machine grants: `value` (every source on
 `/api/value`), `state` (`/api/state`), `ingest` (the write paths of the
@@ -158,6 +160,7 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 |---|---|---|
 | any | `GET /auth/me` | who is calling, grants |
 | — | `POST /auth/login`, `POST /auth/logout` | session (browsers) |
+| — | `GET /auth/site` | `{"me_host": …}`: `me`'s host, `""` while `ME_HOST` is blank (public; the shell reads it at boot) |
 | value (`value` or a tool) | `GET /value`, `GET /value/{source}` | `ValueFeedOut` |
 | state (`state`) | `GET /state` | whole-app snapshot |
 | coupons (`coupons`) | `GET /coupons/types`, `/coupons/types/{type}/selections`, `/coupons/types/{type}/bundles`, `/coupons/periods`, `/coupons/upload-options`, `/coupons`, `/coupons/{id}/legs` | tracker reads |

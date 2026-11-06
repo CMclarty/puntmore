@@ -35,7 +35,10 @@ Kelly, the shop). No ledger, no account and no Hub endpoint on Render.
 
 Two hosts from the one deploy: the **main domain** (`puntmore.com`) serves every public tool
 (the coupon tracker, Paddy, Hills, 365 with 2-Up), the login and the API; **`me`**
-(`me.puntmore.com`) serves Callum's personal tools, Finder among them.
+(`me.puntmore.com`) serves Callum's personal tools, Finder among them, with its own login.
+`me` is switched on by `ME_HOST`: blank (the default) there is no `me`, and its tools are served
+on the main domain. To switch it on, add the `me.puntmore.com` DNS record and the Render custom
+domain, check the host resolves to the service, then set `ME_HOST=me.puntmore.com` on Render.
 
 ## The Hub
 

@@ -6,8 +6,10 @@
 ## Two sites, one app
 The main domain shows every public tool, `me` shows Callum's personal tools
 (`src/site.js`, mirroring `render/api/app/site.py`: `ME_TOOLS` is the list).
-Each site shows only its own tools; a link to the other site's tool goes there,
-same path. On the main domain an account without the coupon tracker lands on
+`me` exists only when the API's `ME_HOST` names it: the app reads it at boot
+(`GET /api/auth/site`, `setMeHost`) before it renders; blank, there is one site
+and it shows every tool. Each site shows only its own tools; a link to the
+other site's tool goes there, same path. On the main domain an account without the coupon tracker lands on
 its first granted tool. A tool's home-screen identity (title, icon, manifest)
 is in `src/identity.js`, mirrored by `render/api/app/identity.py`.
 
