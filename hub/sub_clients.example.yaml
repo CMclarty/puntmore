@@ -1,8 +1,9 @@
-# Copy to sub_clients.yaml (git-ignored). One entry per device with one bookmaker account on it.
+# Copy to sub_clients.yaml (git-ignored). One entry per bookmaker account; a phone may hold several.
+# The placement engine's account list until the Bet Placer's phone interface (DeviceFarmer) replaces it.
 sub_clients:
-  - account_id: acc-phone-1        # must match account_id on bet lists from Render
+  - account_id: acc-phone-1        # must match account_id on the bets the engine is given
     bookmaker: bet365
-    device: "ADB-SERIAL-OR-NAME"
+    device: "PHONE-NAME"           # the phone, as DeviceFarmer names it
     enabled: true
     price_tolerance: 0.02          # fraction; beyond this the adapter raises PriceChanged instead of placing
     notes: ""

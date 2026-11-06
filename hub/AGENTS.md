@@ -1,62 +1,57 @@
 # Working in hub/
 
-This is the Hub side of the Puntmore 2-Up Engine. Render (cloud, `render/api/`) prices and serves a one-way value feed, and has no Hub endpoint since 6 Nov 2026; this box places and reports. Every page load on the Hub is the Scraper's (`scraper/`), including Finder's tip sources; `hub/` reads what the Scraper drops and the tipster mailbox, stores each tip once, and hands it to Hermes, who judges it and posts the verdict to Finder on Render (`puntmore_hub/finder.py`, `docs/finder-spec.md`). `docs/decisions.md` is read first and wins; the repo's `CLAUDE.md` applies here too and wins on any other conflict. Read this directory's `README.md` and `PROTOCOL.md` before changing anything.
+`hub/` is the Hub's program apart from the Scraper service (`scraper/`): Scraper control's
+intake (the daemon's inbox of the Scraper's drop files and its tipster-mailbox poll), HubAI's
+side (escalations and the Finder CLI), the placement engine the Bet Placer starts from, and the
+Console. It runs on Callum's box, never on Render, and is not part of the Render deploy
+(`.github/workflows/hub-tests.yml` only tests it). `docs/decisions.md` is read first and wins;
+the repo's `CLAUDE.md` applies here too. Read this directory's `README.md` before changing
+anything, and `PROTOCOL.md` before touching the drop files.
 
 ## Rules
-- Dry-run is on by default (`PUNTMORE_DRY_RUN`). Do not switch it off. Cal does that after two weeks of clean dry-run reports.
-- The kill switch is the file `data/KILL`. `puntmore kill on` stops placements immediately. Anyone may turn it on; only Cal turns it off.
-- No auto-retry and no re-routing of failed bets, anywhere. A failure is reported and escalated, full stop.
-- Every bet is idempotent on `bet_id`; every message on `msg_id`. Never remove those checks.
-- `hub/` never loads a page. Scraping, budgets and parsers are the Scraper's (`scraper/`); its rules are in `scraper/AGENTS.md` and the runbook `deploy/hermes-skills/puntmore-scraper-ops/SKILL.md`.
-- Email tipsters are polled by the Hub's `mail.py` (one IMAP mailbox, `PUNTMORE_IMAP_*`; senders and parsers in `data/tipsters.toml`), never by Render and never by the Scraper. Its parsers (`puntmore_hub/tipsters/`) never guess: one that cannot read an email returns nothing and the tipster is escalated as unhealthy.
+
+- **`hub/` never loads a page.** Every page load is the Scraper service's; Finder's sources are
+  Scraper targets (`site = "generic"`) and reach `hub/` as drop files under `<scraper data>/hub/`.
+  `hub/` has no browser and no budget. Bookie Bashing is not a Finder source; the Scraper's one
+  BB target (`bb-saves`) is an OPEN item for Callum in the register.
+- **Email tipsters are polled here** (`mail.py`: one IMAP mailbox, `PUNTMORE_IMAP_*`; senders and
+  parsers in `data/tipsters.toml`), never by Render and never by the Scraper. A parser never
+  guesses: one that cannot read an email returns nothing and the tipster is escalated.
+- **Finder rows go to Render over HTTP only**: HubAI posts them with `puntmore finder post` on the
+  ingest key; Finder rows are Callum's only, never offered to a third party.
+- **The drop files are `PROTOCOL.md` + `schemas/protocol.schema.json`.** A change touches the
+  Scraper's sink and the Hub's inbox in ONE pull request; `tests/test_protocol.py` and
+  `scraper/tests/test_sinks_schema.py` are the referees.
+- **The placement engine is the Bet Placer's** (`docs/placer-spec.md`). Its rules stand while it
+  lives here: dry-run is on by default (`PUNTMORE_DRY_RUN`) and only Callum switches it off,
+  after two weeks of clean dry-run; the kill switch is the file `data/KILL` (`puntmore kill on`;
+  anyone may turn it on, only Callum turns it off); no auto-retry and no re-routing of a failed
+  bet, which is recorded and escalated to HubAI; every bet is idempotent on `bet_id`.
 - Secrets go in `.env` (git-ignored). Never commit tokens, account details or `sub_clients.yaml`.
 
 ## Where to change what
+
 | Want to... | Change |
 |---|---|
-| Add or pause a Scraper target (a Finder source is `site = "generic"`) | the console's Scraper tab, or `python -m scraper targets …` (`scraper/README.md`, "Changing targets"); never `targets.toml` by hand |
+| Add or pause a Scraper target (a Finder source is `site = "generic"`) | the Console's Scraper tab, or `python -m scraper targets …` (`scraper/README.md`, "Changing targets"); never `targets.toml` by hand |
 | Fix a broken parser | `scraper/parsers/<name>.py` + a fixture under `scraper/tests/fixtures/` |
 | Add an email tipster | an entry in `data/tipsters.toml` (see `tipsters.example.toml`) + a parser in `puntmore_hub/tipsters/<name>.py` registered in `PARSERS`, written from a real email; `puntmore mail --dry-run` shows what it reads |
-| Change where the Scraper's drops are read from | `.env` (`PUNTMORE_SCRAPER_DATA`; the old `PUNTMORE_WORKER_DATA` is still read for one release) |
-| Add a bookmaker account (sub-client) | `sub_clients.yaml` (see `sub_clients.example.yaml`) |
-| Implement real placement | `puntmore_hub/placement/adapters/phone.py` |
-| See what the Hub is doing | open the console at http://127.0.0.1:8090 (`puntmore web`, unit `puntmore-web`; code in `puntmore_hub/web/`) |
-| Get a merged change onto the box | Nothing: it arrives within 10 minutes via `puntmore-update.timer`; `hub/deploy/update.sh` by hand (README, "Updating the Hub") |
-| Change what Render and the Hub say to each other | `PROTOCOL.md`, `schemas/protocol.schema.json`, an example in `schemas/examples/`, `puntmore_hub/schemas.py`, and the Render side in `render/api/`, all in ONE pull request |
+| Change where the drop files are read from | `.env` (`PUNTMORE_SCRAPER_DATA`; the old `PUNTMORE_WORKER_DATA` is still read) |
+| Change the drop files | `PROTOCOL.md`, the schema, an example, `scraper/sinks.py`, `puntmore_hub/inbox.py`, in one pull request |
+| Add a bookmaker account | `sub_clients.yaml` (see `sub_clients.example.yaml`); the Bet Placer's phone interface will replace it |
+| Implement real placement | the Bet Placer's phone interface through DeviceFarmer (`docs/placer-spec.md`); today's stub is `puntmore_hub/placement/adapters/phone.py` |
+| See what the Hub is doing | the Console at http://127.0.0.1:8090 (`puntmore web`, unit `puntmore-web`; code in `puntmore_hub/web/`) |
+| Get a merged change onto the box | nothing: it arrives within 10 minutes via `puntmore-update.timer`; `hub/deploy/update.sh` by hand (README, "Updating the Hub") |
 
 ## Checks
+
 ```
 cd hub && ~/.venvs/puntmore/bin/pytest -q   # must pass before any commit
 puntmore health                             # exit 1 = Scraper down, a source blocked/unhealthy, or an open escalation
-puntmore inbox                              # one pass over the Scraper's drops (the link daemon does this every 30 s)
-puntmore mail --dry-run                     # what the tipster parsers would read from the mailbox; stores nothing
+puntmore inbox                              # one pass over the drop files (the daemon does this every 30 s)
+puntmore mail --dry-run                     # what the tipster parsers would read; stores nothing
 ```
 
-## From the repo's CLAUDE.md (moved here 5 Nov 2026)
-`hub/` is the Hub side of the 2-Up Engine (spec:
-`docs/2up-engine-spec.md`): the persistent outbound link to Render, the client engine
-that places bets on sub-client phones, escalation to the local AI, and the inbox
-that turns the Scraper's drops into tips for Render and escalations. It runs on Callum's box, never on Render, and is NOT
-part of the Render deploy (`.github/workflows/hub-tests.yml` only tests it).
-Rules, all from the spec — do not relax any of them:
-- **Dry-run is the default** (`PUNTMORE_DRY_RUN`); Callum switches it off, nobody
-  else. **The kill switch is a file** (`hub/data/KILL`), honoured by
-  placements, no code change to flip.
-- **No auto-retry, no re-routing of a failed bet.** `failed` is reported and
-  escalated. A bet is idempotent on `bet_id`, a message on `msg_id`.
-- **The wire contract is `hub/PROTOCOL.md` + `hub/schemas/`.** A change to
-  it touches the schema, an example, `hub/puntmore_hub/schemas.py` and the
-  Render side in `render/api/` in ONE pull request; `hub/tests/test_protocol.py` is
-  the referee. Tips no longer travel on the wire (the `tip` message was
-  retired with the socket, 6 Nov 2026): Hermes posts its verdicts to Finder
-  over HTTP (`puntmore finder post`, the ingest key), and Finder rows are
-  Callum's only — never offered to another client.
-- **One Chrome on the Hub, the Scraper's.** `hub/` has no browser and no
-  budget; Finder's sources are Scraper targets (`site = "generic"`)
-  and reach `hub/` as files under `<scraper data>/hub/`. Bookie Bashing is not
-  a Finder source; the Scraper's one BB target (`bb-saves`) is an OPEN
-  item for Callum in `docs/decisions.md`.
-- Directory ownership when several agents work at once: `render/api/` + `render/frontend/`
-  (Render side) and `hub/` + `scraper/` (Hub side) are edited by different
-  branches; only the protocol files are shared.
-
+Directory ownership when several agents work at once: `render/` (Render) and `hub/` + `scraper/`
+(the Hub) are edited by different branches; the Hub shares nothing with Render but the HTTP
+routes in `docs/api.md`.

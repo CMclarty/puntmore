@@ -2,9 +2,9 @@
 
 `docs/decisions.md` is read first and wins over this file; the repo's
 `CLAUDE.md` applies everywhere and wins over this file on any other conflict. This file is
-what is specific to the FastAPI backend: moved verbatim from `CLAUDE.md` on
-5 Nov 2026, reasons and incident history included, because the rules are
-scars and the next agent "fixes" a rule it does not understand.
+what is specific to the FastAPI backend, with the reasons and incidents behind
+each rule, because the rules are scars and the next agent "fixes" a rule it
+does not understand.
 
 ## Odds sources
 **OddsPapi is the only odds source** (Callum, 5 Nov 2026). The coupon tracker
@@ -103,7 +103,7 @@ because that rules out the key and the network in one line.
 
 Both live behind their seams. Core logic never calls a vendor API directly.
 
-## 365 tool (the 2-Up engine; acca boost returns on OddsPapi, goalscorers parked — one tool, PLAN item 11)
+## 365 tool (2-Up; the acca boost returns on OddsPapi; goalscorers parked)
 - **The 2-up edge is proven** (Callum, 5 Nov 2026). Do not re-litigate it,
   model it from scratch, or gate the build on a literature review.
 - **The rescue model is fine-tuned during testing against Bookie Bashing's
@@ -111,12 +111,12 @@ Both live behind their seams. Core logic never calls a vendor API directly.
   (`docs/decisions.md`, "Scraping conduct"), so neither the engine nor
   the Hub's Scraper ever fetches the tracker. The comparison is a
   user-triggered step and its results are recorded in the tool's notes.
-- The module is a one-way HTTP feed of current value bets (6 Nov 2026,
-  `docs/2up-engine-spec.md`, "Decisions, 6 Nov 2026"). Staking, placement, the
-  books and the tips a client finds are the client's: nothing in `api/` places
-  a bet, keeps an account or connects to a Hub.
+- 2-Up is a board: a one-way HTTP feed of current value bets
+  (`docs/2up-engine-spec.md`). Sizing, placing and the books are the Bet
+  Placer's (`docs/placer-spec.md`): nothing in `api/` places a bet or keeps an
+  account.
 
-### The 2-Up engine (`app/twoup/`, Nov 2026)
+### 2-Up (`app/twoup/`, Nov 2026)
 Router `routers/twoup.py` at `/api/2up/*` (`feed`, `diagnostics`; both
 read-only), behind the `accabonus` grant and its own flag `ENABLE_TWOUP`.
 Settings are `twoup_*` in `config.py`, each with a default and a reason.
@@ -166,21 +166,19 @@ Invariants — do not relax:
 - **Kill switch** (global `TWOUP_KILL_SWITCH`, read per request): the feed
   returns no rows with `status.killed: true`, and the `2up` source of
   `/api/value` returns none either (and names `killed` in its `errors`), so
-  the two never disagree. There is no per-client switch; there are no
-  clients.
+  the two never disagree. It is the only kill switch on Render.
 - **One feed, no per-reader view.** Every reader gets the same rows; a row's
   identity is `event_id` + `side`. Nothing comes back from a reader.
-- **No ledger and no Hub endpoint.** The `twoup_*`, `tips`,
-  `betfinder_sources` and `hub_*` tables are dead and left on the disk, not
-  dropped; the ORM classes are gone.
+- **No ledger.** The `twoup_*`, `tips`, `betfinder_sources` and `hub_*`
+  tables are dead and left on the disk, not dropped; the ORM classes are gone.
 - The rescue table is tuned BY HAND (`tools/twoup_backtest.py` over a CSV
   you exported from Bookie Bashing's tracker; `--merge` writes a new table).
   Nothing here or on the Hub ever fetches the tracker.
 
 ## Finder (`app/finder/`, Nov 2026)
-Callum's private Bet Finder, on the me site (`docs/finder-spec.md`; the
-register's "Finder rows are Callum's only"). The tips are judged on the Hub by
-Hermes; Render only keeps, serves and expires what Hermes decided. It never
+Callum's tips, on `me` (`docs/finder-spec.md`; the register's "Finder rows are
+Callum's only"). The tips are judged on the Hub by HubAI; Render only keeps,
+serves and expires what HubAI decided. It never
 loads a page, never prices a tip (no OddsPapi request) and never places a bet.
 - **One table, `finder_rows`** (`models.FinderRow`, `app/finder/rows.py`),
   keyed on the Hub's `tip_id`; `odds` and `fair` are the prices the TIP
@@ -189,27 +187,27 @@ loads a page, never prices a tip (no OddsPapi request) and never places a bet.
 - **The status machine is the spec's, and nothing else**: `asked → offered |
   rejected | expired`, `offered → placed | gone | rejected | expired`;
   `placed`, `gone`, `rejected`, `expired` are final. `offered → rejected` is
-  Hermes withdrawing a row; a `placed` row cannot be withdrawn. A re-post
+  HubAI withdrawing a row; a `placed` row cannot be withdrawn. A re-post
   against a final row is refused (409 at the status route, `refused` in the
   rows answer), and so is a move the machine lacks (`offered → asked`). An
   `offered` row has `kickoff`, `odds` and `fair` (the schema 422s one
-  without); an `asked` or `rejected` row may lack all three (Hermes asks when
+  without); an `asked` or `rejected` row may lack all three (HubAI asks when
   it cannot place a tip on a day and time). `expires_at` is the earlier of
   kick-off and the tip's own `expiry`, with neither `seen_at` + 48 h;
   `finder_expire` sets `expired` every minute, on `asked` rows too, and the
   rows route runs it first, so an answer after kick-off changes nothing. The
   rows answer carries each posted row's STORED status (`rows`), and the Hub
-  records that, never what Hermes sent.
+  records that, never what HubAI sent.
 - **One bet per (event_id or event, market, line, selection)**, compared
   case- and space-folded: a second row while one is `asked`, `offered` or
   `placed` is stored `rejected`, reason `duplicate of <tip_id>` (a placed bet
   is the one most worth not repeating). `event_id` is the canonical key
-  Hermes fills (`football:<YYYY-MM-DD>:<home>-v-<away>`,
+  HubAI fills (`football:<YYYY-MM-DD>:<home>-v-<away>`,
   `horse:<YYYY-MM-DD>:<course>:<HH:MM>`; `hub/README.md`, "Finder"), the event's words the
   fallback. `tip_id` alone (a hash of the tip's words and day) cannot stop a
   reworded tip being placed twice.
-- **Two keys, never a session for writes.** `POST /finder/rows` (Hermes) and
-  `POST /finder/rows/{tip_id}/status` (the placer: `placed | gone`) take the
+- **Two keys, never a session for writes.** `POST /finder/rows` (HubAI) and
+  `POST /finder/rows/{tip_id}/status` (the Bet Placer: `placed | gone`) take the
   `ingest` grant (`require_ingest_key`). `GET /finder/feed` (offered, soonest
   first) and `GET /finder/board` (every status, `?days=3`) take the `finder`
   grant on the route itself; the router has no router-level grant.
@@ -360,9 +358,7 @@ loads a page, never prices a tip (no OddsPapi request) and never places a bet.
     title, the period and the ladder. Strips are told the headings in print
     order (`OcrHint.headings`) because the header is usually above the cut,
     and are told to leave out any row the cut slices through.
-- (History: the old vendor's free tier was 500 credits/month and a 24-hour
-  cache in `app/odds/client.py` kept it safe; both are gone, 5 Nov 2026.) Now:
-  the coupon board reads through `Settings.coupon_odds_cache_ttl` (600 s, the
+- The coupon board reads through `Settings.coupon_odds_cache_ttl` (600 s, the
   refresh cadence) on the shared OddsPapi client's budget.
 - The refresh loop runs every 10 minutes; it recomputes value locally and reads
   through the odds cache, so it never increases API call frequency. Never make
@@ -491,9 +487,7 @@ calls. To add a provider, implement `OddsProvider` and add an `elif` on
 
 ### Paddy (`app/cards/`) — OddsPapi
 Both sides come from **OddsPapi** (Oct 2026, below): Paddy Power's prices and
-Pinnacle's fair reference, joined on the same fixture id. (History: it was two
-vendors, TheOddsApi for Paddy and bettingiscool for Pinnacle; the regions
-lesson from that still holds.)
+Pinnacle's fair reference, joined on the same fixture id.
 - **Regions describe the BOOKMAKER, not the league.** Paddy Power prices La Liga
   from `uk` perfectly well; the competition is chosen by sport key and the
   fixture list is free. Getting this backwards is what produced the original
@@ -626,9 +620,9 @@ lesson from that still holds.)
 - **Goalkeeper SAVES are priced off Bookie Bashing, not Pinnacle**
   (`cards/saves.py`, Oct 2026). Pinnacle posts no saves ladder; Bookie Bashing
   publishes fair saves prices behind Callum's login, so they are read by
-  the scraper (`scraper/`, below) and POSTed to
+  the Scraper service (`scraper/`, below) and POSTed to
   `/api/paddy/saves-fair` (`SAVES_INGEST_KEY`, key-guarded like `/state`).
-  The login stays in the scraper's browser profile, never on Render. Fair
+  The login stays in the Scraper's browser profile, never on Render. Fair
   prices sit in a bounded TTLCache and are joined to Paddy's saves line by
   team similarity and day. MATCH totals only. The reader
   (`scraper/parsers/bb_saves.py`, 26 Oct 2026) DRIVES Bookie Bashing's Bet
@@ -687,21 +681,20 @@ python -m app.apikeys list                              # never shows keys
 python -m app.apikeys revoke <name>                     # disables at once
 ```
 Grants are the tool names plus `value`, `state`, `ingest` (or `*`); `paddy` =
-`cards`, `365` = `accabonus+goalscorers`. `finder` (Nov 2026) is Callum's
-private Bet Finder: the placer's key carries `finder+ingest`, Hermes's on the
-Hub `ingest`. `*` includes `finder` as it includes every tool, so **a key or
-account issued to anyone but Callum never carries `*`**, only named grants. (`hub` was a fourth machine grant, for
-the 2-Up link socket, until 6 Nov 2026; a key still holding it is granted
-nothing.) In production run it in Render's
+`cards`, `365` = `accabonus+goalscorers`. **The Bet Placer's key** (register,
+6 Nov 2026) carries `accabonus` (the 2-Up feed), `cards` (the Paddy feed),
+`finder` (the Finder feed) and `ingest` (Finder's `placed | gone`); **a third
+party's** carries `accabonus` only; HubAI's on the Hub carries `ingest`. `*`
+includes `finder` as it includes every tool, so **a key or account issued to
+anyone but Callum never carries `*`**, only named grants. A key still holding
+a grant that no longer exists is granted nothing for it. In production run it in Render's
 shell (`cd /app`), which has `DATABASE_URL`. Full API docs: `docs/api.md`.
 
 **The API is a contract** (`docs/api.md`, Oct 2026): every route under `/api`
 has a `response_model` and a per-tool tag (`tests/test_openapi.py` fails
 otherwise); `/api/docs` and `/api/openapi.json` are served behind a session or
 any key, never public. Changes are ADDITIVE ONLY — a breaking change goes to
-`/api/v2/...`. (6 Nov 2026 exception, by decision (`docs/decisions.md`): the
-2-Up ledger, clients, hub and betfinder routes and `source_scope` were removed
-without a /v2.) `GET /api/value` is the cross-tool value feed in one
+`/api/v2/...`, unless the register decides otherwise. `GET /api/value` is a cross-tool view in one
 `ValueSelection` shape, built from each tool's own feed builder (never a
 second pricing path). Tool logic lives in services (`cards/feed.py`,
 `coupons/service.py`, `pnl/service.py`,

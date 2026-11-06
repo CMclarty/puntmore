@@ -1,16 +1,20 @@
-# puntmore scraper
+# scraper/ — the Scraper service
 
-The Scraper: one real Chrome on the Hub's desktop, keeping a few Paddy Power
-and Bookie Bashing pages **open** and listening to what they receive. After
+The Scraper service: the one real Chrome on the Hub's desktop. It reads every
+page any tool needs and fills what OddsPapi lacks: Paddy Power pages kept
+**open** (it listens to what they receive), Finder's sources loaded and
+closed, and one Bookie Bashing page (an open item in the register). After
 the first load the site's own scripts keep each page fresh, so most targets
 cost no further requests. Runs as the user service `puntmore-scraper` on the
 logged-in desktop session, updated by `puntmore-update.timer` with the rest of
 the Hub. Docker is the fallback for a box with no screen.
 
-**What it reads is `data/targets.toml` on the Hub**, edited by Hermes; an
-edit applies without a restart. Its state goes to `data/status.json`, which
-the Hub reads. Nothing on Puntmore configures it: Puntmore only receives the
-prices it posts.
+**What it reads is `data/targets.toml` on the Hub**, changed only through
+`scraper/targets.py` (the Console, the CLI, HubAI); an edit applies without a
+restart. Its state goes to `data/status.json`, which the Hub reads. Its rows go
+to Scraper control as drop files (`hub/PROTOCOL.md`); Paddy's prices are, for
+now, POSTed straight to Render, and move behind Scraper control next. Nothing
+on Render configures it.
 
 The parsers (`parsers/`, one module each) are written only from what the real
 pages were seen to do. `bb_saves` DRIVES Bookie Bashing's Bet Builder (select
@@ -21,7 +25,7 @@ the 29 Oct 2026 capture; see its docstring).
 
 ## What it will and won't do
 - Opens pages on `paddypower.com`, `bookiebashing.net` (one target, an open
-  item in `docs/decisions.md`) and the Bet Finder's `generic` sources, within
+  item in `docs/decisions.md`) and Finder's `generic` sources, within
   fixed budgets (`sites.py`): Paddy 15 loads/h and 120/day, Bookie Bashing 8/h
   and 120/day, generic 60/h and 400/day. Nothing in config can raise them.
 - No Paddy traffic between 01:00 and 07:00 (Europe/London). Its pages are
@@ -52,18 +56,18 @@ the 29 Oct 2026 capture; see its docstring).
   scraper stops and tells you. It does not work
   around the challenge.
 
-## Bet Finder sources
+## Finder's sources
 Any other site, as a `generic` target (see `targets.example.toml`): loaded,
 parsed once and closed, under its own budget in `sites.py` (60 loads/h,
 400/day across all generic targets, 20 s+ apart, never Paddy or Bookie
 Bashing). The parser returns tips; `post = "hub:tips"` writes them to
-`data/hub/tips/` for the Hub's `puntmore inbox`, which queues them for Render.
-Too few rows (`min_rows`) or a block raises an alert here and an event in
-`data/hub/events/` that the Hub turns into an escalation for the local AI.
+`data/hub/tips/` for the Hub's inbox, which stores them for HubAI to judge for
+Finder. Too few rows (`min_rows`) or a block raises an alert here and an event
+in `data/hub/events/` that the Hub turns into an escalation for HubAI.
 
 ## Changing targets
 `targets.toml` is changed only through `scraper/targets.py`: this CLI, the
-Hub Console and Hermes's scraper-manager all call it, so there is one config
+Console and HubAI's scraper-manager all call it, so there is one config
 store. It works on `SCRAPER_TARGETS`, else `SCRAPER_DATA_DIR/targets.toml`
 (`--file` for another), and needs no browser.
 
@@ -93,7 +97,7 @@ python -m scraper targets remove racing-tips
   `rows_posted`, `reported_at`), or `null` when it has none (disabled, or
   not reported yet).
 - Saves are atomic (temp file + rename in the same directory) under an
-  `flock` on `targets.toml.lock`, so the console, the CLI and Hermes cannot
+  `flock` on `targets.toml.lock`, so the Console, the CLI and HubAI cannot
   interleave and the running Scraper never reads half a file. The file is
   rewritten whole, so comments are lost: the first save keeps the
   hand-written file as `targets.toml.bak`.
@@ -172,8 +176,9 @@ The container will not start while `data/heartbeat` is under 90 s old
 dir. So a cron `update.sh` left behind on the Hub cannot put a second Chrome
 on the profile.
 
-## Server setup (once)
-Any Linux host with Docker, amd64, about 3 GB RAM free.
+## Setting up a box with no screen (once)
+Any Linux host with Docker, amd64, about 3 GB RAM free. (On the Hub itself the
+Scraper service runs on the desktop, above; this is the fallback only.)
 
 ```sh
 sudo mkdir -p /opt/puntmore-scraper/data && cd /opt/puntmore-scraper
@@ -191,14 +196,14 @@ echo "$GHCR_PAT" | docker login ghcr.io -u cmclarty --password-stdin
 **Updates:** push to `main` with changes under `scraper/`. CI runs the
 tests; `puntmore-update.timer` fast-forwards the Hub and restarts the service
 within 10 minutes (in the Docker fallback, CI publishes the image and the
-server's 15-minute cron restarts onto it). Profile, budget and cool-off state live in `data/`, so they survive
+box's 15-minute cron restarts onto it). Profile, budget and cool-off state live in `data/`, so they survive
 the restart.
 
 ### Logging in to Bookie Bashing, or clearing a check (VNC, Docker only)
-VNC listens on the server's `127.0.0.1:5900` only. From your machine:
+VNC listens on the box's `127.0.0.1:5900` only. From your machine:
 
 ```sh
-ssh -L 5900:localhost:5900 you@server     # then open a VNC viewer on localhost:5900
+ssh -L 5900:localhost:5900 you@box        # then open a VNC viewer on localhost:5900
 ```
 
 You'll see the live Chrome window. Log in on the Bookie Bashing tab. The
@@ -231,11 +236,11 @@ Samples: each tab keeps its first distinct payloads on disk
 first-party hosts only, repeats of the same URL+size skipped, plus the page's
 HTML once. `index.jsonl` marks each market-tab click and labels what followed it.
 
-Health: on the desktop the Hub Console's Worker card goes down when the
-heartbeat is 10 minutes stale (`PUNTMORE_WORKER_STALE_MINUTES`); in Docker the
+Health: on the desktop the Console's Scraper card goes down when the
+heartbeat is 10 minutes stale (`PUNTMORE_SCRAPER_STALE_MINUTES`); in Docker the
 healthcheck fails at 5.
 Set `SCRAPER_HEALTHCHECK_URL` (e.g. healthchecks.io) for an alert when the
-whole server goes quiet.
+whole box goes quiet.
 
 ## Targets
 One file: `data/targets.toml` (see `targets.example.toml`), or the file
@@ -255,7 +260,7 @@ Targets are of these kinds:
   then retired.
 - **page**: one URL kept open, e.g. the Bookie Bashing bet builder. It is
   reloaded every `every_min`, or only when it goes quiet for `stale_min`.
-- **fetch**: a `generic` Bet Finder source, loaded, parsed once and closed
+- **fetch**: a `generic` Finder source, loaded, parsed once and closed
   (above).
 
 Timings are clamped to the floors in `config._target`, and `sites.py`

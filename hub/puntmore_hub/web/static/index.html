@@ -66,7 +66,7 @@
 
     <form id="target-add-form" class="card form" autocomplete="off">
       <h3>Add target</h3>
-      <p class="hint">The fields of <code>targets add</code>. A Bet Finder source is <code>site = generic</code>, <code>post = hub:tips</code>. Add it disabled, check its first parse, then enable it. <code>[target.matches]</code> is set with <code>python -m scraper targets set … --matches</code>.</p>
+      <p class="hint">The fields of <code>targets add</code>. A Finder source is <code>site = generic</code>, <code>post = hub:tips</code>. Add it disabled, check its first parse, then enable it. <code>[target.matches]</code> is set with <code>python -m scraper targets set … --matches</code>.</p>
       <label>name <input name="name" type="text" required autocapitalize="off" spellcheck="false"><span class="field-error" data-err="name"></span></label>
       <label>site <select name="site"><option>paddypower</option><option>bookiebashing</option><option selected>generic</option></select><span class="field-error" data-err="site"></span></label>
       <label class="wide">url <input name="url" type="url" required><span class="field-error" data-err="url"></span></label>
@@ -108,7 +108,7 @@
     <div class="summary" data-slot="summary"></div>
     <form id="kill-off-form" class="card form" autocomplete="off">
       <h3>Turn the kill switch off</h3>
-      <p class="rule"><strong>Only Cal turns it off.</strong> Anyone may turn it on. Type <code>OFF</code> to confirm.</p>
+      <p class="rule"><strong>Only Callum turns it off.</strong> Anyone may turn it on. Type <code>OFF</code> to confirm.</p>
       <input id="kill-off-confirm" type="text" inputmode="text" autocapitalize="characters" placeholder="type OFF" maxlength="3">
       <button type="submit">Kill switch off</button>
     </form>
@@ -150,7 +150,7 @@
   </section>
 
   <section id="tab-hermes" class="tab" hidden>
-    <div class="feedhead"><h2>Hermes</h2><span class="feedstate"></span></div>
+    <div class="feedhead"><h2>HubAI</h2><span class="feedstate"></span></div>
     <div class="summary" data-slot="summary"></div>
     <h3>hermes-gateway journal (last 50 lines)</h3>
     <pre class="log" data-slot="journal"></pre>

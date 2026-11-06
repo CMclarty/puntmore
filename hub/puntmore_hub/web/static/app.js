@@ -5,7 +5,7 @@
 
 const COMPONENTS = [
   ["scraper", "Scraper"], ["daemon", "Daemon"], ["placement", "Placement"], ["escalations", "Escalations"],
-  ["tips", "Tips"], ["model", "Model"], ["hermes", "Hermes"], ["render", "Render"],
+  ["tips", "Tips"], ["model", "Model"], ["hermes", "HubAI"], ["render", "Render"],
 ];
 const POLL_MS = 5000;
 const STALE_MS = 20000;
