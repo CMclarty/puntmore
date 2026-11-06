@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { edgePct, kickoffLabel, timeLabel } from './twoup'
+import { edgePct, emptyMeansNothingOnOffer, kickoffLabel, timeLabel } from './twoup'
 import { tabsFor } from './pages/Three65Page'
 
 describe('the 2-Up tab', () => {
@@ -27,6 +27,15 @@ describe('the 2-Up tab', () => {
     expect(timeLabel('')).toBe('—')
     expect(timeLabel(0)).toBe('—')
     expect(timeLabel({})).toBe('—')
+  })
+
+  it('says "nothing qualifies" only for a healthy, refreshed, unkilled board', () => {
+    expect(emptyMeansNothingOnOffer({ degraded: false })).toBe(true)
+    expect(emptyMeansNothingOnOffer(undefined)).toBe(true)          // an older API sends no status
+    expect(emptyMeansNothingOnOffer({ killed: true })).toBe(false)
+    expect(emptyMeansNothingOnOffer({ not_yet_refreshed: true })).toBe(false)
+    // passes failing before any board exists: "Cannot price: ALL — …" says why
+    expect(emptyMeansNothingOnOffer({ degraded: true, served_at: null })).toBe(false)
   })
 
   it('puts 2-Up first on the 365 page and shows only granted tabs', () => {

@@ -20,3 +20,10 @@ export function timeLabel(iso) {
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
 }
+
+// Does an empty list mean "nothing qualifies right now"? Not while the feed is
+// killed, waiting on its first pass, or degraded (passes failing before any
+// board exists): the status lines above the list say why it is empty.
+export function emptyMeansNothingOnOffer(status) {
+  return !(status?.killed || status?.not_yet_refreshed || status?.degraded)
+}

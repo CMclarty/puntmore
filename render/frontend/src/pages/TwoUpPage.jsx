@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getTwoUpFeed } from '../api'
 import useAutoRefresh from '../hooks/useAutoRefresh'
-import { edgePct, kickoffLabel, timeLabel } from '../twoup'
+import { edgePct, emptyMeansNothingOnOffer, kickoffLabel, timeLabel } from '../twoup'
 import styles from './FeedPage.module.css'
 import t from './TwoUpPage.module.css'
 
@@ -41,7 +41,6 @@ export default function TwoUpPage() {
   const rows = feed?.candidates || []
   const status = feed?.status
   const cannot = status?.cannot_price || []
-  const waiting = status?.killed || status?.not_yet_refreshed
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -79,7 +78,7 @@ export default function TwoUpPage() {
             </div>
           </div>
         ))}
-        {!loading && feed?.available && !waiting && rows.length === 0 && !error && (
+        {!loading && feed?.available && emptyMeansNothingOnOffer(status) && rows.length === 0 && !error && (
           <p className={styles.empty}>Nothing qualifies right now.</p>
         )}
       </div>
