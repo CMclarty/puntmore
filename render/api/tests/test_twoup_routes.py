@@ -362,6 +362,18 @@ def test_value_feed_a_stale_board_keeps_its_rows_with_their_own_seen_at_and_says
     assert NOW.strftime("%H:%M UTC") in body["errors"]["2up"]
 
 
+def test_value_feed_stale_note_gives_the_oldest_price_behind_the_board():
+    feed, client = _feed()
+    older = NOW - timedelta(minutes=47)              # a cached chunk, older than the pass
+    client.fetched_at = lambda ids, book: older
+    feed.refresh(NOW)
+    _fail_every_request(client)
+    feed.refresh(NOW + timedelta(minutes=5))
+    app.state.twoup_feed = feed
+    assert _value_2up()["errors"]["2up"] == \
+        f"stale: prices from {older:%H:%M} UTC — OddsPapi not answering"
+
+
 def test_value_feed_killed_2up_has_no_rows_and_says_so(monkeypatch):
     feed, _ = _feed()
     feed.refresh(NOW)

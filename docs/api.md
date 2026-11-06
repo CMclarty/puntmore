@@ -98,8 +98,8 @@ Response (`ValueFeedOut`):
 empty list is never ambiguous. It also names a source answering but not
 fresh: `2up` is `"killed: TWOUP_KILL_SWITCH is on"` (no rows), `"not yet
 refreshed"` (no rows) or `"stale: prices from HH:MM UTC — OddsPapi not
-answering"` beside the last good board's rows, each with `seen_at` = when its
-prices were fetched. Selections are sorted by edge, best first.
+answering"` (HH:MM the oldest price behind the board) beside the last good
+board's rows, each with `seen_at` = when its prices were fetched. Selections are sorted by edge, best first.
 
 `ValueSelection` — one shape for every tool:
 

@@ -343,12 +343,14 @@ def value_rows(feed: TwoUpFeed | None, floor: float,
     status = feed.status()
     if status["not_yet_refreshed"]:
         return [], "not yet refreshed"
+    out = []
+    at, served = feed.served(now)           # the scheduled board; never a fetch
     note = None
     if status["stale"]:
-        at = datetime.fromisoformat(status["served_at"]).astimezone(timezone.utc)
-        note = f"stale: prices from {at:%H:%M} UTC — OddsPapi not answering"
-    out = []
-    _, served = feed.served(now)            # the scheduled board; never a fetch
+        # The oldest price behind the board, not just when it was built.
+        oldest = min((c.priced_at for c in served if c.priced_at), default=at)
+        when = f"{oldest.astimezone(timezone.utc):%H:%M} UTC" if oldest else "an earlier pass"
+        note = f"stale: prices from {when} — OddsPapi not answering"
     for c in served:
         if model.passes_filters(c, feed.params.but(min_edge=-1.0)) is not None:
             continue
