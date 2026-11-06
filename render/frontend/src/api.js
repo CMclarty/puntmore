@@ -259,6 +259,14 @@ export const removeHillsBet = (id) => del(`/hills/bets/${id}`)
 // the scheduler near kickoff and stored, so this just reads the current set.
 export const getGoalscorerFeed = () => get('/goalscorers/feed')
 
+// 2-Up (the 365 tool's live tab): the engine's feed and ledger, read-only but
+// for the per-client kill switch. Nothing here places a bet.
+export const getTwoUpFeed = () => get('/2up/feed?value_only=true')
+export const getTwoUpDiagnostics = () => get('/2up/diagnostics')
+export const getTwoUpLedger = (clientId) => get(`/2up/ledger/${encodeURIComponent(clientId)}`)
+export const killTwoUpClient = (clientId) => post(`/2up/clients/${encodeURIComponent(clientId)}/kill`, {})
+export const resumeTwoUpClient = (clientId) => post(`/2up/clients/${encodeURIComponent(clientId)}/resume`, {})
+
 // Private P&L bet tracker (per-user ledger). Each user has two independent
 // ledgers, `category` = "dogs" | "virtuals", carried as a path segment.
 export const getBets = (category) => get(`/pnl/${category}/bets`)

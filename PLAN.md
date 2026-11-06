@@ -489,9 +489,15 @@ and `/state`. AccaBonus is not live (`enable_accabonus` False).
 - [x] **Goalscorers PARKED, the old odds vendor deleted entirely** (5 Nov,
       Callum's call). `odds/client.py` and its key are gone; `goalscorers/`
       stays in the tree behind `ENABLE_GOALSCORERS=false` with no client.
-- [ ] **Merge 365 and 2-Up into one tool**: one router, one page with tabs,
-      one grant; the 2-Up engine (landed, below) arrives as a tab.
-      Goalscorers is parked and returns on OddsPapi only after the open work
+- [x] **Merge 365 and 2-Up into one tool** (6 Nov 2026): `/365/2up` is the
+      first tab of the 365 page (`TwoUpPage.jsx`, `accabonus` grant): Feed
+      (every side passing the band and the floor, best edge first) and
+      Ledger (one client's bets newest first, exposure and P&L, the
+      per-client kill switch; resuming asks), behind one switch, auto-
+      refreshed. Read-only but for the switch: it calls `/api/2up/feed`,
+      `/ledger/{client}`, `/diagnostics`, `/clients/{id}/kill|resume`. The
+      routers (`twoup`, `betfinder`, `hub_ws`) stay three files under the
+      one `/2up` prefix and the one grant. Goalscorers is parked and returns on OddsPapi only after the open work
       (Parked, below).
       **The 2-up edge is proven** (Callum, 5 Nov 2026) — do not re-litigate
       it or gate the build on a literature review. The rescue model is

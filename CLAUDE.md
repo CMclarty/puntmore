@@ -36,8 +36,9 @@ prefix, kept as redirect aliases for stale PWA clients; don't add new code
 under it.)
 **365** (Oct 2026) is the bet365 offers, one tool with a tab each at
 `/365/<tab>`: `acca` (the acca boost, removed 5 Nov 2026 and returning on OddsPapi, `accabonus` grant) and `scorers`
-(the goalscorer finder, `goalscorers` grant, PARKED 5 Nov 2026 behind `ENABLE_GOALSCORERS=false`); the 2-Up engine
-(`app/twoup/`, Nov 2026, `ENABLE_TWOUP`) is the live part of it. `/accabonus`, `/tennis` and `/goalscorers` redirect into it; the
+(the goalscorer finder, `goalscorers` grant, PARKED 5 Nov 2026 behind `ENABLE_GOALSCORERS=false`) and `2up`
+(the 2-Up engine, `app/twoup/`, Nov 2026, `ENABLE_TWOUP`, the `accabonus` grant: the live part of it, its
+Feed and Ledger on `TwoUpPage.jsx` since 6 Nov 2026). `/accabonus`, `/tennis` and `/goalscorers` redirect into it; the
 grants, flags and API paths keep their old names.
 The cards & corners tool is now **Paddy** (Oct 2026: corners, cards, goals and
 saves, all against Paddy Power): page `/paddy`, API `/api/paddy/*`. `/cards`

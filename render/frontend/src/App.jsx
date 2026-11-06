@@ -20,6 +20,7 @@ const KellyPage = lazy(() => import('./pages/KellyPage'))
 const BoostPage = lazy(() => import('./pages/BoostPage'))
 const ShopPage = lazy(() => import('./pages/ShopPage'))
 const Three65Page = lazy(() => import('./pages/Three65Page'))
+const TwoUpPage = lazy(() => import('./pages/TwoUpPage'))
 const CardsPage = lazy(() => import('./pages/CardsPage'))
 
 // The path the app was FIRST loaded at, captured once before the router starts
@@ -121,6 +122,7 @@ export default function App() {
           {/* 365: the bet365 offers, a tab each. The acca boost tab returns on
               OddsPapi (PLAN.md item 11); its old addresses land on the tool. */}
           <Route path="/365" element={<Three65Page tools={user?.tools} />}>
+            <Route path="2up" element={protectTool(<TwoUpPage />, 'accabonus')} />
             <Route path="acca" element={<Navigate to="/365" replace />} />
             <Route path="scorers" element={protectTool(<GoalscorersPage />, 'goalscorers')} />
           </Route>

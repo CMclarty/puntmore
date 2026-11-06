@@ -21,7 +21,7 @@ and needs a line in the register.
 | 9 | Bets go to the Hub | a **`bet_list`** message; a bet is never put in a second frame; `mark_sent` only on the Hub's ack | Render dispatcher → Hub inbox | `msg_id`, `bet_id` | — |
 | 10 | The Hub places | a **bet** row on the Hub and a **report** per outcome (`placed`, `price_changed`, `failed`, `settled`, `balance`); dry-run reports say so; a failure is escalated, never retried | Hub, `hub.sqlite` (`bets`, `outbox`), the placement adapter | `bet_id` | received, placing, then the report's kind |
 | 11 | Render settles | the ledger row moves to its terminal state; a settled Bet Finder bet credits its tip's source (strike rate, ROI) | Render, `twoup_bets`, `tips`, `betfinder_sources` | `bet_id` → `tip_id` | as in 6 and 8 |
-| 12 | People watch | the Hub Console reads the Scraper's files, the Hub store and Render's `/api/ready`; Render's operator routes read the ledger and the tips | nothing new is written | — | the words above, never new ones |
+| 12 | People watch | the Hub Console reads the Scraper's files, the Hub store and Render's `/api/ready`; the 365 page's 2-Up tab and Render's operator routes read the feed, the ledger and the tips | nothing new is written | — | the words above, never new ones |
 
 ## The four rules
 
