@@ -12,7 +12,7 @@ and needs a line in the register.
 |---|---|---|---|---|---|
 | 1 | A page is loaded | nothing durable: a page load, counted against the site's budget | Scraper, `guard.sqlite3` | — | per target: `running`, `paused`, `blocked`, `retired` (in `status.json`) |
 | 2 | A parser reads rows | **rows**: event, market, selection, optional advised price / stake units / tip time / expiry / origin | Scraper, `latest/<target>.json` | **`tip_id`** minted here: sha1 of source, normalised event, market, selection, day (`scraper/ids.py`, pinned equal to `hub/puntmore_hub/ids.py`) | — |
-| 3 | Rows leave the Scraper | one **drop file** per run under `<data>/hub/tips/` (Bet Finder sources), or one POST to Render for Paddy prices (`/api/paddy/*` with the ingest key); problems are **event** files under `<data>/hub/events/` | Scraper writes, Hub reads and moves to `done/` | `tip_id` on every row | event kinds: `unhealthy_source`, `blocked_source` |
+| 3 | Rows leave the Scraper | one **drop file** per run under `<data>/hub/tips/` (Bet Finder sources), or one POST to Render for Paddy prices (`/api/paddy/*` with the ingest key); problems are **event** files under `<data>/hub/events/`; each file is one protocol envelope (`scraper_tips`, `scraper_event`) | Scraper writes, Hub reads and moves to `done/` | `tip_id` on every row; `msg_id` per file | event kinds: `unhealthy_source`, `blocked_source` |
 | 4 | The Hub takes them in | a **tip** row in the Hub store, deduplicated on `tip_id`, and one `tip` message queued in the outbox; an event becomes an **escalation** | Hub, `hub.sqlite` (`tips`, `outbox`, `escalations`) | `tip_id`; `msg_id` per message | escalation: open, resolved |
 | 5 | The wire | the **envelope** `{type, client_id, msg_id, ts, body}` over the Hub's outbound WebSocket to `/api/2up/ws`; every non-control message is acked, replays are acked and ignored, unacked messages are re-sent after a reconnect under the same `msg_id` | contract: `hub/PROTOCOL.md` + `hub/schemas/protocol.schema.json`, copied verbatim on Render and tested on both sides | `msg_id` | — |
 | 6 | Render stores the tip | one row in the **`tips`** table; the row the endpoint writes is the row the Bet Finder works on | Render, `tips` | `tip_id` (unique; first copy kept) | `new` → `priced` or `quarantined` or `duplicate` or `expired` → `decided` / `not_placed` → `settled` |
@@ -25,12 +25,13 @@ and needs a line in the register.
 
 ## The four rules
 
-1. **Everything that moves is a message in the one envelope.** The wire has it
-   today (rule 5). The Scraper's drop files and event files carry the same
-   fields (`type`, `msg_id`, `ts`, `body`) so a file on disk is only a
-   transport, and the one schema file is checked by the Scraper's, the Hub's
-   and Render's tests. *(Open: the drop and event files are not yet in the
-   schema; that is the next change on this page.)*
+1. **Everything that moves is a message in the one envelope.** The wire has
+   it, and so do the Scraper's drop files and event files: types
+   `scraper_tips` and `scraper_event` in `hub/schemas/protocol.schema.json`,
+   with the same fields (`type`, `client_id`, `msg_id`, `ts`, `body`), so a
+   file on disk is only a transport. The one schema file is checked by the
+   Scraper's tests (what the sinks write), the Hub's (what the inbox reads and
+   what the link sends) and Render's (its vendored copy is byte-identical).
 2. **One id, minted at first sight, never re-minted.** `tip_id` is made by the
    Scraper when the row is parsed and travels unchanged to the Hub, over the
    wire, into Render's `tips` row, into the candidate, and back from the

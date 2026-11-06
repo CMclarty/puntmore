@@ -328,3 +328,29 @@ def test_scraper_not_enabled_is_not_restarted(repos, cfg):
     res = update.run(cfg, box, **f.kw(), scraper_installer=lambda r: f.calls.append(("x", r)))
     assert res.outcome == "updated"
     assert f.calls == [("install", box), ("restart", ["puntmore-link.service", "puntmore-heartbeat.timer"])]
+
+
+# ---- the Hermes runbooks -------------------------------------------------------------------------
+
+def test_update_copies_the_runbook_into_its_profile(repos, cfg):
+    box, dev, _ = repos
+    push(dev, "hub/deploy/hermes-skills/puntmore-scraper-ops/SKILL.md", "# v2\n")
+    profile = cfg.hermes_home / "profiles" / "scraper-manager"
+    stale = profile / "skills" / "puntmore-scraper-ops"
+    stale.mkdir(parents=True)
+    (stale / "SKILL.md").write_text("# v1\n")
+    (stale / "old-note.md").write_text("gone after the sync\n")
+    f = Fakes()
+    res = update.run(cfg, box, **f.kw())
+    assert res.outcome == "updated", res.detail
+    assert "runbooks: puntmore-scraper-ops -> scraper-manager" in res.detail
+    assert (stale / "SKILL.md").read_text() == "# v2\n" and not (stale / "old-note.md").exists()
+    # a second sync with nothing changed copies nothing
+    assert update.sync_hermes_skills(box, cfg) == []
+
+
+def test_a_profile_that_is_not_on_the_box_is_skipped(repos, cfg):
+    box, dev, _ = repos
+    push(dev, "hub/deploy/hermes-skills/puntmore-scraper-ops/SKILL.md", "# v2\n")
+    assert update.sync_hermes_skills(box, cfg) == []
+    assert not (cfg.hermes_home / "profiles").exists()

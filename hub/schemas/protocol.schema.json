@@ -2,14 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/CMclarty/puntmore-hub/schemas/protocol.schema.json",
   "title": "Puntmore home <-> Render protocol, version 1",
-  "description": "Every WebSocket frame is one envelope. body is validated according to type. See PROTOCOL.md.",
+  "description": "Every WebSocket frame is one envelope, and so is every file the Scraper drops for the Hub (types scraper_tips and scraper_event, never sent on the wire). body is validated according to type. See PROTOCOL.md.",
   "type": "object",
   "required": ["type", "client_id", "msg_id", "ts", "body"],
   "additionalProperties": false,
   "properties": {
     "type": {
       "enum": ["hello", "hello_ack", "bet_list", "scrape_job", "kill_switch", "ping", "pong", "ack",
-               "report", "tip", "scrape_result", "escalation", "escalation_outcome"]
+               "report", "tip", "scrape_result", "escalation", "escalation_outcome",
+               "scraper_tips", "scraper_event"]
     },
     "client_id": {"type": "string", "minLength": 1},
     "msg_id": {"type": "string", "minLength": 8},
@@ -28,7 +29,9 @@
     {"if": {"properties": {"type": {"const": "tip"}}},              "then": {"properties": {"body": {"$ref": "#/$defs/tip"}}}},
     {"if": {"properties": {"type": {"const": "scrape_result"}}},    "then": {"properties": {"body": {"$ref": "#/$defs/scrape_result"}}}},
     {"if": {"properties": {"type": {"const": "escalation"}}},       "then": {"properties": {"body": {"$ref": "#/$defs/escalation"}}}},
-    {"if": {"properties": {"type": {"const": "escalation_outcome"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/escalation_outcome"}}}}
+    {"if": {"properties": {"type": {"const": "escalation_outcome"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/escalation_outcome"}}}},
+    {"if": {"properties": {"type": {"const": "scraper_tips"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/scraper_tips"}}}},
+    {"if": {"properties": {"type": {"const": "scraper_event"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/scraper_event"}}}}
   ],
   "$defs": {
     "ts": {"type": "string", "format": "date-time"},
@@ -170,6 +173,49 @@
         "kind": {"type": "string"},
         "ref": {"type": "string"},
         "outcome": {"type": "string", "minLength": 1}
+      }
+    },
+    "scraper_tip_row": {
+      "type": "object",
+      "description": "One parsed row of a Bet Finder source; tip_id is minted here (scraper/ids.py) and travels unchanged",
+      "required": ["event", "market", "selection"],
+      "properties": {
+        "tip_id": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "event": {"type": "string", "minLength": 1},
+        "market": {"type": "string", "minLength": 1},
+        "selection": {"type": "string", "minLength": 1},
+        "advised_price": {"anyOf": [{"$ref": "#/$defs/price"}, {"type": "null"}]},
+        "advised_stake_units": {"type": ["number", "null"]},
+        "tip_time": {"type": ["string", "null"], "format": "date-time"},
+        "expiry": {"type": ["string", "null"], "format": "date-time"},
+        "origin": {"enum": ["tipster", "scrape"]},
+        "extra": {"type": "object"}
+      }
+    },
+    "scraper_tips": {
+      "type": "object",
+      "description": "One file per run of a fetch target, <scraper data>/hub/tips/<ms>-<source>.json",
+      "required": ["source", "at", "url", "channel", "trust_weight", "rows"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {"type": "string", "minLength": 1},
+        "at": {"type": "number", "description": "unix seconds, UTC"},
+        "url": {"type": "string", "minLength": 1},
+        "channel": {"type": "string", "minLength": 1},
+        "trust_weight": {"type": "number", "minimum": 0, "maximum": 1},
+        "rows": {"type": "array", "items": {"$ref": "#/$defs/scraper_tip_row"}}
+      }
+    },
+    "scraper_event": {
+      "type": "object",
+      "description": "Something needing a decision, <scraper data>/hub/events/<ms>-<ref>.json; the Hub raises an escalation of the same kind",
+      "required": ["kind", "ref", "detail", "at"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"enum": ["unhealthy_source", "blocked_source"]},
+        "ref": {"type": "string", "minLength": 1},
+        "detail": {"type": "string"},
+        "at": {"type": "number", "description": "unix seconds, UTC"}
       }
     }
   }

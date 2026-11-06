@@ -29,12 +29,12 @@ puntmore_hub/
   web/             the Hub Console (`puntmore web`): one page, every component's state, the kill switch
 deploy/update.sh   thin wrapper around `puntmore update`, run by the update timer
 deploy/systemd/    link daemon, 09:00 heartbeat timer, 10-minute update timer, the Hub Console
-deploy/hermes-skills/  the Scraper-ops runbook the scraper-manager agent follows
+deploy/hermes-skills/  the Scraper-ops runbook the scraper-manager agent follows (`puntmore update` copies it into that profile)
 data/              runtime state (git-ignored): hub.sqlite, KILL
 ```
 
 ## Relationship to `scraper/`
-The Scraper (`scraper/`) is the only thing on the Hub that loads a page: Paddy Power pages kept open (and one Bookie Bashing page, `bb-saves`, an open item for Callum in `docs/decisions.md`), and the Bet Finder's sources as `generic` targets that are loaded, parsed and closed, all under one Chrome, one guard and one alert path. For a Bet Finder target the Scraper writes one JSON file per run into `<scraper data>/hub/tips/` and, when something needs a decision, into `<scraper data>/hub/events/`. `puntmore inbox` (run by the link daemon every 30 s) turns those into deduplicated tips queued for Render and into escalations for Hermes. `puntmore health` reads the Scraper's heartbeat and `status.json` from the same directory (`PUNTMORE_SCRAPER_DATA`, the native service's data dir `/opt/puntmore-scraper/data`; the old name `PUNTMORE_WORKER_DATA` is still read for one release; in the Docker fallback, the container's volume on the host).
+The Scraper (`scraper/`) is the only thing on the Hub that loads a page: Paddy Power pages kept open (and one Bookie Bashing page, `bb-saves`, an open item for Callum in `docs/decisions.md`), and the Bet Finder's sources as `generic` targets that are loaded, parsed and closed, all under one Chrome, one guard and one alert path. For a Bet Finder target the Scraper writes one JSON file per run into `<scraper data>/hub/tips/` and, when something needs a decision, into `<scraper data>/hub/events/`. Each file is one envelope of the protocol (`scraper_tips`, `scraper_event` in `schemas/protocol.schema.json`). `puntmore inbox` (run by the link daemon every 30 s) turns those into deduplicated tips queued for Render and into escalations for Hermes: a source escalation goes to the `scraper-manager` profile (`PUNTMORE_HERMES_SCRAPER_PROFILE`), the rest to `PUNTMORE_HERMES_PROFILE`. `puntmore health` reads the Scraper's heartbeat and `status.json` from the same directory (`PUNTMORE_SCRAPER_DATA`, the native service's data dir `/opt/puntmore-scraper/data`; the old name `PUNTMORE_WORKER_DATA` is still read for one release; in the Docker fallback, the container's volume on the host).
 
 ## Setup (from `hub/`)
 ```bash

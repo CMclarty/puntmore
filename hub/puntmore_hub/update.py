@@ -115,6 +115,46 @@ def in_flight_bets(db_path: Path) -> list[dict]:
         conn.close()
 
 
+# ---- the Hermes runbooks ----------------------------------------------------------------------------
+# hub/deploy/hermes-skills/<skill>/ is the runbook an agent follows; a profile's copy lives at
+# <hermes home>/profiles/<profile>/skills/<skill>/. An update copies each one over, so the agent
+# follows the runbook of the commit on the box, not the one from the day it was installed.
+SKILLS_DIR = "hub/deploy/hermes-skills"
+
+
+def skill_profiles(cfg: Settings) -> dict[str, str]:
+    """skill name -> the profile that follows it."""
+    return {"puntmore-scraper-ops": cfg.hermes_scraper_profile}
+
+
+def sync_hermes_skills(repo: Path, cfg: Settings = default_settings) -> list[str]:
+    """Copy each runbook into its profile's skills directory. Returns what changed, as
+    ``<skill> -> <profile>``; a profile that does not exist on the box is skipped, and a copy
+    that already matches is left alone."""
+    changed = []
+    for skill, profile in skill_profiles(cfg).items():
+        src = repo / SKILLS_DIR / skill
+        profile_dir = cfg.hermes_home / "profiles" / profile
+        if not src.is_dir() or not profile_dir.is_dir():
+            continue
+        dst = profile_dir / "skills" / skill
+        if dst.is_dir() and _same_tree(src, dst):
+            continue
+        tmp = dst.with_name(dst.name + ".new")
+        shutil.rmtree(tmp, ignore_errors=True)
+        shutil.copytree(src, tmp)
+        shutil.rmtree(dst, ignore_errors=True)
+        tmp.rename(dst)
+        changed.append(f"{skill} -> {profile}")
+    return changed
+
+
+def _same_tree(a: Path, b: Path) -> bool:
+    fa = {p.relative_to(a): p.read_bytes() for p in a.rglob("*") if p.is_file()}
+    fb = {p.relative_to(b): p.read_bytes() for p in b.rglob("*") if p.is_file()}
+    return fa == fb
+
+
 # ---- install and restart ------------------------------------------------------------------------
 
 def _has_extra(hub_dir: Path, extra: str) -> bool:
@@ -326,6 +366,13 @@ def _run(cfg: Settings, repo: Path, dry_run: bool, installer, restarter, units, 
         installer(repo)
         if scraper_deps:
             scraper_installer(repo)
+        try:
+            synced = sync_hermes_skills(repo, cfg)
+        except OSError as exc:   # a runbook that did not copy is not a reason to leave the box half-updated
+            synced = []
+            _alert(cfg, "update:skills", f"hub updated but a Hermes runbook did not copy: {exc}", level="warn")
+        if synced:
+            res.detail = (res.detail + "; " if res.detail else "") + "runbooks: " + ", ".join(synced)
         flying = in_flight_bets(cfg.db_path)   # a bet may have arrived during the pull and the install
         if flying:
             res.outcome = "blocked"

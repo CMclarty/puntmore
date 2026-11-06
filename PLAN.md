@@ -461,7 +461,15 @@ The Hub side of the 2-Up Engine spec. (History: built on branch `home-box`, as
       [x] The Hub Console calls it (branch `console-scraper-tab`): the Scraper
       tab lists `summary()` and adds, edits, enables, disables and removes
       targets through it, behind `PUNTMORE_WEB_TOKEN`.
-      [ ] Hermes's scraper-manager calls it (the runbook names the CLI).
+      [x] Hermes's scraper-manager calls it (6 Nov): the runbook names the
+      CLI; a `unhealthy_source` / `blocked_source` escalation is handed to
+      that profile (`PUNTMORE_HERMES_SCRAPER_PROFILE`, `escalation.profile_for`)
+      with the runbook named in its brief, and `puntmore update` copies
+      `hub/deploy/hermes-skills/` into the profile so the agent follows the
+      runbook of the commit on the box. Same day: the drop and event files
+      are envelopes in `protocol.schema.json` (`scraper_tips`,
+      `scraper_event`, tests on both sides), and the link re-sends `hello`
+      when the kill-switch file flips.
 - [ ] Two weeks of dry-run reports before `PUNTMORE_DRY_RUN=0`.
 Definition of Done: a bet list from Render reaches a phone in dry-run and its
 `placed` report shows in Render's ledger; a broken source is repaired by the

@@ -141,6 +141,8 @@ class ScrapeJob:
 
 INBOUND_TYPES = ("hello_ack", "bet_list", "scrape_job", "kill_switch", "ping", "ack")
 OUTBOUND_TYPES = ("hello", "report", "tip", "scrape_result", "escalation", "escalation_outcome", "pong", "ack")
+# Envelopes the Scraper writes as files for this box (inbox.py); never sent on the wire.
+FILE_TYPES = ("scraper_tips", "scraper_event")
 
 
 @dataclass

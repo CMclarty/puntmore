@@ -23,6 +23,13 @@ class RenderLink:
         self.handlers: dict[str, Handler] = handlers or {}
         self._ws = None
         self._stop = asyncio.Event()
+        self._said_kill: bool | None = None   # what the last hello on this socket said
+
+    async def _send_hello(self) -> None:
+        """Send hello; Render reads dry_run and kill_switch from the latest one (PROTOCOL.md)."""
+        body = self.hello_body()
+        await self._ws.send(Envelope(type="hello", client_id=self.cfg.client_id, body=body).to_json())
+        self._said_kill = body["kill_switch"]
 
     # ---- outbound --------------------------------------------------------------------------------
     def enqueue(self, type_: str, body: dict) -> str:
@@ -32,6 +39,15 @@ class RenderLink:
     async def _flush_outbox(self) -> None:
         while not self._stop.is_set():
             if self._ws is not None:
+                kill = self.cfg.kill_switch_on()
+                if kill != self._said_kill:
+                    # The file flipped (CLI, console, Hermes, or Render's message): tell Render
+                    # now, so it withholds bet lists at once, or resumes them, without a reconnect.
+                    try:
+                        await self._send_hello()
+                        log.info("kill switch now %s; hello re-sent", "ON" if kill else "off")
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("hello failed, will retry: %s", exc)
                 for row in self.store.outbox_pending():
                     env = Envelope(type=row["type"], client_id=self.cfg.client_id, msg_id=row["msg_id"],
                                    body=__import__("json").loads(row["body"]))
@@ -97,8 +113,7 @@ class RenderLink:
                                               ping_interval=20, ping_timeout=20, max_size=8 * 1024 * 1024) as ws:
                     self._ws = ws
                     backoff = 2.0
-                    hello = Envelope(type="hello", client_id=self.cfg.client_id, body=self.hello_body())
-                    await ws.send(hello.to_json())
+                    await self._send_hello()
                     log.info("connected to %s", self.cfg.render_ws_url)
                     resend = self.store.outbox_resend_unacked()
                     if resend:
@@ -109,6 +124,7 @@ class RenderLink:
                     finally:
                         flusher.cancel()
                         self._ws = None
+                        self._said_kill = None
             except Exception as exc:  # noqa: BLE001
                 log.warning("link down (%s); reconnecting in %.0fs", exc, backoff)
             await asyncio.sleep(backoff)

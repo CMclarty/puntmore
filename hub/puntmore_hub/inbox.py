@@ -10,6 +10,10 @@ an event by its file name.
 
 A tip's id is the Scraper's: each row of a drop carries `tip_id`, minted where the tip
 was first seen (`ids.py`). Only an old drop without one has it minted here.
+
+Each file is one protocol envelope (`schemas/protocol.schema.json`, type `scraper_tips` or
+`scraper_event`); this reads its `body`. A file written before the envelope (a bare body) is
+read as it is, so an update never strands what is already on disk.
 """
 from __future__ import annotations
 
@@ -21,7 +25,7 @@ from pathlib import Path
 
 from . import escalation
 from .config import Settings, settings as default_settings
-from .schemas import CandidateTip
+from .schemas import FILE_TYPES, CandidateTip
 from .store import Store, parse_iso, utcnow
 
 log = logging.getLogger("puntmore.inbox")
@@ -43,6 +47,13 @@ def _finish(path: Path, done: Path) -> None:
         path.unlink(missing_ok=True)
     for old in sorted(done.glob("*.json"))[:-KEEP_DONE]:
         old.unlink(missing_ok=True)
+
+
+def _body(d: dict) -> dict:
+    """The drop's body: the envelope's, or the whole file when it predates the envelope."""
+    if d.get("type") in FILE_TYPES and isinstance(d.get("body"), dict):
+        return d["body"]
+    return d
 
 
 def _tips_from(body: dict) -> tuple[list[tuple[str | None, CandidateTip]], list[str]]:
@@ -79,7 +90,7 @@ def ingest(store: Store, cfg: Settings = default_settings, *, notify: bool = Tru
     tips_dir, events_dir, done = cfg.inbox_dir / "tips", cfg.inbox_dir / "events", cfg.inbox_dir / "done"
     for path in sorted(tips_dir.glob("*.json")) if tips_dir.exists() else []:
         try:
-            body = json.loads(path.read_text())
+            body = _body(json.loads(path.read_text()))
             tips, problems = _tips_from(body)
         except (OSError, ValueError) as exc:
             log.warning("inbox: unreadable %s: %s", path.name, exc)
@@ -98,7 +109,7 @@ def ingest(store: Store, cfg: Settings = default_settings, *, notify: bool = Tru
         _finish(path, done)
     for path in sorted(events_dir.glob("*.json")) if events_dir.exists() else []:
         try:
-            body = json.loads(path.read_text())
+            body = _body(json.loads(path.read_text()))
             kind = body.get("kind") if body.get("kind") in escalation.KINDS else "other"
             escalation.raise_escalation(store, kind, str(body.get("ref") or "scraper"),
                                         f"[scraper event {path.name}] {body.get('detail') or ''}",

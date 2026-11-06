@@ -81,6 +81,10 @@ class Settings:
     discord_webhook: str = os.environ.get("PUNTMORE_DISCORD_WEBHOOK", "")
     hermes_bin: str = os.environ.get("PUNTMORE_HERMES_BIN", str(Path.home() / ".local" / "bin" / "hermes"))
     hermes_profile: str = os.environ.get("PUNTMORE_HERMES_PROFILE", "default")
+    # The profile that gets a Scraper escalation (unhealthy_source, blocked_source) and follows
+    # the runbook hub/deploy/hermes-skills/puntmore-scraper-ops; everything else goes to hermes_profile.
+    hermes_scraper_profile: str = os.environ.get("PUNTMORE_HERMES_SCRAPER_PROFILE", "scraper-manager")
+    hermes_home: Path = Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
     escalate_to_local_ai: bool = _env_bool("PUNTMORE_ESCALATE_TO_LOCAL_AI", True)
     alert_dedup_hours: float = float(os.environ.get("PUNTMORE_ALERT_DEDUP_HOURS", "6"))
 

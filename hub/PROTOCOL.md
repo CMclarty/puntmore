@@ -137,6 +137,25 @@ A bet gets at most one of `placed`, `price_changed` or `failed`, then optionally
   Render's job (Bet Finder pipeline step 3).
 - `origin`: `tipster | scrape`. `source_scope` is always `owner` for tips.
 
+## Files from the Scraper (on the Hub, never on the wire)
+
+The Scraper hands the Hub its rows and its problems as files, and each file is one envelope of
+this protocol, so one schema file covers the whole chain (`docs/dataflow.md`, rule 1). Two types,
+`client_id` always `scraper`, one `msg_id` per file; Render refuses them on the wire like any
+other type it does not accept from a Hub.
+
+| Type | Where | Body |
+|---|---|---|
+| `scraper_tips` | `<scraper data>/hub/tips/<ms>-<source>.json`, one per run of a Bet Finder target | `source, at, url, channel, trust_weight, rows[]`; every row has `event, market, selection` and its `tip_id` (`$defs/scraper_tip_row`) |
+| `scraper_event` | `<scraper data>/hub/events/<ms>-<ref>.json` | `kind` (`unhealthy_source` or `blocked_source`), `ref`, `detail`, `at` |
+
+The Scraper's sink keeps out any row the Hub would reject (no event, market or selection, or a
+price outside 1.01-1000), so a file it writes always validates; the Hub checks again on ingest
+(`puntmore_hub/inbox.py`). `at` is unix seconds. The canonical examples are
+`schemas/examples/scraper_tips.json` and `scraper_event.json`; `scraper/tests/test_sinks_schema.py`
+checks what the sinks write and `hub/tests/test_inbox.py` checks what the inbox reads, both
+against `schemas/protocol.schema.json`.
+
 ## Modes and safety flags
 
 - `dry_run` in `hello` tells Render that `placed` reports from this client are simulated.
@@ -159,8 +178,10 @@ There are three, and they are independent on purpose, never synced:
 A Hub that has lost its link must still be stoppable (its file), and Render must be able to stop a
 client whose Hub is unreachable (its own switches). When both sides have one, either ON means no bets
 move for that client. Render reads the Hub's state from `hello`: while the last `hello` said
-`kill_switch: true` it sends that Hub no `bet_list`, new or re-delivered. The Hub fails any bet that
-reaches it while its file exists anyway, so a switch turned on between two `hello`s is still honoured.
+`kill_switch: true` it sends that Hub no `bet_list`, new or re-delivered. The Hub sends a fresh
+`hello` on the same socket within a second of its file changing either way (`link/client.py`), so
+Render's view lags the file by about that long; and the Hub fails any bet that reaches it while its
+file exists anyway, so a switch turned on in that second is still honoured.
 
 ## Versioning
 

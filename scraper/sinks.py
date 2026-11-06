@@ -9,11 +9,26 @@ A target names its sink by its `post` value:
 Events for the Hub (a block, an unhealthy source) are drop files too, in
 data/hub/events/. Every drop is written atomically (temp file + rename), so
 the Hub never reads half a file.
+
+A drop file is one envelope of the Hub <-> Render protocol (`type`,
+`client_id`, `msg_id`, `ts`, `body`), type `scraper_tips` or `scraper_event`,
+validated by hub/schemas/protocol.schema.json; the file on disk is only the
+transport (docs/dataflow.md, rule 1). The Hub reads `body`.
 """
 import json
 import re
+import uuid
+from datetime import datetime, timezone
 
 from .ids import with_tip_ids
+
+# A row the Hub would reject is kept out of the drop here, so every file written is a valid
+# `scraper_tips` envelope. Same rule as hub/puntmore_hub/inbox.py (PRICE_MIN, PRICE_MAX).
+PRICE_MIN, PRICE_MAX = 1.01, 1000.0
+
+# The envelope's client_id. The Hub owns the real client id (its PUNTMORE_CLIENT_ID); a file
+# never leaves the box, so the Scraper names itself and the Hub does not forward the envelope.
+CLIENT_ID = "scraper"
 
 
 def _safe(s: str) -> str:
@@ -70,19 +85,40 @@ class Sinks:
         return bool(sink) and sink.deliver(t, rows, now)
 
 
-def _drop(data_dir, sub, name, body) -> bool:
-    """Write one JSON file atomically into data/hub/<sub>/ for the Hub to ingest."""
+def envelope(type_, body, at) -> dict:
+    """The protocol envelope around a drop's body (one msg_id per file)."""
+    return {"type": type_, "client_id": CLIENT_ID, "msg_id": uuid.uuid4().hex,
+            "ts": datetime.fromtimestamp(at, tz=timezone.utc).isoformat(timespec="seconds"),
+            "body": body}
+
+
+def _drop(data_dir, sub, name, type_, body) -> bool:
+    """Write one envelope atomically into data/hub/<sub>/ for the Hub to ingest."""
     out = data_dir / "hub" / sub
     out.mkdir(parents=True, exist_ok=True)
     final = out / f"{int(body['at'] * 1000)}-{_safe(name)}.json"
     tmp = out / (final.name + ".tmp")
     try:
-        tmp.write_text(json.dumps(body, indent=1))
+        tmp.write_text(json.dumps(envelope(type_, body, body["at"]), indent=1))
         tmp.rename(final)
         return True
     except OSError as exc:
         print(f"hub drop failed: {exc}", flush=True)
         return False
+
+
+def tip_rows(rows) -> tuple[list, list]:
+    """Split a parser's rows into (good, bad): good has a non-empty event, market and
+    selection and a price that is absent or within PRICE_MIN..PRICE_MAX."""
+    good, bad = [], []
+    for row in rows:
+        ok = isinstance(row, dict) and all(isinstance(row.get(k), str) and row[k].strip()
+                                           for k in ("event", "market", "selection"))
+        price = row.get("advised_price") if ok else None
+        if ok and price is not None:
+            ok = isinstance(price, (int, float)) and not isinstance(price, bool) and PRICE_MIN <= price <= PRICE_MAX
+        (good if ok else bad).append(row)
+    return good, bad
 
 
 def deliver_to_hub(data_dir, target, rows, now) -> bool:
@@ -92,10 +128,16 @@ def deliver_to_hub(data_dir, target, rows, now) -> bool:
 
     Every row is written with its `tip_id` (ids.py): the tip's one id, minted
     here, where it is first seen. The Hub stores and forwards it unchanged."""
-    body = {"source": target.name, "at": now, "url": target.url,
+    rows, bad = tip_rows(rows)
+    if bad:
+        print(f"{target.name}: {len(bad)} row(s) left out of the drop (no event/market/selection, "
+              f"or price outside {PRICE_MIN}-{PRICE_MAX}): {bad[0]}", flush=True)
+    if not rows:
+        return False
+    body = {"source": target.name, "at": float(now), "url": target.url,
             "channel": target.post.split(":", 1)[1] or "tips",
             "trust_weight": target.trust_weight, "rows": with_tip_ids(target.name, rows, now)}
-    ok = _drop(data_dir, "tips", target.name, body)
+    ok = _drop(data_dir, "tips", target.name, "scraper_tips", body)
     if ok:
         print(f"{target.name}: {len(rows)} row(s) handed to the Hub", flush=True)
     return ok
@@ -104,4 +146,4 @@ def deliver_to_hub(data_dir, target, rows, now) -> bool:
 def emit_event(data_dir, kind, ref, detail, now) -> bool:
     """Tell the Hub something needs a decision (a block, an unhealthy source).
     The Hub turns it into an escalation for the local AI."""
-    return _drop(data_dir, "events", ref, {"kind": kind, "ref": ref, "detail": detail, "at": now})
+    return _drop(data_dir, "events", ref, "scraper_event", {"kind": kind, "ref": ref, "detail": detail, "at": now})

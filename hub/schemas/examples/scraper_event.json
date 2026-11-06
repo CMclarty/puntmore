@@ -1,0 +1,12 @@
+{
+  "type": "scraper_event",
+  "client_id": "scraper",
+  "msg_id": "c0ffee0000000011",
+  "ts": "2026-11-06T09:30:00+00:00",
+  "body": {
+    "kind": "unhealthy_source",
+    "ref": "example-tipster",
+    "detail": "only 0 row(s), expected at least 2 - layout change?",
+    "at": 1793957400.0
+  }
+}

@@ -35,10 +35,10 @@ def test_every_row_in_a_hub_drop_carries_its_tip_id(tmp_path):
             {"event": "", "market": "x", "selection": "y"}]                   # the Hub rejects it: no id
     now = time.time()
     assert deliver_to_hub(tmp_path, t, rows, now)
-    got = json.loads(next((tmp_path / "hub" / "tips").glob("*.json")).read_text())["rows"]
+    got = json.loads(next((tmp_path / "hub" / "tips").glob("*.json")).read_text())["body"]["rows"]
     assert got[0]["tip_id"] == tip_id_for("tips-a", "A v B", "Match Result", "A", "2026-11-05")
     day = time.strftime("%Y-%m-%d", time.gmtime(now))                      # UTC, as the Hub reads `at`
     assert got[1]["tip_id"] == tip_id_for("tips-a", "C v D", "Match Result", "D", day)
-    assert "tip_id" not in got[2]
+    assert len(got) == 2                                                    # the empty row never left the sink
     assert "tip_id" not in rows[0]                                          # the parser's rows are untouched
-    assert with_tip_ids("tips-a", rows, now) == got
+    assert with_tip_ids("tips-a", rows[:2], now) == got

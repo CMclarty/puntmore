@@ -21,6 +21,7 @@ def cfg(tmp_path: Path) -> Settings:
         sub_clients_file=tmp_path / "sub_clients.yaml",
         scraper_data_dir=tmp_path / "scraper",
         discord_webhook="", hermes_bin="", escalate_to_local_ai=False,
+        hermes_home=tmp_path / "hermes",
     )
 
 
