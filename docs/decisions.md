@@ -1,12 +1,10 @@
 # Decisions register
 
 The standing decisions for Puntmore, each with its date and who made it. This
-is the first thing an agent reads, before `PLAN.md`, any `AGENTS.md`, README,
-handover or spec: **when any other file in this repo disagrees with a line
-here, this file is right and the other file is stale.** A decision changes only
-by Callum saying so, in a dated edit to this file in the same pull request as
-the code. Older product decisions (coupon tracker, pricing, design) stay in
-`PLAN.md` → Decisions and are not repeated here.
+is the first thing an agent reads, before `PLAN.md`, any `AGENTS.md`, README or
+spec: **when any other file in this repo disagrees with a line here, this file
+is right and the other file is stale.** A decision changes only by Callum
+saying so, in a dated edit to this file in the same pull request as the code.
 
 ## Names and structure (6 Nov 2026, Callum)
 
@@ -23,10 +21,14 @@ names and no other; older names appear only in `docs/retired.md`.
   tracker, Hills and Callum's personal tools, which are not boards. No
   ledger, no account, no Hub endpoint on Render. `2up`, `twoup`, `cards`,
   `accabonus` and `finder` are identifiers only, never prose.
-- **Two product hosts.** `shalgo` serves every public tool: the coupon
-  tracker, Paddy, Hills and 365 with 2-Up inside it. `me` serves Callum's
-  personal tools: Finder, dogs, Virtuals, P&L, Kelly, the shop. The main
-  domain is the front door, the login and the API. The `2up` host is dropped.
+- **One product host and `me`.** Puntmore is the product: the main domain
+  serves every public tool (the coupon tracker, Paddy, Hills, 365 with 2-Up
+  inside it), the login and the API. `me` serves Callum's personal tools:
+  Finder, dogs, Virtuals, P&L, Kelly, the shop. Shalgo is retired as a site
+  and a brand: no separate name, icon, login or tool list;
+  `shalgo.puntmore.com` redirects to the same path on the main domain so old
+  links and home-screen icons keep working. The `2up` host is dropped.
+  (6 Nov 2026, Callum)
 - **The Hub has five sub-components.** **Scraper service**: the one real
   Chrome on the desktop, reads pages, hands rows up. **Scraper control**: the
   layer above it: rules, routing and switches for every source's rows (pages
@@ -53,63 +55,58 @@ names and no other; older names appear only in `docs/retired.md`.
 - Dropped names: Worker, betting agent, client engine, placement bot,
   placement service, bet-placing service, private engine, local AI, local
   model (except for llama-server itself), sub-client, Bet Finder
-  orchestrator, candidate tip, link daemon, the `2up` host.
+  orchestrator, candidate tip, link daemon, the `2up` host, shalgo.
 
 ## The two boxes
 
 - **Hub** is Callum's Strix Halo box on a residential connection; **Render** is
-  the cloud service. Those are the names. (5 Nov 2026, Callum)
-- **Hermes owns the Hub.** The local model (llama-server, Qwen3.5-122B, alias
-  `qwen`) sits under Hermes, not beside it. Hermes profiles: chief of staff
-  (default), betting-supervisor, scraper-manager, betting-client-manager,
-  software-supervisor. One local model for all of them; no second, cheaper
-  model. (4–5 Nov 2026, Callum)
-- **Render is one Docker web service**, every push to `main` deploys it, and it
-  serves three subdomains from that one deploy: `2up` (the 2-Up product and
-  the Hub endpoint), `shalgo` (the Paddy Power tools, a setup of their own, and
-  the coupon tracker), `me` (Callum's own tools). It is **not expected to scale
-  beyond this**; do not design for scale. (5 Nov 2026, Callum)
+  the cloud service. (5 Nov 2026, Callum)
+- **HubAI runs the Hub.** It is the Hermes layer: profiles chief of staff
+  (default), betting-supervisor, scraper-manager, betting-client-manager and
+  software-supervisor, all on one model, Qwen3.5-122B under llama-server
+  (alias `qwen`); no second, cheaper model. (4–5 Nov 2026, Callum)
+- **Render is one Docker web service**; every push to `main` deploys it. It
+  serves the main domain and `me` from that one deploy, and is **not expected to scale beyond this**; do not design
+  for scale. (5 Nov 2026, Callum; hosts 6 Nov 2026)
 - **One repository for both boxes** (`CMclarty/puntmore`); the directory says
   which box. Nothing reaches `main` except through a pull request; agents work
   on branches in their own worktrees. (5 Nov 2026, Callum)
-- **The repo is the single source.** The 2-Up spec, the architecture and this
-  register live here and nowhere else; the earlier Claude Doc and artifacts are
-  retired. (5 Nov 2026, Callum)
+- **The repo is the single source.** The specs, the architecture and this
+  register live here and nowhere else. (5 Nov 2026, Callum)
 
 ## Where the logic lives
 
-- **Pricing and the value boards live on Render; staking, decision and
-  placement live on the Hub; every page load lives in the Scraper**
+- **Pricing and the boards live on Render; sizing, placing and the only book
+  live in the Bet Placer; every page load lives in the Scraper service**
   (`scraper/`). Render never loads a bookmaker page and never places a bet.
-  (5 Nov 2026, Callum; "decision" moved to the Hub 6 Nov 2026, "The 2-Up
-  engine and placement")
-- **The private Bet Finder (Finder, `docs/finder-spec.md`) is judged on the
-  Hub by Hermes.** Tips (email, pages, WhatsApp) have no fair line; Hermes
-  matches and assesses each one, infers a stake or asks Callum, and posts the
-  bet to Render through the Finder tool; the Bet Placer sizes it. The line
-  "the local model never prices a bet" is **struck**. Finder rows are
-  Callum's only. (6 Nov 2026, Callum)
-- **OddsPapi prices what it covers; the Scraper fills the markets it does
-  not**, and the Scraper is the Hub-side route for every page any tool
-  needs, so the sites see a residential IP and a real browser. (6 Nov 2026,
-  Callum)
-- **Three boards, one placer.** Paddy, 2-Up and Finder are the sources of
-  bet value; the Bet Placer (a separate tool, to spec) sizes across all of
-  them, runs the phones and keeps the records, on the Hub and on third-party
-  clients; its console gets a sizing page. (6 Nov 2026, Callum)
+  (5 Nov 2026, Callum; sizing moved to the Bet Placer 6 Nov 2026)
+- **Finder is judged on the Hub by HubAI** (`docs/finder-spec.md`). A tip
+  (email, page, WhatsApp) has no fair line of ours: HubAI judges it from the
+  tip's own price and fair price, advises a stake or asks Callum, and posts the
+  Finder row to Render; the Bet Placer sizes it. The old line "the model never
+  prices a bet" is struck. Finder rows are Callum's only, through the `finder`
+  grant and the `me` host. (6 Nov 2026, Callum)
+- **OddsPapi prices what it covers; the Scraper service reads every page any
+  tool needs and fills what OddsPapi lacks**, so the sites see a residential
+  IP and a real browser. (6 Nov 2026, Callum)
+- **Three boards, one Bet Placer.** Paddy, 2-Up and Finder are the sources of
+  bet value; the Bet Placer reads their three feeds, sizes across all of them,
+  runs the phones and keeps the records. Its Console page gets a sizing page.
+  (6 Nov 2026, Callum)
 - **OddsPapi is the only odds source.** TheOddsApi is removed entirely, not
   gated. Goalscorers is parked; if it returns it uses OddsPapi. (5 Nov 2026,
   Callum)
-- **365 is one tool**: AccaBonus + the 2-Up engine (+ goalscorers when
-  unparked). The `accabonus` grant keeps its name because renaming a grant
-  revokes accounts' access. (5 Nov 2026, Callum)
-- **The `/scraper` control page is gone.** The Scraper's configuration is
-  `targets.toml` on the Hub, changed only through `scraper/targets.py` (the console's Scraper tab, the `targets` CLI, the scraper-manager), never by hand while the Scraper runs; Render
-  holds no scraper config and receives no scraper status. (5 Nov 2026, Callum)
-- **The Bet Finder's sources are Scraper targets** (`site = "generic"`); `hub/`
-  has no browser and no budget of its own. Bet Finder output is **owner-only**
-  (`source_scope: owner`), never offered to another client. (5 Nov 2026,
-  Callum; spec)
+- **365 is one tool**: AccaBonus + 2-Up (+ goalscorers when unparked). The
+  `accabonus` grant keeps its name because renaming a grant revokes accounts'
+  access. (5 Nov 2026, Callum)
+- **Render holds no Scraper configuration and receives no Scraper status.**
+  The Scraper's configuration is `targets.toml` on the Hub, changed only
+  through `scraper/targets.py` (the Console's Scraper tab, the `targets` CLI,
+  HubAI's scraper-manager), never by hand while the Scraper service runs.
+  (5 Nov 2026, Callum)
+- **Finder's sources are Scraper targets** (`site = "generic"`) and the
+  tipster mailbox; `hub/` has no browser and no budget of its own. (5 Nov 2026,
+  Callum)
 
 ## Scraping conduct
 
@@ -126,71 +123,126 @@ names and no other; older names appear only in `docs/retired.md`.
 - **Budgets are code** (`scraper/sites.py`): Paddy Power 15 loads/h with quiet
   hours 01–07; Bookie Bashing 8/h; generic sources 60/h and 400/day. A block
   means a 24 h cool-off and a human `resume`; nothing retries. (Oct 2026)
-- **Bookie Bashing is not a Bet Finder source and the 2-Up rescue model is
-  tuned against BB's 2-up tracker by hand.** BB's terms ban automated access.
+- **Bookie Bashing is not a Finder source and the 2-Up rescue model is tuned
+  against BB's 2-up tracker by hand.** BB's terms ban automated access.
   **OPEN, Callum to decide:** the Scraper's one existing BB target (`bb-saves`,
-  the Paddy tool's saves fair odds, a kept-open page reloaded every 10 minutes
-  after a person logs in) predates this rule and contradicts it; keep it as the
-  single named exception, or disable it. (spec; raised 5 Nov 2026)
+  Paddy's saves fair odds, a kept-open page reloaded every 10 minutes after a
+  person logs in) predates this rule and contradicts it; keep it as the single
+  named exception, or disable it. (raised 5 Nov 2026)
 - **Never guess a tip.** Parsers are written from real pages only; a parser
   that cannot read the page returns nothing and `min_rows` raises the alarm.
 
-## The 2-Up engine and placement
+## 2-Up and the Bet Placer
 
-- **The 2-Up module is a one-way feed of current value bets and nothing
-  else.** It prices bet365's early-payout match-result markets against
-  Pinnacle plus the rescue and serves the rows that beat fair, over HTTP, to
-  two readers: the betting agent (a separate tool, its own spec) and the
-  2-Up tab as the manual backup. **Staking lives in the client**: Kelly, the
-  account rules, bet types, cover bets, dry-run and the per-account kill
-  switch. **No account, no ledger on Render**: nothing is reported back and
-  Render keeps no log of bets. **Bet Finder is not a Render instance**: tip
-  finding lives on the clients. **A Hub endpoint is per tool**: the 2-Up
-  module has none, so Render's end of the WebSocket (`/api/2up/ws`) goes with
-  this work and the betting agent brings its own. **365 is one permission**:
-  a betting agent's key carries `accabonus`, no feed-only grant. The lines
-  below that speak of bet lists, reports, `bet_id` or the Bet Finder on
-  Render describe the client's side or are history. (6 Nov 2026, Callum;
-  `docs/2up-engine-spec.md`, "Decisions, 6 Nov 2026")
+- **2-Up is a one-way feed of current value bets and nothing else.** It prices
+  bet365's early-payout match-result markets against Pinnacle plus the rescue
+  and serves the rows that beat fair, over HTTP, to two readers: the Bet Placer
+  and the 2-Up tab as the manual backup. No account and no ledger on Render:
+  nothing is reported back and Render keeps no log of bets. The global
+  `TWOUP_KILL_SWITCH` empties the feed. (6 Nov 2026, Callum;
+  `docs/2up-engine-spec.md`)
 - **The 2-Up edge is proven. Do not spend effort questioning it.** The rescue
   table is tuned by hand against BB's tracker as part of testing. (5 Nov 2026,
   Callum)
-- **Dry-run is the default** on every client; Callum switches it off after two
-  weeks of clean dry-run reports, nobody else. **The kill switch is a file**
-  (`hub/data/KILL`) and a per-client flag on Render; anyone may turn it on,
-  only Callum turns it off. (spec)
-- **No auto-retry and no re-routing of a failed bet.** `failed` is reported and
-  escalated, full stop. A `price_changed` report re-runs the decision at the
-  new price (that is the spec, not a retry). Every bet is idempotent on
-  `bet_id`, every message on `msg_id`. (spec)
-- **The wire contract is `hub/PROTOCOL.md` v1 + `hub/schemas/`**; a change
-  touches both sides in one pull request.
-- **The placement bot is a placeholder** (dry-run adapter); the local model is
-  building the phone adapter. (5 Nov 2026, Callum)
-- **OPEN, Callum to decide:** how a Bet Finder tip is staked. As built, tips
-  are priced against Pinnacle like 2-Up rows and so almost never stake. The
-  proposed rule is "follow the tipster": qualify when bet365's price is at or
-  above the advised price, stake advised units × unit stake × trust weight,
-  count the 2-Up rescue. (raised 5 Nov 2026)
+- **The Bet Placer is a black box for now.** Its outside is fixed: it reads the
+  three feeds, sizes, places, keeps the only book and posts `placed` / `gone`
+  to Finder. Inside it are a **phone interface** and a **staking logic**,
+  designed when the box is opened (`docs/placer-spec.md`). (6 Nov 2026, Callum)
+- **Phones are driven through DeviceFarmer** at a local port on the Hub; bet365
+  bets go through the phone's browser, not the app; Callum can take manual
+  control of any phone the same way. (6 Nov 2026, Callum)
+- **How a Finder tip is staked: HubAI advises, the Bet Placer decides.** HubAI
+  judges from the tip's own price and fair price and puts its advised stake on
+  the Finder row; the Bet Placer sizes every bet itself. (6 Nov 2026, Callum)
+- **Dry-run is the default** in every Bet Placer; Callum switches it off after
+  two weeks of clean dry-run, nobody else. **The kill switch is a file**
+  (`hub/data/KILL`); anyone may turn it on, only Callum turns it off. (spec)
+- **No auto-retry and no re-routing of a failed bet.** `failed` is recorded and
+  escalated to HubAI, full stop. A changed price re-runs the sizing at the new
+  price (that is the spec, not a retry). Every placement is idempotent on its
+  bet id. (spec)
+- **The Scraper's drop files are `hub/PROTOCOL.md` + `hub/schemas/`**: the
+  `scraper_tips` and `scraper_event` envelopes; a change touches the Scraper and
+  the Hub in one pull request. (6 Nov 2026)
 
 ## Operating the Hub
 
 - **The Hub updates itself** from `main` every 10 minutes
   (`puntmore-update.timer`, `hub/deploy/update.sh`); nothing is pulled by
   hand after the first install. (5 Nov 2026)
-- **The Hub Console** (`puntmore web`, `http://127.0.0.1:8090`) is how a person
-  sees what every Hub component is doing; its actions need a token. (5 Nov
-  2026, Callum)
-- **The Scraper runs as the user service `puntmore-scraper` on the desktop
-  session**, data in `/opt/puntmore-scraper/data`, updated by the same timer.
-  (5 Nov 2026, Callum; landing in the `native-worker` branch)
+- **The Console** (`puntmore web`, `http://127.0.0.1:8090`) is how a person
+  sees what every Hub sub-component is doing; its actions need a token.
+  (5 Nov 2026, Callum)
+- **The Scraper service runs as the user service `puntmore-scraper` on the
+  desktop session**, data in `/opt/puntmore-scraper/data`, updated by the same
+  timer. (5 Nov 2026, Callum)
 - **Secrets live in `.env` files only**; a gitleaks pre-commit hook guards
   commits. Databases and build metadata are never committed.
 
 ## Agents
 
 - **Claude Code agents** work in isolated worktrees on branches, open pull
-  requests, and are reviewed before merge; they read this file first and treat
-  any description of an earlier build as history, not instruction. Hermes
-  agents on the Hub follow the runbook skills under `hub/deploy/hermes-skills/`.
+  requests, and are reviewed before merge; they read this file first. HubAI's
+  profiles follow the runbook skills under `hub/deploy/hermes-skills/`.
   (5 Nov 2026)
+
+## Product, pricing and design (July–Oct 2026, Callum)
+
+The older product decisions, settled while the coupon tracker was built.
+
+### Coupons and accounts
+
+- **Keep the coupons/legs model.** Do not reintroduce sets/versions/matches or
+  the Mon–Wed/Sat/Sun set navigation.
+- **Syndicate model**: 4 members, shared data, all equal. No roles, no per-user
+  partitioning. Auth is in-app sessions (bcrypt + signed cookie); no JWT, no
+  registration, no password reset.
+- **Image OCR upload, not CSV/XLSX.** OCR is auto-confirm: rows save and price
+  immediately, with inline edit and re-scan.
+- **The coupon cleanup window is 8 days**, and deletes both database rows and
+  the stored image files, never one without the other.
+- **Coupon kick-off times are GMT.** The time printed on a coupon is stored
+  naive and read back as UTC everywhere (countdown, kicked-off sweep); no
+  local-time conversion, which would shift every kick-off by an hour through
+  BST. (July 2026)
+- **Coupons are structure, not inference.** OCR transcribes the whole grid,
+  every market block keyed by its printed heading, each pair positional, and
+  the app matches headings and assigns sides in code. The model is never asked
+  which block to read or which team a price belongs to; one photo of a sheet
+  fills every market printed on it. (July 2026)
+- **One issue per (type, period); the newest upload is the coupon.** A new
+  upload replaces the previous one of the same type and period, row and image
+  both, but only once it has read rows, so a failed or empty scan never takes
+  a working coupon with it. Different periods of one type coexist. (July 2026)
+- **An issue is addressable, and the newest one is the default.**
+  `/t/<code>/<coupon_id>` is one issue; the ladder combination, the fixture list
+  and the counts are per issue. Opening a type resolves to its most recent
+  window; `/t/<code>/all` spans every issue.
+
+### Pricing
+
+- **Fair odds are computed in-house by de-vigging raw prices** with the power
+  method (`odds/utils.py`): solve k where `Σ(1/price)^k = 1`, `fair =
+  price^k`. Vendor-supplied de-vigged fields are cross-check only. `margin`
+  stays the raw overround. Applies to every tool. (June 2026)
+- **Incomplete markets go unpriced.** De-vigging needs the full outcome set; a
+  vigged price mislabelled as fair is worse than no price.
+- **Win-and-Over is derived** from a calibrated score grid, never priced as
+  moneyline × over: result and total goals are correlated.
+- **Derived-market thresholds come from measured backtest calibration**, not
+  assumption. Until measured: provisional 8% with the uncertainty band shown.
+- **OddsPapi bills per request, not per response**; the fixture list is
+  billable. Budget and refresh tiers are in `render/api/AGENTS.md`. No provider
+  picker in the UI.
+- **Never call external APIs from core logic**: everything goes through the
+  seams (`OCRProvider`, `OddsProvider`, `NotificationProvider`).
+
+### Design
+
+- **Paper theme.** `--paper #FCFBF8`, `--zebra #F4F2EC`, `--ink #1A1A18`,
+  `--muted #6B6862`, `--faint #9C988F`, `--line #D8D5CD`,
+  `--line-strong #BBB7AD`, `--accent #2F7D55`, `--accent-soft #E1EFE7`.
+  System sans for UI, mono for all numbers. Caveat is flow-diagram annotation
+  only, never in the app.
+- **Mobile-first PWA.** Single column, safe-area insets, capped width on
+  tablet, bottom tab bar, touch targets ≥44px.
