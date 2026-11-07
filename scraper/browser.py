@@ -13,6 +13,14 @@ with AutomationControlled off, so it is the same Chrome a person would open —
 no "controlled by automated test software" bar, `navigator.webdriver` false.
 Everything else is left as Chrome sets it. Challenges are only ever DETECTED,
 never answered.
+
+One departure from Chrome's own defaults on the desktop (7 Nov 2026): Chrome
+is told to use X11 (Xwayland) rather than the Wayland socket. On a Wayland
+session with no monitor connected (the Hub's screen off overnight) a new
+Wayland Chrome never finishes starting - it waits for an output that never
+comes - and the service sat dead for 15 h behind launch timeouts, three times
+in two days, until a screen was plugged back in. Xwayland keeps its last
+geometry and starts Chrome in under a second either way. Measured 7 Nov 2026.
 """
 import os
 import random
@@ -58,6 +66,8 @@ _ENV = {"LANGUAGE": "en_GB:en", "LANG": "en_GB.UTF-8", "TZ": "Europe/London"}
 # applies everywhere, the desktop included.
 _NOT_A_TEST_RUN = ["--disable-blink-features=AutomationControlled"]
 _PLAYWRIGHT_TEST_FLAGS = ["--enable-automation"]
+# Desktop only: Xwayland, so Chrome starts with no monitor on (module docstring).
+_X11 = ["--ozone-platform=x11"]
 
 
 def in_container(environ=None) -> bool:
@@ -75,6 +85,7 @@ def launch_options(headless: bool = False, environ=None) -> dict:
         args += _WINDOW + _LANGUAGE
         env.update(_ENV)
     else:
+        args += _X11
         env.setdefault("TZ", "Europe/London")
     args += _NOT_A_TEST_RUN
     return dict(headless=headless, no_viewport=True, args=args,

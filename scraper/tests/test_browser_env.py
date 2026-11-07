@@ -25,6 +25,7 @@ def test_container_flag():
 def test_desktop_launch_is_chromes_own_defaults():
     kw = browser.launch_options(headless=False, environ=DESKTOP)
     assert not {"--window-size", "--window-position", "--accept-lang"} & _flags(kw)
+    assert "--ozone-platform=x11" in kw["args"]           # Xwayland: starts with no monitor on
     assert "--no-sandbox" not in _flags(kw)
     assert kw["env"]["LANG"] == "en_GB.UTF-8"             # the session's own, untouched
     assert kw["env"]["WAYLAND_DISPLAY"] == "wayland-0"
@@ -37,6 +38,7 @@ def test_no_screen_gets_the_stand_ins(environ, headless):
     kw = browser.launch_options(headless=headless, environ=environ)
     assert "--window-size=1600,1000" in kw["args"]
     assert "--accept-lang=en-GB,en-US,en" in kw["args"]
+    assert "--ozone-platform" not in _flags(kw)           # no Wayland session to work round
     assert kw["env"]["LANG"] == "en_GB.UTF-8" and kw["env"]["TZ"] == "Europe/London"
 
 
