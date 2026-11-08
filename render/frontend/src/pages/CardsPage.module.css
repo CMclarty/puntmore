@@ -1,11 +1,11 @@
 /* Paddy (and Hills): a band in the bookmaker's colours holding the name, the
    prices' age and one pill per filter; white rows under it (Callum, 8 Nov
-   2026). Paddy's palette is paddypower.com's own: #004833 band, white for a
+   2026). Paddy's palette is paddypower.com's own: #004833 band, #009e51 for a
    changed filter (no yellow: Callum), #474752 / #73737d text, #d5d5d8 rules, #f1f2f6 ground. */
 .page {
   display: flex; flex-direction: column; flex: 1;
   --ink-pp: #111114; --text-pp: #474752; --muted-pp: #73737d;
-  --rule-pp: #d5d5d8; --ground-pp: #f1f2f6; --set-pp: #fff;
+  --rule-pp: #d5d5d8; --ground-pp: #f1f2f6; --set-pp: #009e51;
   --good: #0aa818; --great: #cc59fe;
   --rounded: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, sans-serif;
   background: #fff; color: var(--ink-pp);
@@ -24,7 +24,7 @@
   border: 1px solid rgba(255, 255, 255, 0.45); background: none; color: #fff;
   font: 600 12px/1 inherit; font-family: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.pillOn { background: var(--set-pp); border-color: var(--set-pp); color: var(--band); }
+.pillOn { background: var(--set-pp); border-color: var(--set-pp); color: #fff; }
 .pillOpen { border-color: #fff; box-shadow: inset 0 0 0 1px #fff; }
 .pill:focus-visible, .colHead button:focus-visible { outline: 2px solid var(--set-pp); outline-offset: 2px; }
 
@@ -65,6 +65,7 @@
 .colHead button {
   border: none; background: none; padding: 0; min-height: 24px; font: inherit; color: inherit; cursor: pointer;
 }
+.top5 { margin-left: 10px; font-size: 11px; color: var(--text-pp); font-variant-numeric: tabular-nums; }
 .colHead .sorted { color: var(--ink-pp); font-weight: 700; }
 .colHead .sorted::after { content: " ↓"; }
 .what { display: flex; flex-direction: column; min-width: 0; gap: 2px; }

@@ -49,11 +49,13 @@ homage to the bookmaker. What Callum asked for, piece by piece; keep it:
   for this, so it overrides the older "no updated time" rule below), and one
   pill per filter on the same line: markets, kick-off window, max odds, and
   "per match" on Refund/Boost. A pill shows its setting; a changed one is
-  filled white (Callum dropped the yellow, 8 Nov 2026); a pill opens its own choices under the band.
+  Paddy's bright green `#009e51` (Callum dropped the yellow, 8 Nov 2026); a pill opens its own choices under the band.
 - **No min-value filter** (Callum: unused) — the Value tab is every bet at or
   above fair. A row with no Paddy price (the fair-only "most corners / cards"
   rows) is treated as negative and hidden there and on Free bet (Callum, 8 Nov
-  2026: clutter). **No Top 5 line** (Callum: useless). Sort is a tap on the Odds
+  2026: clutter). **No Top 5 line** (Callum: useless); on
+  Refund/Boost its % of fair sits in the header row beside "Bet" instead,
+  coloured and bolded like Value, moving nothing (Callum, 8 Nov 2026). Sort is a tap on the Odds
   or Value heading. **Free bet is a fourth offer** beside Value / Refund /
   Boost: the Value list ranked by what a free bet keeps,
   `(1 + value) × (odds − 1) / odds` (`freeBetScore`).
