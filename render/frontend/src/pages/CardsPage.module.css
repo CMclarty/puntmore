@@ -1,11 +1,11 @@
 /* Paddy (and Hills): a band in the bookmaker's colours holding the name, the
    prices' age and one pill per filter; white rows under it (Callum, 8 Nov
-   2026). Paddy's palette is paddypower.com's own: #004833 band, #fce300 for a
-   changed filter, #474752 / #73737d text, #d5d5d8 rules, #f1f2f6 ground. */
+   2026). Paddy's palette is paddypower.com's own: #004833 band, white for a
+   changed filter (no yellow: Callum), #474752 / #73737d text, #d5d5d8 rules, #f1f2f6 ground. */
 .page {
   display: flex; flex-direction: column; flex: 1;
   --ink-pp: #111114; --text-pp: #474752; --muted-pp: #73737d;
-  --rule-pp: #d5d5d8; --ground-pp: #f1f2f6; --set-pp: #fce300;
+  --rule-pp: #d5d5d8; --ground-pp: #f1f2f6; --set-pp: #fff;
   --good: #0aa818; --great: #cc59fe;
   --rounded: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, sans-serif;
   background: #fff; color: var(--ink-pp);
@@ -78,10 +78,11 @@
 .odds { font-size: 15px; font-weight: 600; color: var(--ink-pp); font-variant-numeric: tabular-nums; }
 .value {
   font-size: 13px; color: var(--text-pp); font-variant-numeric: tabular-nums;
-  padding: 3px 5px; border-radius: 4px;
 }
-.good { background: var(--good); color: #fff; font-weight: 700; }
-.great { background: var(--great); color: #fff; font-weight: 700; }
+/* Over 100% is bold; the EV sheet's colours are the text, not a fill (Callum). */
+.over { font-weight: 700; color: var(--ink-pp); }
+.good { color: var(--good); }
+.great { color: var(--great); }
 .empty { padding: 24px 12px; font-size: 13px; color: var(--muted-pp); }
 .error { padding: 12px; font-size: 12px; color: var(--red); }
 /* Offer switch: Value / Refund / Boost, floating bottom-right, clear of the
