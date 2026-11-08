@@ -52,7 +52,9 @@ homage to the bookmaker. What Callum asked for, piece by piece; keep it:
   Paddy yellow (`#fce300`); a pill opens its own choices under the band.
 - **No min-value filter** (Callum: unused) — the Value tab is every bet at or
   above fair. **No Top 5 line** (Callum: useless). Sort is a tap on the Odds
-  or Value heading; the free-bet sort went with the old options panel.
+  or Value heading. **Free bet is a fourth offer** beside Value / Refund /
+  Boost: the Value list ranked by what a free bet keeps,
+  `(1 + value) × (odds − 1) / odds` (`freeBetScore`).
 - **Columns: Bet · KO · Odds · Value · Fair.** KO is its own column in the
   match line's size and grey, the day above the time when not today.
   Selections are written short (O / U) so each fits its line.

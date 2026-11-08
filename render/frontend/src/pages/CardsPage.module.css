@@ -88,7 +88,7 @@
    tool dock in the bottom-left corner. */
 .offerSwitch {
   position: fixed; z-index: 51;
-  right: 16px; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   display: flex; gap: 2px;
   padding: 3px; border-radius: 999px;
   background: #fff; border: 1px solid var(--rule-pp);
@@ -96,7 +96,7 @@
 }
 .offerBtn {
   border: none; background: none; border-radius: 999px;
-  min-height: 38px; padding: 0 15px;
-  font-size: 13px; font-weight: 600; color: var(--muted);
+  min-height: 38px; padding: 0 6px;
+  font-size: 12px; font-weight: 600; color: var(--muted);
 }
 .offerOn { background: var(--band, var(--ink)); color: #fff; }
