@@ -51,7 +51,9 @@ homage to the bookmaker. What Callum asked for, piece by piece; keep it:
   "per match" on Refund/Boost. A pill shows its setting; a changed one is
   filled white (Callum dropped the yellow, 8 Nov 2026); a pill opens its own choices under the band.
 - **No min-value filter** (Callum: unused) — the Value tab is every bet at or
-  above fair. **No Top 5 line** (Callum: useless). Sort is a tap on the Odds
+  above fair. A row with no Paddy price (the fair-only "most corners / cards"
+  rows) is treated as negative and hidden there and on Free bet (Callum, 8 Nov
+  2026: clutter). **No Top 5 line** (Callum: useless). Sort is a tap on the Odds
   or Value heading. **Free bet is a fourth offer** beside Value / Refund /
   Boost: the Value list ranked by what a free bet keeps,
   `(1 + value) × (odds − 1) / odds` (`freeBetScore`).
