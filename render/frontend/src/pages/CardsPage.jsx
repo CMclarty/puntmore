@@ -4,8 +4,8 @@ import f from './CardsPage.module.css'
 import MarketIcon from '../components/MarketIcon'
 import useAutoRefresh from '../hooks/useAutoRefresh'
 import { shortTeams } from '../teams'
-import { DEFAULTS as ACCA_DEFAULTS, legScore } from '../accaInsurance'
-import { boostLegScore } from '../accaBoost'
+import { DEFAULTS as ACCA_DEFAULTS, evaluate, legScore, trueProb } from '../accaInsurance'
+import { boostEval, boostLegScore } from '../accaBoost'
 import HillsBuilder from './HillsBuilder'
 import { age, kickoff } from '../paddy'
 
@@ -279,6 +279,16 @@ export default function CardsPage({ book = 'paddy' }) {
   list.sort(
     fl.sort === 'shortest' ? (x, y) => (x.b.odds ?? Infinity) - (y.b.odds ?? Infinity) || y.s - x.s
     : (x, y) => y.s - x.s)
+  // Refund / Boost: the acca of the top 5 by score, one per match, as % of fair
+  // in the header's spare space (Callum, 8 Nov 2026: back, without moving rows).
+  let top5 = null
+  if (!singles) {
+    const picks = bestPerMatch(list).sort((a, b) => b.s - a.s).slice(0, 5).map(x => x.b)
+    if (picks.length === 5) {
+      const odds = picks.map(b => b.odds), probs = picks.map(trueProb)
+      top5 = (refund ? evaluate({ odds, probs }, ACCA_DEFAULTS) : boostEval(odds, probs)).evPct
+    }
+  }
 
   // The oldest fetch behind the board: "updated" never claims fresher prices.
   const pricedAt = (items || []).map(i => i.priced_at).filter(Boolean).sort()[0]
@@ -362,7 +372,7 @@ export default function CardsPage({ book = 'paddy' }) {
       {!error && items && items.length > 0 && (
         <div className={f.list}>
           <div className={`${f.row} ${f.colHead}`}>
-            <span>Bet</span><span>KO</span>
+            <span>Bet{top5 != null && <span className={`${f.top5} ${tier(top5)}`}>Top 5 {evPct(top5)}</span>}</span><span>KO</span>
             <button type="button" className={fl.sort === 'shortest' ? f.sorted : ''} aria-pressed={fl.sort === 'shortest'}
               onClick={sortBy('shortest')}>Odds</button>
             <button type="button" className={fl.sort === 'best' ? f.sorted : ''} aria-pressed={fl.sort === 'best'}
