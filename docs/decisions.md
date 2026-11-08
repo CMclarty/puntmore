@@ -276,3 +276,8 @@ The older product decisions, settled while the coupon tracker was built.
   only, never in the app.
 - **Mobile-first PWA.** Single column, safe-area insets, capped width on
   tablet, bottom tab bar, touch targets ≥44px.
+- **The paper theme is not pinned (8 Nov 2026, Callum).** It is the incumbent
+  look, kept by refinements, but open to replacement by a later redesign.
+  Product truth for design work is `PRODUCT.md` at the repo root (written
+  with the impeccable plugin's `init`): puntmore.com is for Callum and a few
+  invited people, used on a phone near kickoff; it is not sold.
