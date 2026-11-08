@@ -42,7 +42,7 @@ const FETCH_MIN_EDGE = -0.05
 // 120%+ purple.
 const GOOD = 0.10
 const GREAT = 0.20
-const tier = v => (v == null ? '' : v >= GREAT ? f.great : v >= GOOD ? f.good : '')
+const tier = v => (v == null ? '' : `${v > 0 ? f.over : ''} ${v >= GREAT ? f.great : v >= GOOD ? f.good : ''}`)
 // Each book's band: the bookmaker's own colours (the register, 8 Nov 2026).
 const THEME = {
   paddy: { name: 'PADDY', band: '#004833' },

@@ -49,7 +49,7 @@ homage to the bookmaker. What Callum asked for, piece by piece; keep it:
   for this, so it overrides the older "no updated time" rule below), and one
   pill per filter on the same line: markets, kick-off window, max odds, and
   "per match" on Refund/Boost. A pill shows its setting; a changed one is
-  Paddy yellow (`#fce300`); a pill opens its own choices under the band.
+  filled white (Callum dropped the yellow, 8 Nov 2026); a pill opens its own choices under the band.
 - **No min-value filter** (Callum: unused) — the Value tab is every bet at or
   above fair. **No Top 5 line** (Callum: useless). Sort is a tap on the Odds
   or Value heading. **Free bet is a fourth offer** beside Value / Refund /
@@ -58,8 +58,9 @@ homage to the bookmaker. What Callum asked for, piece by piece; keep it:
 - **Columns: Bet · KO · Odds · Value · Fair.** KO is its own column in the
   match line's size and grey, the day above the time when not today.
   Selections are written short (O / U) so each fits its line.
-- **Value is filled like an EV sheet**: green `#0aa818` at 110%+, purple
-  `#cc59fe` at 120%+ (`GOOD`, `GREAT`); below that, plain.
+- **Value is coloured like an EV sheet**, the text not a box: green
+  `#0aa818` at 110%+, purple `#cc59fe` at 120%+ (`GOOD`, `GREAT`); bold
+  above 100%, regular at 100% and below.
 - The tool switcher takes the book's colour while the page is open
   (`--tool-band`, `--dock-bg` set by the page).
 
