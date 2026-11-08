@@ -270,7 +270,7 @@ export default function CardsPage({ book = 'paddy' }) {
   const refund = offer === 'refund'
   const singles = offer === 'value' || offer === 'freebet'
   const list = singles
-    ? bets.filter(b => b.value == null || b.value >= 0)
+    ? bets.filter(b => b.value != null && b.value >= 0)  // no Paddy price = hidden (Callum, 8 Nov 2026)
       .map(b => ({ b, s: offer === 'freebet' ? freeBetScore(b) : b.value ?? -Infinity }))
     : bets.filter(b => b.odds >= ACCA_FLOOR)
       .map(b => ({ b, s: refund ? legScore(b, ACCA_DEFAULTS) : boostLegScore(b).growth }))
