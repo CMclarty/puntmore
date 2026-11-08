@@ -9,7 +9,7 @@
   flex-shrink: 0;
   display: flex;                 /* keeps the button at its own width, hard left */
   padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
-  background: var(--paper);
+  background: var(--dock-bg, var(--paper));
   border-top: 1px solid var(--line);
 }
 
@@ -88,7 +88,7 @@
   padding: 6px 12px 6px 7px;
   border: none;
   border-radius: 14px;
-  background: var(--ink);
+  background: var(--tool-band, var(--ink));   /* a page may set its book's colour */
   color: var(--paper);
   font: inherit;
   text-align: left;

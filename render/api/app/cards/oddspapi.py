@@ -910,6 +910,7 @@ class OddsPapiPaddySource:
         self.boards: dict[str, dict] = {}
         self.market_index: dict[str, tuple] = {}
         self.priced_book = book          # the slug the plan granted, once a sweep resolves it
+        self.priced_at = None            # when the priced book's prices were fetched (oldest chunk)
 
     def get_events(self) -> list[dict]:
         # One sweep at a time: a page load arriving mid-sweep waits and then
@@ -977,6 +978,11 @@ class OddsPapiPaddySource:
                     errors.append(f"{book} {chunk}: {exc}")
                     logger.error("cards (oddspapi): %s odds for %s failed: %s", book, chunk, exc)
         fixtures = merge_books(*per_book.values())
+        # When the priced book's prices were fetched: the OLDEST of its chunks,
+        # so the board's "last update" never claims fresher prices than it has.
+        times = [self._client.fetched_at(ids[i:i + per], priced_book)
+                 for i in range(0, len(ids), per)] if hasattr(self._client, "fetched_at") else []
+        self.priced_at = min((t for t in times if t is not None), default=None)
         self.fixtures = listed_fixtures(fixtures, names)
         self.boards = {str(_first(fx, "fixtureId", "id")): fx for fx in fixtures}
         self.market_index = markets

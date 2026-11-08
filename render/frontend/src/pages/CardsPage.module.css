@@ -1,81 +1,89 @@
-/* Paddy: one panel — a folded options line (offer + filters), then one list. */
-.page { display: flex; flex-direction: column; flex: 1; }
+/* Paddy (and Hills): a band in the bookmaker's colours holding the name, the
+   prices' age and one pill per filter; white rows under it (Callum, 8 Nov
+   2026). Paddy's palette is paddypower.com's own: #004833 band, #fce300 for a
+   changed filter, #474752 / #73737d text, #d5d5d8 rules, #f1f2f6 ground. */
+.page {
+  display: flex; flex-direction: column; flex: 1;
+  --ink-pp: #111114; --text-pp: #474752; --muted-pp: #73737d;
+  --rule-pp: #d5d5d8; --ground-pp: #f1f2f6; --set-pp: #fce300;
+  --good: #0aa818; --great: #cc59fe;
+  --rounded: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #fff; color: var(--ink-pp);
+  font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.band {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px;
+  padding: 8px 12px; background: var(--band); color: #fff;
+}
+.title { display: flex; flex-direction: column; line-height: 1.1; }
+.name { font-family: var(--rounded); font-weight: 900; font-size: 19px; letter-spacing: 0.01em; }
+.updated { font-size: 10.5px; opacity: 0.8; white-space: nowrap; }
+.pills { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 5px; }
+.pill {
+  min-width: 0; min-height: 34px; padding: 0 6px; border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.45); background: none; color: #fff;
+  font: 600 12px/1 inherit; font-family: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pillOn { background: var(--set-pp); border-color: var(--set-pp); color: var(--band); }
+.pillOpen { border-color: #fff; box-shadow: inset 0 0 0 1px #fff; }
+.pill:focus-visible, .colHead button:focus-visible { outline: 2px solid var(--set-pp); outline-offset: 2px; }
 
-.filterBar {
-  display: flex; align-items: center; gap: 10px;
-  padding: 5px 12px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--faint);
-}
-.summary {
-  flex: 1; min-width: 0; padding: 4px 0; border: none; background: none; text-align: left;
-  font: inherit; color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.filtered { color: var(--accent); font-weight: 600; background: var(--accent-soft); }
-.filterToggle { flex-shrink: 0; border: none; background: none; padding: 4px 0; font-size: 12px; color: var(--muted); font-weight: 600; }
 .panel {
   display: flex; flex-direction: column; gap: 8px;
-  padding: 10px 12px; border-bottom: 1px solid var(--line);
+  padding: 10px 12px; border-bottom: 1px solid var(--rule-pp); background: var(--ground-pp);
 }
 .group { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
-.label { width: 58px; font-size: 11px; color: var(--muted); }
 .chip {
-  padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px;
-  background: none; font-size: 12px; color: var(--muted);
+  padding: 6px 10px; border: 1px solid var(--rule-pp); border-radius: 999px; min-height: 34px;
+  background: #fff; font-size: 12.5px; color: var(--text-pp);
   display: inline-flex; align-items: center; gap: 4px;
 }
-.chipOn { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); font-weight: 600; }
-.reset { margin-left: auto; border: none; background: none; font-size: 12px; color: var(--accent); }
+.chipOn { border-color: var(--band, #004833); background: var(--band, #004833); color: #fff; font-weight: 600; }
 
 .list { display: flex; flex-direction: column; padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
-.row {
+.row, .subRow {
   display: grid;
-  grid-template-columns: 22px 1fr 44px 56px 44px;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) 38px 42px 54px 36px;
+  gap: 6px;
   align-items: center;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--line);
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--rule-pp);
 }
-.row > :nth-child(n+3) { text-align: right; }
-/* Fair decimal odds, the reference the value % is measured against. */
-.fair { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.subRow { padding-top: 6px; padding-bottom: 6px; }
+.row > :nth-child(n+2), .subRow > :nth-child(n+2) { text-align: right; justify-self: end; }
+.fair { font-size: 12px; color: var(--muted-pp); font-variant-numeric: tabular-nums; }
 .tappable { cursor: pointer; }
-.more { font-size: 11px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.more { font-size: 11px; color: var(--muted-pp); font-weight: 600; white-space: nowrap; }
 
 /* Ladder drop-down: a selection's other value lines, under its lead row. */
-.sub { background: var(--accent-soft); }
-.subRow {
-  display: grid;
-  grid-template-columns: 22px 1fr 44px 56px 44px;
-  gap: 8px;
-  align-items: center;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--line);
-}
-.subRow > :nth-child(n+3) { text-align: right; }
-/* Same face as .pick: "O5.5" under "O6.5 cards" should read as one list. */
-.subLine { font-size: 14px; color: var(--ink); }
-.top5 {
-  display: flex; align-items: baseline; gap: 14px;
-  padding: 10px 12px; border-bottom: 1px solid var(--line);
-  font-size: 14px; font-weight: 700; color: var(--ink);
-}
-.top5Odds { margin-left: auto; font-family: var(--font-mono); }
-.top5Ev { font-family: var(--font-mono); text-align: right; }
-.top5Stake { font-family: var(--font-mono); text-align: right; }
+.sub { background: var(--ground-pp); }
+.subLine { font-size: 14px; color: var(--ink-pp); }
 .colHead {
-  padding-top: 8px; padding-bottom: 5px;
-  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--faint);
+  padding-top: 7px; padding-bottom: 7px; background: var(--ground-pp);
+  font-size: 11px; font-weight: 500; color: var(--muted-pp);
 }
-.what { display: flex; flex-direction: column; min-width: 0; }
-.pick { font-size: 14px; color: var(--ink); }
-.match { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.odds { font-family: var(--font-mono); font-size: 14px; color: var(--ink); }
-.value { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
-.strong { color: var(--accent); font-weight: 700; }
-
-.empty { padding: 24px 12px; font-size: 13px; color: var(--muted); }
+.colHead button {
+  border: none; background: none; padding: 0; min-height: 24px; font: inherit; color: inherit; cursor: pointer;
+}
+.colHead .sorted { color: var(--ink-pp); font-weight: 700; }
+.colHead .sorted::after { content: " ↓"; }
+.what { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.pick {
+  font-family: var(--rounded); font-weight: 700; font-size: 14px; color: var(--ink-pp);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.match, .ko { font-size: 11px; color: var(--muted-pp); }
+.match { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ko { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.odds { font-size: 15px; font-weight: 600; color: var(--ink-pp); font-variant-numeric: tabular-nums; }
+.value {
+  font-size: 13px; color: var(--text-pp); font-variant-numeric: tabular-nums;
+  padding: 3px 5px; border-radius: 4px;
+}
+.good { background: var(--good); color: #fff; font-weight: 700; }
+.great { background: var(--great); color: #fff; font-weight: 700; }
+.empty { padding: 24px 12px; font-size: 13px; color: var(--muted-pp); }
 .error { padding: 12px; font-size: 12px; color: var(--red); }
-
 /* Offer switch: Value / Refund / Boost, floating bottom-right, clear of the
    tool dock in the bottom-left corner. */
 .offerSwitch {
@@ -83,7 +91,7 @@
   right: 16px; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   display: flex; gap: 2px;
   padding: 3px; border-radius: 999px;
-  background: var(--paper); border: 1px solid var(--line);
+  background: #fff; border: 1px solid var(--rule-pp);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
 }
 .offerBtn {
@@ -91,4 +99,4 @@
   min-height: 38px; padding: 0 15px;
   font-size: 13px; font-weight: 600; color: var(--muted);
 }
-.offerOn { background: var(--ink); color: var(--paper); }
+.offerOn { background: var(--band, var(--ink)); color: #fff; }

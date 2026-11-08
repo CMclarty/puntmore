@@ -122,6 +122,7 @@ def build_feed(client, min_edge: float) -> list[CardFeedItem]:
             best_value=max((b.value for b in g["bets"]), default=-1.0),
             bets=g["bets"],
             fairs=g["fairs"],
+            priced_at=getattr(client, "priced_at", None),
         ))
 
     result.sort(key=lambda x: -x.best_value)
