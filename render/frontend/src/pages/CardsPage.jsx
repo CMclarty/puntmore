@@ -49,7 +49,11 @@ const THEME = {
   hills: { name: 'HILLS', band: '#1F3A5F' },
 }
 const ACCA_FLOOR = ACCA_DEFAULTS.minOdds
-const OFFERS = [['value', 'Value'], ['refund', 'Refund'], ['boost', 'Boost']]
+const OFFERS = [['value', 'Value'], ['refund', 'Refund'], ['boost', 'Boost'], ['freebet', 'Free bet']]
+// Free bet (Callum, 8 Nov 2026): the Value list ranked for a free bet. Its
+// stake isn't returned, so a win keeps (odds - 1) / odds of the price, and
+// longer odds keep more; scaled by the value edge.
+const freeBetScore = b => (b.odds == null ? -Infinity : (1 + b.value) * (b.odds - 1) / b.odds)
 
 // Filters: one pill each in the band, so the usual
 // visit is open → glance → bet. Shared across offers, remembered.
@@ -261,14 +265,17 @@ export default function CardsPage({ book = 'paddy' }) {
     .filter(b => (!b.market || fl.markets.includes(b.market))
       && (fl.maxOdds == null || b.odds <= fl.maxOdds))
 
-  // Best down: value on the Value offer, Kelly growth in the offer on the others.
+  // Best down: value on the Value offer, free-bet return on Free bet, Kelly
+  // growth in the offer on the acca offers.
   const refund = offer === 'refund'
-  const list = offer === 'value'
-    ? bets.filter(b => b.value == null || b.value >= 0).map(b => ({ b, s: b.value ?? -Infinity }))
+  const singles = offer === 'value' || offer === 'freebet'
+  const list = singles
+    ? bets.filter(b => b.value == null || b.value >= 0)
+      .map(b => ({ b, s: offer === 'freebet' ? freeBetScore(b) : b.value ?? -Infinity }))
     : bets.filter(b => b.odds >= ACCA_FLOOR)
       .map(b => ({ b, s: refund ? legScore(b, ACCA_DEFAULTS) : boostLegScore(b).growth }))
   // Refund / Boost: one selection per match — the highest-scoring one.
-  if (offer !== 'value' && fl.onePerMatch) list.splice(0, list.length, ...bestPerMatch(list))
+  if (!singles && fl.onePerMatch) list.splice(0, list.length, ...bestPerMatch(list))
   list.sort(
     fl.sort === 'shortest' ? (x, y) => (x.b.odds ?? Infinity) - (y.b.odds ?? Infinity) || y.s - x.s
     : (x, y) => y.s - x.s)
@@ -306,7 +313,7 @@ export default function CardsPage({ book = 'paddy' }) {
         <Selection key={g.key} lead={g.lead} others={g.others} now={now}
           expanded={expanded.has(g.key)} onToggle={() => toggle(g.key)} />))
     : <p className={f.empty}>{!sameMarkets || fl.within != null || fl.maxOdds != null ? 'Nothing matches these filters.'
-      : offer === 'value' ? 'No bets at or above fair right now.' : `No legs at ${ACCA_FLOOR}+ right now.`}</p>
+      : singles ? 'No bets at or above fair right now.' : `No legs at ${ACCA_FLOOR}+ right now.`}</p>
 
   return (
     <div className={f.page} style={{ '--band': theme.band }}>
@@ -319,7 +326,7 @@ export default function CardsPage({ book = 'paddy' }) {
           {pill('markets', marketsLabel(fl.markets), !sameMarkets)}
           {pill('within', withinLabel(fl.within), fl.within != null)}
           {pill('odds', oddsLabel(fl.maxOdds), fl.maxOdds != null)}
-          {offer !== 'value' && pill('match', fl.onePerMatch ? '1 per match' : 'All legs', fl.onePerMatch)}
+          {!singles && pill('match', fl.onePerMatch ? '1 per match' : 'All legs', fl.onePerMatch)}
         </div>
       </div>
       {open && (
