@@ -39,6 +39,28 @@ screen is for finding a bet and placing it in seconds.
 - When asked to change one thing, change that thing. Don't tidy, restyle or
   "improve" the rest of the page alongside it.
 
+## The Paddy board's look (`pages/CardsPage.jsx`, Callum, 8 Nov 2026)
+Paddy (and Hills, which is the same page) moved off the paper theme to a
+homage to the bookmaker. What Callum asked for, piece by piece; keep it:
+- **White ground, black text.** A band in the book's colour across the top
+  (`THEME` in the page: Paddy `#004833`, paddypower.com's own; Hills
+  `#1F3A5F`) holds the book's name in capitals, **"Updated 3m"** under it (the
+  oldest OddsPapi fetch behind the board, the feed's `priced_at`; Callum asked
+  for this, so it overrides the older "no updated time" rule below), and one
+  pill per filter on the same line: markets, kick-off window, max odds, and
+  "per match" on Refund/Boost. A pill shows its setting; a changed one is
+  Paddy yellow (`#fce300`); a pill opens its own choices under the band.
+- **No min-value filter** (Callum: unused) — the Value tab is every bet at or
+  above fair. **No Top 5 line** (Callum: useless). Sort is a tap on the Odds
+  or Value heading; the free-bet sort went with the old options panel.
+- **Columns: Bet · KO · Odds · Value · Fair.** KO is its own column in the
+  match line's size and grey, the day above the time when not today.
+  Selections are written short (O / U) so each fits its line.
+- **Value is filled like an EV sheet**: green `#0aa818` at 110%+, purple
+  `#cc59fe` at 120%+ (`GOOD`, `GREAT`); below that, plain.
+- The tool switcher takes the book's colour while the page is open
+  (`--tool-band`, `--dock-bg` set by the page).
+
 ## The 2-Up tab (`pages/TwoUpPage.jsx`, 6 Nov 2026)
 The Feed alone: every value side on the server's scheduled board
 (`/api/2up/feed?value_only=true`), best edge down, price and edge as % of
@@ -65,20 +87,19 @@ an account or configures the feed: the dials are `.env` on Render. Helpers in
   page is THREE TABS — Value (singles at fair or better), Refund (the
   insurance offer), Boost — each ONE list, best down (Callum, Oct 2026:
   "this is a tool — keep it clean"; open, tap one of three, bet in seconds).
-  Filters (market, kick-off, max odds, min value, sort) are FOLDED
-  under one line naming what is applied — never an always-open panel.
+  Filters (market, kick-off, max odds; per match on Refund/Boost) are pills
+  in the band, one line (8 Nov 2026, above); sort is the column headings.
   Refund and Boost show a SCORE column: the leg's Kelly growth against a
   FIXED yardstick — 100 = a fair 1.25 leg (`refOdds`, the neutral partner it
   is scored beside), so a number means the same thing every day. Tiers (Callum):
   100+ GREEN = smash it, 80-99 ORANGE = filler, below 80 GREY = leave it. It was relative (best on the list = 100) until Oct 2026, which said
   nothing about whether a leg was any good.
-  Above the list, ONE line: the acca of the top 5 by score (one per match)
-  — its odds and absolute EV, so "is it worth betting" reads at a glance.
-  Boost adds a stake: 0.10 Kelly on a £50k bankroll (`BOOST_KELLY`,
-  `BOOST_BANKROLL` in CardsPage.jsx).
+  The Top 5 line above the list (and Boost's stake on it) was removed by
+  Callum on 8 Nov 2026.
   Both have a floating "1 per match" button bottom-right (keeps each match's
   top-scoring leg — an acca takes one leg per game). NO clock / "updated"
-  time or other decoration in the header: Callum has asked twice.
+  time or other decoration in the header: Callum has asked twice. (Superseded
+  for Paddy and Hills on 8 Nov 2026: he asked for "Updated 3m" in the band.)
   Refund = the insurance offer; **Acca Boost** (`accaBoost.js`) = winnings +10/20/30%
   on 4/5/6 legs, win-or-lose, each leg scored in its best fold. Both are a
   plain list of qualifying legs, best down — NO recommended acca on the page

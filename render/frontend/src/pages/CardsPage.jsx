@@ -4,22 +4,26 @@ import f from './CardsPage.module.css'
 import MarketIcon from '../components/MarketIcon'
 import useAutoRefresh from '../hooks/useAutoRefresh'
 import { shortTeams } from '../teams'
-import { DEFAULTS as ACCA_DEFAULTS, evaluate, legScore, trueProb } from '../accaInsurance'
-import { boostEval, boostLegScore } from '../accaBoost'
+import { DEFAULTS as ACCA_DEFAULTS, legScore } from '../accaInsurance'
+import { boostLegScore } from '../accaBoost'
 import HillsBuilder from './HillsBuilder'
+import { age, kickoff } from '../paddy'
 
 /**
  * Paddy — Paddy Power's corners, cards, goals and saves against fair prices.
  *
- * One feed. The offer (Value / Refund / Boost) is a floating switch at the
- * bottom; every filter lives in a single folded options pane whose collapsed
- * line names what is applied:
+ * One feed. A band in the bookmaker's colours (Callum, 8 Nov 2026) holds the
+ * book's name, how long since the prices were fetched, and one pill per
+ * filter showing its setting; a pill opens its own choices. Sort is the Odds
+ * and Value headings. The offer (Value / Refund / Boost) is a floating switch
+ * at the bottom:
  *   Value   every bet at or above fair, best value first.
  *   Refund  the acca insurance offer (5-fold, legs 1.20+, stake back as a
  *           bonus if exactly one leg loses): every qualifying leg, best down.
  *   Boost   winnings +10/20/30% on a 4/5/6-fold, legs 1.20+: same.
  * Order is Kelly growth (accaInsurance.js / accaBoost.js). Each row shows the
- * Paddy odds, the value %, and the fair odds (the one the value % is measured
+ * bet, the kick-off (the day above it when not today), the Paddy odds, the
+ * value % (filled green at 110%+, purple at 120%+), and the fair odds (the one the value % is measured
  * against, so odds ÷ fair − 1 is the value shown). No acca is built or recommended —
  * the list is the tool, the picking is Callum's.
  *
@@ -34,15 +38,20 @@ import HillsBuilder from './HillsBuilder'
 // because the acca offers carry value of their own and a leg a little under
 // fair can still belong. The Value offer shows only fair-or-better from it.
 const FETCH_MIN_EDGE = -0.05
-// Value at or above this is set in the accent colour.
-const STRONG = 0.04
+// Value tiers, filled like an EV sheet (Callum, 8 Nov 2026): 110%+ green,
+// 120%+ purple.
+const GOOD = 0.10
+const GREAT = 0.20
+const tier = v => (v == null ? '' : v >= GREAT ? f.great : v >= GOOD ? f.good : '')
+// Each book's band: the bookmaker's own colours (the register, 8 Nov 2026).
+const THEME = {
+  paddy: { name: 'PADDY', band: '#004833' },
+  hills: { name: 'HILLS', band: '#1F3A5F' },
+}
 const ACCA_FLOOR = ACCA_DEFAULTS.minOdds
 const OFFERS = [['value', 'Value'], ['refund', 'Refund'], ['boost', 'Boost']]
-// Boost's suggested stake: a tenth of full Kelly on a £50k bankroll (Callum).
-const BOOST_BANKROLL = 50_000
-const BOOST_KELLY = 0.10
 
-// Filters: folded away under one line that says what is applied, so the usual
+// Filters: one pill each in the band, so the usual
 // visit is open → glance → bet. Shared across offers, remembered.
 const MARKETS = ['corners', 'cards', 'goals', 'saves', 'team_corners', 'team_cards', 'most_corners', 'most_cards']
 const MARKET_LABELS = { team_corners: 'Team corners', team_cards: 'Team cards',
@@ -55,15 +64,11 @@ const DEFAULT_MARKETS = MARKETS.filter(m => !FAIR_ONLY.includes(m))
 const marketLabel = m => MARKET_LABELS[m] || m[0].toUpperCase() + m.slice(1)
 const WITHIN = [[null, 'Any'], [1, '< 1h'], ['today', 'Today'], [24, '24h'], [48, '48h'], [72, '72h']]
 const MAX_ODDS = [null, 1.5, 2, 3, 5]
-const MIN_VALUE = [0, 0.02, 0.04, 0.06]               // Value offer only
-const SORTS = [['best', 'Best'], ['shortest', 'Shortest']]
+const SORTS = ['best', 'shortest']   // by the Value and Odds headings
 const PER_MATCH = [[false, 'All legs'], [true, '1 per match']]   // Refund / Boost only
-// Free-bet EV rate: a free bet's stake isn't returned, so you keep (odds-1)/odds
-// of a win — higher odds retain more. Scaled by the value edge. Value offer only.
-const freeBetScore = b => (b.odds == null ? -Infinity : (1 + b.value) * (b.odds - 1) / b.odds)
-const NO_FILTERS = { markets: DEFAULT_MARKETS, within: null, maxOdds: null, minValue: 0, sort: 'best', onePerMatch: false }
+const NO_FILTERS = { markets: DEFAULT_MARKETS, within: null, maxOdds: null, sort: 'best', onePerMatch: false }
 // A saved filter must never hold a value its option list no longer offers (the
-// retired "< 3h" kick-off, the old league filter …): summary() looks the value
+// retired "< 3h" kick-off, the old league filter …): a pill looks the value
 // up by option and would throw, taking the whole page down.
 function loadFilters(cfg) {
   try {
@@ -74,8 +79,7 @@ function loadFilters(cfg) {
       markets: v.markets.filter(m => cfg.markets.includes(m)),
       within: oneOf(v.within, WITHIN.map(([w]) => w), null),
       maxOdds: oneOf(v.maxOdds, MAX_ODDS, null),
-      minValue: oneOf(v.minValue, MIN_VALUE, 0),
-      sort: oneOf(v.sort, [...SORTS.map(([k]) => k), 'freebet'], 'best'),
+      sort: oneOf(v.sort, SORTS, 'best'),
       onePerMatch: v.onePerMatch === true,
     }
   } catch { /* none saved, or private mode */ }
@@ -88,23 +92,16 @@ function inWindow(iso, within, now) {
   if (within === 'today') return ko < midnight.getTime()
   return ko - now <= within * 3600_000
 }
-// What is applied, in a few words; empty when nothing is.
-function summary(fl, offer) {
-  const bits = []
-  // Markets: "+ Most corners" when only the fair-only ones were switched on;
-  // the full list once anything usual is switched off.
-  const added = fl.markets.filter(m => !DEFAULT_MARKETS.includes(m))
-  const removed = DEFAULT_MARKETS.filter(m => !fl.markets.includes(m))
-  if (!removed.length && added.length) bits.push('+ ' + added.map(marketLabel).join(', '))
-  else if (removed.length) bits.push(fl.markets.length ? fl.markets.map(marketLabel).join(', ') : 'no markets')
-  if (fl.within != null) bits.push(WITHIN.find(([w]) => w === fl.within)[1])
-  if (fl.maxOdds != null) bits.push(`≤ ${fl.maxOdds.toFixed(2)}`)
-  if (offer === 'value' && fl.minValue > 0) bits.push(`${(100 + fl.minValue * 100).toFixed(0)}%+`)
-  if (fl.sort === 'shortest') bits.push('shortest first')
-  if (fl.sort === 'freebet' && offer === 'value') bits.push('free bet')
-  if (offer !== 'value' && fl.onePerMatch) bits.push('1 per match')
-  return bits.join(' · ')
+// Each filter's pill shows its current setting.
+function marketsLabel(markets) {
+  const same = markets.length === DEFAULT_MARKETS.length && DEFAULT_MARKETS.every(m => markets.includes(m))
+  if (same) return 'Markets'
+  if (!markets.length) return 'No markets'
+  return markets.length === 1 ? marketLabel(markets[0]) : `${markets.length} markets`
 }
+const withinLabel = w => (w == null ? 'Any time' : w === 'today' ? 'Today'
+  : w === 1 ? 'Next 1h' : `Next ${w}h`)
+const oddsLabel = o => (o == null ? 'Any odds' : `≤ ${o.toFixed(1)}`)
 
 function Chips({ options, isOn, onPick, icons = false }) {
   return options.map(([k, label]) => (
@@ -128,33 +125,31 @@ const bestPerMatch = xs => {
   for (const x of xs) if (!top.has(x.b.matchId) || x.s > top.get(x.b.matchId).s) top.set(x.b.matchId, x)
   return [...top.values()]
 }
-function kickoff(iso) {
-  const d = new Date(iso)
-  const day = d.toDateString() === new Date().toDateString() ? ''
-    : d.toLocaleDateString([], { weekday: 'short' }) + ' '
-  return day + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+function Ko({ iso, now }) {
+  const { day, time } = kickoff(iso, now)
+  return <span className={f.ko}>{day && <span>{day}</span>}<span>{time}</span></span>
 }
 
 // One selection: the best value line, tappable to drop down its other value
 // lines (the ladder) when there are any.
-function Selection({ lead, others, expanded, onToggle }) {
+function Selection({ lead, others, expanded, onToggle, now }) {
   const has = others.length > 0
   return (
     <>
       <div className={`${f.row} ${has ? f.tappable : ''}`}
         role={has ? 'button' : undefined} aria-expanded={has ? expanded : undefined}
         onClick={has ? onToggle : undefined}>
-        <MarketIcon market={lead.market} size={22} />
         <span className={f.what}>
           <span className={f.pick}>
             {shortPick(lead.pick)}
             {lead.basis === 'hybrid' && <span className={f.more} title="Fair from the team's one Pinnacle line plus the match ladder's shape">~</span>}
             {has && <span className={f.more}> {expanded ? '▴' : '▾'} +{others.length}</span>}
           </span>
-          <span className={f.match}>{lead.match} · {kickoff(lead.commence_time)}</span>
+          <span className={f.match}>{lead.match}</span>
         </span>
+        <Ko iso={lead.commence_time} now={now} />
         <span className={f.odds}>{lead.odds == null ? '—' : lead.odds.toFixed(2)}</span>
-        <span className={`${f.value} ${lead.value != null && lead.value >= STRONG ? f.strong : ''}`}>
+        <span className={`${f.value} ${tier(lead.value)}`}>
           {lead.value == null ? '—' : evPct(lead.value)}
         </span>
         <span className={f.fair}>{lead.fair.toFixed(2)}</span>
@@ -163,9 +158,9 @@ function Selection({ lead, others, expanded, onToggle }) {
         <div className={f.sub}>
           {others.map(o => (
             <div className={f.subRow} key={o.pick}>
-              <span /><span className={f.subLine}>{lineLabel(o)}{o.basis === 'hybrid' && <span className={f.more}>~</span>}</span>
+              <span className={f.subLine}>{lineLabel(o)}{o.basis === 'hybrid' && <span className={f.more}>~</span>}</span><span />
               <span className={f.odds}>{o.odds == null ? '—' : o.odds.toFixed(2)}</span>
-              <span className={`${f.value} ${o.value != null && o.value >= STRONG ? f.strong : ''}`}>
+              <span className={`${f.value} ${tier(o.value)}`}>
                 {o.value == null ? '—' : evPct(o.value)}
               </span>
               <span className={f.fair}>{o.fair.toFixed(2)}</span>
@@ -196,13 +191,27 @@ export default function CardsPage({ book = 'paddy' }) {
     } catch { return 'value' }
   })
   const [fl, setFl] = useState(() => loadFilters(cfg))
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(null)   // which filter's choices are showing
   const [items, setItems] = useState(null)
   const [error, setError] = useState(null)
   const [why, setWhy] = useState(null)
   const [now, setNow] = useState(() => Date.now())   // kick-off clock, advanced per refresh
   const [expanded, setExpanded] = useState(() => new Set())
   const toggle = k => setExpanded(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
+  const theme = THEME[book]
+  // "Updated 3m" counts up between refreshes.
+  const [clock, setClock] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setClock(Date.now()), 30_000)
+    return () => clearInterval(t)
+  }, [])
+  // The tool switcher below takes the book's colour while this page is open.
+  useEffect(() => {
+    const root = document.documentElement.style
+    root.setProperty('--tool-band', theme.band)
+    root.setProperty('--dock-bg', '#fff')
+    return () => { root.removeProperty('--tool-band'); root.removeProperty('--dock-bg') }
+  }, [theme])
 
   useEffect(() => {
     try { localStorage.setItem(cfg.offerKey, offer) } catch { /* private mode */ }
@@ -255,17 +264,24 @@ export default function CardsPage({ book = 'paddy' }) {
   // Best down: value on the Value offer, Kelly growth in the offer on the others.
   const refund = offer === 'refund'
   const list = offer === 'value'
-    ? bets.filter(b => b.value == null || b.value >= fl.minValue).map(b => ({ b, s: b.value ?? -Infinity }))
+    ? bets.filter(b => b.value == null || b.value >= 0).map(b => ({ b, s: b.value ?? -Infinity }))
     : bets.filter(b => b.odds >= ACCA_FLOOR)
       .map(b => ({ b, s: refund ? legScore(b, ACCA_DEFAULTS) : boostLegScore(b).growth }))
   // Refund / Boost: one selection per match — the highest-scoring one.
   if (offer !== 'value' && fl.onePerMatch) list.splice(0, list.length, ...bestPerMatch(list))
   list.sort(
     fl.sort === 'shortest' ? (x, y) => (x.b.odds ?? Infinity) - (y.b.odds ?? Infinity) || y.s - x.s
-    : fl.sort === 'freebet' && offer === 'value' ? (x, y) => freeBetScore(y.b) - freeBetScore(x.b)
     : (x, y) => y.s - x.s)
 
-  const applied = summary(fl, offer)
+  // The oldest fetch behind the board: "updated" never claims fresher prices.
+  const pricedAt = (items || []).map(i => i.priced_at).filter(Boolean).sort()[0]
+  const updated = age(pricedAt, clock)
+  const pill = (key, label, on) => (
+    <button type="button" className={`${f.pill} ${on ? f.pillOn : ''} ${open === key ? f.pillOpen : ''}`}
+      aria-expanded={open === key} onClick={() => setOpen(o => (o === key ? null : key))}>{label}</button>
+  )
+  const sameMarkets = fl.markets.length === DEFAULT_MARKETS.length && DEFAULT_MARKETS.every(m => fl.markets.includes(m))
+  const sortBy = k => () => setF({ sort: k })
   const offerSwitch = cfg.offers.length > 1 && (
     <div className={f.offerSwitch} role="group" aria-label="Offer">
       {cfg.offers.map(([k, label]) => (
@@ -275,20 +291,8 @@ export default function CardsPage({ book = 'paddy' }) {
     </div>
   )
   // BB Boost is its own screen: the target match, its wheels and the bet log.
-  if (offer === 'bb') return <div className={f.page}><HillsBuilder />{offerSwitch}</div>
+  if (offer === 'bb') return <div className={f.page} style={{ '--band': theme.band }}><HillsBuilder />{offerSwitch}</div>
 
-  // Refund / Boost: the acca of the top 5 by score, one per match (asked for:
-  // "a number to see at a glance if it's worth betting").
-  let top5 = null
-  if (offer !== 'value') {
-    const picks = bestPerMatch(list).sort((a, b) => b.s - a.s).slice(0, 5).map(x => x.b)
-    if (picks.length === 5) {
-      const odds = picks.map(b => b.odds), probs = picks.map(trueProb)
-      const r = refund ? evaluate({ odds, probs }, ACCA_DEFAULTS) : boostEval(odds, probs)
-      top5 = { odds: r.accaOdds, ev: r.evPct,
-        stake: refund ? null : Math.round(BOOST_KELLY * r.kelly * BOOST_BANKROLL) }
-    }
-  }
   // Group each selection's value lines: the best line leads, the rest drop down.
   const groups = new Map()
   for (const { b } of list) {
@@ -299,50 +303,49 @@ export default function CardsPage({ book = 'paddy' }) {
   for (const g of groups.values()) g.others.sort((a, b) => b.line - a.line)
   const body = groups.size
     ? [...groups.values()].map(g => (
-        <Selection key={g.key} lead={g.lead} others={g.others}
+        <Selection key={g.key} lead={g.lead} others={g.others} now={now}
           expanded={expanded.has(g.key)} onToggle={() => toggle(g.key)} />))
-    : <p className={f.empty}>{applied ? 'Nothing matches these options.'
+    : <p className={f.empty}>{!sameMarkets || fl.within != null || fl.maxOdds != null ? 'Nothing matches these filters.'
       : offer === 'value' ? 'No bets at or above fair right now.' : `No legs at ${ACCA_FLOOR}+ right now.`}</p>
 
   return (
-    <div className={f.page}>
-      <div className={`${f.filterBar} ${applied ? f.filtered : ''}`}>
-        <button type="button" className={f.summary} aria-expanded={open} onClick={() => setOpen(o => !o)}>
-          {applied || 'All bets'}
-        </button>
-        <button type="button" className={f.filterToggle} aria-expanded={open} onClick={() => setOpen(o => !o)}>
-          Options {open ? '▴' : '▾'}
-        </button>
+    <div className={f.page} style={{ '--band': theme.band }}>
+      <div className={f.band}>
+        <div className={f.title}>
+          <span className={f.name}>{theme.name}</span>
+          {updated && <span className={f.updated}>Updated {updated}</span>}
+        </div>
+        <div className={f.pills} role="group" aria-label="Filters">
+          {pill('markets', marketsLabel(fl.markets), !sameMarkets)}
+          {pill('within', withinLabel(fl.within), fl.within != null)}
+          {pill('odds', oddsLabel(fl.maxOdds), fl.maxOdds != null)}
+          {offer !== 'value' && pill('match', fl.onePerMatch ? '1 per match' : 'All legs', fl.onePerMatch)}
+        </div>
       </div>
       {open && (
         <div className={f.panel}>
-          <div className={f.group} role="group" aria-label="Market">
-            <Chips icons options={cfg.markets.map(m => [m, marketLabel(m)])} isOn={m => fl.markets.includes(m)}
-              onPick={m => setF({ markets: fl.markets.includes(m) ? fl.markets.filter(x => x !== m) : [...fl.markets, m] })} />
-          </div>
-          <div className={f.group}><span className={f.label}>Kick-off</span>
-            <Chips options={WITHIN} isOn={w => fl.within === w} onPick={w => setF({ within: w })} />
-          </div>
-          <div className={f.group}><span className={f.label}>Max odds</span>
-            <Chips options={MAX_ODDS.map(o => [o, o == null ? 'Any' : o.toFixed(1)])}
-              isOn={o => fl.maxOdds === o} onPick={o => setF({ maxOdds: o })} />
-          </div>
-          {offer === 'value' && (
-            <div className={f.group}><span className={f.label}>Min value</span>
-              <Chips options={MIN_VALUE.map(v => [v, v ? `${100 + v * 100}%` : 'Fair'])}
-                isOn={v => fl.minValue === v} onPick={v => setF({ minValue: v })} />
+          {open === 'markets' && (
+            <div className={f.group} role="group" aria-label="Market">
+              <Chips icons options={cfg.markets.map(m => [m, marketLabel(m)])} isOn={m => fl.markets.includes(m)}
+                onPick={m => setF({ markets: fl.markets.includes(m) ? fl.markets.filter(x => x !== m) : [...fl.markets, m] })} />
             </div>
           )}
-          {offer !== 'value' && (
-            <div className={f.group}><span className={f.label}>Per match</span>
-              <Chips options={PER_MATCH} isOn={v => fl.onePerMatch === v} onPick={v => setF({ onePerMatch: v })} />
+          {open === 'within' && (
+            <div className={f.group} role="group" aria-label="Kick-off">
+              <Chips options={WITHIN} isOn={w => fl.within === w} onPick={w => { setF({ within: w }); setOpen(null) }} />
             </div>
           )}
-          <div className={f.group}><span className={f.label}>Sort</span>
-            <Chips options={offer === 'value' ? [...SORTS, ['freebet', 'Free bet']] : SORTS}
-              isOn={k => fl.sort === k} onPick={k => setF({ sort: k })} />
-            {applied && <button type="button" className={f.reset} onClick={() => setF(NO_FILTERS)}>Reset</button>}
-          </div>
+          {open === 'odds' && (
+            <div className={f.group} role="group" aria-label="Max odds">
+              <Chips options={MAX_ODDS.map(o => [o, o == null ? 'Any' : o.toFixed(1)])}
+                isOn={o => fl.maxOdds === o} onPick={o => { setF({ maxOdds: o }); setOpen(null) }} />
+            </div>
+          )}
+          {open === 'match' && (
+            <div className={f.group} role="group" aria-label="Per match">
+              <Chips options={PER_MATCH} isOn={v => fl.onePerMatch === v} onPick={v => { setF({ onePerMatch: v }); setOpen(null) }} />
+            </div>
+          )}
         </div>
       )}
 
@@ -351,16 +354,13 @@ export default function CardsPage({ book = 'paddy' }) {
       {!error && items && items.length === 0 && <p className={f.empty}>{why ?? 'No prices yet.'}</p>}
       {!error && items && items.length > 0 && (
         <div className={f.list}>
-          {top5 && (
-            <div className={f.top5}>
-              <span>Top 5</span>
-              <span className={f.top5Odds}>{top5.odds.toFixed(2)}</span>
-              <span className={f.top5Ev}>EV {top5.ev >= 0 ? '+' : '−'}{Math.abs(top5.ev * 100).toFixed(1)}%</span>
-              {top5.stake != null && <span className={f.top5Stake}>£{top5.stake.toLocaleString('en-GB')}</span>}
-            </div>
-          )}
           <div className={`${f.row} ${f.colHead}`}>
-            <span /><span>Bet</span><span>Odds</span><span>Value</span><span>Fair</span>
+            <span>Bet</span><span>KO</span>
+            <button type="button" className={fl.sort === 'shortest' ? f.sorted : ''} aria-pressed={fl.sort === 'shortest'}
+              onClick={sortBy('shortest')}>Odds</button>
+            <button type="button" className={fl.sort === 'best' ? f.sorted : ''} aria-pressed={fl.sort === 'best'}
+              onClick={sortBy('best')}>Value</button>
+            <span>Fair</span>
           </div>
           {body}
         </div>

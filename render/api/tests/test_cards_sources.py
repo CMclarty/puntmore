@@ -603,3 +603,23 @@ def test_a_line_paddy_shops_do_not_carry_is_never_listed(monkeypatch):
     assert 11.5 not in lines and 9.5 in lines
     monkeypatch.setattr(settings, "paddy_excluded_lines", "")
     assert 11.5 in {r.line for r in compute_laddered_value(events, -0.5)}
+
+
+def test_each_board_item_says_when_its_prices_were_fetched():
+    from datetime import datetime, timezone
+    from app.routers.cards import build_feed
+    at = datetime(2026, 11, 8, 15, 2, tzinfo=timezone.utc)
+
+    class _Client:
+        priced_at = at
+        def get_events(self):
+            return _goals_event(PIN_GOALS, {2.5: (2.30, 1.62)})
+
+    assert {item.priced_at for item in build_feed(_Client(), -0.5)} == {at}
+
+    class _Unknown:
+        def get_events(self):
+            return _goals_event(PIN_GOALS, {2.5: (2.30, 1.62)})
+
+    assert build_feed(_Unknown(), -0.5)[0].priced_at is None
+

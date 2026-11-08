@@ -223,6 +223,9 @@ class CardFeedItem(BaseModel):
     best_value: float
     bets: list[CardFeedBet]
     fairs: list[CardFeedFair] = []
+    # When the book's prices behind this board were fetched from OddsPapi (the
+    # oldest chunk's time); None when unknown. Added Nov 2026, additive.
+    priced_at: Optional[datetime] = None
 
 
 # Private P&L bet tracker — one settled bet's net result. stake/returned are

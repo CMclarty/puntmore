@@ -276,6 +276,14 @@ The older product decisions, settled while the coupon tracker was built.
   only, never in the app.
 - **Mobile-first PWA.** Single column, safe-area insets, capped width on
   tablet, bottom tab bar, touch targets ≥44px.
+- **The Paddy board is a homage to Paddy Power (8 Nov 2026, Callum).** White
+  ground, black text, a band in paddypower.com's own green (`#004833`)
+  holding the name, the prices' age and the filters on one line, Paddy's
+  yellow for a changed filter. Value is filled green at 110%+ and purple at
+  120%+. KO is its own column. The min-value filter and the Top 5 line are
+  gone. Hills, the same page, takes its own band colour. Whether every tool
+  gets a homage to its own bookmaker is open. Details:
+  `render/frontend/AGENTS.md`, "The Paddy board's look".
 - **The paper theme is not pinned (8 Nov 2026, Callum).** It is the incumbent
   look, kept by refinements, but open to replacement by a later redesign.
   Product truth for design work is `PRODUCT.md` at the repo root (written

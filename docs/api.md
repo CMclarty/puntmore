@@ -167,7 +167,7 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 | coupons (`coupons`) | `POST /coupons/{id}/refresh`, `PATCH /coupons/{id}/legs/{leg}`, `POST /upload`, `POST /upload/{id}/rescan` | re-price, correct, upload a photo |
 | 365 scorers (`goalscorers`) | `GET /goalscorers/feed` — PARKED, not mounted (`ENABLE_GOALSCORERS=false`) | |
 | 365 2-Up (`accabonus`) | `GET /2up/feed` (`?value_only=`), `GET /2up/diagnostics` | the served board of priced rows; what the feed last saw, the rescue table and the dials |
-| Paddy (`cards`) | `GET /paddy/feed`, `/paddy/diagnostics`, `/paddy/shadow`, `/paddy/oddspapi-check` | |
+| Paddy (`cards`) | `GET /paddy/feed`, `/paddy/diagnostics`, `/paddy/shadow`, `/paddy/oddspapi-check` | each feed item carries `priced_at`, when the board's OddsPapi prices were fetched (the oldest chunk; null when unknown; added 8 Nov 2026) |
 | Paddy ingest (`ingest`) | `POST /paddy/saves-fair`, `POST /paddy/most-prices` | the Scraper service's writes |
 | Finder writes (`ingest`, key only) | `POST /finder/rows`, `POST /finder/rows/{tip_id}/status` | HubAI's rows; the Bet Placer's `placed`\|`gone` |
 | Finder reads (`finder`) | `GET /finder/feed`, `GET /finder/board` (`?days=3`), `GET /value/finder` | the offered rows; the board on `me` |
