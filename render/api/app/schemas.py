@@ -359,6 +359,9 @@ class AwSlipRecordIn(BaseModel):
     offer: str = "refund"                # refund | boost | other (aw26/offers.py)
     stake: float | None = Field(default=None, ge=0, lt=1_000_000)
     legs: list[AwSlipLegIn] = Field(min_length=1, max_length=40)
+    # The queued photo the slip was read from (aw26/photos.py): recording it
+    # makes the photo the slip's picture and marks it done.
+    photo_id: int | None = None
 
 
 class AwSlipOut(BaseModel):
@@ -379,6 +382,23 @@ class AwSlipOut(BaseModel):
     legs: list[AwLegOut] = []
 
     model_config = {"from_attributes": True}
+
+
+class AwPhotoOut(BaseModel):
+    """A queued AW 26 slip photo (aw26/photos.py)."""
+    id: int
+    created_at: datetime | None = None
+    source: str                          # page | telegram
+    state: str                           # waiting | reading | failed | duplicate | done
+    tries: int
+    reason: str | None = None
+    slip_id: int | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class AwPhotoFailIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=200)
 
 
 class AwMarkIn(BaseModel):

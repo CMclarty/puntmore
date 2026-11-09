@@ -3,28 +3,34 @@
 A page over the stored slips. Slips are recorded by HubAI (an API client key
 granted `aw26`) or corrected on the page; both call these routes. A slip is
 priced once every leg has a fair price and settled from its legs' results,
-here, when a request asks. Render reads no photo and runs nothing in the
-background for AW 26.
+here, when a request asks.
+
+Render stores a slip photo (from the page or Telegram) on the photo queue
+(`/aw26/photos`, aw26/photos.py) and serves it back; Qwen reads it on the Hub
+and records the slip. Render reads no photo and runs nothing in the background
+for AW 26.
 """
 import logging
 import os
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, contains_eager, selectinload
 
-from ..aw26 import selections, service
+from ..aw26 import photos, selections, service
 from ..aw26.offers import OFFERS
 from ..aw26.record import Refused, record_slip
 from ..aw26.service import parse_when, price_slip, settle_slip
 from ..database import get_db
-from ..models import AwLeg, AwSlip
+from ..models import AwLeg, AwPhoto, AwSlip
+from .upload import ALLOWED_MEDIA_TYPES, _read_capped
 from ..schemas import (
-    AwMarkIn, AwMarkOut, AwSlipOut, AwSlipRecordIn, AwSlipsOut, AwSummaryOut, DeletedOut,
+    AwMarkIn, AwMarkOut, AwPhotoFailIn, AwPhotoOut, AwSlipOut, AwSlipRecordIn, AwSlipsOut,
+    AwSummaryOut, DeletedOut,
 )
 from ..security import require_user
 
@@ -193,6 +199,8 @@ def delete_slip(slip_id: int, db: Session = Depends(get_db)):
     if slip is None:
         raise HTTPException(status_code=404, detail="No such slip")
     path = slip.image_path
+    # The photo it was read from goes with it (the slip owns the file).
+    db.query(AwPhoto).filter(AwPhoto.slip_id == slip_id).delete()
     db.delete(slip)
     db.commit()
     if path and os.path.exists(path):
@@ -205,9 +213,110 @@ def delete_slip(slip_id: int, db: Session = Depends(get_db)):
 
 @router.get("/slips/{slip_id}/image")
 def slip_image(slip_id: int, db: Session = Depends(get_db)):
-    """The photo a slip from before the retirement was read from; 404 when
-    there is none (every slip recorded since)."""
+    """The photo the slip was read from: one from before the retirement, or a
+    queued photo recorded with it; 404 when there is none."""
     slip = db.get(AwSlip, slip_id)
     if slip is None or not slip.image_path or not os.path.exists(slip.image_path):
         raise HTTPException(status_code=404, detail="No photo")
     return FileResponse(slip.image_path)
+
+
+# --- the photo queue (aw26/photos.py) ----------------------------------------
+
+
+@router.post("/photos", response_model=list[AwPhotoOut])
+async def upload_photos(files: list[UploadFile] = File(...), source: str = Form("page"),
+                        db: Session = Depends(get_db), user: str = Depends(require_user)):
+    """Store each photo, waiting for Qwen; nothing reads it here. Every file is
+    checked before any is stored: one refused refuses the batch."""
+    if source not in photos.SOURCES:
+        raise HTTPException(status_code=400, detail=f"source must be one of {', '.join(photos.SOURCES)}")
+    if len(files) > photos.MAX_BATCH:
+        raise HTTPException(status_code=400, detail=f"At most {photos.MAX_BATCH} photos at once")
+    batch = []
+    for f in files:
+        if f.content_type not in ALLOWED_MEDIA_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unsupported image type: {f.content_type}")
+        batch.append((await _read_capped(f), f.content_type))
+    stored = []
+    try:
+        for data, media_type in batch:
+            stored.append(photos.store(db, data, media_type, user=user, source=source))
+        db.commit()
+    except Exception:
+        db.rollback()
+        for photo in stored:
+            photos.remove_file(photo.image_path)
+        raise
+    return stored
+
+
+@router.get("/photos", response_model=list[AwPhotoOut])
+def list_photos(db: Session = Depends(get_db)):
+    """Every photo not done, oldest first, once any taken too long ago is
+    released."""
+    photos.release_stale(db)
+    db.commit()
+    return (db.query(AwPhoto).filter(AwPhoto.state != "done")
+            .order_by(AwPhoto.created_at, AwPhoto.id).all())
+
+
+def _photo(db: Session, photo_id: int) -> AwPhoto:
+    photo = db.get(AwPhoto, photo_id)
+    if photo is None:
+        raise HTTPException(status_code=404, detail="No such photo")
+    return photo
+
+
+def _change(db: Session, photo_id: int, change) -> AwPhoto:
+    """Apply one of photos.py's state changes and commit; 409 when the state
+    does not allow it."""
+    photo = _photo(db, photo_id)
+    try:
+        change(photo)
+    except Refused as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc))
+    db.commit()
+    db.refresh(photo)
+    return photo
+
+
+@router.post("/photos/{photo_id}/take", response_model=AwPhotoOut)
+def take_photo(photo_id: int, db: Session = Depends(get_db)):
+    """Hand a waiting photo to Qwen, once."""
+    return _change(db, photo_id, photos.take)
+
+
+@router.get("/photos/{photo_id}/image")
+def photo_image(photo_id: int, db: Session = Depends(get_db)):
+    """The stored file, for Qwen to read on the Hub."""
+    photo = _photo(db, photo_id)
+    if not os.path.exists(photo.image_path):
+        raise HTTPException(status_code=404, detail="No photo")
+    return FileResponse(photo.image_path)
+
+
+@router.post("/photos/{photo_id}/fail", response_model=AwPhotoOut)
+def fail_photo(photo_id: int, body: AwPhotoFailIn, db: Session = Depends(get_db)):
+    """Qwen could not make a slip of it: back on the queue while tries are left."""
+    return _change(db, photo_id, lambda p: photos.fail(p, body.reason))
+
+
+@router.post("/photos/{photo_id}/resend", response_model=AwPhotoOut)
+def resend_photo(photo_id: int, db: Session = Depends(get_db)):
+    """A failed photo back on the queue, tries from 0."""
+    return _change(db, photo_id, photos.resend)
+
+
+@router.delete("/photos/{photo_id}", response_model=DeletedOut)
+def delete_photo(photo_id: int, db: Session = Depends(get_db)):
+    """The row and its file go together. A done photo's file is its slip's:
+    it goes when the slip is deleted (409 here)."""
+    photo = _photo(db, photo_id)
+    if photo.state == "done":
+        raise HTTPException(status_code=409, detail="The photo is a slip's: delete the slip")
+    path = photo.image_path
+    db.delete(photo)
+    db.commit()
+    photos.remove_file(path)
+    return {"deleted": photo_id}

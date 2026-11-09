@@ -262,6 +262,8 @@ def test_the_routes_need_the_aw26_grant():
         client = TestClient(app)
         assert client.get("/aw26/slips").status_code == 403
         assert _record(client).status_code == 403
+        assert client.get("/aw26/photos").status_code == 403
+        assert client.post("/aw26/photos", files={"files": ("s.png", _png(), "image/png")}).status_code == 403
     finally:
         app.dependency_overrides[user_permissions] = lambda: "*"
 
@@ -280,6 +282,10 @@ def test_hubai_records_on_an_api_key_granted_aw26_under_its_own_name():
     assert r.json()["user"] == "api:hubai"
     assert client.get("/aw26/slips", headers=headers).json()["slips"][0]["receipt"] == "H-1"
     assert client.post("/aw26/slips/record", json=_body(receipt="H-1"), headers=headers).status_code == 409
+    r = client.post("/aw26/photos", files={"files": ("s.png", _png(), "image/png")},
+                    data={"source": "telegram"}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()[0]["source"] == "telegram"
     assert client.get("/aw26/slips", headers={"Authorization": f"Bearer {other}"}).status_code == 403
     assert client.get("/aw26/slips").status_code == 401
 
@@ -288,8 +294,10 @@ def test_hubai_records_on_an_api_key_granted_aw26_under_its_own_name():
 
 
 def test_render_reads_no_photo_and_runs_no_feeder_route(monkeypatch):
-    """Slips are recorded by HubAI or corrected on the page: no photo upload,
-    no ingest, fairs, results or snapshots route, on any key."""
+    """Slips are recorded by HubAI or corrected on the page. A photo is stored
+    on `/aw26/photos` and never read here (Qwen reads it on the Hub): no photo
+    upload on the slips, no ingest, fairs, results or snapshots route, on any
+    key."""
     monkeypatch.setattr(settings, "saves_ingest_key", "test-ingest-key")
     client = TestClient(app)
     assert client.get("/aw26/slips").status_code == 200          # the router is mounted
@@ -341,17 +349,21 @@ def test_nothing_aw26_is_scheduled():
 # from these breaks loading Callum's existing rows: no column is renamed or
 # dropped, and a nullable column stays nullable. One column is added on
 # purpose (9 Nov 2026): aw_legs.fair_assumed, which ensure_schema adds to the
-# production table.
+# production table. aw_photos is new (9 Nov 2026), created by create_all at
+# boot: pinned from its first release so a later edit cannot drift unnoticed.
 TABLES = {
     "aw_slips": ["id", "created_at", "placed_at", "user", "image_path", "receipt", "offer",
                  "stake", "potential_returns", "status", "returns", "settled_at", "ev",
                  "ev_note", "edited"],
     "aw_legs": ["id", "slip_id", "position", "event", "market", "selection", "odds", "kickoff",
                 "kind", "line", "side", "fair_odds", "fixture_id", "result", "fair_assumed"],
+    "aw_photos": ["id", "created_at", "user", "image_path", "source", "state", "taken_at",
+                  "tries", "reason", "slip_id"],
 }
 NOT_NULL = {
     "aw_slips": {"id", "placed_at", "user", "offer", "status", "edited"},
     "aw_legs": {"id", "slip_id", "position", "event", "result", "fair_assumed"},
+    "aw_photos": {"id", "user", "image_path", "source", "state", "tries"},
 }
 
 

@@ -385,6 +385,29 @@ class AwLeg(Base):
     slip = relationship("AwSlip", back_populates="legs")
 
 
+class AwPhoto(Base):
+    """A slip photo waiting for Qwen on the Hub (aw26/photos.py). Render stores
+    it and tracks its state; it never reads one.
+
+    waiting -> reading (taken, `tries` + 1) -> back to waiting on a failure
+    while tries are left, else failed; duplicate when its receipt is already
+    in; done once its slip is recorded, which then owns the file (`slip_id`,
+    the slip's `image_path` is this one's)."""
+    __tablename__ = "aw_photos"
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=utcnow)
+    user = Column(String, nullable=False)
+    image_path = Column(String, nullable=False)
+    source = Column(String, nullable=False)          # page | telegram
+    # waiting | reading | failed | duplicate | done
+    state = Column(String, nullable=False, default="waiting", index=True)
+    taken_at = Column(DateTime, nullable=True)       # the last take
+    tries = Column(Integer, nullable=False, default=0)
+    reason = Column(String, nullable=True)           # why it last failed / is a duplicate
+    slip_id = Column(Integer, ForeignKey("aw_slips.id", ondelete="SET NULL"), nullable=True)
+
+
 # AW 26's other tables (aw_fairs, aw_leg_lines, value_snapshots, value_lines)
 # are left in the database, unread: AW 26 is a page over the slips, and the
 # work that filled those tables is retired. aw_leg_lines
