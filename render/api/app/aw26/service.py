@@ -176,36 +176,38 @@ def profit(slip: AwSlip) -> float | None:
     return None if slip.returns is None else round(slip.returns - slip.stake, 2)
 
 
-def _totals(slips) -> dict:
-    priced = [s for s in slips if s.ev is not None]
-    settled = [s for s in slips if s.returns is not None]
+def _figures(slips, ev_target: float, decided=None) -> dict:
+    """EV, staked, slips and open over `slips`; profit over `decided` (the
+    same slips unless given). Slip columns only: no leg is read."""
+    decided = slips if decided is None else decided
     return {
+        "ev": round(sum((s.ev for s in slips if s.ev is not None), 0.0), 2),
+        "ev_target": round(float(ev_target), 2),
+        "profit": round(sum((profit(s) for s in decided if s.returns is not None), 0.0), 2),
+        "staked": round(sum((s.stake or 0.0 for s in slips), 0.0), 2),
         "slips": len(slips),
-        "legs": sum(len(s.legs) for s in slips),
-        "staked": round(sum(s.stake or 0 for s in slips), 2),
-        "ev": round(sum(s.ev for s in priced), 2),
-        "unpriced": len(slips) - len(priced),
-        "profit": round(sum(profit(s) for s in settled), 2),
         "open": sum(1 for s in slips if s.status == "open"),
     }
 
 
-def summary(slips, today: date | None = None) -> dict:
-    """The page's headline figures, from the slips."""
-    today = today or london_day(utcnow())
-    by_day = [s for s in slips if london_day(s.placed_at) == today]
-    first = min((london_day(s.placed_at) for s in slips), default=today)
-    days = (today - first).days + 1
-    total = _totals(slips)
-    # Settled TODAY (by settlement date, not placed date): the day's realised
-    # movement.
-    settled_today = [s for s in slips if s.settled_at and london_day(s.settled_at) == today]
+def day_summary(slips, selections, day: date, today: date) -> dict:
+    """The page's figures for the London day `day`.
+
+    `slips` are every slip placed on or after START; `selections` are
+    selections.group's rows for the day. `chosen`: EV, staked, slips and open
+    over the slips placed on `day`, profit over the slips decided on it
+    (`settled_at`). `to_date`: every slip, against £1,000 EV for each day on
+    which a slip was placed."""
+    placed = [s for s in slips if london_day(s.placed_at) == day]
+    decided = [s for s in slips if s.settled_at is not None and london_day(s.settled_at) == day]
+    days = len({london_day(s.placed_at) for s in slips})
     return {
-        "today": {
-            "date": today.isoformat(), **_totals(by_day),
-            "settled": round(sum(profit(s) for s in settled_today), 2),
-            "settled_slips": len(settled_today),
-        },
-        "total": {**total, "days": days, "ev_target": round(days * EV_PER_DAY_TARGET, 2)},
+        "day": day.isoformat(),
+        "today": today.isoformat(),
+        "first_day": START.isoformat(),
+        "days": days,
         "targets": {"ev_per_day": EV_PER_DAY_TARGET, "profit": PROFIT_TARGET},
+        "chosen": _figures(placed, EV_PER_DAY_TARGET, decided),
+        "to_date": _figures(slips, days * EV_PER_DAY_TARGET),
+        "selections": list(selections),
     }

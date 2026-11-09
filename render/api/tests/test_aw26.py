@@ -4,7 +4,7 @@ once every leg has a fair, settled from its legs' results, corrected on the
 page and deleted there. Render does no other work for it."""
 import importlib
 import os
-from datetime import date, datetime
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, text
 
 from app import apikeys
 from app.aw26.offers import expected_value, settle
-from app.aw26.service import parse_when, summary
+from app.aw26.service import parse_when
 from app.config import settings
 from app.database import Base
 from app.main import app
@@ -38,12 +38,11 @@ def test_a_recorded_slip_is_listed_priced_and_counted():
     # Nothing is read or looked up for a new slip: the legs are as recorded.
     assert all(lg["kind"] is None and lg["fixture_id"] is None for lg in slip["legs"])
 
-    body = client.get("/aw26/slips").json()
-    assert [s["receipt"] for s in body["slips"]] == ["REF-1"]
-    total = body["summary"]["total"]
-    assert (total["slips"], total["legs"], total["staked"], total["ev"], total["open"]) == (1, 5, 50, want, 1)
-    assert "ev_by_source" not in body["summary"]["total"]
-    assert "value_on_offer" not in body["summary"]
+    assert [s["receipt"] for s in client.get("/aw26/slips").json()["slips"]] == ["REF-1"]
+    figures = client.get("/aw26/summary").json()
+    total = figures["to_date"]
+    assert (total["slips"], total["staked"], total["ev"], figures["chosen"]["open"]) == (1, 50, want, 1)
+    assert "ev_by_source" not in total and "value_on_offer" not in figures
 
 
 def test_the_same_receipt_twice_is_refused_and_stored_once():
@@ -110,7 +109,8 @@ def test_one_leg_without_a_fair_leaves_the_slip_unpriced_until_it_is_added():
     priced = {ev for ev, *_ in LEGS[:4]}
     slip = _record(client, fairs=priced).json()
     assert slip["ev"] is None and slip["ev_note"] == "1 of 5 legs have no fair price yet"
-    assert client.get("/aw26/slips").json()["summary"]["total"]["unpriced"] == 1
+    total = client.get("/aw26/summary").json()["to_date"]
+    assert (total["slips"], total["ev"]) == (1, 0.0)                  # its EV counts once priced
 
     r = client.patch(f"/aw26/slips/{slip['id']}", json=_edit_body(slip, {4: {"fair_odds": FAIRS[4]}}))
     assert r.status_code == 200, r.text
@@ -138,7 +138,7 @@ def test_leg_results_settle_the_slip_as_the_offer_says():
     want = settle("refund", 50, [(o, results[i]["result"]) for i, o in enumerate(ODDS)])
     assert (out["status"], out["returns"]) == want == ("refunded", 37.5)
     assert out["settled_at"] is not None
-    total = client.get("/aw26/slips").json()["summary"]["total"]
+    total = client.get("/aw26/summary").json()["to_date"]
     assert total["profit"] == -12.5 and total["open"] == 0
 
 
@@ -166,8 +166,9 @@ def test_delete_removes_the_slip_and_the_image_route_is_404_without_a_photo():
 
 def _old_slip(db, image_path=None):
     """A slip as the retired ledger stored it: legs read into kind/line/side,
-    a fixture id, a photo."""
-    slip = AwSlip(placed_at=datetime(2026, 10, 25, 12), user="callum", receipt="OLD-1",
+    a fixture id, a photo. Dated on the start day so the day's list shows it
+    (a slip placed before START is in no list)."""
+    slip = AwSlip(placed_at=datetime(2026, 11, 9, 12), user="callum", receipt="OLD-1",
                   offer="other", stake=10, status="open", image_path=image_path, ev=0.25)
     slip.legs.append(AwLeg(position=0, event="Arsenal v Chelsea", market="Total Match Corners",
                            selection="Over 9.5", odds=2.05, fair_odds=2.0, kind="corners",
@@ -391,11 +392,3 @@ def test_parse_when_reads_the_terminals_london_time():
     assert parse_when("2026-11-02T15:00:00Z", ref) == datetime(2026, 11, 2, 15, 0)
     assert parse_when("not a time", ref) is None
 
-
-def test_summary_counts_days_from_the_first_slip_against_the_targets():
-    s = AwSlip(placed_at=datetime(2026, 10, 20, 12), user="u", offer="refund", stake=50,
-               status="open", ev=15.15)
-    out = summary([s], date(2026, 10, 21))
-    assert out["total"]["days"] == 2 and out["total"]["ev_target"] == 2000
-    assert out["targets"] == {"ev_per_day": 1000.0, "profit": 100_000.0}
-    assert out["today"]["slips"] == 0 and out["total"]["ev"] == 15.15

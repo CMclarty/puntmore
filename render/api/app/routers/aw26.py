@@ -8,20 +8,24 @@ background for AW 26.
 """
 import logging
 import os
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, contains_eager, selectinload
 
-from ..aw26 import selections
+from ..aw26 import selections, service
 from ..aw26.offers import OFFERS
 from ..aw26.record import Refused, record_slip
-from ..aw26.service import parse_when, price_slip, settle_slip, summary
+from ..aw26.service import parse_when, price_slip, settle_slip
 from ..database import get_db
 from ..models import AwLeg, AwSlip
-from ..schemas import AwMarkIn, AwMarkOut, AwSlipOut, AwSlipRecordIn, AwSlipsOut, DeletedOut
+from ..schemas import (
+    AwMarkIn, AwMarkOut, AwSlipOut, AwSlipRecordIn, AwSlipsOut, AwSummaryOut, DeletedOut,
+)
 from ..security import require_user
 
 logger = logging.getLogger("uvicorn.error")
@@ -30,17 +34,51 @@ router = APIRouter(prefix="/aw26", tags=["aw26"])
 RESULTS = ("pending", "won", "lost", "void")
 
 
-def _all(db) -> list[AwSlip]:
-    return db.query(AwSlip).order_by(AwSlip.placed_at.desc(), AwSlip.id.desc()).all()
+def _today() -> date:
+    return service.london_day(service.utcnow())
+
+
+def _start():
+    """The first moment of AW 26 (naive UTC): a slip placed before it is in
+    no figure and no list."""
+    return service.day_bounds(service.START)[0]
 
 
 @router.get("/slips", response_model=AwSlipsOut)
-def list_slips(db: Session = Depends(get_db)):
-    slips = _all(db)
-    return {
-        "summary": summary(slips),
-        "slips": [AwSlipOut.model_validate(s).model_dump(mode="json") for s in slips],
-    }
+def list_slips(day: date | None = None, db: Session = Depends(get_db)):
+    """The slips placed on the London day `day` (default today), newest
+    first; none from before the start."""
+    lo, hi = service.day_bounds(day or _today())
+    slips = (db.query(AwSlip).options(selectinload(AwSlip.legs))
+             .filter(AwSlip.placed_at >= max(lo, _start()), AwSlip.placed_at < hi)
+             .order_by(AwSlip.placed_at.desc(), AwSlip.id.desc()).all())
+    return {"slips": [AwSlipOut.model_validate(s).model_dump(mode="json") for s in slips]}
+
+
+@router.get("/summary", response_model=AwSummaryOut)
+def day_summary(day: date | None = None, db: Session = Depends(get_db)):
+    """The figures for the London day `day` (default today) and to date, and
+    the selections on that day: a leg's day is its kick-off's, or its slip's
+    placed day when it has none; today lists today and every later day. A day
+    before the start or after today is refused."""
+    today = _today()
+    day = day or today
+    if not service.START <= day <= today:
+        raise HTTPException(status_code=400,
+                            detail=f"day must be from {service.START.isoformat()} to {today.isoformat()}")
+    start = _start()
+    slips = db.query(AwSlip).filter(AwSlip.placed_at >= start).all()
+    lo, hi = service.day_bounds(day)
+
+    def within(col):
+        return col >= lo if day == today else and_(col >= lo, col < hi)
+
+    legs = (db.query(AwLeg).join(AwLeg.slip).options(contains_eager(AwLeg.slip))
+            .filter(AwSlip.placed_at >= start,
+                    or_(and_(AwLeg.kickoff.is_not(None), within(AwLeg.kickoff)),
+                        and_(AwLeg.kickoff.is_(None), within(AwSlip.placed_at))))
+            .order_by(AwLeg.id).all())
+    return service.day_summary(slips, selections.group(legs), day, today)
 
 
 @router.post("/slips/record", response_model=AwSlipOut)

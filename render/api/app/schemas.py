@@ -1,6 +1,8 @@
 from datetime import date, datetime, timezone
 from typing import Annotated, Any, Literal, Optional
-from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import (
+    AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, RootModel, model_validator,
+)
 
 
 class LegOut(BaseModel):
@@ -390,10 +392,13 @@ class AwMarkOut(BaseModel):
 
 
 class AwSlipsOut(BaseModel):
-    # The page's headline figures (aw26/service.summary) — today, total,
-    # targets. Kept as a mapping: its keys are report-shaped.
-    summary: dict[str, Any]
-    slips: list[AwSlipOut]
+    slips: list[AwSlipOut]               # placed on one London day, newest first
+
+
+class AwSummaryOut(RootModel[dict[str, Any]]):
+    """The figures for one London day (aw26/service.day_summary): day, today,
+    first_day, days, targets, chosen, to_date, selections. Kept as a mapping:
+    its keys are report-shaped."""
 
 
 # --- The cross-tool value feed (GET /api/value — app/value/service.py) --------
