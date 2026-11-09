@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, contains_eager, selectinload
+from starlette.concurrency import run_in_threadpool
 
 from ..aw26 import photos, selections, service
 from ..aw26.offers import OFFERS
@@ -227,28 +228,44 @@ def slip_image(slip_id: int, db: Session = Depends(get_db)):
 @router.post("/photos", response_model=list[AwPhotoOut])
 async def upload_photos(files: list[UploadFile] = File(...), source: str = Form("page"),
                         db: Session = Depends(get_db), user: str = Depends(require_user)):
-    """Store each photo, waiting for Qwen; nothing reads it here. Every file is
-    checked before any is stored: one refused refuses the batch."""
+    """Store each photo, waiting for Qwen; nothing reads it here. The source,
+    the count and every file's declared type are checked before any is
+    stored. Then one file at a time: its bytes are read, stored off the event
+    loop and dropped, so one file's bytes are held at most. All or nothing: a
+    file refused while stored (too large, empty) or a store that fails
+    removes every file already written and keeps no row."""
     if source not in photos.SOURCES:
         raise HTTPException(status_code=400, detail=f"source must be one of {', '.join(photos.SOURCES)}")
     if len(files) > photos.MAX_BATCH:
         raise HTTPException(status_code=400, detail=f"At most {photos.MAX_BATCH} photos at once")
-    batch = []
     for f in files:
         if f.content_type not in ALLOWED_MEDIA_TYPES:
             raise HTTPException(status_code=400, detail=f"Unsupported image type: {f.content_type}")
-        batch.append((await _read_capped(f), f.content_type))
     stored = []
     try:
-        for data, media_type in batch:
-            stored.append(photos.store(db, data, media_type, user=user, source=source))
-        db.commit()
+        for f in files:
+            data = await _read_capped(f)
+            stored.append(await run_in_threadpool(
+                photos.store, db, data, f.content_type, user=user, source=source))
+            del data
+        return await run_in_threadpool(_keep, db, stored)
     except Exception:
-        db.rollback()
-        for photo in stored:
-            photos.remove_file(photo.image_path)
+        await run_in_threadpool(_undo, db, stored)
         raise
-    return stored
+
+
+def _keep(db: Session, stored: list[AwPhoto]) -> list[dict]:
+    """Commit the batch and answer with its rows."""
+    db.commit()
+    return [AwPhotoOut.model_validate(p).model_dump(mode="json") for p in stored]
+
+
+def _undo(db: Session, stored: list[AwPhoto]) -> None:
+    """Roll the batch back and remove every file it wrote."""
+    paths = [p.image_path for p in stored]
+    db.rollback()
+    for path in paths:
+        photos.remove_file(path)
 
 
 @router.get("/photos", response_model=list[AwPhotoOut])
@@ -269,11 +286,12 @@ def _photo(db: Session, photo_id: int) -> AwPhoto:
 
 
 def _change(db: Session, photo_id: int, change) -> AwPhoto:
-    """Apply one of photos.py's state changes and commit; 409 when the state
-    does not allow it."""
+    """Apply one of photos.py's state changes (a guarded UPDATE) and commit;
+    409 when the photo's state does not allow it, or another request changed
+    it first."""
     photo = _photo(db, photo_id)
     try:
-        change(photo)
+        change(db, photo)
     except Refused as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc))
     db.commit()
@@ -299,7 +317,7 @@ def photo_image(photo_id: int, db: Session = Depends(get_db)):
 @router.post("/photos/{photo_id}/fail", response_model=AwPhotoOut)
 def fail_photo(photo_id: int, body: AwPhotoFailIn, db: Session = Depends(get_db)):
     """Qwen could not make a slip of it: back on the queue while tries are left."""
-    return _change(db, photo_id, lambda p: photos.fail(p, body.reason))
+    return _change(db, photo_id, lambda d, p: photos.fail(d, p, body.reason))
 
 
 @router.post("/photos/{photo_id}/resend", response_model=AwPhotoOut)
@@ -313,10 +331,11 @@ def delete_photo(photo_id: int, db: Session = Depends(get_db)):
     """The row and its file go together. A done photo's file is its slip's:
     it goes when the slip is deleted (409 here)."""
     photo = _photo(db, photo_id)
-    if photo.state == "done":
-        raise HTTPException(status_code=409, detail="The photo is a slip's: delete the slip")
     path = photo.image_path
-    db.delete(photo)
+    try:
+        photos.delete(db, photo)
+    except Refused as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc))
     db.commit()
     photos.remove_file(path)
     return {"deleted": photo_id}

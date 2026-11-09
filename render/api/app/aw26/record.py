@@ -41,9 +41,11 @@ def record_slip(db: Session, body, user: str) -> AwSlip:
     if body.offer not in OFFERS:
         raise Refused(400, f"offer must be one of {', '.join(OFFERS)}")
     if photo is not None and not body.receipt:
-        if photo.state in ("waiting", "reading"):
-            photos.fail(photo, "no receipt number")
+        try:
+            photos.fail(db, photo, "no receipt number")   # only while waiting or reading
             db.commit()
+        except Refused:
+            pass
         raise Refused(400, "no receipt number")
     if body.receipt and db.query(AwSlip).filter(AwSlip.receipt == body.receipt).first():
         _duplicate(db, body.photo_id, body.receipt)
@@ -57,7 +59,11 @@ def record_slip(db: Session, body, user: str) -> AwSlip:
     try:
         db.flush()                                 # the slip's id, for the photo
         if photo is not None:
-            photo.state, photo.slip_id, photo.reason = "done", slip.id, None
+            try:
+                photos.done(db, photo, slip.id)    # refused if another request got there first
+            except Refused:
+                db.rollback()
+                raise
         db.commit()
     except IntegrityError:
         # Two records of one receipt racing: the unique index refuses the second.

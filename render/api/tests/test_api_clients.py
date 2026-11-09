@@ -218,6 +218,13 @@ def test_a_grant_is_added_to_an_existing_key_without_replacing_it():
     db.close()
 
 
+def test_a_grant_keeps_a_dead_name_already_on_the_key():
+    _legacy_hub_key("oldhub")                                       # stored grant: "hub", now dead
+    db = Session()
+    assert apikeys.grant(db, "oldhub", "aw26,paddy").permissions == "aw26+cards+hub"
+    db.close()
+
+
 def test_a_star_on_either_side_of_a_grant_gives_the_star():
     db = Session()
     apikeys.create(db, "all", "*")

@@ -1,8 +1,10 @@
 """AW 26: the same selection across slips.
 
-Two legs are the same selection when they are on the same game (the same
-event id, or failing one the same words for the game) and their market and
-selection read the same. `group` gathers the legs into one row per selection;
+Two legs are the same selection when they are on the same game and their
+market and selection read the same. The game is the event id; failing one,
+the words for the game on one London day (the kick-off's, or the day the slip
+was placed when the leg has no kick-off), so two matches between the same two
+teams are two games. `group` gathers the legs into one row per selection;
 `mark` sets one result on every leg of a selection and re-settles each slip
 that carries it. A mark is a result, not a correction: the EV, the fairs and
 `edited` stand.
@@ -11,7 +13,7 @@ import re
 from datetime import datetime
 
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, contains_eager
 
 from ..models import AwLeg, AwSlip
 from . import service
@@ -25,7 +27,12 @@ def words(text: str | None) -> str:
 
 
 def game_key(leg) -> str:
-    return f"e:{leg.fixture_id}" if leg.fixture_id else "w:" + words(leg.event)
+    """"e:<event id>", or "w:<words>@<London day>": the kick-off's day, else
+    the day the slip was placed."""
+    if leg.fixture_id:
+        return f"e:{leg.fixture_id}"
+    day = service.london_day(leg.kickoff or leg.slip.placed_at)
+    return f"w:{words(leg.event)}@{day.isoformat()}"
 
 
 def selection_key(leg) -> str:
@@ -73,7 +80,7 @@ def mark(db: Session, leg_id: int, result: str) -> tuple[int, int]:
         raise LookupError(f"No leg {leg_id} on a slip from AW 26")
     same_game = (AwLeg.fixture_id == target.fixture_id if target.fixture_id
                  else or_(AwLeg.fixture_id.is_(None), AwLeg.fixture_id == ""))
-    candidates = (db.query(AwLeg).join(AwSlip)
+    candidates = (db.query(AwLeg).join(AwLeg.slip).options(contains_eager(AwLeg.slip))
                   .filter(same_game, AwSlip.placed_at >= start).all())
     key = selection_key(target)
     legs = [lg for lg in candidates if selection_key(lg) == key]
