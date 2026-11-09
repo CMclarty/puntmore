@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 from typing import Annotated, Any, Literal, Optional
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 
 class LegOut(BaseModel):
@@ -321,18 +321,33 @@ class AwLegOut(BaseModel):
     fair_odds: float | None = None
     fixture_id: str | None = None
     result: str
+    fair_assumed: bool
 
     model_config = {"from_attributes": True}
 
 
+def _lower(v):
+    return v.lower() if isinstance(v, str) else v
+
+
 class AwSlipLegIn(BaseModel):
-    """One leg of a slip HubAI (or any client with the `aw26` grant) records."""
+    """One leg of a slip HubAI (or any client with the `aw26` grant) records.
+
+    kind, line and side are what HubAI read off the leg's words (None where it
+    read none); fixture_id is the event's id. `fair_assumed` = no fair was
+    found, so the fair is taken as the odds and any fair_odds sent is ignored."""
     event: str = Field(min_length=1, max_length=120)
     market: str | None = Field(default=None, max_length=120)
     selection: str | None = Field(default=None, max_length=120)
     odds: float | None = Field(default=None, gt=1, le=1000)
     kickoff: str | None = None           # ISO 8601 UTC, or as printed (London)
     fair_odds: float | None = Field(default=None, gt=1, le=1000)
+    kind: Literal["corners", "cards", "goals", "saves", "other"] | None = None
+    line: float | None = Field(default=None, ge=0, le=100)
+    # Lower-cased first: the board prints "Over".
+    side: Annotated[Literal["over", "under"] | None, BeforeValidator(_lower)] = None
+    fixture_id: str | None = Field(default=None, max_length=80)
+    fair_assumed: bool = False
 
 
 class AwSlipRecordIn(BaseModel):

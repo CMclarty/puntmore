@@ -85,8 +85,10 @@ def parse_when(text: str | None, ref: datetime) -> datetime | None:
 def build_slip(body, *, user: str, now: datetime | None = None) -> AwSlip:
     """A new AwSlip (not yet added to a session) from a schemas.AwSlipRecordIn.
 
-    The legs are kept as recorded: nothing is read off their words and no
-    fixture is looked up, so kind, line, side and fixture_id stay NULL."""
+    The legs are kept as recorded: kind, line, side and fixture_id are what
+    the record carries (HubAI's reading), and Render reads nothing off the
+    words and looks no fixture up. A leg whose fair is assumed takes its odds
+    as its fair, whatever fair the record carried."""
     now = now or utcnow()
     placed = parse_when(body.placed_at, now) or now
     stake = body.stake
@@ -98,7 +100,10 @@ def build_slip(body, *, user: str, now: datetime | None = None) -> AwSlip:
         slip.legs.append(AwLeg(position=i, event=lg.event, market=lg.market,
                                selection=lg.selection, odds=lg.odds,
                                kickoff=parse_when(lg.kickoff, placed),
-                               fair_odds=lg.fair_odds, result="pending"))
+                               kind=lg.kind, line=lg.line, side=lg.side,
+                               fixture_id=lg.fixture_id, fair_assumed=lg.fair_assumed,
+                               fair_odds=lg.odds if lg.fair_assumed else lg.fair_odds,
+                               result="pending"))
     return slip
 
 

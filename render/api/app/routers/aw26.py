@@ -102,7 +102,7 @@ def edit_slip(slip_id: int, body: SlipEdit, db: Session = Depends(get_db)):
         for i, e in enumerate(body.legs):
             leg = existing.get(e.id) if e.id is not None else None
             if leg is None:
-                leg = AwLeg(kickoff=None)
+                leg = AwLeg(kickoff=None, fair_assumed=False)
             # kind/line/side and fixture_id were read off a slip's words before
             # the retirement; once the words change they no longer describe the
             # leg, and nothing reads them again.
@@ -110,9 +110,14 @@ def edit_slip(slip_id: int, body: SlipEdit, db: Session = Depends(get_db)):
                 leg.kind = leg.line = leg.side = None
             if leg.event != e.event:
                 leg.fixture_id = None
+            # An assumed fair is the odds: it follows a corrected price, until a
+            # fair is typed (one that differs from the stored), which is real.
+            if e.fair_odds != leg.fair_odds:
+                leg.fair_assumed = False
+            fair = e.odds if leg.fair_assumed else e.fair_odds
             leg.position, leg.event, leg.market, leg.selection = i, e.event, e.market, e.selection
             leg.odds, leg.result = e.odds, e.result
-            leg.fair_odds = e.fair_odds
+            leg.fair_odds = fair
             kept.append(leg)
         slip.legs[:] = kept
     slip.edited = True

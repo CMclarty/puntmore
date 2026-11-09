@@ -366,15 +366,21 @@ class AwLeg(Base):
     odds = Column(Float, nullable=True)             # decimal, the price taken; NULL = unread
     kickoff = Column(DateTime, nullable=True)
     # corners | cards | goals | saves | other, the line, and over | under (None
-    # outside totals): read off the printed words on slips recorded before
-    # the retirement (29 Oct 2026), NULL on new ones. The page prints a totals leg by them.
+    # outside totals): read off the printed words, on slips recorded before
+    # the retirement (29 Oct 2026) and by HubAI on new ones, NULL where it
+    # read none. The page prints a totals leg by them.
     kind = Column(String, nullable=True)
     line = Column(Float, nullable=True)
     side = Column(String, nullable=True)
     fair_odds = Column(Float, nullable=True)
-    # OddsPapi's fixture id, on slips from before the retirement; NULL on new ones.
+    # The event's id: OddsPapi's on slips from before the retirement, the one
+    # HubAI sends on new ones; NULL where there is none.
     fixture_id = Column(String, nullable=True)
     result = Column(String, nullable=False, default="pending")  # pending | won | lost | void
+    # True = no fair was found, so the fair is taken as the odds (the leg adds
+    # no value of its own). Added 9 Nov 2026 by ensure_schema: the last column,
+    # and server_default backfills every earlier leg as not assumed.
+    fair_assumed = Column(Boolean, nullable=False, default=False, server_default="0")
 
     slip = relationship("AwSlip", back_populates="legs")
 
