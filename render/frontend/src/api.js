@@ -296,6 +296,12 @@ export const logShopVisit = () => post('/shop/visits', {})
 export const deleteShopVisit = (id) => del(`/shop/visits/${id}`)
 export const resetShopRoute = () => del('/shop/visits')
 
+// AW 26 — Callum's slips. Recorded by HubAI; the page lists, corrects and
+// deletes them.
+export const getAwSlips = () => get('/aw26/slips')
+export const editAwSlip = (id, fields) => patch(`/aw26/slips/${id}`, fields)
+export const deleteAwSlip = (id) => del(`/aw26/slips/${id}`)
+
 async function del(path) {
   const res = await send(path, { method: 'DELETE' }, 'DELETE')
   if (res.status === 401) { redirectToLogin(); throw new ApiError('Not authenticated', { status: 401, path }) }

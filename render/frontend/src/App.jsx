@@ -19,6 +19,7 @@ const PnlPage = lazy(() => import('./pages/PnlPage'))
 const KellyPage = lazy(() => import('./pages/KellyPage'))
 const BoostPage = lazy(() => import('./pages/BoostPage'))
 const ShopPage = lazy(() => import('./pages/ShopPage'))
+const Aw26Page = lazy(() => import('./pages/Aw26Page'))
 const Three65Page = lazy(() => import('./pages/Three65Page'))
 const TwoUpPage = lazy(() => import('./pages/TwoUpPage'))
 const FinderPage = lazy(() => import('./pages/FinderPage'))
@@ -123,8 +124,8 @@ export default function App() {
           <Route path="/shop" element={protectTool(<ShopPage />, 'shop')} />
           {/* Finder, Callum's tips: on me, or the main domain while there is no me (site.js). */}
           <Route path="/finder" element={protectTool(<FinderPage />, 'finder')} />
-          {/* AW 26 was retired (docs/retired.md): an old link lands home. */}
-          <Route path="/aw26" element={<Navigate to="/" replace />} />
+          {/* AW 26, Callum's slips: on me, or the main domain while there is no me (site.js). */}
+          <Route path="/aw26" element={protectTool(<Aw26Page />, 'aw26')} />
           {/* 365: the bet365 offers, a tab each. The acca boost tab returns on
               OddsPapi (PLAN.md item 11); its old addresses land on the tool. */}
           <Route path="/365" element={<Three65Page tools={user?.tools} />}>
