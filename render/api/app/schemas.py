@@ -379,6 +379,16 @@ class AwSlipOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AwMarkIn(BaseModel):
+    """One result for a selection on every AW 26 slip that carries it."""
+    result: str                          # pending | won | lost | void
+
+
+class AwMarkOut(BaseModel):
+    legs: int                            # legs set
+    slips: int                           # slips re-settled
+
+
 class AwSlipsOut(BaseModel):
     # The page's headline figures (aw26/service.summary) — today, total,
     # targets. Kept as a mapping: its keys are report-shaped.

@@ -15,12 +15,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..aw26 import selections
 from ..aw26.offers import OFFERS
 from ..aw26.record import Refused, record_slip
 from ..aw26.service import parse_when, price_slip, settle_slip, summary
 from ..database import get_db
 from ..models import AwLeg, AwSlip
-from ..schemas import AwSlipOut, AwSlipRecordIn, AwSlipsOut, DeletedOut
+from ..schemas import AwMarkIn, AwMarkOut, AwSlipOut, AwSlipRecordIn, AwSlipsOut, DeletedOut
 from ..security import require_user
 
 logger = logging.getLogger("uvicorn.error")
@@ -131,6 +132,20 @@ def edit_slip(slip_id: int, body: SlipEdit, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="That receipt is already on another slip")
     db.refresh(slip)
     return slip
+
+
+@router.post("/selections/{leg_id}/result", response_model=AwMarkOut)
+def mark_selection(leg_id: int, body: AwMarkIn, db: Session = Depends(get_db)):
+    """One result for a selection on every slip from AW 26 that carries it
+    (aw26/selections.py), each slip re-settled. A mark is not a correction:
+    the EV, the fairs and `edited` stand."""
+    if body.result not in RESULTS:
+        raise HTTPException(status_code=400, detail=f"result must be one of {', '.join(RESULTS)}")
+    try:
+        legs, slips = selections.mark(db, leg_id, body.result)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"legs": legs, "slips": slips}
 
 
 @router.delete("/slips/{slip_id}", response_model=DeletedOut)
