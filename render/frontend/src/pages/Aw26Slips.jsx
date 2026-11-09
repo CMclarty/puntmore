@@ -12,6 +12,7 @@ import SlipEditor from './Aw26SlipEditor'
 const WORD = { W: 'Won', L: 'Lost', V: 'Void', '–': '–', '?': '?' }
 const TONE = { W: s.won, L: s.lost, '–': s.none }
 const QUICK_MS = 20_000   // while a photo waits on Qwen
+const BATCH = 5           // photos to an upload request
 const reading = p => p.state === 'waiting' || p.state === 'reading'
 const odds = n => (n == null ? '—' : n.toFixed(2))
 const stake = n => (n == null || n % 1 === 0 ? pounds(n) : `£${n.toFixed(2)}`)
@@ -133,26 +134,41 @@ export default function Aw26Slips({ day, today, onChange, onCount }) {
   const waiting = data?.photos.some(reading)
   useAutoRefresh(() => { if (!editing) load() }, { everyMs: waiting ? QUICK_MS : REFRESH_MS })
 
+  // An action's answer may come after the day has changed: it reloads the day
+  // shown then, and a failure begun on a day no longer shown says nothing.
+  const latest = useRef({ load, day, onChange })
+  useEffect(() => { latest.current = { load, day, onChange } })
+  const failedOn = begun => err => {
+    if (latest.current.day === begun) setFailed({ at: 'queue', message: err.message })
+  }
+
   // An action that fails leaves the screen as it is and says why where it was taken.
   const act = (call, id) => {
     setFailed(null)
-    return call(id).then(load, err => setFailed({ at: 'queue', message: err.message }))
+    return call(id).then(() => latest.current.load(), failedOn(day))
   }
+  // The photos go five to a request, one request after another, in the order
+  // chosen. A failed request stops the rest; the queue is reloaded, so the
+  // batches already sent show there.
   const upload = e => {
     const files = [...e.target.files]
     e.target.value = ''   // the same photos can be chosen again
     if (!files.length) return
+    const failure = failedOn(day)
     setFailed(null)
     setSending(true)
-    uploadAwPhotos(files)
-      .then(load, err => setFailed({ at: 'queue', message: err.message }))
+    const batches = []
+    for (let i = 0; i < files.length; i += BATCH) batches.push(files.slice(i, i + BATCH))
+    batches.reduce((sent, batch) => sent.then(() => uploadAwPhotos(batch)), Promise.resolve())
+      .catch(failure)
+      .then(() => latest.current.load())
       .finally(() => setSending(false))
   }
   const done = updated => {
     setOpen(null)
     setFailed(null)
-    load()
-    if (updated) onChange()
+    latest.current.load()
+    if (updated) latest.current.onChange()
   }
 
   const chosen = day ?? today

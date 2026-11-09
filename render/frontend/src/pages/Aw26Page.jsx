@@ -83,7 +83,9 @@ export default function Aw26Page() {
 
   const today = summary?.today
   const chosen = day ?? today
-  const shown = error ? null : summary   // the data on screen
+  // The data on screen: none after a failure, and none of another day's while
+  // the chosen day loads.
+  const shown = error || summary?.day !== chosen ? null : summary
   const step = by => (summary ? stepDay(chosen, by, summary.first_day, today) : null)
   const choose = next => { setDay(next === today ? null : next); setMarkError(null); setCount(null) }
   const show = next => { if (next !== view) { setView(next); setCount(null) } }
@@ -130,8 +132,10 @@ export default function Aw26Page() {
       {/* Slips loads its own rows and says when they fail: the summary's
           failure shows there only while it has no day to go on. */}
       {error && (view === 'summary' || !summary) && <p className={f.error}>{error}</p>}
-      {!error && !summary && <p className={f.empty}>Loading…</p>}
-      {shown && view === 'summary' && <Aw26Summary summary={shown} now={now} onMark={onMark} markError={markError} />}
+      {!error && !shown && (view === 'summary' || !summary) && <p className={f.empty}>Loading…</p>}
+      {shown && view === 'summary' && (
+        <Aw26Summary key={shown.day} summary={shown} now={now} onMark={onMark} markError={markError} />
+      )}
       {summary && view === 'slips' && <Aw26Slips day={day} today={today} onChange={refresh} onCount={setCount} />}
 
       <div className={`${f.offerSwitch} ${s.views}`} role="group" aria-label="View">

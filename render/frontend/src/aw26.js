@@ -30,9 +30,11 @@ export function pounds(n) {
   return '£' + n.toLocaleString('en-GB', { maximumFractionDigits: 0 })
 }
 
-// The target bar: its width, 0 to 100, and "3.2% of £100,000" from the same figure.
+// The target bar: its width, 0 to 100, and "3.2% of £100,000" from the same figure;
+// no profit yet is an empty bar.
 export function progress(profit, target) {
-  const width = target > 0 ? Math.min(100, Math.max(0, (profit * 100) / target)) : 0
+  const share = target > 0 ? (profit * 100) / target : 0
+  const width = Number.isFinite(share) ? Math.min(100, Math.max(0, share)) : 0
   return { width, label: `${Number(width.toFixed(1))}% of ${pounds(target)}` }
 }
 

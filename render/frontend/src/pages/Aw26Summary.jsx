@@ -32,6 +32,7 @@ function Figure({ label, cells, tone = () => '' }) {
 function Result({ pick, open, onToggle }) {
   return (
     <button type="button" className={`${s.result} ${TONE[pick.mark] ?? ''}`}
+      aria-label={`Result of ${pickText(pick)}, ${pick.event}: ${WORD[pick.mark]}`}
       aria-expanded={open} onClick={onToggle}>{WORD[pick.mark]}</button>
   )
 }

@@ -13,6 +13,8 @@ describe('aw26', () => {
     expect(money(0)).toBe('£0')
     expect(money(null)).toBe('—')
     expect(pounds(10700)).toBe('£10,700')
+    expect(pounds(null)).toBe('—')
+    expect(pounds(undefined)).toBe('—')
   })
   it('keeps the bar between empty and full, whatever the profit', () => {
     expect(progress(3240, 100000)).toEqual({ width: 3.24, label: '3.2% of £100,000' })
@@ -20,6 +22,7 @@ describe('aw26', () => {
     expect(progress(0, 100000).width).toBe(0)
     expect(progress(250000, 100000).width).toBe(100)
     expect(progress(10, 0).width).toBe(0)
+    expect(progress(undefined, 100000)).toEqual({ width: 0, label: '0% of £100,000' })
   })
   it('names days', () => {
     expect(dayName('2026-11-09', '2026-11-09')).toBe('Today')
@@ -60,12 +63,16 @@ describe('aw26', () => {
     expect(pickText({ market: null, selection: 'Under 3.5 Chelsea cards' })).toBe('U3.5 Chelsea cards')
     expect(pickText({ market: 'Total Match Corners', selection: 'Over 8.5' })).toBe('Total Match Corners O8.5')
     expect(pickText({ market: 'Match Result', selection: null })).toBe('Match Result')
+    // Over / Under shorten only before a number.
+    expect(pickText({ market: null, selection: 'Under Armour Cup winner' })).toBe('Under Armour Cup winner')
   })
   it('says how long a slip stays open and whether it needs a look', () => {
     const legs = [{ result: 'won', kickoff: '2026-11-14T15:00:00' }, { result: 'pending', kickoff: '2026-11-12T19:45:00' },
       { result: 'pending', kickoff: null }]
     expect(openTo({ legs })).toBe('Thu')
     expect(openTo({ legs: [{ result: 'pending', kickoff: null }] })).toBe(null)
+    // 23:30 UTC on Saturday 4 July is 00:30 on Sunday in London
+    expect(openTo({ legs: [{ result: 'pending', kickoff: '2026-07-04T23:30:00' }] })).toBe('Sun')
     expect(flagged({ ev: null })).toBe(true)
     expect(flagged({ ev: 0 })).toBe(false)
   })

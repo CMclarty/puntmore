@@ -76,8 +76,9 @@
   font-size: 13px; color: var(--text-pp); font-variant-numeric: tabular-nums;
 }
 .slipHead > :last-child { margin-left: auto; text-align: right; }
-.slipHead b { font-family: var(--rounded); font-size: 14px; font-weight: 700; }
-.slipHead > :first-child > b { color: var(--ink-pp); }   /* the offer; the profit takes .won / .lost */
+.slipHead b { font-family: var(--rounded); font-size: 14px; font-weight: 700; color: var(--ink-pp); }
+.slipHead b.won { color: var(--good); }   /* the profit: ink when it is £0 or none */
+.slipHead b.lost { color: var(--red); }
 .note { color: var(--red); }
 .slipsView .leg { grid-template-columns: minmax(0, 1fr) 44px 44px 40px; padding-top: 7px; padding-bottom: 7px; }
 .legResult { font-size: 14px; font-weight: 700; }
