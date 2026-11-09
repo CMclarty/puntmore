@@ -51,6 +51,13 @@ export function stepDay(day, by, first, today) {
   return next < first || next > today ? null : next
 }
 
+// A kick-off's time in London, "15:00"; no kick-off is blank.
+export function koTime(iso) {
+  const t = utc(iso)
+  if (t == null) return ''
+  return new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })
+}
+
 // A selection's mark: its result, or "?" once it is a day past kick-off and still pending.
 export function mark(selection, now) {
   const { result, kickoff } = selection

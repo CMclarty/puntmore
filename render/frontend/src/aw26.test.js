@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { money, pounds, progress, dayName, stepDay, sections, mark, tally, pickText, openTo, flagged } from './aw26'
+import { money, pounds, progress, dayName, stepDay, sections, mark, tally, pickText, openTo, flagged, koTime } from './aw26'
 
 const sel = (o) => ({ leg_id: 1, key: 'k', game: 'w:a v b', event: 'A v B', market: null,
   selection: 'Over 10.5 corners', kickoff: '2026-11-09T15:00:00', day: '2026-11-09',
@@ -68,5 +68,10 @@ describe('aw26', () => {
     expect(openTo({ legs: [{ result: 'pending', kickoff: null }] })).toBe(null)
     expect(flagged({ ev: null })).toBe(true)
     expect(flagged({ ev: 0 })).toBe(false)
+  })
+  it('prints a kick-off as London time', () => {
+    expect(koTime('2026-11-09T15:00:00')).toBe('15:00')
+    expect(koTime('2026-07-01T15:00:00')).toBe('16:00')
+    expect(koTime(null)).toBe('')
   })
 })

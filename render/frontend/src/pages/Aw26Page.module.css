@@ -1,52 +1,68 @@
-/* AW 26: the headline, then the slips. */
-.page { display: flex; flex-direction: column; flex: 1; padding-bottom: 72px; }
+/* AW 26: only what CardsPage.module.css (imported as `f`) has no class for.
+   Overrides of its classes sit under .band or .summary so they win whatever
+   order the two sheets load in. */
 
-.head { padding: 12px 14px 8px; border-bottom: 1px solid var(--line); }
-.figures { display: flex; gap: 22px; align-items: flex-end; }
-.stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+/* The band: the day pill on the right, the all-time profit under it. */
+.band .dayPill { justify-self: end; padding: 0 16px; font-size: 13px; font-weight: 700; }
+.headline { grid-column: 1 / -1; padding: 4px 0 4px; }
+.profit { display: flex; align-items: baseline; gap: 8px; }
+.big {
+  font-family: var(--rounded); font-weight: 900; font-size: 38px; line-height: 1.1;
+  letter-spacing: -0.01em; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.allTime { font-size: 12px; }
+.bar { height: 4px; margin: 10px 0 6px; border-radius: 2px; background: rgba(255, 255, 255, 0.25); overflow: hidden; }
+.fill { height: 100%; border-radius: 2px; background: #fff; }
+.under { display: flex; justify-content: space-between; gap: 10px; font-size: 10.5px; opacity: 0.85; white-space: nowrap; }
+
+/* The day panel: a step the days refuse is disabled. */
+.days > button:disabled { opacity: 0.4; }
+
+/* The figures table: the chosen day beside to date. */
+.summary .fig { grid-template-columns: minmax(0, 1fr) 96px 96px; padding-top: 6px; padding-bottom: 6px; }
+.figLabel { font-size: 15px; font-weight: 700; color: var(--ink-pp); }
+.figure { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
+.figure b { font-size: 15px; font-weight: 700; color: var(--ink-pp); font-variant-numeric: tabular-nums; }
+.figure b.good { color: var(--good); }
+.figure b.bad { color: var(--red); }
+.figure small { font-size: 11px; color: var(--muted-pp); }
+
+/* The selections: a heading per day, then KO · Slips · Odds · Result. */
+.summary .sel { grid-template-columns: minmax(0, 1fr) 36px 36px 44px 40px; }
+.dayHead {
+  display: flex; align-items: baseline; gap: 8px; padding: 6px 12px;
+  border-bottom: 1px solid var(--rule-pp); background: var(--ground-pp);
+  font-size: 12px; color: var(--muted-pp);
+}
+.dayHead b { font-family: var(--rounded); font-size: 14px; font-weight: 700; color: var(--ink-pp); }
+.slips { font-size: 12px; color: var(--muted-pp); font-variant-numeric: tabular-nums; }
+.result {
+  /* the tap reaches the row's edges without making the row taller */
+  margin: -8px 0; padding: 8px 0; border: none; background: none; cursor: pointer;
+  font: inherit; font-size: 14px; font-weight: 700; color: var(--ink-pp);
+}
+.marks { grid-column: 4 / 6; display: flex; gap: 4px; font-size: 14px; font-weight: 700; }
+.won { color: var(--good); }
+.lost { color: var(--red); }
+.none { color: var(--muted-pp); font-weight: 400; }
+/* The view switch: the mock's buttons are wider than the offer switch's. */
+.views > button { padding: 0 12px; font-size: 13px; font-weight: 700; }
+.marking {
+  display: flex; flex-wrap: wrap; gap: 5px; padding: 8px 12px;
+  border-bottom: 1px solid var(--rule-pp); background: var(--ground-pp);
+}
+
+/* slip editor (Task 9 restyles) */
 .label {
   font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint);
 }
-.big { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 600; line-height: 1; white-space: nowrap; }
-.of { font-size: 13px; font-weight: 500; color: var(--muted); }
-.line { margin-top: 7px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--muted); }
-.line b { color: var(--ink); font-weight: 600; }
-.sval { font-weight: 600; }
-.pos { color: var(--accent); }
-.neg { color: var(--red); }
-.muted { color: var(--faint); }
-
 .chips { display: flex; gap: 5px; flex-wrap: wrap; }
 .chip {
   min-height: 34px; padding: 0 11px; border: 1px solid var(--line-strong); border-radius: 8px;
   background: var(--paper); font: inherit; font-size: 12px; font-weight: 700; color: var(--muted);
 }
 .chip.on { border-color: var(--ink); background: var(--ink); color: var(--paper); }
-.error { margin: 8px 14px 0; color: var(--red); font-size: 12px; }
-
-.list { list-style: none; }
 .slip { border-bottom: 1px solid var(--line); }
-.slipBtn {
-  display: block; width: 100%; padding: 9px 14px; border: none; background: none; text-align: left;
-  font: inherit; color: inherit;
-}
-.slipTop { display: flex; gap: 10px; align-items: baseline; font-size: 12px; white-space: nowrap; }
-.when { color: var(--muted); }
-.offer { text-transform: uppercase; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: var(--muted); }
-.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.slipTop .num:nth-of-type(3) { margin-left: auto; }
-.leg {
-  display: grid; grid-template-columns: 14px minmax(0, 1fr) minmax(0, 88px) 36px 66px;
-  gap: 6px; align-items: baseline; margin-top: 4px; font-size: 12px;
-}
-.res { font-family: var(--font-mono); font-weight: 700; color: var(--muted); }
-.resWon { color: var(--accent); }
-.resLost { color: var(--red); }
-.ev, .mk { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mk { color: var(--muted); }
-.leg .num { text-align: right; }
-.note { margin-top: 5px; font-size: 11px; color: var(--faint); }
-
 .editing { padding: 10px 14px; background: var(--zebra); }
 .editTop { display: flex; gap: 10px; align-items: flex-end; justify-content: space-between; }
 .field { display: flex; flex-direction: column; gap: 3px; }
