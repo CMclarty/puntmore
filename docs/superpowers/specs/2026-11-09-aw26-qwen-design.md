@@ -94,6 +94,11 @@ running total ("I need to keep motivated") and the selections in aggregate.
   over a long period."
 - "Fairs from paddy tool. Occasionally there will be other bets I manually
   found... just treat them all as neutral EV. Better to be overly cautious."
+- Which offer a slip is on: "Slip does say on it. The text changes based
+  on the offer." Qwen reads the offer off the slip; there is no offer
+  choice on the upload.
+- The slips from before the tool was retired on 29 Oct: "Start fresh."
+  They do not count.
 - Earlier and still governing: AW 26 is "just a front end with qwen doing
   the work"; "Remember qwen is local, so no usage costs."
 
@@ -187,6 +192,11 @@ by hand three days late, or one Qwen reads after midnight, would land on
 the wrong day. Where the deciding leg has no known kick-off, the moment of
 recording stands.
 
+AW 26 starts fresh on 9 Nov 2026, the day it came back (the date is my
+call; "start fresh" is Callum's). Slips placed before that stay in the
+table untouched but are left out of every figure and off the page. Nothing
+is deleted.
+
 A "day" in the day count and in the to-date EV target is a day on which a
 slip was placed **(my call)**. Today's code counts every calendar day
 since the first slip, so a week off raises the target by £7,000.
@@ -239,8 +249,14 @@ each leg the game, market, line, side and odds.
 
 - Never guess. A field it cannot read is left blank. Render already
   accepts blanks; the slip then has no EV and is flagged on the page.
-- The offer is one of refund, boost, other. If the slip does not make it
-  plain, "other" **(my call)**.
+- The offer is one of refund, boost, other, read from the slip's own
+  text, which differs by offer (Callum). The runbook quotes the wording
+  for each offer, taken from the proof photos. If Qwen cannot read which
+  it is, "other" **(my call)**: that never credits an offer the slip may
+  not have.
+- The stake is read if the slip shows it. If not, the existing rule
+  stands: a refund or boost slip is £50 (Callum, Oct 2026), and an "other"
+  slip is left blank and flagged for Callum to type in.
 - A photo that is not a slip, or where no leg can be read at all, is
   marked failed with a short reason rather than recorded.
 - A slip whose receipt number cannot be read is marked failed ("no receipt
@@ -408,6 +424,7 @@ To the AW 26 entry, in Callum's words:
   Flashscore only, AW 26 results only.
 - Fairs come from the Paddy board; a bet not on it is "neutral EV. Better
   to be overly cautious."
+- "Start fresh": slips placed before 9 Nov 2026 do not count.
 - The Hub daemon gains an AW 26 loop that talks to Render.
 
 ## Prove first
@@ -456,7 +473,9 @@ These cannot be done for him:
 
 1. Switch Qwen's vision on: the projector line in
    `~/.config/llama-server/env`, then restart `llama-server`.
-2. Put five or more real slip photos where they can be read, for the proof.
+2. Put five or more real slip photos where they can be read, for the
+   proof, with at least one refund slip and one boost slip among them, so
+   the runbook can quote each offer's wording.
 3. Check his `AUTH_USERS` entry on Render carries `aw26`.
 4. After the Render step ships: one command in Render's Shell to add
    `aw26` and `cards` to the Hub's existing key.
