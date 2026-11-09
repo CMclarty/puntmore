@@ -174,11 +174,22 @@ All days are London days, as the slips are printed.
 | A selection in the list | its kick-off day |
 | EV | the day the slip was placed |
 | Staked, slip count | the day the slip was placed |
-| Profit | the day the slip settled |
+| Profit | the day the game that settled the slip was played |
 | All-time profit, "To date" | everything up to now |
 
 A selection with no known kick-off sits under the day its slip was placed
 **(my call)**.
+
+Profit lands on the day the deciding game kicked off, not on the day the
+result happened to be typed in **(my call)**. Today's code dates
+settlement by the moment the result was recorded, so a result Callum sets
+by hand three days late, or one Qwen reads after midnight, would land on
+the wrong day. Where the deciding leg has no known kick-off, the moment of
+recording stands.
+
+A "day" in the day count and in the to-date EV target is a day on which a
+slip was placed **(my call)**. Today's code counts every calendar day
+since the first slip, so a week off raises the target by £7,000.
 
 The page asks Render for one day at a time. It never pulls the whole
 history; a season is thousands of legs.
@@ -232,6 +243,12 @@ each leg the game, market, line, side and odds.
   plain, "other" **(my call)**.
 - A photo that is not a slip, or where no leg can be read at all, is
   marked failed with a short reason rather than recorded.
+- A slip whose receipt number cannot be read is marked failed ("no receipt
+  number"), not recorded **(my call)**. The receipt is the only guard
+  against counting a slip twice: Callum places many identical slips, so
+  two with the same legs and stake are normal and cannot be told apart any
+  other way. A failed row is visible; a double count is silent. Callum
+  retakes the photo.
 - Render refuses a receipt it already holds (409). Qwen then marks the
   photo a duplicate and stops.
 - Market words are short and in the Paddy board's wording ("Over 10.5
@@ -253,6 +270,10 @@ leg's game and selection on it.
 - Not found (a bet Callum found by hand, or a game off the board by then):
   the fair is set equal to the odds taken, so the leg adds nothing to EV,
   and the leg is marked "fair assumed". No reminder.
+- Neutral means the leg itself has no edge. A refund or boost slip made of
+  assumed fairs still carries the offer's own value (a refund 5-fold at
+  fair prices is worth a few pounds), because that value is real whatever
+  the legs are **(my call)**. `price_slip` is not special-cased.
 - The board must be asked for with no value floor, so a selection Paddy
   now prices below fair is still found **(my call)**. `min_edge` already
   goes down to -0.50.
