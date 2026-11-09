@@ -46,10 +46,13 @@ the main domain.
   redirect there; an account granted `boost` without `pnl` gets the calculator (`BoostPage`).
 - **P&L** (Dogs), **Kelly**, **the shop**: on `me`.
 - **AW 26** (`/aw26` on `me`, `aw26` grant, `app/aw26/`): Callum's slips from the Paddy
-  terminal, a page over the stored rows. HubAI reads the photos, finds the fairs and checks
-  the results on the Hub, and records them with an API client key granted `aw26` on the same
-  routes as the page. Render only does the sums (`aw26/offers.py`: EV from odds and fairs,
-  returns from leg results) when a request asks; nothing for AW 26 runs in the background.
+  terminal, a page over the stored rows with two screens: a Summary (the all-time profit, the
+  day against the targets, the selections in aggregate with win or lose) and a Slips sub
+  screen. A photo uploaded on the page waits in a queue on Render (`aw_photos`) for the Hub
+  to collect. Slips are recorded and marked on the same `aw26` routes by the page and by
+  HubAI's key. Render does the sums (`aw26/offers.py`: EV from odds and fairs, returns from
+  leg results) when a request asks; it reads no photo and runs nothing in the background.
+  Slips placed before 9 Nov 2026 stay stored and count nowhere.
 
 The **Bet Placer** (`docs/placer-spec.md`) reads the three boards' feeds and places on the Hub;
 nothing on Render stakes or places.

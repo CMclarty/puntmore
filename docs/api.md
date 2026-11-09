@@ -57,6 +57,7 @@ nothing for it.
 
 ```
 python -m app.apikeys create <name> --tools paddy,value  # prints the key ONCE
+python -m app.apikeys grant <name> --tools aw26,cards    # adds to its grant; same key, not printed
 python -m app.apikeys list                              # names, grants, last used — never keys
 python -m app.apikeys revoke <name>                     # disables at once; row kept
 ```
@@ -172,7 +173,8 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 | Finder writes (`ingest`, key only) | `POST /finder/rows`, `POST /finder/rows/{tip_id}/status` | HubAI's rows; the Bet Placer's `placed`\|`gone` |
 | Finder reads (`finder`) | `GET /finder/feed`, `GET /finder/board` (`?days=3`), `GET /value/finder` | the offered rows; the board on `me` |
 | P&L (`pnl`) | `GET/POST /pnl/{dogs\|virtuals}/bets`, `GET /pnl/{c}/bets.csv`, `DELETE /pnl/{c}/bets/{id}` | per-caller ledger |
-| AW 26 (`aw26`) | `GET /aw26/slips`, `POST /aw26/slips/record`, `PATCH /aw26/slips/{id}`, `DELETE /aw26/slips/{id}`, `GET /aw26/slips/{id}/image` | Callum's slips: the list with its totals, record one, correct one or set its legs' results, delete one, an old slip's photo |
+| AW 26 (`aw26`) | `GET /aw26/summary`, `GET /aw26/slips`, `POST /aw26/slips/record`, `PATCH /aw26/slips/{id}`, `DELETE /aw26/slips/{id}`, `GET /aw26/slips/{id}/image`, `POST /aw26/selections/{leg_id}/result` | Callum's slips: a day's figures and selections, a day's slips, record one, correct one or set its legs' results, delete one, a slip's photo, one result for a selection on every slip |
+| AW 26 photos (`aw26`) | `POST /aw26/photos`, `GET /aw26/photos`, `POST /aw26/photos/{id}/take`, `/fail`, `/resend`, `GET /aw26/photos/{id}/image`, `DELETE /aw26/photos/{id}` | the queue of slip photos waiting for the Hub |
 | shop (`shop`) | `GET /shop`, `POST /shop/visits`, `DELETE /shop/visits[/{id}]` | per-caller route |
 | diagnostics (`*`, or `state`) | `GET/DELETE /diagnostics/errors` | error ring buffer |
 | — | `GET /health`, `GET /ready` | probes, unauthenticated |
@@ -273,32 +275,90 @@ or `placed` row. `ENABLE_FINDER=false` removes the routes.
 
 ### AW 26 (`/api/aw26/*`, back 9 Nov 2026)
 
-Callum's slips from the Paddy terminal, on `me`. HubAI on the Hub reads the
-photos, finds the fair prices and checks the results; it calls these routes
-with an API client key granted `aw26` (`python -m app.apikeys create hubai
---tools aw26`), the same routes the page calls. Render reads no photo, looks
-nothing up and runs nothing in the background for AW 26; it does the sums
-when a request arrives (`aw26/offers.py`).
+Callum's slips from the Paddy terminal, on `me`. The page and HubAI on the Hub
+call the same routes; HubAI uses an API client key granted `aw26`, and `cards`
+to read the Paddy board the fairs come from (`python -m app.apikeys grant
+<name> --tools aw26,cards` adds both to an existing key). A photo uploaded on
+the page waits on Render's queue until the Hub collects it. Render reads no
+photo, looks nothing up and runs nothing in the background for AW 26; it does
+the sums when a request arrives (`aw26/offers.py`). Days are London days. A
+slip placed before 9 Nov 2026, the first day, stays stored and counts nowhere:
+it is in no figure, no list and no mark.
 
-- `GET /aw26/slips` — `{summary, slips}`: every slip, newest first, with its
-  legs; `summary` is today's and the total figures and the targets.
+- `GET /aw26/summary?day=` — the figures for one day (default today): `day`,
+  `today`, `first_day`, `days` (the days on which a slip was placed),
+  `targets` (`ev_per_day` £1,000, `profit` £100,000), `chosen`, `to_date` and
+  `selections`. `chosen` and `to_date` each carry `ev`, `ev_target`,
+  `profit`, `staked`, `slips` and `open`. `chosen` is the slips placed on the
+  day, its profit the slips decided on it; `to_date` is every slip, against
+  £1,000 EV for each of the `days`. `selections` are the day's selections in
+  aggregate, soonest kick-off first: a leg is on its kick-off's day, or its
+  slip's when it has none, and today lists today and every later day. Each
+  has `leg_id`, `key`, `game`, `event`,
+  `market`, `selection`, `kickoff`, `day`, `slips` (how many carry it),
+  `odds` (their mean), `result` (`pending` until every leg has the same one)
+  and `fair_assumed` (any leg's). `400` for a day before `first_day` or after
+  today.
+- `GET /aw26/slips?day=` — `{slips}`: the slips placed on the day (default
+  today), newest first, with their legs.
 - `POST /aw26/slips/record` — body `AwSlipRecordIn`: `receipt`, `placed_at`
   (as printed, London, or ISO 8601), `offer` (`refund` | `boost` | `other`),
-  `stake` (blank on a refund or boost slip means £50), `legs` (1–40, each
-  `event`, `market`, `selection`, `odds`, `kickoff`, `fair_odds`). The slip is
-  filed under the caller (`api:<name>` for a key). `409` when the receipt is
-  already in, so a slip sent twice is counted once.
+  `stake` (blank on a refund or boost slip means £50), `photo_id` (the queued
+  photo it was read from, or none), `legs` (1–40, each `event`, `market`,
+  `selection`, `odds`, `kickoff`, `fair_odds`, `kind` (`corners` | `cards` |
+  `goals` | `saves` | `other`), `line`, `side` (`over` | `under`),
+  `fixture_id` and `fair_assumed`). A leg with `fair_assumed` has no fair: its
+  odds are its fair and any `fair_odds` sent is ignored. The legs are kept as
+  sent; Render reads nothing off their words. The slip is filed under the
+  caller (`api:<name>` for a key). `409` when the receipt is already in, so a
+  slip sent twice is counted once. With a `photo_id`: `404` for no such photo,
+  `409` for one already a slip; recorded, the photo is `done` and is the
+  slip's photo; a receipt already in makes it `duplicate`; no receipt is a
+  `400` and fails the photo ("no receipt number").
 - `PATCH /aw26/slips/{id}` — any of `offer`, `stake`, `placed_at`, `receipt`,
   `legs`. `legs` **replaces the whole list**: send every leg, with its `id`,
   `odds`, `fair_odds` and `result` (`pending` | `won` | `lost` | `void`). A
-  leg sent without its `fair_odds` loses it, and the slip's EV with it.
-- `DELETE /aw26/slips/{id}`; `GET /aw26/slips/{id}/image` (the photo of a
-  slip from before the retirement; `404` for every slip since).
+  leg sent without its `fair_odds` loses it, and the slip's EV with it, unless
+  its fair is assumed: an assumed fair follows the odds until a different
+  fair is sent. A leg whose `market` or `selection` changes loses its `kind`,
+  `line` and `side`; one whose `event` changes loses its `fixture_id`. `409`
+  for a receipt already on another slip.
+- `POST /aw26/selections/{leg_id}/result` — body `{"result": …}` (`pending` |
+  `won` | `lost` | `void`) → `{legs, slips}`, how many legs were set and
+  slips re-settled. Sets the result on every leg of that leg's selection (the
+  same game, by `fixture_id` or else the event's words, and the same market
+  and selection) on every slip, and re-settles each. A mark is not a
+  correction: the EV, the fairs and `edited` stand. `400` for any other word,
+  `404` for no such leg or one on a slip from before the first day.
+- `DELETE /aw26/slips/{id}`, with its photo; `GET /aw26/slips/{id}/image`, the
+  photo it was read from (`404` when it has none).
 
 The EV is fixed once every leg has its odds and a fair price; until then it
 is null and `ev_note` says how many legs are waiting. A slip is never valued
 off the legs that did price. The slip's status and returns follow from its
 legs' results under its offer's terms.
+
+**The photo queue.** A photo (`AwPhotoOut`: `id`, `created_at`, `source`,
+`state`, `tries`, `reason`, `slip_id`) is one of `waiting | reading | failed |
+duplicate | done`. Render stores it and changes its state when asked; nothing
+reads it on Render.
+
+- `POST /aw26/photos` — multipart `files` (1–20; JPEG, PNG, GIF or WebP, each
+  up to `MAX_UPLOAD_MB`) and `source` (`page` by default, or `telegram`) → the
+  stored photos, `waiting`. Every file is checked before any is stored: one
+  refused (`400`, `413` too large) refuses the batch.
+- `GET /aw26/photos` — every photo not `done`, oldest first. A photo
+  `reading` for more than 15 minutes is failed first ("Qwen did not finish").
+- `POST /aw26/photos/{id}/take` — `waiting` → `reading`, one more try; `409`
+  from any other state.
+- `GET /aw26/photos/{id}/image` — the stored file.
+- `POST /aw26/photos/{id}/fail` — body `{"reason": …}` (1–200 characters):
+  from `waiting` or `reading`, back to `waiting` while it has had fewer than 3
+  tries, else `failed`; `409` from any other state.
+- `POST /aw26/photos/{id}/resend` — `failed` → `waiting`, tries back to 0;
+  `409` from any other state.
+- `DELETE /aw26/photos/{id}` — the row and its file; `409` for a `done`
+  photo, whose file is its slip's (delete the slip).
 
 `kelly` and `boost` are client-side calculators with no routes. The legacy
 aliases (`/cards/*`, `/tennis/*`) still answer and are hidden from the schema.
@@ -328,7 +388,7 @@ decides otherwise.
 | API clients table / CLI | `render/api/app/models.py::ApiClient`, `render/api/app/apikeys.py` |
 | value feed | `render/api/app/value/service.py`, `render/api/app/routers/value.py` |
 | Finder | `render/api/app/finder/rows.py`, `render/api/app/routers/finder.py` |
-| AW 26 | `render/api/app/aw26/` (`offers.py`, `record.py`, `service.py`), `render/api/app/routers/aw26.py` |
+| AW 26 | `render/api/app/aw26/` (`offers.py`, `photos.py`, `record.py`, `selections.py`, `service.py`), `render/api/app/routers/aw26.py` |
 | per-tool services | `render/api/app/cards/feed.py`, `render/api/app/twoup/feed.py`, `render/api/app/coupons/service.py`, `render/api/app/pnl/service.py`, `render/api/app/shop/service.py` (+ the existing `cards/`, `goalscorers/` packages) |
 | response models | `render/api/app/schemas.py` |
 | route walk test | `render/api/tests/test_openapi.py` |

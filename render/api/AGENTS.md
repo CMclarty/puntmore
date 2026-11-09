@@ -694,6 +694,7 @@ something. A key, when sent, IS the identity — a bad key is 401 even beside a
 session cookie. The key-only routes (/state, ingest) use `require_key_grant`.
 ```
 python -m app.apikeys create <name> --tools paddy,value  # prints the key ONCE
+python -m app.apikeys grant <name> --tools aw26,cards    # adds tools to an existing key; never replaces or prints it
 python -m app.apikeys list                              # never shows keys
 python -m app.apikeys revoke <name>                     # disables at once
 ```
