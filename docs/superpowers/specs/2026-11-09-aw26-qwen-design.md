@@ -327,11 +327,22 @@ Qwen's rules for results:
   understands to follow paddy rules for cards." This is the first thing in
   the results part of the runbook, stated as a rule with worked examples,
   not left for Qwen to infer.
+- Err on the side of caution. Callum, 9 Nov 2026: "Ultimately I'd rather
+  they erred on the side of caution. Better to have a loser that I scan
+  than a winner I throw away." A slip marked lost is a slip Callum throws
+  away, so Lost is the mark that costs money when it is wrong. Qwen marks a
+  selection lost only when the count is clear of the line however a
+  doubtful card is counted. If one doubtful card (was he on the pitch, was
+  it after the whistle, does the second yellow count twice) would turn won
+  into lost or lost into won, Qwen leaves the selection for Callum; the
+  slip stays open, so he scans it. Doubt means leave, not mark won: a
+  guessed Won would flatter the profit figure **(my call)**.
 - Cards are counted by Paddy Power's published rule for card totals: a
   yellow is one card, a straight red is one card, and one player can
   count for at most two (two yellows and off is two; a yellow then a
   straight red is two). Cards to managers and to anyone not on the pitch
-  do not count, nor do cards after the final whistle. So when a match has
+  do not count (Callum, 9 Nov 2026: "cards to players off the pitch
+  don't count"), nor do cards after the final whistle. So when a match has
   a red card, Qwen counts from the list of incidents player by player, not
   from the yellow and red totals; if it cannot be sure, it leaves it.
   (Source: Paddy Power help centre, "Football Cards Rules/Bookings
