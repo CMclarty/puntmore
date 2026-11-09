@@ -14,7 +14,7 @@ test('two sites: the main domain and me; shalgo is retired', () => {
   expect(siteFor('shalgo.puntmore.com')).toBe('puntmore')
   expect(site.SHALGO).toBeUndefined()
   expect(site.SHALGO_TOOLS).toBeUndefined()
-  expect(site.ME_TOOLS).toEqual(['finder', 'pnl', 'kelly', 'boost', 'shop'])
+  expect(site.ME_TOOLS).toEqual(['finder', 'pnl', 'kelly', 'boost', 'shop', 'aw26'])
 })
 
 test('every public tool is on the main site, the personal ones on me', () => {

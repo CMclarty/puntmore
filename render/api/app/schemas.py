@@ -306,6 +306,71 @@ class StateOut(BaseModel):
     cards: list[CardFeedItem]
 
 
+# AW 26 — Callum's ledger of slips (app/aw26/)
+class AwLegOut(BaseModel):
+    id: int
+    position: int
+    event: str
+    market: str | None = None
+    selection: str | None = None
+    odds: float | None = None
+    kickoff: datetime | None = None
+    kind: str | None = None
+    line: float | None = None
+    side: str | None = None
+    fair_odds: float | None = None
+    fixture_id: str | None = None
+    result: str
+
+    model_config = {"from_attributes": True}
+
+
+class AwSlipLegIn(BaseModel):
+    """One leg of a slip HubAI (or any client with the `aw26` grant) records."""
+    event: str = Field(min_length=1, max_length=120)
+    market: str | None = Field(default=None, max_length=120)
+    selection: str | None = Field(default=None, max_length=120)
+    odds: float | None = Field(default=None, gt=1, le=1000)
+    kickoff: str | None = None           # ISO 8601 UTC, or as printed (London)
+    fair_odds: float | None = Field(default=None, gt=1, le=1000)
+
+
+class AwSlipRecordIn(BaseModel):
+    """A placed bet to RECORD on the AW 26 ledger (aw26/record.py)."""
+    receipt: str | None = Field(default=None, max_length=80)
+    placed_at: str | None = None         # as printed (London), or ISO 8601
+    offer: str = "refund"                # refund | boost | other (aw26/offers.py)
+    stake: float | None = Field(default=None, ge=0, lt=1_000_000)
+    legs: list[AwSlipLegIn] = Field(min_length=1, max_length=40)
+
+
+class AwSlipOut(BaseModel):
+    id: int
+    placed_at: datetime
+    user: str
+    receipt: str | None = None
+    offer: str
+    stake: float | None = None
+    potential_returns: float | None = None
+    status: str
+    returns: float | None = None
+    settled_at: datetime | None = None
+    ev: float | None = None
+    ev_note: str | None = None
+    edited: bool = False
+    has_image: bool = False
+    legs: list[AwLegOut] = []
+
+    model_config = {"from_attributes": True}
+
+
+class AwSlipsOut(BaseModel):
+    # The page's headline figures (aw26/service.summary) — today, total,
+    # targets. Kept as a mapping: its keys are report-shaped.
+    summary: dict[str, Any]
+    slips: list[AwSlipOut]
+
+
 # --- The cross-tool value feed (GET /api/value — app/value/service.py) --------
 class ValueSelection(BaseModel):
     """ONE row shape for every tool's value: a selection a bookmaker is

@@ -309,9 +309,80 @@ class LadderShadow(Base):
     p_actual = Column(Float, nullable=False)         # Pinnacle's de-vigged p(over)
 
 
-# AW 26 (aw_slips, aw_legs, aw_fairs, aw_leg_lines, value_snapshots,
-# value_lines) was retired on 29 Oct 2026; its tables are left in the
-# database untouched, and its code is on the archive/aw26 branch.
+class AwSlip(Base):
+    """One bet Callum placed at the Paddy terminal, on his AW 26 ledger (aw26/).
+
+    Recorded by HubAI or corrected on the page; every field is editable
+    afterwards. Slips recorded before AW 26's retirement (29 Oct 2026) may
+    carry the photo they were read from (`image_path`). `user` records who recorded it.
+
+    EV is fixed once EVERY leg has its odds and a fair price, and is not
+    recomputed after (only an edit clears and recomputes it): it is what the
+    bet was worth when it was struck. Until then it is NULL and `ev_note`
+    says why.
+    """
+    __tablename__ = "aw_slips"
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
+    # When the bet was struck: the terminal's own time if the record has one,
+    # else its arrival. The EV-per-day target counts slips by this.
+    placed_at = Column(DateTime, nullable=False, index=True)
+    user = Column(String, nullable=False)
+    image_path = Column(String, nullable=True)
+    # The terminal's bet reference, as printed. Unique where present, so the
+    # same slip sent twice is refused rather than counted twice.
+    receipt = Column(String, nullable=True, unique=True)
+    offer = Column(String, nullable=False, default="refund")   # refund | boost | other
+    stake = Column(Float, nullable=True)            # NULL if the read missed it — fill in
+    # Printed potential returns, kept for reference against our settlement.
+    potential_returns = Column(Float, nullable=True)
+    status = Column(String, nullable=False, default="open")    # open | won | lost | refunded | void
+    returns = Column(Float, nullable=True)                     # NULL while open
+    settled_at = Column(DateTime, nullable=True)
+    ev = Column(Float, nullable=True)                          # pounds
+    ev_note = Column(String, nullable=True)                    # why EV is NULL / off-terms
+    # Set once a person changes a field (PATCH /aw26/slips/{id}).
+    edited = Column(Boolean, nullable=False, default=False)
+
+    legs = relationship("AwLeg", back_populates="slip", cascade="all, delete-orphan",
+                        order_by="AwLeg.position")
+
+    @property
+    def has_image(self) -> bool:
+        return bool(self.image_path)
+
+
+class AwLeg(Base):
+    """One selection on an AW 26 slip, as printed, plus what it was worth."""
+    __tablename__ = "aw_legs"
+
+    id = Column(Integer, primary_key=True)
+    slip_id = Column(Integer, ForeignKey("aw_slips.id", ondelete="CASCADE"), nullable=False, index=True)
+    position = Column(Integer, nullable=False, default=0)
+    event = Column(String, nullable=False)          # "Arsenal v Chelsea", as printed
+    market = Column(String, nullable=True)          # "Total Match Corners", as printed
+    selection = Column(String, nullable=True)       # "Over 9.5", as printed
+    odds = Column(Float, nullable=True)             # decimal, the price taken; NULL = unread
+    kickoff = Column(DateTime, nullable=True)
+    # corners | cards | goals | saves | other, the line, and over | under (None
+    # outside totals): read off the printed words on slips recorded before
+    # the retirement (29 Oct 2026), NULL on new ones. The page prints a totals leg by them.
+    kind = Column(String, nullable=True)
+    line = Column(Float, nullable=True)
+    side = Column(String, nullable=True)
+    fair_odds = Column(Float, nullable=True)
+    # OddsPapi's fixture id, on slips from before the retirement; NULL on new ones.
+    fixture_id = Column(String, nullable=True)
+    result = Column(String, nullable=False, default="pending")  # pending | won | lost | void
+
+    slip = relationship("AwSlip", back_populates="legs")
+
+
+# AW 26's other tables (aw_fairs, aw_leg_lines, value_snapshots, value_lines)
+# are left in the database, unread: AW 26 is a page over the slips, and the
+# work that filled those tables is retired. aw_leg_lines
+# rows go with their leg (ON DELETE CASCADE; foreign keys are on, database.py).
 
 
 # The scraper control plane (scraper_leagues, scraper_markets,

@@ -25,9 +25,10 @@ from .time_utils import utcnow
 # tool ships). Keep in sync with the routers mounted in main.py.
 # `finder` (Nov 2026) is Callum's tips board on `me` (docs/finder-spec.md):
 # Callum's only, so a key or account issued to anyone but
-# Callum never carries "*", only named grants.
+# Callum never carries "*", only named grants. `aw26` is Callum's ledger of
+# slips, also on `me`.
 ALL_TOOLS = ("coupons", "accabonus", "cards", "hills", "goalscorers", "pnl", "kelly", "boost", "shop",
-             "finder")
+             "aw26", "finder")
 
 # Grants that name no page — they exist for machine callers. `value` reads the
 # cross-tool value feed (GET /api/value); `state` is the whole-app snapshot
@@ -170,7 +171,7 @@ class Principal:
     @property
     def username(self) -> str:
         """The name a client acts under where a route records who did it (a
-        P&L bet, a shop row). Prefixed so it can never be a real user's."""
+        P&L bet, an AW 26 slip). Prefixed so it can never be a real user's."""
         return f"api:{self.name}"
 
 
@@ -279,6 +280,10 @@ def enabled_tools() -> list[str]:
     # and no vendor API — there is no quota or feed to switch off, so it is
     # always surfaced and gated by the per-user grant alone.
     tools.append("shop")
+    # AW 26 (Callum's slips, on `me`): its own rows and no vendor API, so no
+    # flag — grant-gated like the shop tracker. HubAI records slips with an API
+    # client key granted `aw26`, on the same routes as the page.
+    tools.append("aw26")
     # Hills (the Paddy tool against William Hill): no flag of its own — the
     # grant alone gates it, and its source exists whenever OddsPapi does.
     tools.append("hills")

@@ -87,7 +87,7 @@ def test_every_tool_belongs_to_the_main_site_or_me(monkeypatch):
     from app.security import ALL_TOOLS
     monkeypatch.setattr(settings, "me_host", "me.puntmore.com")
     assert not hasattr(site, "SHALGO") and not hasattr(site, "SHALGO_TOOLS")
-    assert site.ME_TOOLS == ("finder", "pnl", "kelly", "boost", "shop")
+    assert site.ME_TOOLS == ("finder", "pnl", "kelly", "boost", "shop", "aw26")
     for tool in ALL_TOOLS:
         assert site.tool_site(tool) == (site.ME if tool in site.ME_TOOLS else site.PUNTMORE), tool
     assert {site.tool_site(t) for t in ("coupons", "cards", "hills", "accabonus", "goalscorers")} == {site.PUNTMORE}
