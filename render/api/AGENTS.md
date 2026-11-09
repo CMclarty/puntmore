@@ -702,7 +702,8 @@ Grants are the tool names plus `value`, `state`, `ingest` (or `*`); `paddy` =
 `cards`, `365` = `accabonus+goalscorers`. **The Bet Placer's key** (register,
 6 Nov 2026) carries `accabonus` (the 2-Up feed), `cards` (the Paddy feed),
 `finder` (the Finder feed) and `ingest` (Finder's `placed | gone`); **a third
-party's** carries `accabonus` only; HubAI's on the Hub carries `ingest`. `*`
+party's** carries `accabonus` only; HubAI's on the Hub carries `ingest`, and `aw26` and
+`cards` for AW 26 (added with `grant`). `*`
 includes `finder` as it includes every tool, so **a key or account issued to
 anyone but Callum never carries `*`**, only named grants. A key still holding
 a grant that no longer exists is granted nothing for it. In production run it in Render's

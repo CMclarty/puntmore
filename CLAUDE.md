@@ -49,9 +49,10 @@ the main domain.
   terminal, a page over the stored rows with two screens: a Summary (the all-time profit, the
   day against the targets, the selections in aggregate with win or lose) and a Slips sub
   screen. A photo uploaded on the page waits in a queue on Render (`aw_photos`) for the Hub
-  to collect. Slips are recorded and marked on the same `aw26` routes by the page and by
-  HubAI's key. Render does the sums (`aw26/offers.py`: EV from odds and fairs, returns from
-  leg results) when a request asks; it reads no photo and runs nothing in the background.
+  to collect; HubAI reads it on the Hub and records the slip. Slips are recorded and marked
+  on the same `aw26` routes by the page and by HubAI's key. Render does the sums
+  (`aw26/offers.py`: EV from odds and fairs, returns from leg results) when a request asks;
+  it reads no photo and runs nothing in the background.
   Slips placed before 9 Nov 2026 stay stored and count nowhere.
 
 The **Bet Placer** (`docs/placer-spec.md`) reads the three boards' feeds and places on the Hub;

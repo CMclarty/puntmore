@@ -286,7 +286,7 @@ slip placed before 9 Nov 2026, the first day, stays stored and counts nowhere:
 it is in no figure, no list and no mark.
 
 - `GET /aw26/summary?day=` — the figures for one day (default today): `day`,
-  `today`, `first_day`, `days` (the days on which a slip was placed),
+  `today`, `first_day`, `days` (how many days a slip was placed on, a count),
   `targets` (`ev_per_day` £1,000, `profit` £100,000), `chosen`, `to_date` and
   `selections`. `chosen` and `to_date` each carry `ev`, `ev_target`,
   `profit`, `staked`, `slips` and `open`. `chosen` is the slips placed on the
@@ -294,7 +294,9 @@ it is in no figure, no list and no mark.
   £1,000 EV for each of the `days`. `selections` are the day's selections in
   aggregate, soonest kick-off first: a leg is on its kick-off's day, or its
   slip's when it has none, and today lists today and every later day. Each
-  has `leg_id`, `key`, `game`, `event`,
+  has `leg_id`, `key`, `game` (the leg's `fixture_id`, or else the event's
+  words on one London day: the kick-off's, or the day placed when the leg has
+  no kick-off), `event`,
   `market`, `selection`, `kickoff`, `day`, `slips` (how many carry it),
   `odds` (their mean), `result` (`pending` until every leg has the same one)
   and `fair_assumed` (any leg's). `400` for a day before `first_day` or after
@@ -313,23 +315,28 @@ it is in no figure, no list and no mark.
   caller (`api:<name>` for a key). `409` when the receipt is already in, so a
   slip sent twice is counted once. With a `photo_id`: `404` for no such photo,
   `409` for one already a slip; recorded, the photo is `done` and is the
-  slip's photo; a receipt already in makes it `duplicate`; no receipt is a
-  `400` and fails the photo ("no receipt number").
+  slip's photo (`409` when another record made it a slip first); a receipt
+  already in makes it `duplicate`; no receipt is a `400`, and a photo
+  `waiting` or `reading` goes back to `waiting` with the reason "no receipt
+  number" while it has had fewer than 3 tries, else `failed`.
 - `PATCH /aw26/slips/{id}` — any of `offer`, `stake`, `placed_at`, `receipt`,
   `legs`. `legs` **replaces the whole list**: send every leg, with its `id`,
   `odds`, `fair_odds` and `result` (`pending` | `won` | `lost` | `void`). A
-  leg sent without its `fair_odds` loses it, and the slip's EV with it, unless
-  its fair is assumed: an assumed fair follows the odds until a different
-  fair is sent. A leg whose `market` or `selection` changes loses its `kind`,
-  `line` and `side`; one whose `event` changes loses its `fixture_id`. `409`
-  for a receipt already on another slip.
+  leg sent without its `fair_odds` loses it, and the slip's EV with it. A leg
+  whose fair is assumed keeps following its odds only when its `fair_odds` is
+  sent back as stored; any other value, or none, becomes the leg's fair and
+  the leg is no longer assumed. A leg whose `market` or `selection` changes
+  loses its `kind`, `line` and `side`; one whose `event` changes loses its
+  `fixture_id`. `409` for a receipt already on another slip.
 - `POST /aw26/selections/{leg_id}/result` — body `{"result": …}` (`pending` |
   `won` | `lost` | `void`) → `{legs, slips}`, how many legs were set and
   slips re-settled. Sets the result on every leg of that leg's selection (the
-  same game, by `fixture_id` or else the event's words, and the same market
-  and selection) on every slip, and re-settles each. A mark is not a
-  correction: the EV, the fairs and `edited` stand. `400` for any other word,
-  `404` for no such leg or one on a slip from before the first day.
+  same game, by `fixture_id` or else the event's words on the same London
+  day, and the same market and selection) on every slip, and re-settles each.
+  Two matches between the same teams on different days are two games. A mark
+  is not a correction: the EV, the fairs and `edited` stand. `400` for any
+  other word, `404` for no such leg or one on a slip from before the first
+  day.
 - `DELETE /aw26/slips/{id}`, with its photo; `GET /aw26/slips/{id}/image`, the
   photo it was read from (`404` when it has none).
 
@@ -340,18 +347,25 @@ legs' results under its offer's terms.
 
 **The photo queue.** A photo (`AwPhotoOut`: `id`, `created_at`, `source`,
 `state`, `tries`, `reason`, `slip_id`) is one of `waiting | reading | failed |
-duplicate | done`. Render stores it and changes its state when asked; nothing
-reads it on Render.
+duplicate | done` (`aw26/photos.py`). Render stores it and changes its state
+when asked; nothing reads it on Render. Each change of state is refused with
+`409` when another request changed the photo first, so a photo is handed out
+once. Every route on one photo answers `404` for no such photo.
 
 - `POST /aw26/photos` — multipart `files` (1–20; JPEG, PNG, GIF or WebP, each
   up to `MAX_UPLOAD_MB`) and `source` (`page` by default, or `telegram`) → the
-  stored photos, `waiting`. Every file is checked before any is stored: one
-  refused (`400`, `413` too large) refuses the batch.
+  stored photos, `waiting`. The `source`, the count and every file's declared
+  type are checked before any is stored: `400` for another `source`, more
+  than 20 files or an unsupported type. The files are then stored one at a
+  time, and the batch is still all or nothing: a file refused then (`400`
+  empty, `413` too large) or a store that fails keeps no photo of the batch.
 - `GET /aw26/photos` — every photo not `done`, oldest first. A photo
-  `reading` for more than 15 minutes is failed first ("Qwen did not finish").
+  `reading` for more than 15 minutes is put back first, with the reason "Qwen
+  did not finish": to `waiting` while it has had fewer than 3 tries, else
+  `failed`.
 - `POST /aw26/photos/{id}/take` — `waiting` → `reading`, one more try; `409`
-  from any other state.
-- `GET /aw26/photos/{id}/image` — the stored file.
+  from any other state, or when another request took it first.
+- `GET /aw26/photos/{id}/image` — the stored file; `404` when it is missing.
 - `POST /aw26/photos/{id}/fail` — body `{"reason": …}` (1–200 characters):
   from `waiting` or `reading`, back to `waiting` while it has had fewer than 3
   tries, else `failed`; `409` from any other state.

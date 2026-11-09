@@ -19,6 +19,16 @@ change, not a bug fix, and needs a line in the register.
 | 8 | Placed or gone | for a tip on Finder, `POST /api/finder/rows/{tip_id}/status` (`puntmore finder status`): the one thing that flows back; no stake, price or record | the Bet Placer → Render | `tip_id` | `placed`, `gone` |
 | 9 | People watch | the Console reads the Scraper service's files, the Hub store and Render's `/api/ready`; the boards' pages read the same feeds as the API | nothing new is written | — | the words above, never new ones |
 
+## AW 26's photos (beside the chain)
+
+A slip photo goes its own short way, not through the chain. The page uploads a photo
+(`POST /api/aw26/photos`) → Render keeps it in `aw_photos`, `waiting` → HubAI's key takes it
+(`reading`), fetches the file and reads it on the Hub → records the slip with `photo_id`
+(`done`; a receipt already in: `duplicate`; no slip made of it: back to `waiting`, `failed`
+after 3 tries, resent from the page). Id: the photo's `id`, then the slip's `receipt`. Status
+words `waiting | reading | failed | duplicate | done`, defined in `render/api/app/aw26/photos.py`.
+The Hub's side of it is not built yet: until it is, a photo stays `waiting`.
+
 ## The four rules
 
 1. **Everything that moves between parts is one record shape per hop.** The Scraper service's
@@ -34,7 +44,8 @@ change, not a bug fix, and needs a line in the register.
    Nobody down the chain recomputes any of them.
 3. **One lifecycle per object, defined once.** The status words above are the whole vocabulary:
    a feed's in `twoup/feed.py:TwoUpFeed.status`, a target's in `scraper/status.py`, a tip on
-   Finder's in `app/finder/rows.py` (from `docs/finder-spec.md`). The Console, the CLI, the docs and
+   Finder's in `app/finder/rows.py` (from `docs/finder-spec.md`), an AW 26 photo's in
+   `app/aw26/photos.py`. The Console, the CLI, the docs and
    the tests use those words; a new state is a change to this page.
 4. **Config flows down, data flows up, never on the same path.** Decisions in the register,
    targets through `scraper/targets.py`, Render settings in its config: all of that moves down
@@ -47,6 +58,7 @@ change, not a bug fix, and needs a line in the register.
   the last poll); then the Hub's `tips` table; then `puntmore finder new` (not yet posted by
   HubAI) or its `finder_posted` row (posted, with the status Render stored); then
   `GET /api/finder/board` on Render (its status, and `reason` for a rejected or duplicate row).
+- **A photo that never became a slip:** `GET /api/aw26/photos` (its state, tries and reason).
 - **A drop file that is not being read:** the Console's Daemon card (the last inbox pass, the
   drop files waiting) and `systemctl --user status puntmore-link`.
 - **A fixture missing from the 2-Up feed:** `GET /api/2up/diagnostics` (what the last pass saw
