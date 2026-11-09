@@ -58,32 +58,57 @@
   border-bottom: 1px solid var(--rule-pp); background: var(--ground-pp);
 }
 
-/* slip editor (Task 9 restyles) */
-.label {
-  font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint);
+/* The Slips screen: the upload, the queue, then a grey heading per slip over
+   its legs, Leg · Odds · Fair · Result. */
+.upload { padding: 9px 12px; border-bottom: 1px solid var(--rule-pp); }
+.upload > button:disabled { opacity: 0.4; }
+.slipsView .photo { grid-template-columns: minmax(0, 1fr) auto; }
+.photoText { font-size: 13px; color: var(--text-pp); }
+.photoActs { display: flex; gap: 5px; }
+.slipList { margin: 0; padding: 0; list-style: none; }
+.slipBtn {
+  display: block; width: 100%; padding: 0; border: none; background: none;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
 }
+.slipBtn:focus-visible { outline: 2px solid var(--set-pp); outline-offset: -2px; }
+.slipHead {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; column-gap: 10px;
+  padding: 8px 12px; border-bottom: 1px solid var(--rule-pp); background: var(--ground-pp);
+  font-size: 13px; color: var(--text-pp); font-variant-numeric: tabular-nums;
+}
+.slipHead > :last-child { margin-left: auto; text-align: right; }
+.slipHead b { font-family: var(--rounded); font-size: 14px; font-weight: 700; color: var(--ink-pp); }
+.slipHead b.good { color: var(--good); }
+.slipHead b.bad { color: var(--red); }
+.note { color: var(--red); }
+.slipsView .leg { grid-template-columns: minmax(0, 1fr) 44px 44px 40px; padding-top: 7px; padding-bottom: 7px; }
+.legResult { font-size: 14px; font-weight: 700; }
+
+/* One slip's editor, on the screen's grey. */
+.label { font-size: 11px; font-weight: 500; color: var(--muted-pp); }
 .chips { display: flex; gap: 5px; flex-wrap: wrap; }
 .chip {
-  min-height: 34px; padding: 0 11px; border: 1px solid var(--line-strong); border-radius: 8px;
-  background: var(--paper); font: inherit; font-size: 12px; font-weight: 700; color: var(--muted);
+  min-height: 34px; padding: 0 11px; border: 1px solid var(--rule-pp); border-radius: 999px;
+  background: #fff; font: inherit; font-size: 12.5px; color: var(--text-pp);
 }
-.chip.on { border-color: var(--ink); background: var(--ink); color: var(--paper); }
-.slip { border-bottom: 1px solid var(--line); }
-.editing { padding: 10px 14px; background: var(--zebra); }
+.chip.on { border-color: var(--band, #004833); background: var(--band, #004833); color: #fff; font-weight: 600; }
+.slip { border-bottom: 1px solid var(--rule-pp); }
+.editing { padding: 10px 12px; background: var(--ground-pp); }
 .editTop { display: flex; gap: 10px; align-items: flex-end; justify-content: space-between; }
 .field { display: flex; flex-direction: column; gap: 3px; }
 .field input, .wide {
-  min-height: 36px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 7px;
-  background: var(--paper); font: inherit; font-size: 13px; color: var(--ink); width: 100%;
+  min-height: 36px; padding: 0 8px; border: 1px solid var(--rule-pp); border-radius: 6px;
+  background: #fff; font: inherit; font-size: 13px; color: var(--ink-pp); width: 100%;
 }
-.field input { width: 76px; font-family: var(--font-mono); }
-.editLeg { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.field input { width: 76px; font-variant-numeric: tabular-nums; }
+.editLeg { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule-pp); }
 .legNums { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
 .actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
-.link { color: var(--muted); font-size: 13px; }
+.link { color: var(--text-pp); font-size: 13px; }
 .danger, .ghost, .save {
-  min-height: 40px; padding: 0 14px; border-radius: 8px; font: inherit; font-size: 13px; font-weight: 700;
+  min-height: 38px; padding: 0 14px; border-radius: 999px; font: inherit; font-size: 13px; font-weight: 700;
 }
-.danger { border: 1px solid var(--red); background: none; color: var(--red); }
-.ghost { margin-left: auto; border: 1px solid var(--line-strong); background: none; color: var(--muted); }
-.save { border: none; background: var(--ink); color: var(--paper); }
+.danger { border: 1px solid var(--red); background: #fff; color: var(--red); }
+.ghost { margin-left: auto; border: 1px solid var(--rule-pp); background: #fff; color: var(--text-pp); }
+.save { border: none; background: var(--band, #004833); color: #fff; }
+.save:disabled { opacity: 0.4; }

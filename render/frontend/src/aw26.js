@@ -58,6 +58,15 @@ export function koTime(iso) {
   return new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })
 }
 
+// A kick-off's short London weekday, "Thu", when it falls on a day other than
+// `day` (ISO); on that day, or with no kick-off, blank.
+export function koDay(iso, day) {
+  const t = utc(iso)
+  if (t == null) return ''
+  const london = new Date(t).toLocaleDateString('en-CA', { timeZone: 'Europe/London' })
+  return london === day ? '' : new Date(t).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/London' })
+}
+
 // A selection's mark: its result, or "?" once it is a day past kick-off and still pending.
 export function mark(selection, now) {
   const { result, kickoff } = selection

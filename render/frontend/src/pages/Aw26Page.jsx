@@ -5,12 +5,13 @@ import { dayName, stepDay, money, progress } from '../aw26'
 import f from './CardsPage.module.css'
 import s from './Aw26Page.module.css'
 import Aw26Summary from './Aw26Summary'
+import Aw26Slips from './Aw26Slips'
 
 /**
  * AW 26: every slip Callum places at the Paddy terminal, against £1,000 EV a
  * day and £100,000 profit. The band holds the day pill (and, on Summary, the
- * all-time profit against the target); a floating switch picks Summary or
- * Slips. The day is null for today.
+ * all-time profit against the target, on Slips the day's count); a floating
+ * switch picks Summary or Slips. The day is null for today.
  */
 
 const BAND = '#004833'
@@ -25,6 +26,7 @@ export default function Aw26Page() {
   const [markError, setMarkError] = useState(null)  // the last mark failed
   const [now, setNow] = useState(() => Date.now())
   const [picking, setPicking] = useState(false)   // the day panel is open
+  const [count, setCount] = useState(null)        // the Slips screen's slips on the day, once loaded
 
   // The tool switcher below takes the band's colour while this page is open.
   useEffect(() => {
@@ -83,7 +85,8 @@ export default function Aw26Page() {
   const chosen = day ?? today
   const shown = error ? null : summary   // the data on screen
   const step = by => (summary ? stepDay(chosen, by, summary.first_day, today) : null)
-  const choose = next => { setDay(next === today ? null : next); setMarkError(null) }
+  const choose = next => { setDay(next === today ? null : next); setMarkError(null); setCount(null) }
+  const show = next => { if (next !== view) { setView(next); setCount(null) } }
   const bar = shown && progress(shown.to_date.profit, shown.targets.profit)
 
   return (
@@ -91,7 +94,10 @@ export default function Aw26Page() {
       <div className={`${f.band} ${s.band}`}>
         <div className={f.title}>
           <span className={f.name}>AW 26</span>
-          {shown && <span className={f.updated}>Day {shown.days}</span>}
+          {shown && view === 'summary' && <span className={f.updated}>Day {shown.days}</span>}
+          {view === 'slips' && count != null && (
+            <span className={f.updated}>{plural(count, 'slip')}{day == null ? ' today' : ''}</span>
+          )}
         </div>
         <button type="button" className={`${f.pill} ${s.dayPill} ${picking ? f.pillOpen : ''}`}
           aria-expanded={picking} onClick={() => setPicking(p => !p)}>
@@ -121,15 +127,17 @@ export default function Aw26Page() {
         </div>
       )}
 
-      {error && <p className={f.error}>{error}</p>}
+      {/* Slips loads its own rows and says when they fail: the summary's
+          failure shows there only while it has no day to go on. */}
+      {error && (view === 'summary' || !summary) && <p className={f.error}>{error}</p>}
       {!error && !summary && <p className={f.empty}>Loading…</p>}
       {shown && view === 'summary' && <Aw26Summary summary={shown} now={now} onMark={onMark} markError={markError} />}
-      {/* Task 9: view === 'slips' renders <Aw26Slips day={day} today={today} onChange={refresh} /> */}
+      {summary && view === 'slips' && <Aw26Slips day={day} today={today} onChange={refresh} onCount={setCount} />}
 
       <div className={`${f.offerSwitch} ${s.views}`} role="group" aria-label="View">
         {VIEWS.map(([k, label]) => (
           <button key={k} type="button" className={`${f.offerBtn} ${view === k ? f.offerOn : ''}`}
-            aria-pressed={view === k} onClick={() => setView(k)}>{label}</button>
+            aria-pressed={view === k} onClick={() => show(k)}>{label}</button>
         ))}
       </div>
     </div>

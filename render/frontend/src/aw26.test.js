@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { money, pounds, progress, dayName, stepDay, sections, mark, tally, pickText, openTo, flagged, koTime } from './aw26'
+import { money, pounds, progress, dayName, stepDay, sections, mark, tally, pickText, openTo, flagged, koTime, koDay } from './aw26'
 
 const sel = (o) => ({ leg_id: 1, key: 'k', game: 'w:a v b', event: 'A v B', market: null,
   selection: 'Over 10.5 corners', kickoff: '2026-11-09T15:00:00', day: '2026-11-09',
@@ -73,5 +73,13 @@ describe('aw26', () => {
     expect(koTime('2026-11-09T15:00:00')).toBe('15:00')
     expect(koTime('2026-07-01T15:00:00')).toBe('16:00')
     expect(koTime(null)).toBe('')
+  })
+  it('names a kick-off\'s day only when it is not the day shown, in London', () => {
+    expect(koDay('2026-11-12T19:45:00', '2026-11-09')).toBe('Thu')
+    expect(koDay('2026-11-09T19:45:00', '2026-11-09')).toBe('')
+    // 23:30 UTC on 1 June is 00:30 on Tuesday 2 June in London
+    expect(koDay('2026-06-01T23:30:00', '2026-06-01')).toBe('Tue')
+    expect(koDay('2026-06-01T23:30:00', '2026-06-02')).toBe('')
+    expect(koDay(null, '2026-11-09')).toBe('')
   })
 })
