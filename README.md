@@ -31,7 +31,7 @@ It serves **boards**: tool pages, each with a one-way HTTP **feed** of value row
 | **Finder** | the tips board: the tips HubAI has judged; the feed is the ones it offered | `GET /api/finder/feed` |
 
 Beside the boards: the coupon tracker, Hills, and Callum's personal tools (dogs, Virtuals, P&L,
-Kelly, the shop). No ledger, no account and no Hub endpoint on Render.
+Kelly, the shop, AW 26). No ledger, no account and no Hub endpoint on Render.
 
 Two hosts from the one deploy: the **main domain** (`puntmore.com`) serves every public tool
 (the coupon tracker, Paddy, Hills, 365 with 2-Up), the login and the API; **`me`**

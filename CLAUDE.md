@@ -45,6 +45,11 @@ the main domain.
   A boosted bet stores the model's EV in pounds (`bets.ev`). `/boost` and `/pnl/virtuals`
   redirect there; an account granted `boost` without `pnl` gets the calculator (`BoostPage`).
 - **P&L** (Dogs), **Kelly**, **the shop**: on `me`.
+- **AW 26** (`/aw26` on `me`, `aw26` grant, `app/aw26/`): Callum's slips from the Paddy
+  terminal, a page over the stored rows. HubAI reads the photos, finds the fairs and checks
+  the results on the Hub, and records them with an API client key granted `aw26` on the same
+  routes as the page. Render only does the sums (`aw26/offers.py`: EV from odds and fairs,
+  returns from leg results) when a request asks; nothing for AW 26 runs in the background.
 
 The **Bet Placer** (`docs/placer-spec.md`) reads the three boards' feeds and places on the Hub;
 nothing on Render stakes or places.
