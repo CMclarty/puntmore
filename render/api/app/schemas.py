@@ -1,6 +1,8 @@
 from datetime import date, datetime, timezone
 from typing import Annotated, Any, Literal, Optional
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, RootModel, model_validator,
+)
 
 
 class LegOut(BaseModel):
@@ -321,18 +323,33 @@ class AwLegOut(BaseModel):
     fair_odds: float | None = None
     fixture_id: str | None = None
     result: str
+    fair_assumed: bool
 
     model_config = {"from_attributes": True}
 
 
+def _lower(v):
+    return v.lower() if isinstance(v, str) else v
+
+
 class AwSlipLegIn(BaseModel):
-    """One leg of a slip HubAI (or any client with the `aw26` grant) records."""
+    """One leg of a slip HubAI (or any client with the `aw26` grant) records.
+
+    kind, line and side are what HubAI read off the leg's words (None where it
+    read none); fixture_id is the event's id. `fair_assumed` = no fair was
+    found, so the fair is taken as the odds and any fair_odds sent is ignored."""
     event: str = Field(min_length=1, max_length=120)
     market: str | None = Field(default=None, max_length=120)
     selection: str | None = Field(default=None, max_length=120)
     odds: float | None = Field(default=None, gt=1, le=1000)
     kickoff: str | None = None           # ISO 8601 UTC, or as printed (London)
     fair_odds: float | None = Field(default=None, gt=1, le=1000)
+    kind: Literal["corners", "cards", "goals", "saves", "other"] | None = None
+    line: float | None = Field(default=None, ge=0, le=100)
+    # Lower-cased first: the board prints "Over".
+    side: Annotated[Literal["over", "under"] | None, BeforeValidator(_lower)] = None
+    fixture_id: str | None = Field(default=None, max_length=80)
+    fair_assumed: bool = False
 
 
 class AwSlipRecordIn(BaseModel):
@@ -342,6 +359,9 @@ class AwSlipRecordIn(BaseModel):
     offer: str = "refund"                # refund | boost | other (aw26/offers.py)
     stake: float | None = Field(default=None, ge=0, lt=1_000_000)
     legs: list[AwSlipLegIn] = Field(min_length=1, max_length=40)
+    # The queued photo the slip was read from (aw26/photos.py): recording it
+    # makes the photo the slip's picture and marks it done.
+    photo_id: int | None = None
 
 
 class AwSlipOut(BaseModel):
@@ -364,11 +384,41 @@ class AwSlipOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AwPhotoOut(BaseModel):
+    """A queued AW 26 slip photo (aw26/photos.py)."""
+    id: int
+    created_at: datetime | None = None
+    source: str                          # page | telegram
+    state: str                           # waiting | reading | failed | duplicate | done
+    tries: int
+    reason: str | None = None
+    slip_id: int | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class AwPhotoFailIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=200)
+
+
+class AwMarkIn(BaseModel):
+    """One result for a selection on every AW 26 slip that carries it."""
+    result: str                          # pending | won | lost | void
+
+
+class AwMarkOut(BaseModel):
+    legs: int                            # legs set
+    slips: int                           # slips re-settled
+
+
 class AwSlipsOut(BaseModel):
-    # The page's headline figures (aw26/service.summary) — today, total,
-    # targets. Kept as a mapping: its keys are report-shaped.
-    summary: dict[str, Any]
-    slips: list[AwSlipOut]
+    slips: list[AwSlipOut]               # placed on one London day, newest first
+
+
+class AwSummaryOut(RootModel[dict[str, Any]]):
+    """The figures for one London day (aw26/service.day_summary): day, today,
+    first_day, days, targets, chosen, to_date, selections. Kept as a mapping:
+    its keys are report-shaped."""
 
 
 # --- The cross-tool value feed (GET /api/value — app/value/service.py) --------

@@ -694,6 +694,7 @@ something. A key, when sent, IS the identity — a bad key is 401 even beside a
 session cookie. The key-only routes (/state, ingest) use `require_key_grant`.
 ```
 python -m app.apikeys create <name> --tools paddy,value  # prints the key ONCE
+python -m app.apikeys grant <name> --tools aw26,cards    # adds tools to an existing key; never replaces or prints it
 python -m app.apikeys list                              # never shows keys
 python -m app.apikeys revoke <name>                     # disables at once
 ```
@@ -701,7 +702,8 @@ Grants are the tool names plus `value`, `state`, `ingest` (or `*`); `paddy` =
 `cards`, `365` = `accabonus+goalscorers`. **The Bet Placer's key** (register,
 6 Nov 2026) carries `accabonus` (the 2-Up feed), `cards` (the Paddy feed),
 `finder` (the Finder feed) and `ingest` (Finder's `placed | gone`); **a third
-party's** carries `accabonus` only; HubAI's on the Hub carries `ingest`. `*`
+party's** carries `accabonus` only; HubAI's on the Hub carries `ingest`, and `aw26` and
+`cards` for AW 26 (added with `grant`). `*`
 includes `finder` as it includes every tool, so **a key or account issued to
 anyone but Callum never carries `*`**, only named grants. A key still holding
 a grant that no longer exists is granted nothing for it. In production run it in Render's

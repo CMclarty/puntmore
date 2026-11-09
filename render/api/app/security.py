@@ -654,6 +654,17 @@ def ensure_schema() -> None:
             if "ev" not in bcols:
                 conn.execute(text("ALTER TABLE bets ADD COLUMN ev FLOAT"))
 
+    # AW 26 (9 Nov 2026): a leg whose fair is taken as its odds. Every earlier
+    # leg had a fair found or none at all, which is what the DEFAULT 0 records.
+    if "aw_legs" in tables:
+        awcols = {c["name"] for c in inspector.get_columns("aw_legs")}
+        if "fair_assumed" not in awcols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE aw_legs ADD COLUMN fair_assumed BOOLEAN "
+                    "NOT NULL DEFAULT 0"
+                ))
+
     # V5 status remap: pending|live -> processing|confirmed. Existing coupons
     # were all past the old review gate, so 'pending' rows are stale uploads
     # that never got confirmed; they map to 'processing' and re-price on the

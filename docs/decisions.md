@@ -68,7 +68,18 @@ names and no other; older names appear only in `docs/retired.md`.
   results, and records them with an API client key granted `aw26`, on the
   same routes the page uses. It is Callum's own record, like P&L: not the
   Bet Placer's book, and nothing the Bet Placer places goes into it. What
-  stays retired is in `docs/retired.md`.
+  stays retired is in `docs/retired.md`. **The page and the photos (Callum, 9
+  Nov 2026).** The page is "summaries, individual slips on a sub screen",
+  with "the selections listed in aggregate with win or lose" and "an all time
+  profit" as its headline: "I need to keep motivated." "Carry the styling
+  from the paddy tool." "Photo upload. Can you add an upload button on the
+  page which goes to Qwen": Render stores the photo and hands it over when
+  the Hub asks; it still reads nothing and runs nothing in the background.
+  Fairs come from the Paddy board, and a bet that is not on it is "neutral
+  EV. Better to be overly cautious": its fair is its odds, and it is marked.
+  "Start fresh": slips placed before 9 Nov 2026 stay stored and count
+  nowhere. The design is
+  `docs/superpowers/specs/2026-11-09-aw26-qwen-design.md`.
 - **The vocabulary.** A **bet** is a selection and a price. A **value bet** is
   a bet an internal tool found (Paddy or 2-Up pricing a market against a fair
   line). A **tip** is a bet from an external source (a tipster's email, a

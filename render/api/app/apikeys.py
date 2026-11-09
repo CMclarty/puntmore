@@ -1,6 +1,7 @@
-"""API client keys — create, list, revoke.
+"""API client keys — create, grant, list, revoke.
 
     python -m app.apikeys create <name> --tools paddy,value   # prints the key ONCE
+    python -m app.apikeys grant <name> --tools aw26           # adds to its grant; same key
     python -m app.apikeys list
     python -m app.apikeys revoke <name>
 
@@ -67,6 +68,23 @@ def create(db, name: str, tools: str) -> tuple[ApiClient, str]:
     return client, key
 
 
+def grant(db, name: str, tools: str) -> ApiClient:
+    """Add tools to an enabled client's grant; the key is untouched."""
+    client = db.query(ApiClient).filter(ApiClient.name == name).first()
+    if client is None:
+        raise ValueError(f"no client named {name!r}")
+    if not client.enabled:
+        raise ValueError(f"client {name!r} is revoked; create a new one")
+    added = parse_tools(tools)
+    if "*" in (added, client.permissions):
+        client.permissions = "*"
+    else:
+        have = {t for t in client.permissions.split("+") if t}
+        client.permissions = "+".join(sorted(have | set(added.split("+"))))
+    db.commit()
+    return client
+
+
 def revoke(db, name: str) -> ApiClient:
     client = db.query(ApiClient).filter(ApiClient.name == name).first()
     if client is None:
@@ -91,6 +109,9 @@ def main(argv: list[str] | None = None) -> int:
     c = sub.add_parser("create", help="create a client and print its key once")
     c.add_argument("name")
     c.add_argument("--tools", required=True, help='e.g. "paddy,value", "value", or "*"')
+    g = sub.add_parser("grant", help="add tools to a client's grant; the key is unchanged")
+    g.add_argument("name")
+    g.add_argument("--tools", required=True, help='e.g. "aw26" or "aw26,cards"')
     sub.add_parser("list", help="list clients (never their keys)")
     r = sub.add_parser("revoke", help="disable a client's key")
     r.add_argument("name")
@@ -105,6 +126,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Created API client {client.name!r} with grant {client.permissions!r}.")
             print("Key (shown ONCE — it is stored only as a hash):")
             print(key)
+        elif args.cmd == "grant":
+            client = grant(db, args.name, args.tools)
+            print(f"Client {client.name!r} now has grant {client.permissions!r}.")
         elif args.cmd == "list":
             rows = list_clients(db)
             if not rows:

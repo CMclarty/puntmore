@@ -1,213 +1,149 @@
-import { useState, useEffect, useCallback } from 'react'
-import { getAwSlips, editAwSlip, deleteAwSlip } from '../api'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { getAwSummary, setAwResult } from '../api'
 import useAutoRefresh from '../hooks/useAutoRefresh'
-import styles from './Aw26Page.module.css'
+import { dayName, stepDay, money, progress } from '../aw26'
+import f from './CardsPage.module.css'
+import s from './Aw26Page.module.css'
+import Aw26Summary from './Aw26Summary'
+import Aw26Slips from './Aw26Slips'
 
 /**
- * AW 26 — every slip Callum places at the Paddy terminal, against £1,000 EV a
- * day and £100,000 profit. Slips are recorded by HubAI; here they are read,
- * corrected and deleted. A slip's EV is fixed once every leg has a fair price
- * and it settles from its legs' results.
+ * AW 26: every slip Callum places at the Paddy terminal, against £1,000 EV a
+ * day and £100,000 profit. The band holds the day pill (and, on Summary, the
+ * all-time profit against the target, on Slips the day's count); a floating
+ * switch picks Summary or Slips. The day is null for today.
  */
 
-const OFFERS = [['refund', 'Refund'], ['boost', 'Boost'], ['other', 'Other']]
-const RESULTS = [['pending', '–'], ['won', 'W'], ['lost', 'L'], ['void', 'V']]
-
-const gbp = v => (v < 0 ? '−' : '') + '£' + Math.abs(v).toLocaleString('en-GB', { maximumFractionDigits: 0 })
-const gbp2 = v => (v < 0 ? '−' : v > 0 ? '+' : '') + '£' + Math.abs(v).toFixed(2)
-const tone = v => (v > 0 ? styles.pos : v < 0 ? styles.neg : '')
-const when = iso => {
-  const d = new Date(/[Z+]/.test(iso) ? iso : iso + 'Z')
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ' '
-    + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-}
-// A totals leg in a few characters ("Corners O9.5"), so the line is never what
-// gets cut off; anything else as its selection, then its market.
-const KIND = { corners: 'Corners', cards: 'Cards', goals: 'Goals', saves: 'Saves' }
-const legText = l => (KIND[l.kind] && l.line != null
-  ? `${KIND[l.kind]} ${l.side === 'under' ? 'U' : 'O'}${l.line}`
-  : [l.selection, l.market].filter(Boolean).join(' · '))
+const BAND = '#004833'
+const VIEWS = [['summary', 'Summary'], ['slips', 'Slips']]
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 export default function Aw26Page() {
-  const [data, setData] = useState(null)
-  const [error, setError] = useState(null)
-  const [open, setOpen] = useState(null)       // slip id being edited
+  const [day, setDay] = useState(null)
+  const [view, setView] = useState('summary')
+  const [summary, setSummary] = useState(null)
+  const [error, setError] = useState(null)          // the last load or refresh failed
+  const [markError, setMarkError] = useState(null)  // the last mark failed
+  const [now, setNow] = useState(() => Date.now())
+  const [picking, setPicking] = useState(false)   // the day panel is open
+  const [count, setCount] = useState(null)        // the Slips screen's slips on the day, once loaded
 
-  const load = useCallback(() => {
-    // An edit in progress is never overwritten by a refresh under it.
-    if (open != null) return
-    getAwSlips().then(d => { setData(d); setError(null) }).catch(e => setError(e.message))
-  }, [open])
-  useEffect(() => { load() }, [load])
-  useAutoRefresh(load)
+  // The tool switcher below takes the band's colour while this page is open.
+  useEffect(() => {
+    const root = document.documentElement.style
+    root.setProperty('--tool-band', BAND)
+    root.setProperty('--dock-bg', '#fff')
+    return () => { root.removeProperty('--tool-band'); root.removeProperty('--dock-bg') }
+  }, [])
 
-  const s = data?.summary
+  // Load, then refresh in place. A failed load or refresh hides everything
+  // that is data (the headline, "Day N", the figures and the list); the band
+  // keeps its title, the day pill and the day panel, so Today is one tap away.
+  // `summary` keeps the last good answer only for the pill's day name and the
+  // panel's bounds.
+  const live = useRef(true)
+  const seq = useRef(0)   // refreshes overlap (interval + focus + a mark): only the latest may land
+  const refresh = useCallback(() => {
+    const id = ++seq.current
+    return getAwSummary(day)
+      .then(data => {
+        if (!live.current || id !== seq.current) return
+        setSummary(data)
+        setError(null)
+        setNow(Date.now())
+      })
+      .catch(err => live.current && id === seq.current && setError(err.message))
+  }, [day])
+  useEffect(() => {
+    live.current = true
+    refresh()
+    return () => { live.current = false }
+  }, [refresh])
+  useAutoRefresh(refresh)
+
+  // A mark's answer may come after the day has changed: it refetches the day
+  // chosen then, and a failure on a day no longer shown says nothing.
+  const current = useRef({ refresh, day })
+  useEffect(() => { current.current = { refresh, day } })
+
+  // A failed mark is not a failed load: the screen stays as it is, its own
+  // message shows above the selections, and the summary is fetched once more
+  // (the mark may have landed though its answer was lost). The message goes on
+  // the next good mark or a change of day.
+  const onMark = (legId, result) => {
+    const markedOn = day
+    return setAwResult(legId, result).then(
+      () => { setMarkError(null); return current.current.refresh() },
+      err => {
+        if (current.current.day !== markedOn) return
+        setMarkError(err.message)
+        return current.current.refresh()
+      })
+  }
+
+  const today = summary?.today
+  const chosen = day ?? today
+  // The data on screen: none after a failure, and none of another day's while
+  // the chosen day loads.
+  const shown = error || summary?.day !== chosen ? null : summary
+  const step = by => (summary ? stepDay(chosen, by, summary.first_day, today) : null)
+  const choose = next => { setDay(next === today ? null : next); setMarkError(null); setCount(null) }
+  const show = next => { if (next !== view) { setView(next); setCount(null) } }
+  const bar = shown && progress(shown.to_date.profit, shown.targets.profit)
+
   return (
-    <div className={styles.page}>
-      {s && (
-        <section className={styles.head}>
-          <div className={styles.figures}>
-            <div className={styles.stat}>
-              <div className={styles.label}>EV today</div>
-              <div className={styles.big}>
-                <span className={tone(s.today.ev)}>{gbp(s.today.ev)}</span>
-                <span className={styles.of}> / {gbp(s.targets.ev_per_day)}</span>
-              </div>
-            </div>
-            <div className={styles.stat}>
-              <div className={styles.label}>Profit</div>
-              <div className={styles.big}>
-                <span className={tone(s.total.profit)}>{gbp(s.total.profit)}</span>
-                <span className={styles.of}> / {gbp(s.targets.profit)}</span>
-              </div>
-            </div>
-          </div>
-          <div className={styles.line}>
-            EV to date <b>{gbp(s.total.ev)}</b> / {gbp(s.total.ev_target)} · {s.total.days} day{s.total.days === 1 ? '' : 's'}
-          </div>
-          <div className={styles.line}>
-            Today <b>{s.today.slips}</b> slips · <b>{s.today.legs}</b> legs · <b>{gbp(s.today.staked)}</b>
-            {' '}· To date <b>{s.total.slips}</b> · <b>{gbp(s.total.staked)}</b>
-            {s.total.open > 0 && <> · <b>{s.total.open}</b> open</>}
-            {s.total.unpriced > 0 && <> · <b>{s.total.unpriced}</b> unpriced</>}
-          </div>
-          {s.today.settled_slips > 0 && (
-            <div className={styles.line}>
-              Settled today <span className={`${styles.sval} ${tone(s.today.settled)}`}>{gbp2(s.today.settled)}</span>
-              <span className={styles.muted}> · {s.today.settled_slips} slip{s.today.settled_slips === 1 ? '' : 's'}</span>
-            </div>
+    <div className={f.page} style={{ '--band': BAND }}>
+      <div className={`${f.band} ${s.band}`}>
+        <div className={f.title}>
+          <span className={f.name}>AW 26</span>
+          {shown && view === 'summary' && <span className={f.updated}>Day {shown.days}</span>}
+          {view === 'slips' && count != null && (
+            <span className={f.updated}>{plural(count, 'slip')}{day == null ? ' today' : ''}</span>
           )}
-        </section>
+        </div>
+        <button type="button" className={`${f.pill} ${s.dayPill} ${picking ? f.pillOpen : ''}`}
+          aria-expanded={picking} onClick={() => setPicking(p => !p)}>
+          {summary ? dayName(chosen, today) : 'Today'} ▾
+        </button>
+        {shown && view === 'summary' && (
+          <div className={s.headline}>
+            <div className={s.profit}>
+              <span className={s.big}>{money(shown.to_date.profit)}</span>
+              <span className={s.allTime}>all-time profit</span>
+            </div>
+            <div className={s.bar}><div className={s.fill} style={{ width: `${bar.width}%` }} /></div>
+            <div className={s.under}>
+              <span>{bar.label}</span>
+              <span>{plural(shown.to_date.slips, 'slip')} · {plural(shown.days, 'day')}</span>
+            </div>
+          </div>
+        )}
+      </div>
+      {picking && (
+        <div className={f.panel}>
+          <div className={`${f.group} ${s.days}`} role="group" aria-label="Day">
+            <button type="button" className={f.chip} disabled={!step(-1)} onClick={() => choose(step(-1))}>‹ Earlier</button>
+            <button type="button" className={f.chip} disabled={!step(1)} onClick={() => choose(step(1))}>Later ›</button>
+            <button type="button" className={f.chip} onClick={() => { choose(null); setPicking(false) }}>Today</button>
+          </div>
+        </div>
       )}
 
-      {error && <p className={styles.error}>{error}</p>}
+      {/* Slips loads its own rows and says when they fail: the summary's
+          failure shows there only while it has no day to go on. */}
+      {error && (view === 'summary' || !summary) && <p className={f.error}>{error}</p>}
+      {!error && !shown && (view === 'summary' || !summary) && <p className={f.empty}>Loading…</p>}
+      {shown && view === 'summary' && (
+        <Aw26Summary key={shown.day} summary={shown} now={now} onMark={onMark} markError={markError} />
+      )}
+      {summary && view === 'slips' && <Aw26Slips day={day} today={today} onChange={refresh} onCount={setCount} />}
 
-      <ul className={styles.list}>
-        {data?.slips.map(slip => (
-          open === slip.id
-            ? <SlipEditor key={slip.id} slip={slip}
-                onDone={async updated => {
-                  setOpen(null)
-                  if (updated) setData(await getAwSlips())
-                }}
-                onError={setError} />
-            : <SlipRow key={slip.id} slip={slip} onOpen={() => setOpen(slip.id)} />
+      <div className={`${f.offerSwitch} ${s.views}`} role="group" aria-label="View">
+        {VIEWS.map(([k, label]) => (
+          <button key={k} type="button" className={`${f.offerBtn} ${view === k ? f.offerOn : ''}`}
+            aria-pressed={view === k} onClick={() => show(k)}>{label}</button>
         ))}
-      </ul>
+      </div>
     </div>
-  )
-}
-
-function outcome(slip) {
-  if (slip.status === 'open') return <span className={styles.muted}>open</span>
-  const p = slip.returns - slip.stake
-  return <span className={tone(p)}>{gbp2(p)}</span>
-}
-
-function SlipRow({ slip, onOpen }) {
-  return (
-    <li className={styles.slip}>
-      <button type="button" className={styles.slipBtn} onClick={onOpen}>
-        <div className={styles.slipTop}>
-          <span className={styles.when}>{when(slip.placed_at)}</span>
-          <span className={styles.offer}>{slip.offer}</span>
-          <span className={styles.num}>{slip.stake != null ? '£' + slip.stake.toFixed(2) : '£—'}</span>
-          <span className={`${styles.num} ${slip.ev != null ? tone(slip.ev) : styles.muted}`}>
-            {slip.ev != null ? 'EV ' + gbp2(slip.ev) : 'EV —'}
-          </span>
-          <span className={styles.num}>{outcome(slip)}</span>
-        </div>
-        {slip.legs.map(l => (
-          <div key={l.id} className={styles.leg}>
-            <span className={`${styles.res} ${l.result === 'won' ? styles.resWon : l.result === 'lost' ? styles.resLost : ''}`}>
-              {RESULTS.find(([k]) => k === l.result)?.[1]}
-            </span>
-            <span className={styles.ev}>{l.event}</span>
-            <span className={styles.mk}>{legText(l)}</span>
-            <span className={styles.num}>{l.odds != null ? l.odds.toFixed(2) : '—'}</span>
-            <span className={`${styles.num} ${styles.muted}`}>{l.fair_odds != null ? 'fair ' + l.fair_odds.toFixed(2) : 'fair —'}</span>
-          </div>
-        ))}
-        {slip.ev_note && <div className={styles.note}>{slip.ev_note}</div>}
-      </button>
-    </li>
-  )
-}
-
-function SlipEditor({ slip, onDone, onError }) {
-  const [offer, setOffer] = useState(slip.offer)
-  const [stake, setStake] = useState(slip.stake ?? '')
-  const [legs, setLegs] = useState(slip.legs.map(l => ({ ...l })))
-  const [saving, setSaving] = useState(false)
-  const [sure, setSure] = useState(false)
-
-  const setLeg = (i, k, v) => setLegs(ls => ls.map((l, j) => (j === i ? { ...l, [k]: v } : l)))
-  const num = v => (v === '' || v == null ? null : Number(v))
-
-  async function save() {
-    setSaving(true)
-    try {
-      await editAwSlip(slip.id, {
-        offer, stake: num(stake),
-        legs: legs.map(l => ({
-          id: l.id, event: l.event, market: l.market, selection: l.selection,
-          odds: num(l.odds), fair_odds: num(l.fair_odds), result: l.result,
-        })),
-      })
-      onDone(true)
-    } catch (e) { onError(e.message); setSaving(false) }
-  }
-
-  async function remove() {
-    if (!sure) { setSure(true); return }
-    try { await deleteAwSlip(slip.id); onDone(true) } catch (e) { onError(e.message) }
-  }
-
-  return (
-    <li className={`${styles.slip} ${styles.editing}`}>
-      <div className={styles.editTop}>
-        <div className={styles.chips} role="group" aria-label="Offer">
-          {OFFERS.map(([k, label]) => (
-            <button key={k} type="button" aria-pressed={offer === k}
-              className={`${styles.chip} ${offer === k ? styles.on : ''}`}
-              onClick={() => setOffer(k)}>{label}</button>
-          ))}
-        </div>
-        <label className={styles.field}>
-          <span className={styles.label}>Stake</span>
-          <input inputMode="decimal" value={stake} onChange={e => setStake(e.target.value)} aria-label="Stake" />
-        </label>
-      </div>
-      {legs.map((l, i) => (
-        <div key={l.id ?? i} className={styles.editLeg}>
-          <input className={styles.wide} value={l.event} onChange={e => setLeg(i, 'event', e.target.value)} aria-label="Event" />
-          <input className={styles.wide} value={l.market ?? ''} onChange={e => setLeg(i, 'market', e.target.value)} aria-label="Market" />
-          <input className={styles.wide} value={l.selection ?? ''} onChange={e => setLeg(i, 'selection', e.target.value)} aria-label="Selection" />
-          <div className={styles.legNums}>
-            <label className={styles.field}>
-              <span className={styles.label}>Odds</span>
-              <input inputMode="decimal" value={l.odds ?? ''} onChange={e => setLeg(i, 'odds', e.target.value)} />
-            </label>
-            <label className={styles.field}>
-              <span className={styles.label}>Fair</span>
-              <input inputMode="decimal" value={l.fair_odds ?? ''} onChange={e => setLeg(i, 'fair_odds', e.target.value)} />
-            </label>
-            <div className={styles.chips} role="group" aria-label="Result">
-              {RESULTS.map(([k, label]) => (
-                <button key={k} type="button" aria-pressed={l.result === k}
-                  className={`${styles.chip} ${l.result === k ? styles.on : ''}`}
-                  onClick={() => setLeg(i, 'result', k)}>{label}</button>
-              ))}
-            </div>
-          </div>
-        </div>
-      ))}
-      <div className={styles.actions}>
-        {slip.has_image && <a className={styles.link} href={`/api/aw26/slips/${slip.id}/image`} target="_blank" rel="noreferrer">Photo</a>}
-        <button type="button" className={styles.danger} onClick={remove}>{sure ? 'Delete it' : 'Delete'}</button>
-        <button type="button" className={styles.ghost} onClick={() => onDone(false)}>Cancel</button>
-        <button type="button" className={styles.save} onClick={save} disabled={saving}>Save</button>
-      </div>
-    </li>
   )
 }

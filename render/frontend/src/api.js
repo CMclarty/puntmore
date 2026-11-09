@@ -296,11 +296,29 @@ export const logShopVisit = () => post('/shop/visits', {})
 export const deleteShopVisit = (id) => del(`/shop/visits/${id}`)
 export const resetShopRoute = () => del('/shop/visits')
 
-// AW 26 — Callum's slips. Recorded by HubAI; the page lists, corrects and
-// deletes them.
-export const getAwSlips = () => get('/aw26/slips')
+// AW 26 — Callum's slips. Recorded by HubAI; the page shows a day's sums and
+// selections, lists, corrects and deletes the slips, marks a selection's result
+// and queues photos for HubAI to read. A day is an ISO date; none means today.
+const awDay = (day) => (day ? `?day=${day}` : '')
+export const getAwSummary = (day) => get(`/aw26/summary${awDay(day)}`)
+export const getAwSlips = (day) => get(`/aw26/slips${awDay(day)}`)
 export const editAwSlip = (id, fields) => patch(`/aw26/slips/${id}`, fields)
 export const deleteAwSlip = (id) => del(`/aw26/slips/${id}`)
+export const setAwResult = (legId, result) => post(`/aw26/selections/${legId}/result`, { result })
+export const getAwPhotos = () => get('/aw26/photos')
+export const resendAwPhoto = (id) => post(`/aw26/photos/${id}/resend`, {})
+export const deleteAwPhoto = (id) => del(`/aw26/photos/${id}`)
+
+// Up to 20 photos in one request, each under the field `files`.
+export async function uploadAwPhotos(files) {
+  const path = '/aw26/photos'
+  const form = new FormData()
+  for (const file of files) form.append('files', file)
+  const res = await send(path, { method: 'POST', body: form }, 'POST')
+  if (res.status === 401) { redirectToLogin(); throw new ApiError('Not authenticated', { status: 401, path }) }
+  if (!res.ok) throw await fail(res, path, 'POST')
+  return res.json()
+}
 
 async function del(path) {
   const res = await send(path, { method: 'DELETE' }, 'DELETE')

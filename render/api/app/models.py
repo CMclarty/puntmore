@@ -366,17 +366,46 @@ class AwLeg(Base):
     odds = Column(Float, nullable=True)             # decimal, the price taken; NULL = unread
     kickoff = Column(DateTime, nullable=True)
     # corners | cards | goals | saves | other, the line, and over | under (None
-    # outside totals): read off the printed words on slips recorded before
-    # the retirement (29 Oct 2026), NULL on new ones. The page prints a totals leg by them.
+    # outside totals): read off the printed words, on slips recorded before
+    # the retirement (29 Oct 2026) and by HubAI on new ones, NULL where it
+    # read none. The page prints a totals leg by them.
     kind = Column(String, nullable=True)
     line = Column(Float, nullable=True)
     side = Column(String, nullable=True)
     fair_odds = Column(Float, nullable=True)
-    # OddsPapi's fixture id, on slips from before the retirement; NULL on new ones.
+    # The event's id: OddsPapi's on slips from before the retirement, the one
+    # HubAI sends on new ones; NULL where there is none.
     fixture_id = Column(String, nullable=True)
     result = Column(String, nullable=False, default="pending")  # pending | won | lost | void
+    # True = no fair was found, so the fair is taken as the odds (the leg adds
+    # no value of its own). Added 9 Nov 2026 by ensure_schema: the last column,
+    # and server_default backfills every earlier leg as not assumed.
+    fair_assumed = Column(Boolean, nullable=False, default=False, server_default="0")
 
     slip = relationship("AwSlip", back_populates="legs")
+
+
+class AwPhoto(Base):
+    """A slip photo waiting for Qwen on the Hub (aw26/photos.py). Render stores
+    it and tracks its state; it never reads one.
+
+    waiting -> reading (taken, `tries` + 1) -> back to waiting on a failure
+    while tries are left, else failed; duplicate when its receipt is already
+    in; done once its slip is recorded, which then owns the file (`slip_id`,
+    the slip's `image_path` is this one's)."""
+    __tablename__ = "aw_photos"
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=utcnow)
+    user = Column(String, nullable=False)
+    image_path = Column(String, nullable=False)
+    source = Column(String, nullable=False)          # page | telegram
+    # waiting | reading | failed | duplicate | done
+    state = Column(String, nullable=False, default="waiting", index=True)
+    taken_at = Column(DateTime, nullable=True)       # the last take
+    tries = Column(Integer, nullable=False, default=0)
+    reason = Column(String, nullable=True)           # why it last failed / is a duplicate
+    slip_id = Column(Integer, ForeignKey("aw_slips.id", ondelete="SET NULL"), nullable=True)
 
 
 # AW 26's other tables (aw_fairs, aw_leg_lines, value_snapshots, value_lines)

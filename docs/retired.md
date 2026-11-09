@@ -11,15 +11,18 @@ FlashScore stats, with a morning Discord post. Callum retired it on 29 Oct 2026 
 for the code to be kept.
 
 On 9 Nov 2026 the page came back as one of Callum's personal tools, with HubAI doing the
-work (the register). **Back on main:** `render/api/app/aw26/` (`offers.py`, `record.py`
-and a cut-down `service.py`), `routers/aw26.py` (list, record, correct, delete, an old
-slip's photo), the `AwSlip` and `AwLeg` models, the page, its icons and the `aw26` grant.
+work (the register). **Back on main:** `render/api/app/aw26/` (`offers.py`, `record.py`,
+`photos.py`, `selections.py` and a cut-down `service.py`), `routers/aw26.py` (list,
+record, correct, delete, an old slip's photo, the summary, a selection's result and the
+photo queue), the `AwSlip`, `AwLeg` and `AwPhoto` (`aw_photos`) models, the page, its icons
+and the `aw26` grant.
 
 **Still retired**, all on the `archive/aw26` branch (main as it stood, `05ae31a`, under
 the old `api/`, `frontend/` and `local/` paths):
 
 - the slip OCR (`providers/slip_ocr.py`, `read_slip`) and the photo upload
-  (`POST /aw26/slips`): Render reads no slip photo;
+  (`POST /aw26/slips`): Render reads no slip photo. The page's upload
+  (`POST /aw26/photos`) only stores the photo;
 - `aw26/attribution.py`, `legs.py`, `marry.py`, `results.py`, `snapshots.py`, the daily
   message and its 08:47 job, the value-snapshot hook in the Paddy sweep;
 - `routers/aw26_ingest.py` (`/aw26/fairs`, `/aw26/slips/ingest`, `/aw26/results`,

@@ -3,93 +3,25 @@ an API client key granted `aw26`, or anyone signed in with the grant), priced
 once every leg has a fair, settled from its legs' results, corrected on the
 page and deleted there. Render does no other work for it."""
 import importlib
-import io
 import os
-from datetime import date, datetime
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, text
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import create_engine, text
 
 from app import apikeys
 from app.aw26.offers import expected_value, settle
-from app.aw26.service import parse_when, summary
+from app.aw26.service import parse_when
 from app.config import settings
-from app.database import Base, get_db
+from app.database import Base
 from app.main import app
 from app.models import AwLeg, AwSlip
 from app.security import require_user, user_permissions
 
-engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False},
-                       poolclass=StaticPool)
-
-
-@event.listens_for(engine, "connect")
-def _fks_on(dbapi_conn, _):
-    # As production opens SQLite (app/database.py).
-    dbapi_conn.execute("PRAGMA foreign_keys = ON")
-
-
-Session = sessionmaker(bind=engine)
-
-
-def _db():
-    db = Session()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-@pytest.fixture(autouse=True)
-def setup(tmp_path, monkeypatch):
-    Base.metadata.create_all(bind=engine)
-    app.dependency_overrides[get_db] = _db
-    monkeypatch.setattr(settings, "upload_dir", str(tmp_path))
-    yield
-    app.dependency_overrides.pop(get_db, None)
-    Base.metadata.drop_all(bind=engine)
-    with engine.begin() as conn:
-        for t in ("aw_leg_lines", "value_lines", "value_snapshots"):
-            conn.execute(text(f"DROP TABLE IF EXISTS {t}"))
-
-
-LEGS = [  # (event, market, selection, odds, fair)
-    ("Arsenal v Chelsea", "Total Match Corners", "Over 8.5", 1.30, 1.28),
-    ("Man City v Liverpool", "Total Match Corners", "Over 9.5", 1.36, 1.36),
-    ("Everton v Leeds", "Total Match Cards", "Over 3.5", 1.33, 1.33),
-    ("Brighton v Fulham", "Total Match Corners", "Under 11.5", 1.25, 1.25),
-    ("Wolves v Burnley", "Total Goals", "Over 1.5", 1.30, 1.30),
-]
-ODDS = [o for *_, o, _ in LEGS]
-FAIRS = [f for *_, f in LEGS]
-
-
-def _body(receipt="REF-1", offer="refund", stake=50, fairs=True, legs=LEGS):
-    out = []
-    for ev, m, s, odds, fair in legs:
-        leg = {"event": ev, "market": m, "selection": s, "odds": odds}
-        if fairs is True or (fairs and ev in fairs):
-            leg["fair_odds"] = fair
-        out.append(leg)
-    return {"receipt": receipt, "offer": offer, "stake": stake, "legs": out}
-
-
-def _record(client, body=None, **kw):
-    return client.post("/aw26/slips/record", json=body or _body(**kw))
-
-
-def _edit_body(slip, leg_changes):
-    """The page's PATCH: every leg as it stands, with `leg_changes` applied by
-    position ({i: {field: value}})."""
-    legs = []
-    for i, lg in enumerate(slip["legs"]):
-        d = {k: lg[k] for k in ("id", "event", "market", "selection", "odds", "fair_odds", "result")}
-        d.update(leg_changes.get(i, {}))
-        legs.append(d)
-    return {"legs": legs}
+from tests.aw26_kit import (  # noqa: F401  (setup is autouse here)
+    FAIRS, LEGS, ODDS, Session, _body, _edit_body, _png, _record, engine, leg, setup, slip_body,
+)
 
 
 # --- recording and listing ---------------------------------------------------
@@ -106,12 +38,11 @@ def test_a_recorded_slip_is_listed_priced_and_counted():
     # Nothing is read or looked up for a new slip: the legs are as recorded.
     assert all(lg["kind"] is None and lg["fixture_id"] is None for lg in slip["legs"])
 
-    body = client.get("/aw26/slips").json()
-    assert [s["receipt"] for s in body["slips"]] == ["REF-1"]
-    total = body["summary"]["total"]
-    assert (total["slips"], total["legs"], total["staked"], total["ev"], total["open"]) == (1, 5, 50, want, 1)
-    assert "ev_by_source" not in body["summary"]["total"]
-    assert "value_on_offer" not in body["summary"]
+    assert [s["receipt"] for s in client.get("/aw26/slips").json()["slips"]] == ["REF-1"]
+    figures = client.get("/aw26/summary").json()
+    total = figures["to_date"]
+    assert (total["slips"], total["staked"], total["ev"], figures["chosen"]["open"]) == (1, 50, want, 1)
+    assert "ev_by_source" not in total and "value_on_offer" not in figures
 
 
 def test_the_same_receipt_twice_is_refused_and_stored_once():
@@ -133,6 +64,43 @@ def test_an_acca_with_no_stake_is_staked_at_50_and_other_is_not():
     assert _record(client, receipt="SOTH", offer="other", stake=None, legs=legs).json()["stake"] is None
 
 
+# --- what a leg carries ------------------------------------------------------
+
+
+def test_a_leg_keeps_what_qwen_read_about_it():
+    client = TestClient(app)
+    body = slip_body("K1", [leg("Arsenal v Chelsea", None, "Over 10.5 corners", 1.80, 1.72,
+                                kind="corners", line=10.5, side="Over", fixture_id="E1",
+                                kickoff="2026-11-09T15:00:00Z")])
+    lg = client.post("/aw26/slips/record", json=body).json()["legs"][0]
+    assert (lg["kind"], lg["line"], lg["side"], lg["fixture_id"]) == ("corners", 10.5, "over", "E1")
+    assert lg["fair_assumed"] is False and lg["fair_odds"] == 1.72
+
+
+def test_an_assumed_fair_is_the_odds_and_adds_nothing_of_its_own():
+    client = TestClient(app)
+    # A fair sent alongside "assumed" is ignored: assumed means equal to the odds.
+    one = slip_body("A1", [leg("Leeds v Fulham", None, "Over 3.5 Leeds cards", 1.90, 1.50, fair_assumed=True)])
+    s = client.post("/aw26/slips/record", json=one).json()
+    assert s["legs"][0]["fair_odds"] == 1.90 and s["legs"][0]["fair_assumed"] is True
+    assert s["ev"] == 0
+    # A refund 5-fold of assumed fairs still carries the refund's own value.
+    five = slip_body("A2", [leg(e, m, sel, o, fair_assumed=True) for e, m, sel, o, _ in LEGS],
+                     offer="refund", stake=50)
+    assert client.post("/aw26/slips/record", json=five).json()["ev"] == round(expected_value("refund", 50, ODDS, ODDS), 2)
+
+
+def test_correcting_an_assumed_legs_odds_moves_its_fair_and_typing_a_fair_makes_it_real():
+    client = TestClient(app)
+    s = client.post("/aw26/slips/record", json=slip_body(
+        "A3", [leg("Leeds v Fulham", None, "Over 3.5 Leeds cards", 1.90, fair_assumed=True)])).json()
+    s = client.patch(f"/aw26/slips/{s['id']}", json=_edit_body(s, {0: {"odds": 2.10}})).json()
+    assert (s["legs"][0]["fair_odds"], s["legs"][0]["fair_assumed"], s["ev"]) == (2.10, True, 0)
+    s = client.patch(f"/aw26/slips/{s['id']}", json=_edit_body(s, {0: {"fair_odds": 2.00}})).json()
+    assert (s["legs"][0]["fair_odds"], s["legs"][0]["fair_assumed"]) == (2.00, False)
+    assert s["ev"] == round(expected_value("other", 10, [2.10], [2.00]), 2)
+
+
 # --- pricing -----------------------------------------------------------------
 
 
@@ -141,7 +109,8 @@ def test_one_leg_without_a_fair_leaves_the_slip_unpriced_until_it_is_added():
     priced = {ev for ev, *_ in LEGS[:4]}
     slip = _record(client, fairs=priced).json()
     assert slip["ev"] is None and slip["ev_note"] == "1 of 5 legs have no fair price yet"
-    assert client.get("/aw26/slips").json()["summary"]["total"]["unpriced"] == 1
+    total = client.get("/aw26/summary").json()["to_date"]
+    assert (total["slips"], total["ev"]) == (1, 0.0)                  # its EV counts once priced
 
     r = client.patch(f"/aw26/slips/{slip['id']}", json=_edit_body(slip, {4: {"fair_odds": FAIRS[4]}}))
     assert r.status_code == 200, r.text
@@ -169,7 +138,7 @@ def test_leg_results_settle_the_slip_as_the_offer_says():
     want = settle("refund", 50, [(o, results[i]["result"]) for i, o in enumerate(ODDS)])
     assert (out["status"], out["returns"]) == want == ("refunded", 37.5)
     assert out["settled_at"] is not None
-    total = client.get("/aw26/slips").json()["summary"]["total"]
+    total = client.get("/aw26/summary").json()["to_date"]
     assert total["profit"] == -12.5 and total["open"] == 0
 
 
@@ -197,8 +166,9 @@ def test_delete_removes_the_slip_and_the_image_route_is_404_without_a_photo():
 
 def _old_slip(db, image_path=None):
     """A slip as the retired ledger stored it: legs read into kind/line/side,
-    a fixture id, a photo."""
-    slip = AwSlip(placed_at=datetime(2026, 10, 25, 12), user="callum", receipt="OLD-1",
+    a fixture id, a photo. Dated on the start day so the day's list shows it
+    (a slip placed before START is in no list)."""
+    slip = AwSlip(placed_at=datetime(2026, 11, 9, 12), user="callum", receipt="OLD-1",
                   offer="other", stake=10, status="open", image_path=image_path, ev=0.25)
     slip.legs.append(AwLeg(position=0, event="Arsenal v Chelsea", market="Total Match Corners",
                            selection="Over 9.5", odds=2.05, fair_odds=2.0, kind="corners",
@@ -292,6 +262,8 @@ def test_the_routes_need_the_aw26_grant():
         client = TestClient(app)
         assert client.get("/aw26/slips").status_code == 403
         assert _record(client).status_code == 403
+        assert client.get("/aw26/photos").status_code == 403
+        assert client.post("/aw26/photos", files={"files": ("s.png", _png(), "image/png")}).status_code == 403
     finally:
         app.dependency_overrides[user_permissions] = lambda: "*"
 
@@ -310,6 +282,10 @@ def test_hubai_records_on_an_api_key_granted_aw26_under_its_own_name():
     assert r.json()["user"] == "api:hubai"
     assert client.get("/aw26/slips", headers=headers).json()["slips"][0]["receipt"] == "H-1"
     assert client.post("/aw26/slips/record", json=_body(receipt="H-1"), headers=headers).status_code == 409
+    r = client.post("/aw26/photos", files={"files": ("s.png", _png(), "image/png")},
+                    data={"source": "telegram"}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()[0]["source"] == "telegram"
     assert client.get("/aw26/slips", headers={"Authorization": f"Bearer {other}"}).status_code == 403
     assert client.get("/aw26/slips").status_code == 401
 
@@ -317,16 +293,11 @@ def test_hubai_records_on_an_api_key_granted_aw26_under_its_own_name():
 # --- what stays retired ------------------------------------------------------
 
 
-def _png():
-    from PIL import Image
-    buf = io.BytesIO()
-    Image.new("RGB", (40, 40), "white").save(buf, "PNG")
-    return buf.getvalue()
-
-
 def test_render_reads_no_photo_and_runs_no_feeder_route(monkeypatch):
-    """Slips are recorded by HubAI or corrected on the page: no photo upload,
-    no ingest, fairs, results or snapshots route, on any key."""
+    """Slips are recorded by HubAI or corrected on the page. A photo is stored
+    on `/aw26/photos` and never read here (Qwen reads it on the Hub): no photo
+    upload on the slips, no ingest, fairs, results or snapshots route, on any
+    key."""
     monkeypatch.setattr(settings, "saves_ingest_key", "test-ingest-key")
     client = TestClient(app)
     assert client.get("/aw26/slips").status_code == 200          # the router is mounted
@@ -375,18 +346,24 @@ def test_nothing_aw26_is_scheduled():
 
 # aw_slips and aw_legs as they stand in the production database, read off the
 # archived models (archive/aw26, api/app/models.py). A model edit that drifts
-# from these breaks loading Callum's existing rows: no column is added,
-# renamed or dropped, and a nullable column stays nullable.
+# from these breaks loading Callum's existing rows: no column is renamed or
+# dropped, and a nullable column stays nullable. One column is added on
+# purpose (9 Nov 2026): aw_legs.fair_assumed, which ensure_schema adds to the
+# production table. aw_photos is new (9 Nov 2026), created by create_all at
+# boot: pinned from its first release so a later edit cannot drift unnoticed.
 TABLES = {
     "aw_slips": ["id", "created_at", "placed_at", "user", "image_path", "receipt", "offer",
                  "stake", "potential_returns", "status", "returns", "settled_at", "ev",
                  "ev_note", "edited"],
     "aw_legs": ["id", "slip_id", "position", "event", "market", "selection", "odds", "kickoff",
-                "kind", "line", "side", "fair_odds", "fixture_id", "result"],
+                "kind", "line", "side", "fair_odds", "fixture_id", "result", "fair_assumed"],
+    "aw_photos": ["id", "created_at", "user", "image_path", "source", "state", "taken_at",
+                  "tries", "reason", "slip_id"],
 }
 NOT_NULL = {
     "aw_slips": {"id", "placed_at", "user", "offer", "status", "edited"},
-    "aw_legs": {"id", "slip_id", "position", "event", "result"},
+    "aw_legs": {"id", "slip_id", "position", "event", "result", "fair_assumed"},
+    "aw_photos": {"id", "user", "image_path", "source", "state", "tries"},
 }
 
 
@@ -396,6 +373,19 @@ def test_the_models_match_the_production_tables(table):
     assert t is not None, f"no model for {table}"
     assert [c.name for c in t.columns] == TABLES[table]
     assert {c.name for c in t.columns if not c.nullable} == NOT_NULL[table]
+
+
+def test_an_old_database_gains_the_fair_assumed_column(tmp_path, monkeypatch):
+    from app import security
+    old = create_engine(f"sqlite:///{tmp_path}/old.db")
+    with old.begin() as c:
+        c.execute(text("CREATE TABLE aw_legs (id INTEGER PRIMARY KEY, slip_id INTEGER, event VARCHAR)"))
+        c.execute(text("INSERT INTO aw_legs (id, slip_id, event) VALUES (1, 1, 'A v B')"))
+    monkeypatch.setattr(security, "engine", old)
+    security.ensure_schema()
+    security.ensure_schema()                       # twice: it is idempotent
+    with old.begin() as c:
+        assert c.execute(text("SELECT fair_assumed FROM aw_legs WHERE id = 1")).scalar() == 0
 
 
 def test_the_other_aw26_tables_have_no_model():
@@ -414,11 +404,3 @@ def test_parse_when_reads_the_terminals_london_time():
     assert parse_when("2026-11-02T15:00:00Z", ref) == datetime(2026, 11, 2, 15, 0)
     assert parse_when("not a time", ref) is None
 
-
-def test_summary_counts_days_from_the_first_slip_against_the_targets():
-    s = AwSlip(placed_at=datetime(2026, 10, 20, 12), user="u", offer="refund", stake=50,
-               status="open", ev=15.15)
-    out = summary([s], date(2026, 10, 21))
-    assert out["total"]["days"] == 2 and out["total"]["ev_target"] == 2000
-    assert out["targets"] == {"ev_per_day": 1000.0, "profit": 100_000.0}
-    assert out["today"]["slips"] == 0 and out["total"]["ev"] == 15.15

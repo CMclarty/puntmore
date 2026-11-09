@@ -68,6 +68,14 @@ homage to the bookmaker. What Callum asked for, piece by piece; keep it:
 - The tool switcher takes the book's colour while the page is open
   (`--tool-band`, `--dock-bg` set by the page).
 
+## AW 26's look (`pages/Aw26Page.jsx`, Callum, 9 Nov 2026)
+- It carries the Paddy board's styling by importing `CardsPage.module.css`.
+- The headline is profit, not EV: "an all time profit", because "I need to
+  keep motivated."
+- What each screen holds, the Summary and the Slips sub screen, is in the
+  design (`docs/superpowers/specs/2026-11-09-aw26-qwen-design.md`). Nothing
+  is added to either screen that the design does not name.
+
 ## The 2-Up tab (`pages/TwoUpPage.jsx`, 6 Nov 2026)
 The Feed alone: every value side on the server's scheduled board
 (`/api/2up/feed?value_only=true`), best edge down, price and edge as % of
