@@ -49,7 +49,7 @@ function Marking({ pick, onPick }) {
 
 const Assumed = ({ pick }) => pick.fair_assumed && <span className={f.more}>~</span>
 
-export default function Aw26Summary({ summary, now, onMark }) {
+export default function Aw26Summary({ summary, now, onMark, markError }) {
   const [down, setDown] = useState(() => new Set())   // games dropped down
   const [marking, setMarking] = useState(null)          // the leg whose chips are open
   const { day, today, chosen, to_date: all } = summary
@@ -85,7 +85,7 @@ export default function Aw26Summary({ summary, now, onMark }) {
     const open = down.has(g.game)
     return (
       <Fragment key={g.game}>
-        <div className={`${f.row} ${s.sel} ${f.tappable}`} role="button" aria-expanded={open}
+        <button type="button" className={`${f.row} ${s.sel} ${s.game}`} aria-expanded={open}
           onClick={() => toggle(g.game)}>
           <span className={f.what}>
             <span className={f.pick}>{g.event}<span className={f.more}> {open ? '▴' : '▾'} {g.picks.length}</span></span>
@@ -95,7 +95,7 @@ export default function Aw26Summary({ summary, now, onMark }) {
           <span className={s.marks}>
             {g.picks.map(p => <span key={p.leg_id} className={TONE[p.mark]}>{p.mark}</span>)}
           </span>
-        </div>
+        </button>
         {open && (
           <div className={f.sub}>
             {g.picks.map(p => (
@@ -130,6 +130,7 @@ export default function Aw26Summary({ summary, now, onMark }) {
       <Figure label="Slips" cells={[
         [chosen.slips, chosen.slips, `${chosen.open} open`], [all.slips, all.slips, `${all.open} open`]]} />
 
+      {markError && <p className={f.error}>{markError}</p>}
       <div className={`${f.row} ${f.colHead} ${s.sel}`}>
         <span /><span>KO</span><span>Slips</span><span>Odds</span><span>Result</span>
       </div>

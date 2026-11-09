@@ -29,6 +29,12 @@
 
 /* The selections: a heading per day, then KO · Slips · Odds · Result. */
 .summary .sel { grid-template-columns: minmax(0, 1fr) 36px 36px 44px 40px; }
+/* A game with several picks is a button that drops them down. */
+.summary .game {
+  width: 100%; border: none; border-bottom: 1px solid var(--rule-pp); background: none;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.summary .game:focus-visible { outline: 2px solid var(--set-pp); outline-offset: -2px; }
 .dayHead {
   display: flex; align-items: baseline; gap: 8px; padding: 6px 12px;
   border-bottom: 1px solid var(--rule-pp); background: var(--ground-pp);
