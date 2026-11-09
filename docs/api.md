@@ -172,6 +172,7 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 | Finder writes (`ingest`, key only) | `POST /finder/rows`, `POST /finder/rows/{tip_id}/status` | HubAI's rows; the Bet Placer's `placed`\|`gone` |
 | Finder reads (`finder`) | `GET /finder/feed`, `GET /finder/board` (`?days=3`), `GET /value/finder` | the offered rows; the board on `me` |
 | P&L (`pnl`) | `GET/POST /pnl/{dogs\|virtuals}/bets`, `GET /pnl/{c}/bets.csv`, `DELETE /pnl/{c}/bets/{id}` | per-caller ledger |
+| AW 26 (`aw26`) | `GET /aw26/slips`, `POST /aw26/slips/record`, `PATCH /aw26/slips/{id}`, `DELETE /aw26/slips/{id}`, `GET /aw26/slips/{id}/image` | Callum's slips: the list with its totals, record one, correct one or set its legs' results, delete one, an old slip's photo |
 | shop (`shop`) | `GET /shop`, `POST /shop/visits`, `DELETE /shop/visits[/{id}]` | per-caller route |
 | diagnostics (`*`, or `state`) | `GET/DELETE /diagnostics/errors` | error ring buffer |
 | — | `GET /health`, `GET /ready` | probes, unauthenticated |
@@ -270,6 +271,35 @@ final. Render expires rows every minute; rows are kept 30 days. One bet per
 (event_id or event, market, line, selection), held by an `asked`, `offered`
 or `placed` row. `ENABLE_FINDER=false` removes the routes.
 
+### AW 26 (`/api/aw26/*`, back 9 Nov 2026)
+
+Callum's slips from the Paddy terminal, on `me`. HubAI on the Hub reads the
+photos, finds the fair prices and checks the results; it calls these routes
+with an API client key granted `aw26` (`python -m app.apikeys create hubai
+--tools aw26`), the same routes the page calls. Render reads no photo, looks
+nothing up and runs nothing in the background for AW 26; it does the sums
+when a request arrives (`aw26/offers.py`).
+
+- `GET /aw26/slips` — `{summary, slips}`: every slip, newest first, with its
+  legs; `summary` is today's and the total figures and the targets.
+- `POST /aw26/slips/record` — body `AwSlipRecordIn`: `receipt`, `placed_at`
+  (as printed, London, or ISO 8601), `offer` (`refund` | `boost` | `other`),
+  `stake` (blank on a refund or boost slip means £50), `legs` (1–40, each
+  `event`, `market`, `selection`, `odds`, `kickoff`, `fair_odds`). The slip is
+  filed under the caller (`api:<name>` for a key). `409` when the receipt is
+  already in, so a slip sent twice is counted once.
+- `PATCH /aw26/slips/{id}` — any of `offer`, `stake`, `placed_at`, `receipt`,
+  `legs`. `legs` **replaces the whole list**: send every leg, with its `id`,
+  `odds`, `fair_odds` and `result` (`pending` | `won` | `lost` | `void`). A
+  leg sent without its `fair_odds` loses it, and the slip's EV with it.
+- `DELETE /aw26/slips/{id}`; `GET /aw26/slips/{id}/image` (the photo of a
+  slip from before the retirement; `404` for every slip since).
+
+The EV is fixed once every leg has its odds and a fair price; until then it
+is null and `ev_note` says how many legs are waiting. A slip is never valued
+off the legs that did price. The slip's status and returns follow from its
+legs' results under its offer's terms.
+
 `kelly` and `boost` are client-side calculators with no routes. The legacy
 aliases (`/cards/*`, `/tennis/*`) still answer and are hidden from the schema.
 
@@ -298,6 +328,7 @@ decides otherwise.
 | API clients table / CLI | `render/api/app/models.py::ApiClient`, `render/api/app/apikeys.py` |
 | value feed | `render/api/app/value/service.py`, `render/api/app/routers/value.py` |
 | Finder | `render/api/app/finder/rows.py`, `render/api/app/routers/finder.py` |
+| AW 26 | `render/api/app/aw26/` (`offers.py`, `record.py`, `service.py`), `render/api/app/routers/aw26.py` |
 | per-tool services | `render/api/app/cards/feed.py`, `render/api/app/twoup/feed.py`, `render/api/app/coupons/service.py`, `render/api/app/pnl/service.py`, `render/api/app/shop/service.py` (+ the existing `cards/`, `goalscorers/` packages) |
 | response models | `render/api/app/schemas.py` |
 | route walk test | `render/api/tests/test_openapi.py` |

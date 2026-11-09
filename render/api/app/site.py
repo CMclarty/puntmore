@@ -29,7 +29,7 @@ PUNTMORE, ME = "puntmore", "me"
 
 # The tools (grant names) that live on Me when it exists; every other tool is
 # the main site's.
-ME_TOOLS = ("finder", "pnl", "kelly", "boost", "shop")
+ME_TOOLS = ("finder", "pnl", "kelly", "boost", "shop", "aw26")
 
 RETIRED = "shalgo"
 

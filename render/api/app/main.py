@@ -40,6 +40,7 @@ from .routers import goalscorers as goalscorers_router
 from .routers import hills as hills_router
 from .routers import pnl as pnl_router
 from .routers import shop as shop_router
+from .routers import aw26 as aw26_router
 from .routers import auth as auth_router
 from .routers import state as state_router
 from .routers import diagnostics as diagnostics_router
@@ -328,6 +329,10 @@ if settings.enable_pnl:
 # The shop tracker reads and writes only its own rows and calls no vendor API,
 # so there is no flag to gate it on — access is per-user via the grant alone.
 app.include_router(shop_router.router, dependencies=[Depends(require_tool("shop"))])
+# AW 26 — Callum's slips, a page over the stored rows. No vendor API and no
+# background work, so no flag: the grant alone gates it, for the page's session
+# and for HubAI's API client key alike.
+app.include_router(aw26_router.router, dependencies=[Depends(require_tool("aw26"))])
 # The 2-Up engine is part of the 365 tool, so it sits behind the same grant as
 # the acca boost (`accabonus` — grants keep their old names). Its own flag,
 # not ENABLE_ACCABONUS: the acca page can stay hidden while 2-Up runs dry.

@@ -257,7 +257,7 @@ def test_login_success_then_me():
     expected = {
         "username": "alice",
         "permissions": "*",
-        "tools": ["coupons", "cards", "pnl", "kelly", "boost", "shop", "hills", "finder"],
+        "tools": ["coupons", "cards", "pnl", "kelly", "boost", "shop", "aw26", "hills", "finder"],
     }
     assert resp.json() == expected
     # session cookie now set on the client → /auth/me works
@@ -366,6 +366,26 @@ def test_with_me_host_blank_a_personal_account_signs_in_on_the_main_domain(monke
     assert set(c.get("/auth/me").json()["tools"]) == {"finder", "pnl"}
 
 
+def test_an_aw26_account_gets_aw26_and_it_lives_on_me(monkeypatch):
+    """AW 26 is Callum's personal tool: on `me` once ME_HOST names it, on the
+    main domain while it is blank."""
+    from app.config import settings
+    from app.site import ME, PUNTMORE, tool_site
+    _seed_user("callum", "aw26pass", permissions="aw26")
+    _use_real_auth()
+    body = {"username": "callum", "password": "aw26pass"}
+    monkeypatch.setattr(settings, "me_host", "")
+    assert tool_site("aw26") == PUNTMORE
+    c = TestClient(app)
+    assert c.post("/auth/login", json=body).status_code == 200
+    assert c.get("/auth/me").json()["tools"] == ["aw26"]
+    monkeypatch.setattr(settings, "me_host", "me.puntmore.com")
+    assert tool_site("aw26") == ME
+    me = TestClient(app, base_url="http://me.puntmore.com")
+    assert me.post("/auth/login", json=body).status_code == 200
+    assert me.get("/auth/me").json()["tools"] == ["aw26"]
+
+
 def test_seed_users_persists_the_grant():
     db = TestSession()
     try:
@@ -390,7 +410,7 @@ def test_has_permission_wildcard_and_explicit():
 
 def test_granted_tools_intersects_grant_with_enabled(monkeypatch):
     # Both flags on in the test env, so "*" yields every tool in nav order.
-    assert granted_tools("*") == ["coupons", "cards", "pnl", "kelly", "boost", "shop", "hills", "finder"]
+    assert granted_tools("*") == ["coupons", "cards", "pnl", "kelly", "boost", "shop", "aw26", "hills", "finder"]
     assert granted_tools("coupons") == ["coupons"]
     # A grant for a disabled tool yields nothing for it.
     from app import security

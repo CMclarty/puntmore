@@ -12,7 +12,7 @@
 // to the main domain by the server before this page loads.
 export const PUNTMORE = 'puntmore'
 export const ME = 'me'
-export const ME_TOOLS = ['finder', 'pnl', 'kelly', 'boost', 'shop']
+export const ME_TOOLS = ['finder', 'pnl', 'kelly', 'boost', 'shop', 'aw26']
 const NAMES = { [PUNTMORE]: 'Puntmore', [ME]: 'Me' }
 
 const hostName = (host) => (host || '').split(':')[0].trim().toLowerCase()

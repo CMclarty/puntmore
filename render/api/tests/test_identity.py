@@ -41,7 +41,7 @@ def test_server_table_mirrors_the_frontends():
     py_icons = ({icon for _, _, icon, _ in identity.IDENTITIES}
                 | {d[1] for d in identity.DEFAULTS.values()})
     assert js_icons == py_icons
-    for path in ("/", "/t/abc", "/upload", "/pnl/dogs", "/virtuals", "/kelly", "/shop",
+    for path in ("/", "/t/abc", "/upload", "/pnl/dogs", "/virtuals", "/kelly", "/aw26", "/shop",
                  "/365/scorers", "/365/acca", "/accabonus", "/paddy", "/paddy/acca", "/cards",
                  "/login", "/nope"):
         ident = identity_for(path)
@@ -87,7 +87,7 @@ def test_every_tool_belongs_to_the_main_site_or_me(monkeypatch):
     from app.security import ALL_TOOLS
     monkeypatch.setattr(settings, "me_host", "me.puntmore.com")
     assert not hasattr(site, "SHALGO") and not hasattr(site, "SHALGO_TOOLS")
-    assert site.ME_TOOLS == ("finder", "pnl", "kelly", "boost", "shop")
+    assert site.ME_TOOLS == ("finder", "pnl", "kelly", "boost", "shop", "aw26")
     for tool in ALL_TOOLS:
         assert site.tool_site(tool) == (site.ME if tool in site.ME_TOOLS else site.PUNTMORE), tool
     assert {site.tool_site(t) for t in ("coupons", "cards", "hills", "accabonus", "goalscorers")} == {site.PUNTMORE}

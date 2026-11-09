@@ -24,7 +24,7 @@ names and no other; older names appear only in `docs/retired.md`.
 - **One product host and `me`.** Puntmore is the product: the main domain
   serves every public tool (the coupon tracker, Paddy, Hills, 365 with 2-Up
   inside it), the login and the API. `me` serves Callum's personal tools:
-  Finder, dogs, Virtuals, P&L, Kelly, the shop. Shalgo is retired as a site
+  Finder, dogs, Virtuals, P&L, Kelly, the shop, AW 26. Shalgo is retired as a site
   and a brand: no separate name, icon, login or tool list;
   `shalgo.puntmore.com` redirects to the same path on the main domain so old
   links and home-screen icons keep working (its `/sw.js` is a worker that
@@ -58,6 +58,17 @@ names and no other; older names appear only in `docs/retired.md`.
     when unsure, post the verdict (`puntmore finder post`), and take a tip
     Callum types to it. A tip Callum requests by hand comes in on Telegram to
     HubAI. That skill is the next HubAI work. (6 Nov 2026, Callum)
+- **AW 26 is back as one of Callum's personal tools: a page, with HubAI
+  doing the work.** Callum, 9 Nov 2026: "remove all the worker shit. This
+  should just be a front end with qwen doing the work." Render keeps the
+  slips Callum places by hand at the Paddy terminal and shows them on `me`.
+  It runs nothing in the background for AW 26: no photo reading, no
+  matching, no result lookup, no scheduled job, no Discord post. HubAI, on
+  the Hub, reads the slip photos, finds the fair prices and checks the
+  results, and records them with an API client key granted `aw26`, on the
+  same routes the page uses. It is Callum's own record, like P&L: not the
+  Bet Placer's book, and nothing the Bet Placer places goes into it. What
+  stays retired is in `docs/retired.md`.
 - **The vocabulary.** A **bet** is a selection and a price. A **value bet** is
   a bet an internal tool found (Paddy or 2-Up pricing a market against a fair
   line). A **tip** is a bet from an external source (a tipster's email, a

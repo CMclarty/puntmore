@@ -3,28 +3,37 @@
 What was removed, and where to find it if it is ever wanted again. One paragraph each; the
 register's dated entries (`docs/decisions.md`) are the record of why.
 
-## AW 26 — retired 29 Oct 2026
+## AW 26 — retired 29 Oct 2026, the page back 9 Nov 2026
 
-The acca project's slip ledger (`/aw26`): photos of Paddy terminal slips read
-by OCR, priced from Bookie Bashing's Group Tracker fairs, settled from
-FlashScore stats, with a morning Discord post. Callum retired it and asked for
-the code to be kept in case it comes back.
+The acca project's slip ledger (`/aw26`) as it was: photos of Paddy terminal slips read
+by OCR on the server, priced from Bookie Bashing's Group Tracker fairs, settled from
+FlashScore stats, with a morning Discord post. Callum retired it on 29 Oct 2026 and asked
+for the code to be kept.
 
-- **Code:** the `archive/aw26` branch (main as it stood, `05ae31a`), including
-  `render/api/app/aw26/`, its routers and tests, `render/frontend/src/pages/Aw26Page.jsx`,
-  the slip OCR (`providers/slip_ocr.py`, `read_slip`), the desktop scripts
-  `local/bookiebashing_tracker.py` and `local/flashscore_results.py` (and its
-  systemd units), the Python client's `pm.aw26`, and
-  `docs/aw26-handover.md` / `docs/aw26-assistant-handover.md`.
-- **Data:** left in the database untouched — tables `aw_slips`, `aw_legs`,
-  `aw_fairs`, `aw_leg_lines`, `value_snapshots`, `value_lines`. Nothing reads
-  or writes them now; the value snapshots (which were AW 26's) stopped too.
-- **Kept:** the Paddy health lines that rode on AW 26's 08:47 job now run as
-  their own job (`paddy_health`), on the same `aw26` Discord route.
-- **To bring it back:** restore those paths from `archive/aw26`
-  (`git checkout archive/aw26 -- <paths>`), re-add the `aw26` tool to
-  `security.py`, the routers to `main.py`, the models, schemas, scheduler job
-  and nav entry, and the frontend route. The tables are still there.
+On 9 Nov 2026 the page came back as one of Callum's personal tools, with HubAI doing the
+work (the register). **Back on main:** `render/api/app/aw26/` (`offers.py`, `record.py`
+and a cut-down `service.py`), `routers/aw26.py` (list, record, correct, delete, an old
+slip's photo), the `AwSlip` and `AwLeg` models, the page, its icons and the `aw26` grant.
+
+**Still retired**, all on the `archive/aw26` branch (main as it stood, `05ae31a`, under
+the old `api/`, `frontend/` and `local/` paths):
+
+- the slip OCR (`providers/slip_ocr.py`, `read_slip`) and the photo upload
+  (`POST /aw26/slips`): Render reads no slip photo;
+- `aw26/attribution.py`, `legs.py`, `marry.py`, `results.py`, `snapshots.py`, the daily
+  message and its 08:47 job, the value-snapshot hook in the Paddy sweep;
+- `routers/aw26_ingest.py` (`/aw26/fairs`, `/aw26/slips/ingest`, `/aw26/results`,
+  `/aw26/open-leagues`), `GET /aw26/snapshots`, `GET /aw26/results-check`;
+- the desktop scripts `local/bookiebashing_tracker.py` and `local/flashscore_results.py`
+  (and its systemd units);
+- the Python client's `pm.aw26`, `docs/aw26-handover.md`, `docs/aw26-assistant-handover.md`.
+
+- **Data:** `aw_slips` and `aw_legs` are read and written again. `aw_fairs`,
+  `aw_leg_lines`, `value_snapshots` and `value_lines` are left in the database, unread and
+  with no model; an `aw_leg_lines` row goes when its leg is deleted (the table's own
+  `ON DELETE CASCADE`).
+- **Kept as it was:** the Paddy health lines run as their own 08:47 job (`paddy_health`),
+  on the `aw26` Discord route. AW 26 itself posts nothing.
 
 ## The Hub's link to Render — removed 6 Nov 2026
 
