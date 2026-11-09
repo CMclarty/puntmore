@@ -323,6 +323,10 @@ Qwen's rules for results:
 - Never mark void. Postponed, abandoned, or a count exactly equal to the
   line: leave it for Callum **(my call)**.
 - 90 minutes only. A match that went to extra time: leave it **(my call)**.
+- Cards follow Paddy's rules. Callum, 9 Nov 2026: "It's important Qwen
+  understands to follow paddy rules for cards." This is the first thing in
+  the results part of the runbook, stated as a rule with worked examples,
+  not left for Qwen to infer.
 - Cards are counted by Paddy Power's published rule for card totals: a
   yellow is one card, a straight red is one card, and one player can
   count for at most two (two yellows and off is two; a yellow then a
