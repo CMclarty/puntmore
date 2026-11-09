@@ -15,7 +15,7 @@ const QUICK_MS = 20_000   // while a photo waits on Qwen
 const reading = p => p.state === 'waiting' || p.state === 'reading'
 const odds = n => (n == null ? '—' : n.toFixed(2))
 const stake = n => (n == null || n % 1 === 0 ? pounds(n) : `£${n.toFixed(2)}`)
-const signed = n => (n > 0 ? s.good : n < 0 ? s.bad : '')
+const signed = n => (n > 0 ? s.won : n < 0 ? s.lost : '')
 
 function Photo({ photo, act }) {
   if (reading(photo)) {
@@ -85,6 +85,12 @@ export default function Aw26Slips({ day, today, onChange, onCount }) {
   const [open, setOpen] = useState(null)       // the slip whose editor is open
   const [now, setNow] = useState(() => Date.now())
   const [sending, setSending] = useState(false)
+  const [atDay, setAtDay] = useState(day)
+  if (atDay !== day) {   // a new day: no editor left open, no message from the last day's actions
+    setAtDay(day)
+    setOpen(null)
+    setFailed(null)
+  }
   const picker = useRef(null)
 
   // Load the day's slips and the queue together; only the latest load lands.
@@ -121,9 +127,10 @@ export default function Aw26Slips({ day, today, onChange, onCount }) {
   // A failed load hides the list; a load for another day shows nothing until it lands.
   const shown = !error && data?.day === day ? data : null
   const editing = shown?.slips.some(sl => sl.id === open)
-  const waiting = shown?.photos.some(reading)
-  // One timer: every 20 s while a photo waits on Qwen, else every 2 min. An
-  // edit in progress is never reloaded under.
+  // One timer: every 20 s while a photo waits on Qwen (as of the last good
+  // load, so a failed reload keeps the pace), else every 2 min. An edit in
+  // progress is never reloaded under.
+  const waiting = data?.photos.some(reading)
   useAutoRefresh(() => { if (!editing) load() }, { everyMs: waiting ? QUICK_MS : REFRESH_MS })
 
   // An action that fails leaves the screen as it is and says why where it was taken.
@@ -144,7 +151,8 @@ export default function Aw26Slips({ day, today, onChange, onCount }) {
   const done = updated => {
     setOpen(null)
     setFailed(null)
-    if (updated) { load(); onChange() }
+    load()
+    if (updated) onChange()
   }
 
   const chosen = day ?? today

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { editAwSlip, deleteAwSlip } from '../api'
+import f from './CardsPage.module.css'
 import styles from './Aw26Page.module.css'
 
 // One slip's editor, moved as it stood from the old AW 26 page; the Slips
@@ -43,7 +44,7 @@ export default function SlipEditor({ slip, onDone, onError }) {
         <div className={styles.chips} role="group" aria-label="Offer">
           {OFFERS.map(([k, label]) => (
             <button key={k} type="button" aria-pressed={offer === k}
-              className={`${styles.chip} ${offer === k ? styles.on : ''}`}
+              className={`${f.chip} ${offer === k ? f.chipOn : ''}`}
               onClick={() => setOffer(k)}>{label}</button>
           ))}
         </div>
@@ -69,7 +70,7 @@ export default function SlipEditor({ slip, onDone, onError }) {
             <div className={styles.chips} role="group" aria-label="Result">
               {RESULTS.map(([k, label]) => (
                 <button key={k} type="button" aria-pressed={l.result === k}
-                  className={`${styles.chip} ${l.result === k ? styles.on : ''}`}
+                  className={`${f.chip} ${l.result === k ? f.chipOn : ''}`}
                   onClick={() => setLeg(i, 'result', k)}>{label}</button>
               ))}
             </div>

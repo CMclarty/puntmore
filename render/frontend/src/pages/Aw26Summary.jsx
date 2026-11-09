@@ -13,7 +13,7 @@ const RESULTS = [['won', 'Won'], ['lost', 'Lost'], ['void', 'Void'], ['pending',
 // EV in plain pounds as the mock has it, but a loss keeps its sign.
 const plain = n => (n < 0 ? money(n) : pounds(n))
 const odds = n => (n == null ? '—' : n.toFixed(2))
-const signed = n => (n > 0 ? s.good : n < 0 ? s.bad : '')
+const signed = n => (n > 0 ? s.won : n < 0 ? s.lost : '')
 
 function Figure({ label, cells, tone = () => '' }) {
   return (

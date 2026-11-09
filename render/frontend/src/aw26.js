@@ -63,8 +63,10 @@ export function koTime(iso) {
 export function koDay(iso, day) {
   const t = utc(iso)
   if (t == null) return ''
-  const london = new Date(t).toLocaleDateString('en-CA', { timeZone: 'Europe/London' })
-  return london === day ? '' : new Date(t).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/London' })
+  const part = Object.fromEntries(new Intl.DateTimeFormat('en-GB',
+    { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Europe/London' })
+    .formatToParts(new Date(t)).map(({ type, value }) => [type, value]))
+  return `${part.year}-${part.month}-${part.day}` === day ? '' : new Date(t).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/London' })
 }
 
 // A selection's mark: its result, or "?" once it is a day past kick-off and still pending.
