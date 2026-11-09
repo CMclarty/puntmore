@@ -5,7 +5,7 @@ Times are stored naive UTC like every other table; "today" and "a day" are
 LONDON days — the shop's day, which is what an EV-per-day target counts.
 """
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from ..models import AwLeg, AwSlip
@@ -14,6 +14,9 @@ from .offers import expected_value, problems, settle
 
 LONDON = ZoneInfo("Europe/London")
 UTC = ZoneInfo("UTC")
+
+# The first day of AW 26 (Callum).
+START = date(2026, 11, 9)
 
 # Callum's targets (Oct 2026).
 EV_PER_DAY_TARGET = 1000.0
@@ -39,6 +42,13 @@ def _to_utc(local: datetime) -> datetime:
 
 def london_day(utc: datetime) -> date:
     return utc.replace(tzinfo=UTC).astimezone(LONDON).date()
+
+
+def day_bounds(day: date) -> tuple[datetime, datetime]:
+    """The London day `day` as naive UTC: its start, and the next day's start
+    (exclusive)."""
+    return (_to_utc(datetime.combine(day, time())),
+            _to_utc(datetime.combine(day + timedelta(days=1), time())))
 
 
 def parse_when(text: str | None, ref: datetime) -> datetime | None:
@@ -130,12 +140,36 @@ def price_slip(slip: AwSlip) -> None:
         slip.ev_note = f"valued without the {slip.offer}: {'; '.join(why)}" if why else None
 
 
+def decided_at(slip: AwSlip) -> datetime | None:
+    """The kick-off of the game that decided the slip, or None.
+
+    Replays the results in kick-off order: at each kick-off, only the legs
+    kicking off at or before it keep their results; the first at which the
+    slip is no longer open decided it. None when a leg with a result has no
+    kick-off, or when the results so far decide nothing."""
+    resulted = [leg for leg in slip.legs if leg.result != "pending"]
+    if any(leg.kickoff is None for leg in resulted):
+        return None
+    for k in sorted({leg.kickoff for leg in resulted}):
+        legs = [(leg.odds, leg.result if leg.kickoff is not None and leg.kickoff <= k else "pending")
+                for leg in slip.legs]
+        if settle(slip.offer, slip.stake or 0.0, legs)[0] != "open":
+            return k
+    return None
+
+
 def settle_slip(slip: AwSlip, now: datetime | None = None) -> None:
+    """Status and returns from the legs' results. A decided slip is dated by
+    the kick-off of the game that decided it (`decided_at`), whenever its
+    results were typed; failing that, by the date already stored, else `now`."""
     if slip.stake is None or not slip.legs or any(leg.odds is None for leg in slip.legs):
         return
     status, returns = settle(slip.offer, slip.stake, [(leg.odds, leg.result) for leg in slip.legs])
     slip.status, slip.returns = status, returns
-    slip.settled_at = None if status == "open" else (slip.settled_at or now or utcnow())
+    if status == "open":
+        slip.settled_at = None
+    else:
+        slip.settled_at = decided_at(slip) or slip.settled_at or now or utcnow()
 
 
 def profit(slip: AwSlip) -> float | None:
