@@ -201,3 +201,52 @@ def test_the_docs_gate_still_admits_a_real_grant_and_the_star():
     assert api.get("/openapi.json", headers=bearer(_client("a", "shop"))).status_code == 200
     assert api.get("/openapi.json", headers=bearer(_client("b", "value"))).status_code == 200
     assert api.get("/openapi.json", headers=bearer(_client("c", "*"))).status_code == 200
+
+
+def test_a_grant_is_added_to_an_existing_key_without_replacing_it():
+    db = Session()
+    apikeys.create(db, "hub", "finder")
+    assert apikeys.grant(db, "hub", "aw26,paddy").permissions == "aw26+cards+finder"   # "paddy" is the alias
+    assert apikeys.grant(db, "hub", "aw26").permissions == "aw26+cards+finder"         # again: no change
+    with pytest.raises(ValueError):
+        apikeys.grant(db, "nobody", "aw26")
+    with pytest.raises(ValueError):
+        apikeys.grant(db, "hub", "not-a-tool")
+    apikeys.revoke(db, "hub")
+    with pytest.raises(ValueError):
+        apikeys.grant(db, "hub", "aw26")
+    db.close()
+
+
+def test_a_star_on_either_side_of_a_grant_gives_the_star():
+    db = Session()
+    apikeys.create(db, "all", "*")
+    apikeys.create(db, "some", "finder")
+    assert apikeys.grant(db, "all", "aw26").permissions == "*"
+    assert apikeys.grant(db, "some", "*").permissions == "*"
+    db.close()
+
+
+def test_a_granted_key_reaches_the_new_tool_with_the_same_key():
+    key = _client("hub", tools="finder")
+    api = TestClient(app)
+    assert api.get("/aw26/photos", headers=bearer(key)).status_code == 403
+    db = Session()
+    key_hash = db.query(ApiClient).one().key_hash
+    apikeys.grant(db, "hub", "aw26")
+    assert db.query(ApiClient).one().key_hash == key_hash                  # the key is untouched
+    db.close()
+    assert api.get("/aw26/photos", headers=bearer(key)).status_code == 200
+
+
+def test_cli_grant_never_prints_a_key(monkeypatch, capsys):
+    monkeypatch.setattr(apikeys, "SessionLocal", Session)
+    monkeypatch.setattr(apikeys, "engine", engine)
+    assert apikeys.main(["create", "hub", "--tools", "finder"]) == 0
+    key = capsys.readouterr().out.strip().splitlines()[-1]
+    assert apikeys.main(["grant", "hub", "--tools", "aw26,cards"]) == 0
+    out = capsys.readouterr().out
+    assert out == "Client 'hub' now has grant 'aw26+cards+finder'.\n"
+    assert key not in out
+    assert apikeys.main(["grant", "nobody", "--tools", "aw26"]) == 2
+    assert TestClient(app).get("/aw26/photos", headers=bearer(key)).status_code == 200
