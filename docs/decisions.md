@@ -96,7 +96,15 @@ names and no other; older names appear only in `docs/retired.md`.
   to err on the cautious side of value recording"): the lower of its full EV
   and its value at its own odds as if fair, `stake × (odds − 1) / odds`. Its legs take their fairs
   from the Paddy board like any slip's, a leg not on it its own odds.
-  (`aw26/offers.py`.)
+  (`aw26/offers.py`.) **Paddy's board, kept (Callum, 10 Nov 2026):** "we need a rolling list of
+  selections". A slip's photo may be read hours after it was placed, when its
+  game or line has left the live board, so the Paddy sweep keeps every line
+  it prices: a row when a line's price or fair moves, before kick-off only,
+  kept 14 days after kick-off (`paddy_lines`, `app/cards/history.py`).
+  HubAI values a slip off the board as it stood at the slip's printed time
+  (`GET /api/paddy/board-at?at=`), not the live board; a leg not on it then
+  is still neutral, its fair its odds. This is Paddy's sweep writing rows,
+  the one background write AW 26 relies on; no message, no page.
 - **The vocabulary.** A **bet** is a selection and a price. A **value bet** is
   a bet an internal tool found (Paddy or 2-Up pricing a market against a fair
   line). A **tip** is a bet from an external source (a tipster's email, a

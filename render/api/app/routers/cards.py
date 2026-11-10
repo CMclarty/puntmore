@@ -1,6 +1,10 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..database import get_db
 from ..schemas import CardFeedItem, DiagnosticsOut, OpenModel
 # The feed lives in cards/feed.py; re-exported so existing imports keep working.
 from ..cards.feed import (  # noqa: F401
@@ -142,18 +146,33 @@ def get_cards_diagnostics(request: Request):
     return diagnose(_client(request))
 
 
+def get_board_at(at: datetime = Query(..., description="ISO 8601; UTC unless it says otherwise"),
+                 db: Session = Depends(get_db)):
+    """Paddy's board as it stood at `at`, in the feed's shape: each line's
+    price and fair then (or its first after, when it had none yet), for every
+    game not yet kicked off. Kept 14 days after kick-off (cards/history.py)."""
+    from ..cards import history
+    if at.tzinfo is not None:
+        at = at.astimezone(timezone.utc).replace(tzinfo=None)
+    return history.board_at(db, at)
+
+
 def make_router(client_attr: str = "cards_client") -> APIRouter:
     """The tool's endpoints, reading the source at app.state.<client_attr>."""
     def select(request: Request) -> None:
         request.state.cards_client_attr = client_attr
 
     r = APIRouter(dependencies=[Depends(select)])
-    for path, endpoint, model in (
+    routes = [
         ("/feed", get_cards_feed, list[CardFeedItem]),
         ("/shadow", shadow_report, OpenModel),
         ("/oddspapi-check", oddspapi_check, OpenModel),
         ("/diagnostics", get_cards_diagnostics, DiagnosticsOut),
-    ):
+    ]
+    if client_attr == "cards_client":
+        # Paddy's board is the one kept (cards/history.py); Hills' is not.
+        routes.append(("/board-at", get_board_at, list[CardFeedItem]))
+    for path, endpoint, model in routes:
         r.add_api_route(path, endpoint, methods=["GET"], response_model=model)
     return r
 

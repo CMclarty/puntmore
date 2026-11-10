@@ -640,6 +640,17 @@ Pinnacle's fair reference, joined on the same fixture id.
   Paddy's goals lines and Pinnacle's goals ladder both from OddsPapi
   (`totals_goals`), fitted by `pricing/counts` under `GOALS` (bounds 0.5-5.5,
   D prior 0.97 and a 0-0 excess, both measured — see above). Same three guards.
+- **Paddy's board is KEPT** (`cards/history.py`, table `paddy_lines`, Callum,
+  10 Nov 2026): AW 26 values a slip read late at the fair of the moment it
+  was struck, and the live board has dropped the game by then. `sweep_cards`
+  prices once down to `history.FLOOR` (−0.50, every line) and hands every
+  priced row to `history.record`: a row only when a line's Paddy price or
+  fair (to the penny) moves, before kick-off only, deleted 14 days after
+  kick-off. The last price per line is held in memory, loaded from the table
+  on first use (a restart writes nothing again) and pruned at each kick-off,
+  so it is bounded by the live board. `GET /api/paddy/board-at?at=` serves
+  the board as it stood then in the feed's shape. Paddy only: the Hills
+  router does not mount it. Never allowed to break the sweep.
 - **Goalkeeper SAVES are priced off Bookie Bashing, not Pinnacle**
   (`cards/saves.py`, Oct 2026). Pinnacle posts no saves ladder; Bookie Bashing
   publishes fair saves prices behind Callum's login, so they are read by

@@ -27,6 +27,9 @@ A slip photo goes its own short way, not through the chain. The page uploads a p
 (`done`; a receipt already in: `duplicate`; no slip made of it: back to `waiting`, `failed`
 after 3 tries, resent from the page). Id: the photo's `id`, then the slip's `receipt`. Status
 words `waiting | reading | failed | duplicate | done`, defined in `render/api/app/aw26/photos.py`.
+Each leg's fair comes from Paddy's board as it stood at the slip's printed time
+(`GET /api/paddy/board-at`, kept by the Paddy sweep in `paddy_lines` for 14 days after
+kick-off, `render/api/app/cards/history.py`); a leg not on it is neutral.
 The Hub's side of it is not built yet: until it is, a photo stays `waiting`.
 
 ## The four rules
