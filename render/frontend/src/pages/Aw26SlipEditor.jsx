@@ -6,7 +6,7 @@ import styles from './Aw26Page.module.css'
 // One slip's editor, moved as it stood from the old AW 26 page; the Slips
 // screen (Task 9) mounts and restyles it.
 
-const OFFERS = [['refund', 'Refund'], ['boost', 'Boost'], ['other', 'Other']]
+const OFFERS = [['refund', 'Refund'], ['boost', 'Boost'], ['free', 'Free bet'], ['other', 'Other']]
 const RESULTS = [['pending', '–'], ['won', 'W'], ['lost', 'L'], ['void', 'V']]
 
 export default function SlipEditor({ slip, onDone, onError }) {

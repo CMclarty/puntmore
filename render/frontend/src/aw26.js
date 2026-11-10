@@ -132,3 +132,9 @@ export function openTo(slip) {
 
 // A slip Render could not price.
 export const flagged = (slip) => slip.ev == null
+
+// Cash back less cash down: a free bet put no cash down (Callum, 10 Nov 2026).
+export function slipProfit(slip) {
+  if (slip.returns == null || slip.stake == null) return null
+  return slip.returns - (slip.offer === 'free' ? 0 : slip.stake)
+}

@@ -1,47 +1,53 @@
 """What a slip is worth, and what it paid — by the offer it was struck under.
 
-The SAME maths as the Paddy page's offers (render/frontend/src/accaInsurance.js
-and accaBoost.js), held here because a slip's EV is fixed on the server when it
-is recorded and its result settled when its legs' results are entered, whoever
-sends them. The tests pin both to the same worked cases as the frontend's.
+Held here because a slip's EV is fixed on the server when it is recorded and
+its result settled when its legs' results are entered, whoever sends them.
+The boost is the SAME maths as the Paddy page's (render/frontend/src/
+accaBoost.js) and the tests pin both to the same worked cases.
+
+ONE CASH ECOSYSTEM (Callum, 10 Nov 2026): AW 26 counts real money only. A
+refund's bonus is a free bet, not cash, so a refund slip is valued and settled
+as the cash bet it is; the free bet is recorded as its own slip when it is
+placed (offer `free`) and carries its own value and its own winnings. The
+Paddy page's refund tab still values the bonus at 0.75 of the stake to choose
+which slips to place: that is a forecast of the free bet, which AW 26 counts
+when it happens.
 
 Legs are independent; p_i = 1 / fair_i, the leg's true win chance.
 
   A      = ∏ o_i                          acca odds, void legs dropped
   P_win  = ∏ p_i
-  P_one  = Σ_j (1 − p_j) ∏_{i≠j} p_i      exactly one loses
 
-  refund  E = S·P_win·A + S·REFUND_VALUE·P_one      (only if the slip qualifies)
-  boost   E = S·P_win·(1 + (A − 1)(1 + b))          b by fold size
+  refund  E = S·P_win·A                         the bonus is counted on its free bet
+  boost   E = S·P_win·(1 + (A − 1)(1 + b))      b by fold size
   other   E = S·P_win·A
+  free    E = S·P_win·(A − 1)                   the stake is never returned
 
-  EV £ = E − S
+  EV £ = E − S, except a free bet: EV £ = E (no cash was staked)
 
 Terms, as Callum gave them for AW 26 (Oct 2026):
-- REFUND: a 5-fold, every leg 1.20+, stake back as a bonus if EXACTLY one leg
-  loses. A refund is worth 0.75 of the stake, and there is NO cap — Callum
-  places as many £50 slips as he likes, so the cap never binds.
+- REFUND: a 5-fold, every leg 1.20+, stake back as a free bet if EXACTLY one
+  leg loses. The slip is then `refunded`, returning £0 cash. There is NO cap.
 - BOOST: winnings +10% on a 4-fold, +20% on a 5-fold (+30% on a 6-fold, per the
   terms confirmed for the Paddy page — `BOOST_TIERS`), every leg 1.20+.
 - OTHER: anything else, valued as a straight bet.
+- FREE: a free bet (a refund's bonus): winnings only, the stake never comes
+  back, and no cash was staked. No terms to meet.
 A slip that does not meet its offer's terms is valued WITHOUT the offer and
 says why — the refund or boost is never counted on a slip it would not pay on.
 """
 from math import prod
 
-REFUND_VALUE = 0.75
 REFUND_LEGS = 5
 MIN_LEG_ODDS = 1.20
 BOOST_TIERS = {4: 0.10, 5: 0.20, 6: 0.30}
 
-OFFERS = ("refund", "boost", "other")
+OFFERS = ("refund", "boost", "other", "free")
 
 
-def _p_exactly_one(ps: list[float]) -> float:
-    total = 0.0
-    for j, pj in enumerate(ps):
-        total += (1 - pj) * prod(p for i, p in enumerate(ps) if i != j)
-    return total
+def cash_staked(offer: str, stake: float | None) -> float:
+    """The cash a slip put down: its stake, except a free bet's (none)."""
+    return 0.0 if offer == "free" or stake is None else stake
 
 
 def problems(offer: str, odds: list[float]) -> list[str]:
@@ -68,12 +74,12 @@ def expected_value(offer: str, stake: float, odds: list[float], fair: list[float
     a = prod(odds)
     p_win = prod(ps)
     qualifies = not problems(offer, odds)
+    if offer == "free":
+        return stake * p_win * (a - 1)
     if offer == "boost" and qualifies:
         ret = stake * p_win * (1 + (a - 1) * (1 + BOOST_TIERS[len(odds)]))
     else:
         ret = stake * p_win * a
-        if offer == "refund" and qualifies:
-            ret += stake * REFUND_VALUE * _p_exactly_one(ps)
     return ret - stake
 
 
@@ -101,7 +107,7 @@ def settle(offer: str, stake: float, legs: list[tuple[float, str]]) -> tuple[str
         if pending:
             return "open", None
         if lost == 1:
-            return "refunded", round(stake * REFUND_VALUE, 2)
+            return "refunded", 0.0          # the stake comes back as a free bet
     else:
         if lost:
             return "lost", 0.0
@@ -110,8 +116,11 @@ def settle(offer: str, stake: float, legs: list[tuple[float, str]]) -> tuple[str
 
     standing = [o for o, r in legs if r == "won"]
     if not standing:
-        return "void", round(stake, 2)
+        # A void free bet returns no cash.
+        return "void", 0.0 if offer == "free" else round(stake, 2)
     a = prod(standing)
+    if offer == "free":
+        return "won", round(stake * (a - 1), 2)
     if offer == "boost" and qualifies:
         b = BOOST_TIERS.get(len(standing), 0.0)
         return "won", round(stake * (1 + (a - 1) * (1 + b)), 2)

@@ -1,7 +1,7 @@
 import { Fragment, useState, useEffect, useRef, useCallback } from 'react'
 import { getAwSlips, getAwPhotos, uploadAwPhotos, resendAwPhoto, deleteAwPhoto } from '../api'
 import useAutoRefresh, { REFRESH_MS } from '../hooks/useAutoRefresh'
-import { money, pounds, pickText, openTo, flagged, koTime, koDay, mark } from '../aw26'
+import { money, pounds, pickText, openTo, flagged, koTime, koDay, mark, slipProfit } from '../aw26'
 import f from './CardsPage.module.css'
 import s from './Aw26Page.module.css'
 import SlipEditor from './Aw26SlipEditor'
@@ -39,7 +39,7 @@ function Photo({ photo, act }) {
 
 function Slip({ slip, day, now, first, onOpen }) {
   const to = openTo(slip)
-  const profit = slip.returns != null && slip.stake != null ? slip.returns - slip.stake : null
+  const profit = slipProfit(slip)
   return (
     <li>
       <button type="button" className={s.slipBtn} onClick={onOpen}>

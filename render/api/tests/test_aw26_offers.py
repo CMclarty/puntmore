@@ -1,35 +1,27 @@
-"""AW 26 offer maths — pinned to the SAME worked cases as the frontend's
-accaInsurance.test.js and accaBoost.test.js, so the two implementations of
-the offers cannot drift apart unnoticed."""
+"""AW 26 offer maths. The boost is pinned to the SAME worked cases as the
+frontend's accaBoost.test.js, so the two cannot drift apart unnoticed. The
+refund is not: AW 26 counts cash only (Callum, 10 Nov 2026), so a refund
+slip is valued as the cash bet it is, and the free bet it earns is valued
+on its own slip when it is placed (offer `free`)."""
 import pytest
 
 from app.aw26.offers import expected_value, problems, settle
 
 
-@pytest.mark.parametrize("o, r, ev_pct, ev_gbp", [
-    # odds, acca %, EV %, EV £ on £50 — the insurance offer's test cases
-    (1.30, 1.00, 30.3, 15.15),
-    (1.25, 1.00, 30.7, 15.36),
-    (1.50, 1.10, 35.6, 17.81),
-    (1.40, 0.90, 17.0, 8.49),
-])
-def test_refund_matches_the_offers_worked_cases(o, r, ev_pct, ev_gbp):
+@pytest.mark.parametrize("o, r", [(1.30, 1.00), (1.25, 1.00), (1.50, 1.10), (1.40, 0.90)])
+def test_a_refund_slip_is_valued_as_the_cash_bet_it_is(o, r):
+    # The free bet a refund earns is not counted here: it is valued on its own
+    # slip when it is placed.
     fair = [o / r ** (1 / 5)] * 5               # p_i = r^(1/n) / o
-    ev = expected_value("refund", 50, [o] * 5, fair)
-    assert round(100 * ev / 50, 1) == ev_pct
-    assert ev == pytest.approx(ev_gbp, abs=0.05)
+    assert expected_value("refund", 50, [o] * 5, fair) == pytest.approx(
+        expected_value("other", 50, [o] * 5, fair))
+    assert expected_value("refund", 50, [o] * 5, fair) == pytest.approx(50 * (r - 1))
 
 
 @pytest.mark.parametrize("n, ev_pct", [(4, 5.9), (5, 13.4), (6, 22.1)])
 def test_boost_matches_the_offers_worked_cases(n, ev_pct):
     ev = expected_value("boost", 100, [1.25] * n, [1.25] * n)
     assert round(ev, 1) == ev_pct
-
-
-def test_the_refund_has_no_cap():
-    # Callum, Oct 2026: as many £50 slips as wanted — EV is linear in stake.
-    small = expected_value("refund", 50, [1.3] * 5, [1.3] * 5)
-    assert expected_value("refund", 500, [1.3] * 5, [1.3] * 5) == pytest.approx(10 * small)
 
 
 def test_a_slip_off_its_offers_terms_is_valued_without_the_offer():
@@ -49,7 +41,9 @@ def test_other_is_a_straight_bet():
 
 def test_refund_settles_on_exactly_one_loser():
     legs = [(1.3, "won")] * 4
-    assert settle("refund", 50, legs + [(1.3, "lost")]) == ("refunded", 37.5)
+    # Refunded: the stake comes back as a free bet, not cash, so it returns
+    # nothing here; the free bet's own slip carries what it pays.
+    assert settle("refund", 50, legs + [(1.3, "lost")]) == ("refunded", 0.0)
     assert settle("refund", 50, legs[:3] + [(1.3, "lost"), (1.3, "lost")]) == ("lost", 0.0)
     # One down and one to play: still alive either way.
     assert settle("refund", 50, legs[:3] + [(1.3, "lost"), (1.3, "pending")]) == ("open", None)
@@ -71,5 +65,24 @@ def test_boost_pays_boosted_winnings_at_the_tier_of_the_legs_that_stood():
 
 def test_a_void_keeps_a_refund_slip_insured_and_all_void_returns_the_stake():
     legs = [(1.3, "won")] * 3 + [(1.3, "void"), (1.3, "lost")]
-    assert settle("refund", 50, legs) == ("refunded", 37.5)
+    assert settle("refund", 50, legs) == ("refunded", 0.0)
     assert settle("other", 20, [(2.0, "void")]) == ("void", 20.0)
+
+
+# --- a free bet: the stake is not returned -------------------------------------
+
+
+def test_a_free_bet_is_worth_its_winnings_only():
+    # £50 free at 3.00, fair 3.00: a third of the time it pays £100.
+    assert expected_value("free", 50, [3.0], [3.0]) == pytest.approx(50 / 3 * 2)
+    # A 2-fold: P = 1/(2.0*2.0), winnings 50 * (2.2*2.1 - 1).
+    assert expected_value("free", 50, [2.2, 2.1], [2.0, 2.0]) == pytest.approx(0.25 * 50 * (2.2 * 2.1 - 1))
+    assert problems("free", [1.05]) == []        # no terms to meet
+
+
+def test_a_free_bet_pays_its_winnings_and_never_its_stake():
+    assert settle("free", 50, [(3.0, "won")]) == ("won", 100.0)
+    assert settle("free", 50, [(3.0, "lost")]) == ("lost", 0.0)
+    assert settle("free", 50, [(3.0, "pending")]) == ("open", None)
+    assert settle("free", 50, [(2.0, "won"), (1.5, "void")]) == ("won", 50.0)
+    assert settle("free", 50, [(3.0, "void")]) == ("void", 0.0)

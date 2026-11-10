@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { money, pounds, progress, dayName, stepDay, sections, mark, tally, pickText, openTo, flagged, koTime, koDay } from './aw26'
+import { money, pounds, progress, dayName, stepDay, sections, mark, tally, pickText, openTo, flagged, koTime, koDay, slipProfit } from './aw26'
 
 const sel = (o) => ({ leg_id: 1, key: 'k', game: 'w:a v b', event: 'A v B', market: null,
   selection: 'Over 10.5 corners', kickoff: '2026-11-09T15:00:00', day: '2026-11-09',
@@ -88,5 +88,11 @@ describe('aw26', () => {
     expect(koDay('2026-06-01T23:30:00', '2026-06-01')).toBe('Tue')
     expect(koDay('2026-06-01T23:30:00', '2026-06-02')).toBe('')
     expect(koDay(null, '2026-11-09')).toBe('')
+  })
+  it('counts a free bet as cash back, with no cash down', () => {
+    expect(slipProfit({ offer: 'free', stake: 50, returns: 100 })).toBe(100)
+    expect(slipProfit({ offer: 'free', stake: 50, returns: 0 })).toBe(0)
+    expect(slipProfit({ offer: 'refund', stake: 50, returns: 0 })).toBe(-50)
+    expect(slipProfit({ offer: 'other', stake: 10, returns: null })).toBe(null)
   })
 })

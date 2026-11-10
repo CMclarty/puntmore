@@ -86,7 +86,15 @@ names and no other; older names appear only in `docs/retired.md`.
   upload cut off halfway leaves nothing behind for long
   (`app/orphan_files.py`). Rows are never touched and a file written in the
   last hour stays. It reads no photo; it is the only background job that
-  touches AW 26's files.
+  touches AW 26's files. **One cash ecosystem (Callum, 10 Nov 2026):**
+  AW 26's figures are real cash. A refund's bonus is a free bet, and free
+  bets come only from AW 26's refunds. A refunded slip returns £0 cash and is
+  valued as the cash bet it is, with nothing for the bonus ("free bet is B").
+  The free bet is recorded as its own slip when it is placed, offer `free`:
+  it puts no cash down, its EV is counted in full on the day it is placed,
+  and it pays its winnings only, never the stake. Its legs take their fairs
+  from the Paddy board like any slip's, a leg not on it its own odds.
+  (`aw26/offers.py`.)
 - **The vocabulary.** A **bet** is a selection and a price. A **value bet** is
   a bet an internal tool found (Paddy or 2-Up pricing a market against a fair
   line). A **tip** is a bet from an external source (a tipster's email, a

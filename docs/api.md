@@ -304,8 +304,9 @@ it is in no figure, no list and no mark.
 - `GET /aw26/slips?day=` — `{slips}`: the slips placed on the day (default
   today), newest first, with their legs.
 - `POST /aw26/slips/record` — body `AwSlipRecordIn`: `receipt`, `placed_at`
-  (as printed, London, or ISO 8601), `offer` (`refund` | `boost` | `other`),
-  `stake` (blank on a refund or boost slip means £50), `photo_id` (the queued
+  (as printed, London, or ISO 8601), `offer` (`refund` | `boost` | `other` |
+  `free`, a free bet), `stake` (blank on a refund, boost or free bet slip
+  means £50), `photo_id` (the queued
   photo it was read from, or none), `legs` (1–40, each `event`, `market`,
   `selection`, `odds`, `kickoff`, `fair_odds`, `kind` (`corners` | `cards` |
   `goals` | `saves` | `other`), `line`, `side` (`over` | `under`),
@@ -344,6 +345,13 @@ The EV is fixed once every leg has its odds and a fair price; until then it
 is null and `ev_note` says how many legs are waiting. A slip is never valued
 off the legs that did price. The slip's status and returns follow from its
 legs' results under its offer's terms.
+
+The figures are cash (Callum, 10 Nov 2026). A refunded slip returns £0: its
+stake comes back as a free bet, not cash, and its EV is that of the cash bet,
+with nothing for the bonus. The free bet is its own slip (`offer: free`) when
+it is placed: EV `stake × P(win) × (odds − 1)`, a win returns `stake × (odds −
+1)`, a loss or a void £0, and its stake is not cash staked, so `staked` leaves
+it out and its profit is its returns.
 
 **The photo queue.** A photo (`AwPhotoOut`: `id`, `created_at`, `source`,
 `state`, `tries`, `reason`, `slip_id`) is one of `waiting | reading | failed |

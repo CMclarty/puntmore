@@ -333,7 +333,7 @@ class AwSlip(Base):
     # The terminal's bet reference, as printed. Unique where present, so the
     # same slip sent twice is refused rather than counted twice.
     receipt = Column(String, nullable=True, unique=True)
-    offer = Column(String, nullable=False, default="refund")   # refund | boost | other
+    offer = Column(String, nullable=False, default="refund")   # refund | boost | other | free
     stake = Column(Float, nullable=True)            # NULL if the read missed it — fill in
     # Printed potential returns, kept for reference against our settlement.
     potential_returns = Column(Float, nullable=True)

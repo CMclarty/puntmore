@@ -136,10 +136,30 @@ def test_leg_results_settle_the_slip_as_the_offer_says():
     r = client.patch(f"/aw26/slips/{slip['id']}", json=_edit_body(slip, results))
     out = r.json()
     want = settle("refund", 50, [(o, results[i]["result"]) for i, o in enumerate(ODDS)])
-    assert (out["status"], out["returns"]) == want == ("refunded", 37.5)
+    # Refunded: the stake comes back as a free bet, not cash (Callum, 10 Nov
+    # 2026), so the slip has cost its £50; the free bet's slip carries the rest.
+    assert (out["status"], out["returns"]) == want == ("refunded", 0.0)
     assert out["settled_at"] is not None
     total = client.get("/aw26/summary").json()["to_date"]
-    assert total["profit"] == -12.5 and total["open"] == 0
+    assert total["profit"] == -50.0 and total["open"] == 0
+
+
+def test_a_free_bet_costs_nothing_and_pays_only_its_winnings():
+    client = TestClient(app)
+    body = {"receipt": "FREE-1", "offer": "free", "stake": None,
+            "legs": [{"event": "Arsenal v Chelsea", "market": None, "selection": "Over 10.5 corners",
+                      "odds": 3.0, "fair_odds": 3.0}]}
+    slip = client.post("/aw26/slips/record", json=body).json()
+    assert slip["offer"] == "free" and slip["stake"] == 50.0      # a refund's free bet is £50
+    assert slip["ev"] == round(expected_value("free", 50, [3.0], [3.0]), 2) == 33.33
+    total = client.get("/aw26/summary").json()["to_date"]
+    assert total["staked"] == 0.0 and total["ev"] == 33.33      # no cash went down
+    won = client.patch(f"/aw26/slips/{slip['id']}", json=_edit_body(slip, {0: {"result": "won"}})).json()
+    assert (won["status"], won["returns"]) == ("won", 100.0)
+    assert client.get("/aw26/summary").json()["to_date"]["profit"] == 100.0
+    lost = client.patch(f"/aw26/slips/{slip['id']}", json=_edit_body(slip, {0: {"result": "lost"}})).json()
+    assert (lost["status"], lost["returns"]) == ("lost", 0.0)
+    assert client.get("/aw26/summary").json()["to_date"]["profit"] == 0.0
 
 
 def test_a_pending_leg_keeps_the_slip_open():
@@ -404,3 +424,22 @@ def test_parse_when_reads_the_terminals_london_time():
     assert parse_when("2026-11-02T15:00:00Z", ref) == datetime(2026, 11, 2, 15, 0)
     assert parse_when("not a time", ref) is None
 
+
+
+def test_refund_slips_stored_under_the_old_rule_are_put_right_once():
+    # Before 10 Nov 2026 a refunded slip returned 0.75 of its stake and its EV
+    # counted the bonus. The startup fix re-values and re-settles them as cash.
+    from app.aw26.service import reprice_refund_slips
+    client = TestClient(app)
+    slip = _record(client).json()
+    client.patch(f"/aw26/slips/{slip['id']}", json=_edit_body(slip, {4: {"result": "lost"}, **{i: {"result": "won"} for i in range(4)}}))
+    db = Session()
+    row = db.get(AwSlip, slip["id"])
+    row.returns, row.ev = 37.5, 99.0                       # as the old rule left it
+    db.commit()
+    assert reprice_refund_slips(db) == 1
+    row = db.get(AwSlip, slip["id"])
+    assert (row.status, row.returns) == ("refunded", 0.0)
+    assert row.ev == round(expected_value("refund", 50, ODDS, FAIRS), 2)
+    assert reprice_refund_slips(db) == 0                   # nothing left to change
+    db.close()
