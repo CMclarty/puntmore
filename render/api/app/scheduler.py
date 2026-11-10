@@ -198,9 +198,11 @@ def sweep_cards(cards_client, notifier=None) -> int:
     try:
         from .cards.feed import price_events      # one pricing entry point
         events = cards_client.get_events()
-        # Price down to 95% of fair ONCE (what the page shows); the alerts and
-        # their dedupe see only the lines at or above the floor.
-        priced = price_events(events, -0.05)
+        # Price ONCE, down to history's floor (every line the board prices is
+        # kept, cards/history.py); the alerts and their dedupe see only the
+        # lines at or above the alert floor.
+        from .cards import history
+        priced = price_events(events, history.FLOOR)
         rows = [r for r in priced if r.edge >= settings.cards_min_edge]
     except Exception as exc:
         # Logged with the cause: a silent failure here is what made the old
@@ -224,6 +226,17 @@ def sweep_cards(cards_client, notifier=None) -> int:
             db.close()
     except Exception:
         logger.exception("Ladder shadow measurement failed")
+
+    # Keep the board (cards/history.py): AW 26 values a slip read late at the
+    # fair it was struck at. Never allowed to break the sweep.
+    try:
+        db = SessionLocal()
+        try:
+            history.record(db, priced, utcnow())
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("Keeping Paddy's board failed")
 
     fresh = []
     seen = set()

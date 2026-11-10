@@ -54,6 +54,8 @@ the main domain.
   (`aw26/offers.py`: EV from odds and fairs, returns from leg results) when a request asks;
   it reads no photo and runs nothing in the background, except the 04:00 sweep of the upload
   folder that removes files no row points at (`app/orphan_files.py`, the register).
+  HubAI values a slip off Paddy's board as it stood when the slip was placed, which the
+  Paddy sweep keeps for 14 days (`app/cards/history.py`, `GET /api/paddy/board-at`).
   Slips placed before 9 Nov 2026 stay stored and count nowhere.
 
 The **Bet Placer** (`docs/placer-spec.md`) reads the three boards' feeds and places on the Hub;

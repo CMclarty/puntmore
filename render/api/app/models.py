@@ -495,3 +495,27 @@ class FinderRow(Base):
     seen_at = Column(DateTime, nullable=False)         # last posted by HubAI
     created_at = Column(DateTime, nullable=False, index=True)
     updated_at = Column(DateTime, nullable=False)
+
+
+class PaddyLine(Base):
+    """One price of one line on Paddy's board, as the sweep saw it
+    (cards/history.py; Callum, 10 Nov 2026). Written when the line's price or
+    fair moves, before kick-off only, kept 14 days after kick-off, so a slip
+    read late is valued at the fair of the moment it was struck. A row holds
+    until the next row for the same line."""
+    __tablename__ = "paddy_lines"
+
+    id = Column(Integer, primary_key=True)
+    event_id = Column(String, nullable=False, index=True)
+    home = Column(String, nullable=False)
+    away = Column(String, nullable=False)
+    commence_time = Column(String, nullable=False)    # as the board has it (ISO, UTC)
+    kickoff = Column(DateTime, nullable=False, index=True)
+    sport_key = Column(String, nullable=False, default="")
+    market_key = Column(String, nullable=False)
+    line = Column(Float, nullable=False)
+    side = Column(String, nullable=False)
+    odds = Column(Float, nullable=False)               # Paddy Power's price
+    fair = Column(Float, nullable=False)               # the board's fair, to the penny
+    basis = Column(String, nullable=False, default="ladder")
+    seen_at = Column(DateTime, nullable=False, index=True)
