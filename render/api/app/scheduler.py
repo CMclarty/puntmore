@@ -1,6 +1,6 @@
 """APScheduler setup: 10-min odds refresh + daily 30-day cleanup + the daily
 first-goalscorer watchlist that schedules each fixture's pre-kickoff scan +
-the 2-Up board's refresh."""
+the 2-Up board's refresh + the 04:00 sweep of files no row points at."""
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -375,6 +375,19 @@ def expire_finder() -> int:
         db.close()
 
 
+def sweep_orphan_files() -> int:
+    """The upload folder's daily sweep (orphan_files.py): files no row points at."""
+    from . import orphan_files
+    db = SessionLocal()
+    try:
+        return orphan_files.sweep(db)
+    except Exception:
+        logger.exception("orphan files sweep failed")
+        return 0
+    finally:
+        db.close()
+
+
 def sweep_finder() -> int:
     """Tips on Finder older than 30 days are deleted (docs/finder-spec.md)."""
     from .finder import rows
@@ -473,6 +486,20 @@ def start_scheduler(
                           replace_existing=True, coalesce=True, max_instances=1)
         scheduler.add_job(sweep_finder, trigger="interval", hours=24, id="finder_sweep",
                           replace_existing=True, coalesce=True, max_instances=1)
+
+    # The upload folder: files no row points at go at 04:00 London, when
+    # Callum is never uploading (Callum, 10 Nov 2026; orphan_files.py).
+    scheduler.add_job(
+        sweep_orphan_files,
+        trigger="cron",
+        hour=4,
+        minute=0,
+        timezone="Europe/London",
+        id="orphan_files",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+    )
 
     # Hand freed heap back to the OS between sweeps (diagnostics.trim_memory):
     # the 512 MB instance was climbing to its cap and restarting (Oct 2026).

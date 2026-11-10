@@ -79,7 +79,14 @@ names and no other; older names appear only in `docs/retired.md`.
   EV. Better to be overly cautious": its fair is its odds, and it is marked.
   "Start fresh": slips placed before 9 Nov 2026 stay stored and count
   nowhere. The design is
-  `docs/superpowers/specs/2026-11-09-aw26-qwen-design.md`.
+  `docs/superpowers/specs/2026-11-09-aw26-qwen-design.md`. **The one
+  scheduled job (Callum, 10 Nov 2026):** "empty the files out at 4am daily -
+  i'll never be uploading then". At 04:00 London the upload folder loses
+  every file no row points at (a coupon, a slip or a queued photo), so an
+  upload cut off halfway leaves nothing behind for long
+  (`app/orphan_files.py`). Rows are never touched and a file written in the
+  last hour stays. It reads no photo; it is the only background job that
+  touches AW 26's files.
 - **The vocabulary.** A **bet** is a selection and a price. A **value bet** is
   a bet an internal tool found (Paddy or 2-Up pricing a market against a fair
   line). A **tip** is a bet from an external source (a tipster's email, a

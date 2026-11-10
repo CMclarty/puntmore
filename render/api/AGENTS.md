@@ -386,6 +386,12 @@ loads a page, never prices a tip (no OddsPapi request) and never places a bet.
   after the new coupon has read rows: a failed or empty scan must never delete a
   working coupon. Two issues of one type still coexist (GG midweek + weekend);
   the key is type AND period, never type alone.
+- **A file no row points at goes at 04:00 London** (`app/orphan_files.py`,
+  Callum, 10 Nov 2026): an upload cut off while storing leaves one. The sweep
+  matches the folder's files to `coupons`, `aw_slips` and `aw_photos` by name,
+  never touches a row, and leaves a file younger than an hour. A new table
+  that stores a path in the upload folder MUST be added to its list, or the
+  sweep deletes that table's files.
 - **The sheet's header must not contradict the selected type**
   (`coupon_types.title_mismatch`, Aug 2026). The upload form asks which coupon
   was photographed and nothing checked the answer — and GG Bonus / GG No Draw
