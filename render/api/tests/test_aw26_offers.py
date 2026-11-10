@@ -72,11 +72,16 @@ def test_a_void_keeps_a_refund_slip_insured_and_all_void_returns_the_stake():
 # --- a free bet: the stake is not returned -------------------------------------
 
 
-def test_a_free_bet_is_worth_its_winnings_only():
-    # £50 free at 3.00, fair 3.00: a third of the time it pays £100.
-    assert expected_value("free", 50, [3.0], [3.0]) == pytest.approx(50 / 3 * 2)
-    # A 2-fold: P = 1/(2.0*2.0), winnings 50 * (2.2*2.1 - 1).
-    assert expected_value("free", 50, [2.2, 2.1], [2.0, 2.0]) == pytest.approx(0.25 * 50 * (2.2 * 2.1 - 1))
+def test_a_free_bet_is_valued_cautiously():
+    # Callum, 10 Nov 2026: err on the cautious side. A free bet's EV is the
+    # lower of its full EV and its value at its own odds as if they were fair,
+    # stake x (odds - 1) / odds: edge above the true value is never booked,
+    # and a free bet picked worse than fair is still marked down.
+    assert expected_value("free", 50, [3.0], [3.0]) == pytest.approx(50 * 2 / 3)    # fair: both agree
+    assert expected_value("free", 50, [3.0], [2.5]) == pytest.approx(50 * 2 / 3)    # +EV: capped
+    assert expected_value("free", 50, [3.0], [3.5]) == pytest.approx(50 / 3.5 * 2)  # -EV: the full EV
+    a = 2.2 * 2.1
+    assert expected_value("free", 50, [2.2, 2.1], [2.0, 2.0]) == pytest.approx(50 * (a - 1) / a)
     assert problems("free", [1.05]) == []        # no terms to meet
 
 

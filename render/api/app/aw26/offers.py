@@ -21,7 +21,8 @@ Legs are independent; p_i = 1 / fair_i, the leg's true win chance.
   refund  E = S·P_win·A                         the bonus is counted on its free bet
   boost   E = S·P_win·(1 + (A − 1)(1 + b))      b by fold size
   other   E = S·P_win·A
-  free    E = S·P_win·(A − 1)                   the stake is never returned
+  free    E = min(S·P_win·(A − 1), S·(A − 1)/A) the stake is never returned;
+                                                capped at the true value (below)
 
   EV £ = E − S, except a free bet: EV £ = E (no cash was staked)
 
@@ -32,7 +33,10 @@ Terms, as Callum gave them for AW 26 (Oct 2026):
   terms confirmed for the Paddy page — `BOOST_TIERS`), every leg 1.20+.
 - OTHER: anything else, valued as a straight bet.
 - FREE: a free bet (a refund's bonus): winnings only, the stake never comes
-  back, and no cash was staked. No terms to meet.
+  back, and no cash was staked. No terms to meet. Its EV errs cautious
+  (Callum, 10 Nov 2026): the lower of the full EV and the value at its own
+  odds as if they were fair, S·(A − 1)/A, so edge above that true value is
+  never booked and a free bet picked worse than fair is still marked down.
 A slip that does not meet its offer's terms is valued WITHOUT the offer and
 says why — the refund or boost is never counted on a slip it would not pay on.
 """
@@ -75,7 +79,7 @@ def expected_value(offer: str, stake: float, odds: list[float], fair: list[float
     p_win = prod(ps)
     qualifies = not problems(offer, odds)
     if offer == "free":
-        return stake * p_win * (a - 1)
+        return min(stake * p_win * (a - 1), stake * (a - 1) / a)
     if offer == "boost" and qualifies:
         ret = stake * p_win * (1 + (a - 1) * (1 + BOOST_TIERS[len(odds)]))
     else:
