@@ -94,6 +94,16 @@ async def lifespan(app: FastAPI):
                 "password stays live.",
                 ", ".join(weak), MIN_PASSWORD_LENGTH,
             )
+        # AW 26 counts cash only since 10 Nov 2026: refund slips stored before
+        # are re-valued and re-settled once (a no-op after). Never blocks boot.
+        try:
+            from .aw26.service import reprice_refund_slips
+            n = reprice_refund_slips(db)
+            if n:
+                logger.info("aw26: %d refund slip(s) re-valued as cash", n)
+        except Exception:
+            db.rollback()
+            logger.exception("aw26: re-valuing refund slips failed")
     finally:
         db.close()
 

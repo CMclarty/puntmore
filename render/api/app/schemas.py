@@ -356,7 +356,7 @@ class AwSlipRecordIn(BaseModel):
     """A placed bet to RECORD on the AW 26 ledger (aw26/record.py)."""
     receipt: str | None = Field(default=None, max_length=80)
     placed_at: str | None = None         # as printed (London), or ISO 8601
-    offer: str = "refund"                # refund | boost | other (aw26/offers.py)
+    offer: str = "refund"                # refund | boost | other | free (aw26/offers.py)
     stake: float | None = Field(default=None, ge=0, lt=1_000_000)
     legs: list[AwSlipLegIn] = Field(min_length=1, max_length=40)
     # The queued photo the slip was read from (aw26/photos.py): recording it

@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from ..models import AwLeg, AwSlip
 from ..time_utils import utcnow
-from .offers import expected_value, problems, settle
+from .offers import cash_staked, expected_value, problems, settle
 
 LONDON = ZoneInfo("Europe/London")
 UTC = ZoneInfo("UTC")
@@ -22,10 +22,11 @@ START = date(2026, 11, 9)
 EV_PER_DAY_TARGET = 1000.0
 PROFIT_TARGET = 100_000.0
 
-# Refund/boost accas always stake £50 (Callum); the terminal slip doesn't print
-# the stake, so this fills it when the record carries none. Other bets vary.
+# Refund/boost accas always stake £50 (Callum), and so the free bet a refund
+# pays is £50 too; the terminal slip doesn't print the stake, so this fills it
+# when the record carries none. Other bets vary.
 ACCA_STAKE = 50.0
-ACCA_OFFERS = ("refund", "boost")
+ACCA_OFFERS = ("refund", "boost", "free")
 
 _WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 _FORMATS = (
@@ -173,7 +174,8 @@ def settle_slip(slip: AwSlip, now: datetime | None = None) -> None:
 
 
 def profit(slip: AwSlip) -> float | None:
-    return None if slip.returns is None else round(slip.returns - slip.stake, 2)
+    """Cash back less cash down: a free bet put none down."""
+    return None if slip.returns is None else round(slip.returns - cash_staked(slip.offer, slip.stake), 2)
 
 
 def _figures(slips, ev_target: float, decided=None) -> dict:
@@ -184,7 +186,7 @@ def _figures(slips, ev_target: float, decided=None) -> dict:
         "ev": round(sum((s.ev for s in slips if s.ev is not None), 0.0), 2),
         "ev_target": round(float(ev_target), 2),
         "profit": round(sum((profit(s) for s in decided if s.returns is not None), 0.0), 2),
-        "staked": round(sum((s.stake or 0.0 for s in slips), 0.0), 2),
+        "staked": round(sum((cash_staked(s.offer, s.stake) for s in slips), 0.0), 2),
         "slips": len(slips),
         "open": sum(1 for s in slips if s.status == "open"),
     }
@@ -211,3 +213,23 @@ def day_summary(slips, selections, day: date, today: date) -> dict:
         "to_date": _figures(slips, days * EV_PER_DAY_TARGET),
         "selections": list(selections),
     }
+
+
+def reprice_refund_slips(db) -> int:
+    """Put right the refund slips stored before AW 26 counted cash only
+    (Callum, 10 Nov 2026): re-value each as the cash bet it is and re-settle
+    it, so a refunded slip returns £0. Run at startup; it changes only a slip
+    whose figures differ from what the rule gives now, so a second run changes
+    nothing. Returns how many slips changed."""
+    start, _ = day_bounds(START)
+    changed = 0
+    for slip in (db.query(AwSlip)
+                 .filter(AwSlip.offer == "refund", AwSlip.placed_at >= start).all()):
+        before = (slip.ev, slip.ev_note, slip.status, slip.returns)
+        slip.ev = None
+        price_slip(slip)
+        settle_slip(slip)
+        if (slip.ev, slip.ev_note, slip.status, slip.returns) != before:
+            changed += 1
+    db.commit()
+    return changed
