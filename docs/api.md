@@ -349,7 +349,8 @@ legs' results under its offer's terms.
 The figures are cash (Callum, 10 Nov 2026). A refunded slip returns £0: its
 stake comes back as a free bet, not cash, and its EV is that of the cash bet,
 with nothing for the bonus. The free bet is its own slip (`offer: free`) when
-it is placed: EV `stake × P(win) × (odds − 1)`, a win returns `stake × (odds −
+it is placed: EV the lower of `stake × P(win) × (odds − 1)` and `stake ×
+(odds − 1) / odds` (its value at its own odds as if fair), a win returns `stake × (odds −
 1)`, a loss or a void £0, and its stake is not cash staked, so `staked` leaves
 it out and its profit is its returns.
 

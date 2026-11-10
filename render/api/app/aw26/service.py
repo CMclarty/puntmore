@@ -216,15 +216,15 @@ def day_summary(slips, selections, day: date, today: date) -> dict:
 
 
 def reprice_refund_slips(db) -> int:
-    """Put right the refund slips stored before AW 26 counted cash only
-    (Callum, 10 Nov 2026): re-value each as the cash bet it is and re-settle
-    it, so a refunded slip returns £0. Run at startup; it changes only a slip
+    """Put right the refund and free bet slips stored under an earlier rule
+    (Callum, 10 Nov 2026): re-value each under today's offers and re-settle
+    it, so a refunded slip returns £0 and a free bet's EV is the cautious one. Run at startup; it changes only a slip
     whose figures differ from what the rule gives now, so a second run changes
     nothing. Returns how many slips changed."""
     start, _ = day_bounds(START)
     changed = 0
     for slip in (db.query(AwSlip)
-                 .filter(AwSlip.offer == "refund", AwSlip.placed_at >= start).all()):
+                 .filter(AwSlip.offer.in_(("refund", "free")), AwSlip.placed_at >= start).all()):
         before = (slip.ev, slip.ev_note, slip.status, slip.returns)
         slip.ev = None
         price_slip(slip)

@@ -91,8 +91,10 @@ names and no other; older names appear only in `docs/retired.md`.
   bets come only from AW 26's refunds. A refunded slip returns £0 cash and is
   valued as the cash bet it is, with nothing for the bonus ("free bet is B").
   The free bet is recorded as its own slip when it is placed, offer `free`:
-  it puts no cash down, its EV is counted in full on the day it is placed,
-  and it pays its winnings only, never the stake. Its legs take their fairs
+  it puts no cash down, its EV is counted on the day it is placed, and it
+  pays its winnings only, never the stake. Its EV errs cautious ("i'd prefer
+  to err on the cautious side of value recording"): the lower of its full EV
+  and its value at its own odds as if fair, `stake × (odds − 1) / odds`. Its legs take their fairs
   from the Paddy board like any slip's, a leg not on it its own odds.
   (`aw26/offers.py`.)
 - **The vocabulary.** A **bet** is a selection and a price. A **value bet** is

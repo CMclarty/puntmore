@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI):
             from .aw26.service import reprice_refund_slips
             n = reprice_refund_slips(db)
             if n:
-                logger.info("aw26: %d refund slip(s) re-valued as cash", n)
+                logger.info("aw26: %d refund or free bet slip(s) re-valued", n)
         except Exception:
             db.rollback()
             logger.exception("aw26: re-valuing refund slips failed")
