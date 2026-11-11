@@ -292,18 +292,26 @@ const NUMERIC = new Set(["every_min", "stale_min", "near_min", "near_hours", "pr
 const LOG_ALL = 200;         // lines "all lines" asks for
 let editing = null;          // {name, original: {field: value}}
 let removing = null;         // name
-const fullLogs = new Map();  // job name -> the lines "all lines" fetched; kept across re-renders like an open edit form
+// job name -> {lines, error} for a tile whose full log is open ("all lines"; "fewer lines" closes it).
+// Kept across re-renders like an open edit form, re-read on every poll of the tab (refreshLog),
+// dropped when the job leaves the file.
+const fullLogs = new Map();
+const logBusy = new Set();   // job names with a full-log request in flight
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function canAct() { return !!(overview && overview.actions_enabled); }
 
-// A log line as "HH:MM:SS msg", local time; a line with no time (damaged) is just its message.
+// A log line as "HH:MM:SS msg", local time, or "Sat HH:MM:SS msg" when it is not from today; a line
+// with no time (damaged) is just its message.
 function logText(lines) {
   if (!lines || !lines.length) return "no log lines";
+  const today = new Date().toDateString();
   return lines.map((l) => {
     const t = new Date(l && l.at);
     if (!l || !l.at || Number.isNaN(t.getTime())) return show(l && l.msg);
     const hms = [t.getHours(), t.getMinutes(), t.getSeconds()].map((x) => String(x).padStart(2, "0")).join(":");
-    return `${hms} ${show(l.msg)}`;
+    const day = t.toDateString() === today ? "" : WEEKDAYS[t.getDay()] + " ";
+    return `${day}${hms} ${show(l.msg)}`;
   }).join("\n");
 }
 
@@ -312,6 +320,7 @@ function jobTile(r, skew, off) {
   const tag = v.state ? el("span", { class: "st st-" + (TARGET_STATE[v.state] || "warn"), text: v.state })
     : (r.enabled ? el("span", { class: "st st-unknown", text: "not reported" }) : el("span", { class: "st st-off", text: "disabled" }));
   const said = [v.state, v.detail].filter((x) => x).join(" · ");
+  const full = fullLogs.get(r.name);
   return el("article", { class: "job" + (r.enabled ? "" : " muted") },
     el("header", {},
       el("button", { class: "link", type: "button", text: show(r.name), onclick: () => showLatest(r.name) }), tag),
@@ -319,9 +328,10 @@ function jobTile(r, skew, off) {
     el("p", { text: show(v.schedule) }),
     said ? el("p", { text: said }) : null,
     el("p", {}, "last load ", when(v.last_load, skew), " · last read ", when(v.last_ok, skew), " · rows sent ", show(v.rows_posted)),
-    el("pre", { class: "log", "data-job": r.name, text: logText(fullLogs.has(r.name) ? fullLogs.get(r.name) : v.log) }),
+    el("pre", { class: "log", "data-job": r.name, text: logText(full && full.lines ? full.lines : v.log) }),
     el("span", { class: "row-actions" },
-      el("button", { type: "button", class: "small", text: "all lines", onclick: () => showLog(r.name) }),
+      el("button", { type: "button", class: "small", text: full ? "fewer lines" : "all lines",
+        "aria-expanded": full ? "true" : "false", onclick: () => toggleLog(r.name) }),
       el("button", { type: "button", class: "small", disabled: off, text: r.enabled ? "disable" : "enable",
         onclick: () => targetAct(`${encodeURIComponent(r.name)}/${r.enabled ? "disable" : "enable"}`, {},
           `${r.enabled ? "Disable" : "Enable"} ${r.name}`) }),
@@ -338,6 +348,7 @@ function renderTargets(sec, d, skew) {
   else if (c.exists === false) empty = "No targets file at " + (c.file || "targets.toml") + " yet. Add the first job below.";
   const named = new Set(rows.map((r) => r.name));
   for (const name of fullLogs.keys()) if (!named.has(name)) fullLogs.delete(name);
+  for (const name of fullLogs.keys()) refreshLog(name);
   // Re-rendering replaces each log pre: keep where each one was scrolled to.
   const scrolled = new Map([...sec.querySelectorAll('[data-slot="config"] pre[data-job]')].map((p) => [p.dataset.job, p.scrollTop]));
   fill(sec, "config", rows.length ? el("div", { class: "jobs" }, rows.map((r) => jobTile(r, skew, !canAct())))
@@ -351,19 +362,53 @@ function renderTargets(sec, d, skew) {
     text: "Reported by the Scraper but not in the file (it drops them within 60 s): " + orphans.map((t) => `${t.name} (${show(t.state)})`).join(", ") }) : "");
 }
 
-// "all lines": the newest LOG_ALL lines into that job's pre. A failed fetch leaves the pre as it was.
-async function showLog(name) {
+function redrawTargets() {
+  const f = feeds.scraper;
+  if (f && f.data) renderTargets(document.getElementById("tab-scraper"), f.data, f.skew);
+}
+
+// "all lines" opens the tile's full log (the newest LOG_ALL lines); "fewer lines" closes it back to
+// the 5-line tail the tab already has.
+function toggleLog(name) {
+  if (fullLogs.has(name)) {
+    fullLogs.delete(name);
+    redrawTargets();
+  } else {
+    fullLogs.set(name, { lines: null, error: null });
+    redrawTargets();               // the button now reads "fewer lines"; renderTargets asks for the lines
+  }
+}
+
+// Read an open tile's full log again; at most one request per tile at a time (logBusy). A failed read
+// leaves the last lines shown and says why in targets-result; a tile that never got its lines closes.
+async function refreshLog(name) {
+  if (!fullLogs.has(name) || logBusy.has(name)) return;
+  logBusy.add(name);
+  const out = document.getElementById("targets-result");
   try {
     const d = await getJSON("/api/scraper/log/" + encodeURIComponent(name) + "?n=" + LOG_ALL);
-    fullLogs.set(name, d.lines || []);
+    const full = fullLogs.get(name);
+    if (!full) return;                                       // closed meanwhile
+    const first = !full.lines;
+    full.lines = d.lines || [];
     for (const p of document.querySelectorAll('#tab-scraper pre[data-job]')) {
-      if (p.dataset.job === name) { p.textContent = logText(fullLogs.get(name)); p.scrollTop = p.scrollHeight; }
+      if (p.dataset.job !== name) continue;
+      const atEnd = p.scrollTop + p.clientHeight >= p.scrollHeight - 8;
+      p.textContent = logText(full.lines);
+      if (first || atEnd) p.scrollTop = p.scrollHeight;     // newest last: keep following the tail
     }
+    if (full.error && out.textContent === full.error) out.hidden = true;
+    full.error = null;
   } catch (e) {
-    const out = document.getElementById("targets-result");
+    const full = fullLogs.get(name);
+    if (!full) return;
+    full.error = `All lines for ${name}: ${e.message}`;
     out.hidden = false;
     out.className = "action-result bad";
-    out.textContent = `All lines for ${name}: ${e.message}`;
+    out.textContent = full.error;
+    if (!full.lines) { fullLogs.delete(name); redrawTargets(); }
+  } finally {
+    logBusy.delete(name);
   }
 }
 
