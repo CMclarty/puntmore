@@ -154,6 +154,9 @@ def _send(page, f, form, creds, end, left) -> str | None:
     try:
         before = page.url
         form.locator(f.submit).click(timeout=left())
+        # One pump whatever the deadline says: Chrome's own GET may reach the
+        # route only now, and after unroute it would go out with the password.
+        page.wait_for_timeout(POLL_MS)
         error = page.locator(f.error).first
         while time.monotonic() < end:
             if native:

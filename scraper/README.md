@@ -137,11 +137,16 @@ python -m scraper targets log racing-tips -n 50   # the job's own log, newest la
 - Each job keeps its own log, `SCRAPER_DATA_DIR/logs/<name>.log`
   (`joblog.py`): every line the runner prints about that job (window and
   days, kick-off sweep, load and parser failures, market tabs, retired match
-  tabs, dumps) and its deliveries ("3 row(s) handed to the Hub (hub:tips),
-  2 left out"): a delivery is logged when what was handed or left out
-  changes, else at most every 10 min. One `{"ts": <epoch>, "msg": "..."}`
-  per line, a message cut at 2000 characters. Site-wide lines
-  (paused, cool-off, `config: ...`) stay in the journal only. Past 512 KB a
+  tabs, dumps, signing in) and its deliveries ("3 row(s) handed to the
+  Hub (hub:tips), 2 left out"): a delivery is logged when what was handed
+  or left out changes, else at most every 10 min. A block of its site is a
+  line in every job of that site, never with the page's url: "blocked:
+  <reason> - backing off" (Bookie Bashing) once per block, as its alert, or
+  "blocked: <reason> - every page closed, cooling off 24 h, then needs
+  resume"; and "no longer blocked" when a back-off ends (unless "signed in"
+  already says so). One `{"ts": <epoch>, "msg": "..."}` per line, a message
+  cut at 2000 characters. Other site-wide lines (paused, a cool-off served
+  or over, `config: ...`) stay in the journal only. Past 512 KB a
   log is rewritten to its newest 1000 lines. `targets log <name> [-n 50]`
   prints it (`--json`: `{"name": name, "lines": [{"ts", "msg"}, ...]}`);
   `targets remove` removes it.

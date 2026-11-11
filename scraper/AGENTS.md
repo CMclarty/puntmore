@@ -39,7 +39,8 @@ prices are `scraper_prices` files that the Hub posts to Render.
 - `status.py` - the heartbeat, `data/status.json`, the per-site budget summary.
 - `joblog.py` - one log per job, `data/logs/<name>.log` (JSON lines, kept
   to its newest 1000 lines past 512 KB); the runner writes it through
-  `Runner._say`, `targets log` reads it. A write never raises.
+  `Runner._say`, `targets log` reads it. A write never raises. A site's
+  block is a line in each of its jobs' logs (`_on_blocked`, never a url).
 - `ids.py` - the one tip id, minted here when rows reach the Hub sink (a copy
   of `hub/puntmore_hub/ids.py`; a test in each suite pins the same vector).
 - `parsers/` - one module per page kind; rows only from what the page shows.

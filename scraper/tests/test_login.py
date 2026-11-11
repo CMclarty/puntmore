@@ -3,6 +3,7 @@ stand-in pages: no browser, no real site, no real login."""
 import json
 import os
 import time
+import types
 
 import pytest
 
@@ -500,7 +501,8 @@ def test_runner_failed_sign_in_alerts_once_and_stops(tmp_path, monkeypatch):
     assert st.blocked_for == "logged out" and st.retry_at > t0 + 200
     assert login.failed(tmp_path, "bookiebashing")["why"] == "still logged out after signing in"
     said = [line["msg"] for line in joblog.read(tmp_path, "bb-saves")]
-    assert said[-1] == "signing in failed (still logged out after signing in)"
+    assert said[-2:] == ["signing in failed (still logged out after signing in)",
+                         "blocked: logged out - backing off"]
     for h in range(1, 6):                                   # later logged-out reads, after the back-off
         r.tick(t0 + 3600 * h)
     assert len(_loads(r)) >= 3                              # it did read the page again
@@ -760,7 +762,148 @@ def test_no_sign_in_while_backing_off_for_refusals(tmp_path, monkeypatch):
     r.tick(t)
     st = r.sites["bookiebashing"]
     assert st.blocked_for == "repeated 403/429 on an open page"
+    retry_at = st.retry_at
+    assert len(_alerts(tmp_path)) == 1
     tab.capture.refusals.clear()                             # the count lapses
     tab.page.url = world.url = OUT                           # and the page reads logged out
-    r.tick(t + 15)
+    for i in range(1, 30):                                   # every tick inside the back-off
+        assert t + 15 * i < retry_at
+        r.tick(t + 15 * i)
+        assert calls == []                                   # no sign-in on any of them
+        assert st.blocked_for == "repeated 403/429 on an open page"
+        assert st.retry_at == retry_at                       # the back-off is left as it was
+    assert len(_alerts(tmp_path)) == 1                       # no "needs you" alert
+    said = [line["msg"] for line in joblog.read(tmp_path, "bb-saves")]
+    assert said == ["blocked: repeated 403/429 on an open page - backing off"]
+
+
+# --- a block in each job's own log ------------------------------------------------
+def _said(tmp_path, name):
+    return [line["msg"] for line in joblog.read(tmp_path, name)]
+
+
+def test_a_logout_block_is_one_line_in_the_jobs_log(tmp_path, monkeypatch):
+    """No login in .env: the logout is a back-off. Its line goes to the job's
+    log once per block, not on every tick or retry; a different reason is a
+    second line; the block ending is one more."""
+    calls = _attempts(monkeypatch)
+    other = Target(name="bb-other", site="bookiebashing", url=IN + "other/", every_min=10,
+                   stale_min=10_000)
+    pp = Target(name="pp", site="paddypower", url="http://127.0.0.1/pp/", stale_min=10_000)
+    r = _bb_runner(tmp_path, _World(), targets=(BB, other, pp))
+    t0 = time.time()
+    for i in range(40):
+        r.tick(t0 + 15 * i)
+    for h in range(1, 4):                                    # past the back-offs: reloaded, still out
+        r.tick(t0 + 3600 * h)
     assert calls == []
+    assert len(_loads(r)) >= 3
+    line = "blocked: logged out - backing off"
+    assert _said(tmp_path, "bb-saves") == [line]
+    assert _said(tmp_path, "bb-other") == [line]             # every job of the site
+    assert _said(tmp_path, "pp") == []                       # a job of another site: nothing
+    # a different reason, seen on the open page: a second line
+    t = t0 + 3600 * 3 + 15
+    bb_tabs = [tab for tab in r.tabs.values() if tab.target.site == "bookiebashing"]
+    for tab in bb_tabs:
+        tab.page._title = "Just a moment..."
+    r.tick(t)
+    r.tick(t + 15)
+    check = "blocked: Cloudflare check - backing off"
+    assert _said(tmp_path, "bb-saves") == [line, check]
+    assert _said(tmp_path, "bb-other") == [line, check]
+    # sorted over VNC: the open pages read fine again
+    r.ctx.world.url = IN
+    for tab in r.tabs.values():
+        if tab.target.site == "bookiebashing":
+            tab.page.url, tab.page._title = IN, "Bookie Bashing"
+    r.tick(t + 30)
+    r.tick(t + 45)
+    assert r.sites["bookiebashing"].blocked_for is None
+    assert _said(tmp_path, "bb-saves") == [line, check, "no longer blocked"]
+    assert _said(tmp_path, "bb-other") == [line, check, "no longer blocked"]
+    assert _said(tmp_path, "pp") == []
+    for said in (_said(tmp_path, n) for n in ("bb-saves", "bb-other")):
+        assert all("http" not in m for m in said)            # never a url
+
+
+def test_a_cool_off_block_is_a_line_in_every_job_of_the_site(tmp_path):
+    world = _World()
+    world.url = IN                                           # Bookie Bashing logged in
+    pp_a = Target(name="pp-a", site="paddypower", url="http://127.0.0.1/pp/a", stale_min=10_000)
+    pp_b = Target(name="pp-b", site="paddypower", url="http://127.0.0.1/pp/b", stale_min=10_000)
+    r = _bb_runner(tmp_path, world, targets=(pp_a, pp_b, BB))
+    t0 = time.time()
+    t = t0
+    while "pp-a" not in r.tabs and "pp-b" not in r.tabs:
+        r.tick(t)
+        t += 15
+    pp_tabs = [tab for tab in r.tabs.values() if tab.target.site == "paddypower"]
+    assert len(pp_tabs) == 1                                 # the other job has no page open
+    pp_tab = pp_tabs[0]
+    pp_tab.page._title = "Just a moment..."
+    r.tick(t)
+    assert not [k for k, tab in r.tabs.items() if tab.target.site == "paddypower"]
+    line = "blocked: Cloudflare check - every page closed, cooling off 24 h, then needs resume"
+    assert _said(tmp_path, "pp-a")[-1:] == [line]
+    assert _said(tmp_path, "pp-b")[-1:] == [line]            # a job with no page open too
+    for i in range(1, 20):
+        r.tick(t + 15 * i)
+    assert _said(tmp_path, "pp-a").count(line) == 1
+    assert _said(tmp_path, "pp-b").count(line) == 1
+    assert not any(m.startswith("blocked") for m in _said(tmp_path, "bb-saves"))
+
+
+def test_a_sign_in_that_ends_a_block_is_one_line(tmp_path, monkeypatch):
+    """A logout backed off for (a failed sign-in, then `resume`): the sign-in
+    sent on the open page and the site seen logged in. "signed in" says it;
+    no "no longer blocked" as well."""
+    r, calls, t0 = _fail_once(tmp_path, monkeypatch)
+    said = _said(tmp_path, "bb-saves")
+    assert said[-2:] == ["signing in failed (still logged out after signing in)",
+                         "blocked: logged out - backing off"]
+    _resume(tmp_path, monkeypatch)
+    r.ctx.world.accept = True
+    r.tick(t0 + 230)                                         # backing off: sent on the open page
+    assert calls == ["bookiebashing", "bookiebashing"]
+    r.tabs["bb-saves"].page.url = IN                         # the site's navigation lands logged in
+    r.tick(t0 + 245)
+    assert r.sites["bookiebashing"].blocked_for is None
+    said = _said(tmp_path, "bb-saves")
+    assert said[-2:] == ["logged out - signing in", "signed in"]
+    assert "no longer blocked" not in said
+
+
+def test_attempt_native_submit_seen_after_the_deadline(monkeypatch):
+    """The click returns at the deadline and Chrome's own GET reaches the route
+    only on the next pump: it is still stopped, and not counted as sent."""
+    clock = [1000.0]
+    monkeypatch.setattr(login, "time", types.SimpleNamespace(monotonic=lambda: clock[0]))
+
+    class _Late(_BBPage):
+        def __init__(self):
+            super().__init__(native=True)
+            self.waiting = None
+
+        def _submit(self):
+            self.submitted = True
+            clock[0] += 60                                   # the click ate the whole budget
+            self.waiting = (f"{self.url}?xoo-el-username=u%40example.test"
+                            f"&xoo-el-password={PW}&_xoo_el_form=login")
+
+        def wait_for_timeout(self, ms):
+            url, self.waiting = self.waiting, None
+            if url is None:
+                return
+            route = _Route()
+            for match, handler in list(self.routes):
+                if match(url):
+                    handler(route)
+                    break
+            self.url = "chrome-error://chromewebdata/" if route.aborted else url
+            self.form_open = False
+
+    page = _Late()
+    assert login.attempt(page, "bookiebashing", (USER, PW)) == login.NATIVE
+    assert PW not in page.url
+    assert page.routes == []

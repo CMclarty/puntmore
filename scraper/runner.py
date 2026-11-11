@@ -171,7 +171,9 @@ class Runner:
         """A block or logout, from a load or seen on an open page. Paddy: every
         page closes and a cool-off starts. Bookie Bashing: one alert, then a
         back-off, with the tab left open to sort over VNC. The alert carries a
-        screenshot of the page, also kept in data/blocks/."""
+        screenshot of the page, also kept in data/blocks/. Each of the site's
+        jobs gets a line in its own log (no url): a cool-off's every time, a
+        back-off's once per block, as its alert."""
         st = self.sites[site]
         image = self._block_shot(site, tab) if tab else None
         where = f" on {login.safe_url(tab.page.url)}" if tab else ""
@@ -181,6 +183,8 @@ class Runner:
             self._close_site(site)
             self.alerts.send(f"{site}: {reason}{where} - every page closed, cooling off "
                              f"{self.guard.cooloff_hours:g} h. Needs `resume` after that.", image)
+            self._say_site(site, f"blocked: {reason} - every page closed, cooling off "
+                                 f"{self.guard.cooloff_hours:g} h, then needs resume")
             return
         if reason != st.blocked_for:
             where_to = "over VNC" if browser.in_container() else "on the Hub's screen"
@@ -193,6 +197,7 @@ class Runner:
                                  f"`resume {site}`. Backing off.", image)
             else:
                 self.alerts.send(f"{site}: {reason}{where} - needs you {where_to}. Backing off.", image)
+            self._say_site(site, f"blocked: {reason} - backing off")
         st.blocked_for = reason
         st.retry_at = now + st.backoff * 60 * random.uniform(0.9, 1.2)
         st.backoff = min(st.backoff * 2, BACKOFF_MIN[1])
@@ -234,10 +239,13 @@ class Runner:
                 # Signing in: only the tool url's reload says if it took. The
                 # page the form was sent from still reads as logged out (Bookie
                 # Bashing's form lands back on its /how-it-works page).
-                # Never during a back-off for something else (403/429, a check).
+                # Never during a back-off for something else (403/429, a check):
+                # nothing at all this tick - no sign-in, no alert, the back-off
+                # keeps its reason; the reload when it ends deals with the logout.
                 if reason == "logged out" and (
                         site in self.login_pending
-                        or (st.blocked_for in (None, "logged out") and self._try_login(site, tab, now))):
+                        or st.blocked_for not in (None, "logged out")
+                        or self._try_login(site, tab, now)):
                     break
                 if not rules.block_means_cooloff and st.blocked_for == reason:
                     break                       # already said; backing off
@@ -263,16 +271,21 @@ class Runner:
 
     def _on_clear(self, site):
         st = self.sites[site]
-        if st.blocked_for:
-            self.alerts.send(f"{site}: clear again ({st.blocked_for} sorted).")
+        was = st.blocked_for
+        if was:
+            self.alerts.send(f"{site}: clear again ({was} sorted).")
         st.blocked_for, st.backoff, st.retry_at = None, BACKOFF_MIN[0], 0.0
+        told = set()
         if SITES[site].needs_login:             # logged in: a failed sign-in is forgotten
             pending = self.login_pending.pop(site, None)
             self.login_failed.pop(site, None)
             login.clear(self.s.data_dir, site)
             if pending is not None:
-                for name in sorted({t.target.name for t in self.tabs.values() if t.target.site == site}):
+                told = {t.target.name for t in self.tabs.values() if t.target.site == site}
+                for name in sorted(told):
                     self._say(name, "signed in")
+        if was:                                 # "signed in" already says it for those
+            self._say_site(site, "no longer blocked", skip=told)
 
     def _try_login(self, site, tab, now) -> bool:
         """A needs_login page found logged out: sign in on it (login.py), once
@@ -883,6 +896,11 @@ class Runner:
         written to the job's own log (joblog; a write that fails is dropped)."""
         print(f"{name}: {msg}", flush=True)
         joblog.write(self.s.data_dir, name, msg)
+
+    def _say_site(self, site, msg: str, skip=()) -> None:
+        """A line in the log of every job of `site` the runner holds."""
+        for name in sorted({t.name for t in self.targets if t.site == site} - set(skip)):
+            self._say(name, msg)
 
     def _heartbeat(self, now):
         self.reporter.heartbeat(now)
