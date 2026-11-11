@@ -77,7 +77,7 @@ Console and the docs call them jobs; the code keeps `Target` and `targets.toml` 
 
 ### J1. Days and an end date
 
-Two new `Target` fields, validated in `scraper/targets.py`, settable from the CLI and Console:
+Two new `Target` fields, validated in `config._target` (reached through `scraper/targets.py`, as every rule is), settable from the CLI and Console:
 
 - `days`: weekdays the job runs, e.g. `["fri", "sat"]` (lower-case three-letter names, local
   time). Empty or absent means every day.
@@ -194,11 +194,20 @@ Rules:
   long it took.
 - Outside the job's days, window or end date the page closes (Part J).
 
-**The limit is Callum's and is not changed here.** `sites.py` says Paddy 15 loads an hour,
-120 a day, at least 90 s apart, and the register quotes it. This job as asked is about 50
-matches every 15 minutes: roughly 400 moves an hour. At today's numbers the rotation reads
-about 7 matches an hour, nearest kickoff first. The numbers change when Callum gives them, in
-a dated register edit with the one-line change to `sites.py`.
+**Paddy's limits (Callum, 11 Nov 2026).** His words: "1 click per 2 seconds maximum, inactive
+between midnight and" 8am, "and enforced half hour breaks during the day". They replace the
+old numbers (15 loads an hour, 120 a day, 90 s apart) for every Paddy job:
+
+- At most one Paddy move every 2 seconds, a flat gap. The hour and day ceilings become what
+  that gap allows (1800 an hour, 27000 a day) so the gap is the limit that binds.
+- Nothing loads between 00:00 and 08:00 local; Paddy's pages are closed.
+- Four half-hour breaks a day, at fixed times **(my call on the times)**: 12:30, 15:00, 17:30
+  and 20:00. A break behaves like quiet hours.
+- The block rule is unchanged: a block means a 24 h cool-off and a manual resume.
+
+At that gap a pass round about 50 matches takes at least 3.5 minutes, inside the job's 15.
+The rotation makes its moves one after another inside a slice of each tick (the plan sets the
+slice), not one move per tick, which would make a pass longer than its interval.
 
 ### M4. The Hub
 
