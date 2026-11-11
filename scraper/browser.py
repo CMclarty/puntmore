@@ -27,6 +27,8 @@ import random
 import re
 import time
 
+from . import login
+
 # Background tabs in Chrome have their timers throttled to about once a minute,
 # which would stop a kept-open page refreshing its own prices. These keep every
 # tab running as if it were the one on screen.
@@ -78,8 +80,11 @@ def in_container(environ=None) -> bool:
 def launch_options(headless: bool = False, environ=None) -> dict:
     """launch_persistent_context's options here: the no-screen stand-ins
     (window, language list, locale env) only in the container or headless;
-    on the desktop, Chrome's own defaults on the real display."""
+    on the desktop, Chrome's own defaults on the real display. Chrome is
+    not handed the site logins (login.py): only this process types them."""
     env = dict(os.environ if environ is None else environ)
+    for name in login.env_names():
+        env.pop(name, None)
     args = list(_KEEP_TABS_LIVE)
     if in_container(env) or headless:
         args += _WINDOW + _LANGUAGE

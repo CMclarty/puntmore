@@ -160,6 +160,10 @@ class _BBPage(_Nothing):
     def wait_for_timeout(self, ms):
         self._boom()
 
+    def wait_for_load_state(self, state=None, timeout=None):
+        self._boom()
+        self.calls.append(("wait", state))
+
     def _submit(self):
         self.submitted = True
         if "response" in self.handlers:
@@ -221,8 +225,8 @@ def test_credentials_need_both():
 def test_attempt_fills_and_submits_in_order():
     page = _BBPage()
     assert login.attempt(page, "bookiebashing", (USER, PW)) is None
-    assert page.calls == [("click", "opener"), ("fill", "user"), ("fill", "password"),
-                          ("check", "remember"), ("click", "submit")]
+    assert page.calls == [("wait", "load"), ("click", "opener"), ("fill", "user"),
+                          ("fill", "password"), ("check", "remember"), ("click", "submit")]
     assert page.typed == {"user": USER, "password": PW}
     assert page.url == IN                                   # it navigated
     page = _BBPage(form_open=True)                          # already showing: no opener click
@@ -234,7 +238,7 @@ def test_attempt_fills_and_submits_in_order():
 def test_attempt_no_form():
     page = _BBPage(opener=False, form=False)
     assert login.attempt(page, "bookiebashing", (USER, PW)) == "no login form"
-    assert page.calls == [] and page.typed == {}
+    assert [c for c in page.calls if c[0] != "wait"] == [] and page.typed == {}
     assert login.attempt(_BBPage(), "paddypower", (USER, PW)) == "no login form"
     # a lapsed subscription: /how-it-works while logged in, the pop-up's markup
     # there but no Login item to open it - a failed attempt, not a loop
@@ -257,6 +261,32 @@ def test_attempt_refused_is_scrubbed():
     page = _BBPage(refusal="bad login u1 / u1secret")
     why = login.attempt(page, "bookiebashing", ("u1", "u1secret"))
     assert "secret" not in why and "u1" not in why
+
+
+def test_scrub_edge_cases():
+    scrub = login._scrub
+    # regex characters are taken literally
+    out = scrub("bad: a.b*c( and aXbbc", ("u@example.test", "a.b*c("))
+    assert "a.b*c(" not in out and "aXbbc" in out
+    # a one- or two-character password: every occurrence goes, any case; the rest stays
+    out = scrub("The password E is wrong, e", ("u@example.test", "e"))
+    assert "e" not in out.lower() and "password" in out and out.replace("*", "").strip()
+    out = scrub("Wrong password ab for u@example.test (AB)", ("u@example.test", "ab"))
+    assert "ab" not in out.lower() and "u@example.test" not in out
+    assert out.startswith("Wrong password ***")
+    # a password that contains the username, and the reverse
+    out = scrub("login u@example.test / u@example.test-pw", ("u@example.test", "u@example.test-pw"))
+    assert "example" not in out and "-pw" not in out
+    out = scrub("login ab / xaby", ("xaby", "ab"))
+    assert "x" not in out and "ab" not in out
+    # URL-encoded (both ways) and HTML-escaped forms
+    pw = "p&w d%<1>"
+    text = f"sent password=p%26w%20d%25%3C1%3E or p%26w+d%25%3C1%3E, shown p&amp;w d%&lt;1&gt;"
+    out = scrub(text, ("u@example.test", pw))
+    assert "p%26w" not in out and "p&amp;w" not in out and "d%" not in out
+    assert out == "sent password=*** or ***, shown ***"
+    # cut after scrubbing, never before
+    assert len(scrub("x" * 500 + PW, (USER, PW))) == login.WHY_MAX
 
 
 def test_attempt_never_raises():
@@ -323,6 +353,28 @@ def test_capture_keeps_other_posts(tmp_path):
     assert [r[2] for r in cap.since(0)] == [AJAX]
     assert any(p.name.endswith("-http.txt") for p in _written(tmp_path))
     assert budget.left < left
+
+
+def test_capture_counts_a_refused_sign_in_and_keeps_nothing(tmp_path):
+    page, cap, budget = _cap(tmp_path)
+    left = budget.left
+    for status in (403, 429):
+        resp = _Resp(page, _Req())
+        resp.status = status
+        page.handlers["response"](resp)
+    assert cap.refused_within(600) == 2                      # counts toward the block rule
+    assert cap.since(0) == [] and not cap.pinned and _written(tmp_path) == []
+    assert budget.left == left
+
+
+def test_signs_in_without_a_method_is_not_a_sign_in():
+    from scraper import capture
+
+    class _NoMethod:
+        post_data = SIGN_IN_POST
+    assert capture._signs_in(_NoMethod()) is False
+    assert capture._signs_in(_Req()) is True
+    assert capture._signs_in(_Req(method="GET")) is False
 
 
 def test_capture_drops_a_post_it_cannot_read(tmp_path):
@@ -437,17 +489,81 @@ def test_runner_never_signs_in_on_a_check_or_on_paddy(tmp_path, monkeypatch):
     assert calls == []
 
 
-def test_resume_forgets_a_failed_sign_in(tmp_path, monkeypatch, capsys):
+def _resume(tmp_path, monkeypatch, site="bookiebashing"):
     from scraper.__main__ import main
     monkeypatch.setenv("SCRAPER_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("SCRAPER_TARGETS", str(tmp_path / "targets.toml"))
-    login.mark_failed(tmp_path, "bookiebashing", "refused: wrong", 1.0)
-    main(["resume", "bookiebashing"])
+    main(["resume", site])
+
+
+def test_resume_forgets_a_failed_sign_in(tmp_path, monkeypatch, capsys):
+    r, calls, t0 = _fail_once(tmp_path, monkeypatch)           # a running service, stopped
+    r.tick(t0 + 215)
+    assert calls == ["bookiebashing"]
+    capsys.readouterr()
+    _resume(tmp_path, monkeypatch)
     assert login.failed(tmp_path, "bookiebashing") is None
     assert capsys.readouterr().out.rstrip().endswith(
-        " A failed sign-in is forgotten: it will try once more at the next logout.")
-    main(["resume", "paddypower"])
+        " A failed sign-in is forgotten: it will try once more the next time it finds the "
+        "site logged out.")
+    r.tick(t0 + 230)                                         # the running service notices
+    assert calls == ["bookiebashing", "bookiebashing"]
+    _resume(tmp_path, monkeypatch, "paddypower")
     assert "sign-in" not in capsys.readouterr().out
+
+
+def test_failure_alert_goes_out_after_a_resume_mid_back_off(tmp_path, monkeypatch):
+    r, calls, t0 = _fail_once(tmp_path, monkeypatch)
+    assert len(_alerts(tmp_path)) == 1
+    st = r.sites["bookiebashing"]
+    assert st.blocked_for == "logged out" and st.retry_at > t0 + 230
+    _resume(tmp_path, monkeypatch)
+    r.tick(t0 + 230)                                         # backing off: sent on the open page
+    assert calls == ["bookiebashing", "bookiebashing"]
+    r.tick(st.retry_at + 1)                                  # the reload, still logged out
+    alerts = _alerts(tmp_path)
+    assert len(alerts) == 2 and "signing in failed (still logged out" in alerts[1]
+
+
+def test_runner_unwritable_note_still_stops_at_one_attempt(tmp_path, monkeypatch):
+    monkeypatch.setattr(login, "_write", lambda data_dir, notes: False)   # disk full
+    r, calls, t0 = _fail_once(tmp_path, monkeypatch)
+    for i in range(1, 40):
+        r.tick(t0 + 200 + 15 * i)
+    for h in range(1, 6):
+        r.tick(t0 + 3600 * h)
+    assert login.failed(tmp_path, "bookiebashing") is None   # nothing reached disk
+    assert calls == ["bookiebashing"]
+    alerts = _alerts(tmp_path)
+    assert len(alerts) == 1 and "signing in failed (still logged out" in alerts[0]
+
+
+def test_pending_is_dropped_when_the_tab_goes(tmp_path, monkeypatch):
+    _creds(monkeypatch)
+    calls = _attempts(monkeypatch)
+    r = _bb_runner(tmp_path, _World(accept=False))
+    t0 = time.time()
+    r.tick(t0)
+    assert "bookiebashing" in r.login_pending
+    r.apply_targets([])                                      # the target removed: its tab closes
+    r.tick(t0 + 15)
+    assert "bookiebashing" not in r.login_pending
+    r.apply_targets([BB])
+    r.tick(t0 + 200)                                         # logged out again: a real attempt
+    assert calls == ["bookiebashing", "bookiebashing"]
+    assert login.failed(tmp_path, "bookiebashing") is None and _alerts(tmp_path) == []
+
+
+def test_chrome_env_has_no_login_variables():
+    from scraper import browser
+    assert set(login.env_names()) == {"BB_USERNAME", "BB_PASSWORD"}
+    env = {"HOME": "/home/x", "BB_USERNAME": USER, "BB_PASSWORD": PW, "SCRAPER_DATA_DIR": "/d"}
+    for kw in (browser.launch_options(headless=False, environ=env),
+               browser.launch_options(headless=True, environ=env),
+               browser.launch_options(environ={**env, "SCRAPER_IN_CONTAINER": "1"})):
+        assert "BB_USERNAME" not in kw["env"] and "BB_PASSWORD" not in kw["env"]
+        assert kw["env"]["HOME"] == "/home/x" and kw["env"]["SCRAPER_DATA_DIR"] == "/d"
+    assert env["BB_PASSWORD"] == PW                          # the caller's environment is untouched
 
 
 def _files_with(root, needle: bytes):

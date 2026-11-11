@@ -63,6 +63,11 @@ def password_fields() -> tuple[str, ...]:
     return tuple(f.password_field for f in FORMS.values())
 
 
+def env_names() -> tuple[str, ...]:
+    """Every login variable; Chrome's environment leaves them out (browser.py)."""
+    return tuple(n for f in FORMS.values() for n in (f.user_env, f.pass_env))
+
+
 def credentials(site: str, env=os.environ) -> tuple[str, str] | None:
     """The site's login from the environment, or None unless both are set."""
     f = FORMS.get(site)
@@ -87,6 +92,8 @@ def attempt(page, site: str, creds: tuple[str, str], timeout_s: float = 20.0) ->
         return max(1, int((end - time.monotonic()) * 1000))
 
     try:
+        # A page at domcontentloaded may not have bound the opener's click yet.
+        page.wait_for_load_state("load", timeout=left())
         form = page.locator(f.form).first
         if not form.is_visible():
             opener = page.locator(f"{f.opener}:visible").first
@@ -139,8 +146,8 @@ def _read(data_dir) -> dict:
     return notes if isinstance(notes, dict) else {}
 
 
-def _write(data_dir, notes: dict) -> None:
-    """Atomic (temp file + rename). Never raises."""
+def _write(data_dir, notes: dict) -> bool:
+    """Atomic (temp file + rename). False when it could not; never raises."""
     try:
         p = _path(data_dir)
         fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=f".{p.name}.", suffix=".tmp")
@@ -151,8 +158,9 @@ def _write(data_dir, notes: dict) -> None:
         finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)
+        return True
     except Exception:
-        pass
+        return False
 
 
 def failed(data_dir, site: str) -> dict | None:
@@ -161,10 +169,11 @@ def failed(data_dir, site: str) -> dict | None:
     return note if isinstance(note, dict) else None
 
 
-def mark_failed(data_dir, site: str, why: str, now: float) -> None:
+def mark_failed(data_dir, site: str, why: str, now: float) -> bool:
+    """True when the note reached disk. Never raises."""
     notes = _read(data_dir)
     notes[site] = {"failed_at": now, "why": why[:WHY_MAX]}
-    _write(data_dir, notes)
+    return _write(data_dir, notes)
 
 
 def clear(data_dir, site: str) -> None:

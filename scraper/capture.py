@@ -24,7 +24,8 @@ A refusal or an error is not activity.
 The sign-in's own response (login.py) is never kept, in the ring or on disk:
 a site's answer to a login may repeat what was typed. It is known by its
 request, a POST naming a password field; one whose post data cannot be read
-is dropped too. The post data is only searched, never kept.
+is dropped too. The post data is only searched, never kept. A 403/429 to it
+still counts as a refusal.
 
 `refusals` records every 403/429 the page's OWN requests get (on the site's
 hosts - a third-party widget's 403 says nothing about us). A kept-open page
@@ -154,10 +155,10 @@ class Capture:
 
     def _on_response(self, resp):
         try:
-            if _signs_in(resp.request):
-                return
             if resp.status in (403, 429) and host_allowed(resp.url):
                 self.refusals.append((time.time(), resp.status, resp.url))
+            if _signs_in(resp.request):
+                return                               # counted if refused, never kept
             main_doc = (resp.request.resource_type == "document"
                         and resp.frame == resp.frame.page.main_frame)
             if main_doc:

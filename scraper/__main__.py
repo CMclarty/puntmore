@@ -360,8 +360,8 @@ def main(argv=None):
         _guard(s).resume(rest[0])
         login.clear(s.data_dir, rest[0])
         print(f"{rest[0]}: resume recorded - it restarts once the cool-off hours have passed."
-              + (" A failed sign-in is forgotten: it will try once more at the next logout."
-                 if rest[0] in login.FORMS else ""))
+              + (" A failed sign-in is forgotten: it will try once more the next time it "
+                 "finds the site logged out." if rest[0] in login.FORMS else ""))
     elif cmd == "dump":
         if not rest or rest[0] not in {t.name for t in s.targets}:
             sys.exit(f"dump which target? {', '.join(t.name for t in s.targets)}")

@@ -140,6 +140,9 @@ class Runner:
         self.next_kickoff: dict[str, float] = {}
         self.near: set[str] = set()
         self.login_pending: dict[str, float] = {}      # site -> when a sign-in was sent (login.py)
+        # site -> {"why", "written"}: a failed sign-in, kept here too so a note
+        # that could not be written still stops the next attempt
+        self.login_failed: dict[str, dict] = {}
 
     # --- site-wide state ----------------------------------------------------
     def _paused(self, site, now) -> str | None:
@@ -181,7 +184,8 @@ class Runner:
             return
         if reason != st.blocked_for:
             where_to = "over VNC" if browser.in_container() else "on the Hub's screen"
-            note = login.failed(self.s.data_dir, site) if reason == "logged out" else None
+            note = ((login.failed(self.s.data_dir, site) or self.login_failed.get(site))
+                    if reason == "logged out" else None)
             if note:
                 self.alerts.send(f"{site}: {reason}{where} - signing in failed ({note.get('why')}). "
                                  f"Not trying again until you log in {where_to} or run "
@@ -212,6 +216,8 @@ class Runner:
         for site, rules in SITES.items():
             st = self.sites[site]
             tabs = [tab for tab in self.tabs.values() if tab.target.site == site]
+            if not tabs:                        # closed or removed: no reload is coming
+                self.login_pending.pop(site, None)
             bad = False
             for tab in tabs:
                 reason = None
@@ -259,6 +265,7 @@ class Runner:
         st.blocked_for, st.backoff, st.retry_at = None, BACKOFF_MIN[0], 0.0
         if SITES[site].needs_login:             # logged in: a failed sign-in is forgotten
             pending = self.login_pending.pop(site, None)
+            self.login_failed.pop(site, None)
             login.clear(self.s.data_dir, site)
             if pending is not None:
                 for name in sorted({t.target.name for t in self.tabs.values() if t.target.site == site}):
@@ -273,7 +280,17 @@ class Runner:
         is seen logged in or `resume`), or when this attempt failed - and then
         the logout is reported as today, its alert saying the sign-in failed."""
         creds = login.credentials(site)
-        if creds is None or login.failed(self.s.data_dir, site):
+        if creds is None:
+            return False
+        mark = self.login_failed.get(site)
+        if mark:
+            # Forgotten only once its note reached disk and is gone (`resume`,
+            # another process); one that never reached disk stays until the
+            # site is seen logged in or a restart.
+            if not mark["written"] or login.failed(self.s.data_dir, site):
+                return False
+            del self.login_failed[site]
+        elif login.failed(self.s.data_dir, site):
             return False
         if site in self.login_pending:          # sent last time, and still logged out
             del self.login_pending[site]
@@ -285,7 +302,8 @@ class Runner:
                 tab.due_at = now
                 self._say(tab.target.name, "logged out - signing in")
                 return True
-        login.mark_failed(self.s.data_dir, site, why, now)
+        written = login.mark_failed(self.s.data_dir, site, why, now)
+        self.login_failed[site] = {"why": why, "written": written}
         # Alerted even when the site was already backing off for this logout
         # (a `resume` mid back-off gives it one more try).
         self.sites[site].blocked_for = None
