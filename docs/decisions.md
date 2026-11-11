@@ -120,7 +120,9 @@ names and no other; older names appear only in `docs/retired.md`.
   Render. While the Hub has Render's address and key, once a minute it
   takes the oldest waiting photo and starts HubAI on it, one at a time
   (`hub/puntmore_hub/aw26_loop.py`, the runbook
-  `hub/deploy/hermes-skills/puntmore-aw26/`).
+  `hub/deploy/hermes-skills/puntmore-aw26/`). The loop is off until the
+  reading has been proved on real slips (the spec, "Prove first"):
+  `PUNTMORE_AW26_READ=1` in the Hub's `.env` turns it on.
 - **The vocabulary.** A **bet** is a selection and a price. A **value bet** is
   a bet an internal tool found (Paddy or 2-Up pricing a market against a fair
   line). A **tip** is a bet from an external source (a tipster's email, a
