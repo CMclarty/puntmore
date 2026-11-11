@@ -280,7 +280,8 @@ def parse_snapshot(body: dict) -> SnapshotLines:
         # A list of books when any are stale; the vendor sends a bare 0 when none.
         stale_books=frozenset(str(b) for b in stale) if isinstance(stale, list) else frozenset(),
         refresh_seconds=refresh_seconds,
-        complete=bool(body.get("complete", True)),
+        # A `next_cursor` is more of the snapshot, never followed: incomplete too.
+        complete=bool(body.get("complete", True)) and not body.get("next_cursor"),
         oldest_as_of=_from_ms(body.get("oldest_bookmaker_as_of_ts_ms")),
     )
 
@@ -323,7 +324,10 @@ def priced_at(lines: SnapshotLines) -> datetime | None:
 
 def snapshot_ttl(lines: SnapshotLines) -> float:
     """How long a board is reused: the vendor's own refresh interval, clamped
-    to 120-3,600 s (asking sooner than it refreshes buys nothing)."""
+    to 120-3,600 s (asking sooner than it refreshes buys nothing). An
+    incomplete snapshot is reused 120 s only, whatever else would apply."""
+    if not lines.complete:
+        return TTL_MIN
     if lines.refresh_seconds is None:
         return TTL_MAX
     return min(TTL_MAX, max(TTL_MIN, lines.refresh_seconds))
@@ -703,14 +707,16 @@ class OddsApiNetHillsSource:
     def _page_fresh(self, listing: Listing) -> bool:
         """The page's reuse rule: the vendor's refresh interval (`snapshot_ttl`),
         but at least `near_ttl` on a game inside `oddsapinet_warm_near_hours`
-        of kick-off, where the vendor's 60 s would cost 30 snapshots an hour."""
+        of kick-off, where the vendor's 60 s would cost 30 snapshots an hour.
+        An incomplete snapshot keeps `snapshot_ttl`'s 120 s."""
         from app.config import settings
         key = OAN_PREFIX + listing.event_id
         board = self.boards.get(key)
         if board is None:
             return False
         ttl = snapshot_ttl(board)
-        if listing.start - self._now() <= timedelta(hours=settings.oddsapinet_warm_near_hours):
+        if board.complete and (listing.start - self._now()
+                               <= timedelta(hours=settings.oddsapinet_warm_near_hours)):
             ttl = max(ttl, self.near_ttl)
         return self._mono() - self._fetched[key] < ttl
 
@@ -764,7 +770,8 @@ class OddsApiNetHillsSource:
         """William Hill games the warm job fetches, nearest first: no board, or
         a board over `oddsapinet_warm_far_s` old on a game more than
         `oddsapinet_warm_near_hours` away, over `oddsapinet_warm_near_s`
-        inside that. Held games are skipped. Called under `_lock`."""
+        inside that, over TTL_MIN on an incomplete snapshot. Held games are
+        skipped. Called under `_lock`."""
         from app.config import settings
         now, mono = self._now(), self._mono()
         near = timedelta(hours=settings.oddsapinet_warm_near_hours)
@@ -774,7 +781,8 @@ class OddsApiNetHillsSource:
             if self._held_now(key):
                 continue
             if key in self.boards:
-                limit = (settings.oddsapinet_warm_far_s if listing.start - now > near
+                limit = (TTL_MIN if not self.boards[key].complete
+                         else settings.oddsapinet_warm_far_s if listing.start - now > near
                          else settings.oddsapinet_warm_near_s)
                 if mono - self._fetched[key] <= limit:
                     continue

@@ -531,3 +531,40 @@ def test_a_page_load_whose_summary_raises_starts_no_stuck_pass():
     assert not src._refreshing
     src.get_events()
     assert len(started) == 1
+
+
+# --- an incomplete snapshot is reused 120 s at most (final review, G) ---------
+
+@pytest.mark.parametrize("mark", [{"complete": False}, {"next_cursor": "c2"}])
+def test_an_incomplete_board_is_reused_for_120_s_only(mark):
+    r = routes()
+    r[ENG].update(mark)                            # far out: the vendor says 3,599 s
+    src, fake, clock = make(FakeOan(r))
+    src.get_events()
+    assert "1417142635: snapshot incomplete" in src.last_sweep["errors"]
+    clock.advance(119); src.get_events()
+    assert paths(fake).count(ENG) == 1
+    clock.advance(2); src.get_events()
+    assert paths(fake).count(ENG) == 2
+
+
+def test_an_incomplete_target_board_is_fetched_again_after_120_s():
+    r = routes()
+    r[ENG]["complete"] = False
+    src, fake, clock = make(FakeOan(r))
+    src.hills_legs("oan:1417142635", "England", "Croatia")
+    clock.advance(119); src.hills_legs("oan:1417142635", "England", "Croatia")
+    assert paths(fake).count(ENG) == 1
+    clock.advance(2); src.hills_legs("oan:1417142635", "England", "Croatia")
+    assert paths(fake).count(ENG) == 2
+
+
+def test_warm_fetches_an_incomplete_board_again_after_120_s():
+    r = _warm_routes()
+    r["/events/901/odds/snapshot"]["complete"] = False          # 24 h out
+    src, fake, clock = make(FakeOan(r))
+    src.warm()
+    clock.advance(121)
+    fake.calls.clear()
+    assert src.warm()["fetched"] == 1
+    assert snapshots(fake) == ["/events/901/odds/snapshot"]
