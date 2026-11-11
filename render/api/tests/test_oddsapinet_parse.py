@@ -180,3 +180,14 @@ def test_a_duplicate_tie_keeps_the_smaller_event_id_whatever_the_order(books, fl
     rows = [b, a] if flip else [a, b]
     assert [l.event_id for l in listed_events({"items": rows}, now=NOW,
                                               window_hours=168)] == ["900"]
+
+
+# --- an honest age when William Hill's stamp is missing (final review, F) -------
+
+def test_without_william_hills_stamp_the_age_is_the_oldest_books_not_pinnacles():
+    body = load("snapshot_1417142635.json")
+    del body["bookmaker_as_of_ts_ms"]["williamhill"]
+    body["oldest_bookmaker_as_of_ts_ms"] = 1794390000000        # 09:40 UTC
+    assert priced_at(parse_snapshot(body)) == datetime(2026, 11, 11, 9, 40, tzinfo=timezone.utc)
+    del body["oldest_bookmaker_as_of_ts_ms"]
+    assert priced_at(parse_snapshot(body)) is None               # unknown, never Pinnacle's

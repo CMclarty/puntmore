@@ -125,6 +125,9 @@ class SnapshotLines:
     stale_books: frozenset[str]
     refresh_seconds: float | None
     complete: bool
+    # The vendor's `oldest_bookmaker_as_of_ts_ms`: the age to fall back on
+    # when William Hill's own stamp is missing.
+    oldest_as_of: datetime | None = None
 
 
 def _items(body) -> list[dict]:
@@ -278,6 +281,7 @@ def parse_snapshot(body: dict) -> SnapshotLines:
         stale_books=frozenset(str(b) for b in stale) if isinstance(stale, list) else frozenset(),
         refresh_seconds=refresh_seconds,
         complete=bool(body.get("complete", True)),
+        oldest_as_of=_from_ms(body.get("oldest_bookmaker_as_of_ts_ms")),
     )
 
 
@@ -307,7 +311,12 @@ def to_event(listing: Listing, lines: SnapshotLines) -> dict | None:
 def priced_at(lines: SnapshotLines) -> datetime | None:
     """The older of William Hill's and Pinnacle's stamps: the board never
     claims fresher prices than its oldest side. Only a book that carried lines
-    counts: a stamp behind no price would only make the board look older."""
+    counts: a stamp behind no price would only make the board look older.
+    William Hill carrying lines with no stamp of its own takes the vendor's
+    oldest stamp (None when that is missing too), never Pinnacle's fresher
+    one, which would pass hour-old prices off as minutes old."""
+    if lines.markets.get(WILLIAM_HILL) and WILLIAM_HILL not in lines.as_of:
+        return lines.oldest_as_of
     stamps = [lines.as_of[b] for b in _BOOKS if b in lines.as_of and lines.markets.get(b)]
     return min(stamps) if stamps else None
 
