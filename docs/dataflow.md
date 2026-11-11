@@ -67,7 +67,8 @@ The Hub's side of it is not built yet: until it is, a photo stays `waiting`.
   2. `<scraper data>/hub/prices/` (waiting) and `done/prices/` (handled);
   3. the daemon's journal (`journalctl --user -u puntmore-link`, `prices …` lines: sent, wait
      for the next pass, refused, past the cut-off);
-  4. the Console's Daemon card (price drops waiting to go to Render);
+  4. the Console's Daemon card (price drops waiting to go to Render, or moved aside, with the
+     reason);
   5. on Render, the match's most-corners or most-cards row on `GET /api/paddy/feed`.
 - **A photo that never became a slip:** `GET /api/aw26/photos` (its state, tries and reason).
 - **A drop file that is not being read:** the Console's Daemon card (the last inbox pass, the

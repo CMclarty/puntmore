@@ -11,7 +11,9 @@ writes `mail-status.json`).
 
 Each pass is recorded in `daemon-status.json` in the data directory, which the Console's Daemon
 card reads: a full pass writes its time, counts and error; a price pass writes only its price
-counts, and an error, over the last full pass's record (`record_inbox`).
+counts, and an error, over the last full pass's record (`record_inbox`). A pass that finds no
+price file keeps the last files moved aside, and why, on the record, so the card's warning
+lasts until a pass handles another file.
 """
 from __future__ import annotations
 
@@ -32,6 +34,8 @@ log = logging.getLogger("puntmore.daemon")
 INBOX_EVERY_S = 30
 PRICES_EVERY_S = 10
 _PRICE_LOG_KEYS = ("price_files", "price_dropped")   # a waiting file: the inbox warns
+_PRICE_SEEN_KEYS = ("price_files", "price_dropped", "price_waiting")   # all 0: the pass found no file
+_DROPPED_KEYS = ("price_dropped", "price_dropped_reason")
 STATUS_FILE = "daemon-status.json"
 _lock = threading.Lock()
 
@@ -51,10 +55,15 @@ def record_inbox(cfg: Settings, counts: dict | None, error: str | None = None, *
                  prices_only: bool = False) -> None:
     """Write the last inbox pass (time, counts or error) for the Console, atomically. A price
     pass (`prices_only`) keeps the last full pass's time, tips and events counts and error, and
-    lays its own price counts, or its error, over them; the next full pass replaces it all."""
+    lays its own price counts, or its error, over them; the next full pass replaces it all.
+    Either kind that found no price file keeps the last pass's files moved aside and their
+    reason (`_DROPPED_KEYS`)."""
     with _lock:
         out = last_status(cfg)
         prev = out.get("inbox") or {}
+        prev_counts = prev.get("counts") or {}
+        if counts is not None and not any(counts.get(k) for k in _PRICE_SEEN_KEYS):
+            counts = {**counts, **{k: prev_counts[k] for k in _DROPPED_KEYS if k in prev_counts}}
         if prices_only and prev:
             merged = {**(prev.get("counts") or {}), **(counts or {})}
             out["inbox"] = {"at": prev.get("at"), "counts": merged or None, "error": error or prev.get("error")}

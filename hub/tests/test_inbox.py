@@ -43,7 +43,8 @@ def test_tips_are_stored_once_and_not_queued(cfg, store):
     _drop(cfg, "tips", "tips-a", body, check=False)   # the Scraper's sink keeps such rows out; the Hub still checks
     counts = inbox.ingest(store, cfg, notify=False)
     assert counts == {"tip_files": 1, "tips": 2, "new_tips": 2, "rejected": 2, "events": 0,
-                      "price_files": 0, "price_rows": 0, "price_dropped": 0, "price_waiting": 0}
+                      "price_files": 0, "price_rows": 0, "price_dropped": 0, "price_waiting": 0,
+                      "price_dropped_reason": None, "price_waiting_reason": None}
     # Tips go to HubAI (`puntmore finder new`).
     new = finder.new_tips(store)
     assert [t["source_id"] for t in new] == ["tips-a", "tips-a"] and new[0]["origin"] == "tipster"
@@ -244,6 +245,7 @@ def test_a_route_this_inbox_does_not_know_waits_until_it_is_stale(pcfg, store):
     _price_drop(pcfg, time.time(), route="/api/paddy/new-kind", check=False)
     counts = inbox.ingest(store, pcfg, notify=False, opener=never)
     assert counts["price_waiting"] == 1 and len(_left(pcfg)) == 1
+    assert counts["price_waiting_reason"] == "route '/api/paddy/new-kind' unknown to this inbox"
     _price_drop(pcfg, time.time() - inbox.PRICE_MAX_AGE_S - 1, route="/api/paddy/new-kind", check=False)
     counts = inbox.ingest(store, pcfg, notify=False, opener=never)
     assert counts["price_dropped"] == 1 and counts["price_waiting"] == 1
@@ -293,6 +295,7 @@ def test_a_second_pass_while_one_holds_the_lock_posts_nothing(pcfg, store):
         fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         counts = inbox.ingest(store, pcfg, notify=False, opener=lambda req, timeout: pytest.fail("sent"))
     assert counts["price_waiting"] == 1 and len(_left(pcfg)) == 1
+    assert counts["price_waiting_reason"] == "another price pass is running"
 
 
 def test_the_hubs_routes_are_the_schemas():
@@ -355,6 +358,7 @@ def test_the_render_key_is_never_logged_or_written(cfg, store, caplog):
     assert seen == [f"Bearer {key}"] * 3                                  # it was sent, so it was there to leak
     assert (counts["price_files"], counts["price_dropped"], counts["price_waiting"]) == (1, 1, 1)
     assert caplog.records and not any(key in r.getMessage() for r in caplog.records) and key not in caplog.text
+    assert key not in json.dumps(counts)                                 # the reasons the Console shows
     files = [p for p in c.inbox_dir.rglob("*") if p.is_file()]
     assert len(files) >= 3 and not any(key in p.read_text(errors="replace") for p in files)
 
@@ -371,3 +375,60 @@ def test_a_price_file_nested_too_deeply_is_moved_aside_and_the_pass_goes_on(pcfg
     assert counts["price_dropped"] == 1 and counts["price_files"] == 1 and len(render.sent) == 1
     assert _left(pcfg) == [] and "0-deep.json" in [p.name for p in _done(pcfg)]
     assert "unreadable 0-deep.json" in caplog.text
+
+
+# Why files were moved aside or wait: a short reason in the result, for the Console's Daemon card.
+
+def test_a_pass_with_nothing_wrong_gives_no_reason(pcfg, store):
+    _price_drop(pcfg, time.time())
+    counts = inbox.post_prices(pcfg, opener=_Render())
+    assert counts["price_files"] == 1
+    assert counts["price_dropped_reason"] is None and counts["price_waiting_reason"] is None
+
+
+@pytest.mark.parametrize("code", [401, 403, 422])
+def test_a_refusal_gives_its_http_status_as_the_reason(pcfg, store, code):
+    _price_drop(pcfg, time.time())
+    counts = inbox.post_prices(pcfg, opener=_Render(code))
+    assert counts["price_dropped"] == 1 and counts["price_dropped_reason"] == f"Render refused HTTP {code}"
+
+
+def test_a_stale_or_unreadable_file_gives_its_reason(pcfg, store):
+    _price_drop(pcfg, time.time() - inbox.PRICE_MAX_AGE_S - 1)
+    counts = inbox.post_prices(pcfg, opener=lambda req, timeout: pytest.fail("sent"))
+    assert counts["price_dropped_reason"] == "past the 15 min cut-off"
+    (pcfg.inbox_dir / "prices" / "0-bad.json").write_text("{not json")
+    counts = inbox.post_prices(pcfg, opener=lambda req, timeout: pytest.fail("sent"))
+    assert counts["price_dropped_reason"].startswith("unreadable: ")
+
+
+@pytest.mark.parametrize("failure, reason", [
+    (503, "HTTP 503"),
+    (urllib.error.URLError("refused"), "URLError: <urlopen error refused>"),
+    (TimeoutError("timed out"), "TimeoutError: timed out"),
+])
+def test_files_waiting_on_render_give_the_reason(pcfg, store, failure, reason):
+    _price_drop(pcfg, time.time())
+
+    def down(req, timeout):
+        if isinstance(failure, int):
+            return _Resp(failure, "down")
+        raise failure
+    counts = inbox.post_prices(pcfg, opener=down)
+    assert counts["price_waiting"] == 1 and counts["price_waiting_reason"] == reason
+
+
+def test_files_waiting_for_a_key_say_so(cfg, store):
+    c = cfg.with_overrides(render_http="https://puntmore.example/", render_api_key="")
+    _price_drop(c, time.time())
+    counts = inbox.post_prices(c, opener=lambda req, timeout: pytest.fail("sent"))
+    assert counts["price_waiting_reason"] == "PUNTMORE_RENDER_API_KEY is not set: the Hub needs a key with the ingest grant"
+
+
+def test_a_long_reason_is_cut_short(pcfg, store):
+    _price_drop(pcfg, time.time())
+
+    def down(req, timeout):
+        raise urllib.error.URLError("x" * 500)
+    counts = inbox.post_prices(pcfg, opener=down)
+    assert len(counts["price_waiting_reason"]) <= inbox.PRICE_REASON_MAX

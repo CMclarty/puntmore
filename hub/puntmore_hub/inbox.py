@@ -53,6 +53,10 @@ _TIP_ID = re.compile(r"^[0-9a-f]{16,40}$")
 PRICE_ROUTES = ("/api/paddy/saves-fair", "/api/paddy/most-prices")
 PRICE_MAX_AGE_S = 900            # a price drop older than this is moved aside unsent
 PRICE_COUNT_KEYS = ("price_files", "price_rows", "price_dropped", "price_waiting")
+# Why the pass's last file was moved aside, and why files wait (None when nothing was): short
+# strings the Console's Daemon card shows, cut to PRICE_REASON_MAX characters.
+PRICE_REASON_KEYS = ("price_dropped_reason", "price_waiting_reason")
+PRICE_REASON_MAX = 100
 
 
 def _iso(ts: float) -> str:
@@ -183,13 +187,20 @@ def _render_down(code: int) -> bool:
     return not (200 <= code < 300) and not (400 <= code < 500 and code not in (408, 429))
 
 
-def post_prices(cfg: Settings = default_settings, *, opener: finder.Opener | None = None) -> dict[str, int]:
+def post_prices(cfg: Settings = default_settings, *,
+                opener: finder.Opener | None = None) -> dict[str, int | str | None]:
     """One pass over the Scraper's price drops (`<inbox>/prices/`), oldest first: each is
     posted to Render as `{"prices": rows}` on its route and moved to `done/prices/`. A stale,
     unreadable or refused drop is moved aside unsent; a route this inbox does not know waits.
     When Render is down or not configured the pass stops and the rest wait, in order, for the
-    next pass. Returns the counts named by PRICE_COUNT_KEYS."""
-    counts = dict.fromkeys(PRICE_COUNT_KEYS, 0)
+    next pass. Returns the counts named by PRICE_COUNT_KEYS and the reasons named by
+    PRICE_REASON_KEYS: the last file moved aside's (a refusal's HTTP status, unreadable, stale)
+    and why files wait (Render's HTTP status, no URL or key, a network error, the lock)."""
+    counts: dict[str, int | str | None] = {**dict.fromkeys(PRICE_COUNT_KEYS, 0),
+                                           **dict.fromkeys(PRICE_REASON_KEYS)}
+
+    def why(key: str, reason: str) -> None:
+        counts[key] = reason[:PRICE_REASON_MAX]
     prices_dir = cfg.inbox_dir / "prices"
     if not prices_dir.is_dir():
         return counts
@@ -199,6 +210,8 @@ def post_prices(cfg: Settings = default_settings, *, opener: finder.Opener | Non
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:                 # another pass (`puntmore inbox`, the Console) holds it
             counts["price_waiting"] = len(list(prices_dir.glob("*.json")))
+            if counts["price_waiting"]:
+                why("price_waiting_reason", "another price pass is running")
             return counts
         files = sorted(prices_dir.glob("*.json"))
         now = time.time()
@@ -209,6 +222,7 @@ def post_prices(cfg: Settings = default_settings, *, opener: finder.Opener | Non
                 log.warning("prices: unreadable %s (%s); moved aside", path.name, exc)
                 _finish(path, done)
                 counts["price_dropped"] += 1
+                why("price_dropped_reason", f"unreadable: {exc}")
                 continue
             source, route, rows = str(body.get("source") or path.name), body["route"], body["rows"]
             age = now - body["at"]
@@ -217,20 +231,25 @@ def post_prices(cfg: Settings = default_settings, *, opener: finder.Opener | Non
                             source, age, PRICE_MAX_AGE_S)
                 _finish(path, done)
                 counts["price_dropped"] += 1
+                why("price_dropped_reason", f"past the {PRICE_MAX_AGE_S // 60} min cut-off")
                 continue
             if route not in PRICE_ROUTES:
                 log.warning("prices %s: route %r unknown to this inbox; left for one that knows it", source, route)
                 counts["price_waiting"] += 1
+                why("price_waiting_reason", f"route {route!r} unknown to this inbox")
                 continue
             try:
                 code, text = finder.post_json(cfg, route, {"prices": rows}, opener)
                 reason = f"HTTP {code}" if _render_down(code) else None
-            except (OSError, http.client.HTTPException, RuntimeError) as exc:
+            except RuntimeError as exc:         # no URL or key: its message says which
+                reason = str(exc)
+            except (OSError, http.client.HTTPException) as exc:
                 reason = f"{type(exc).__name__}: {exc}"
             if reason:
                 left = len(files) - i
                 log.warning("prices %s: %s; %d file(s) wait for the next pass", source, reason, left)
                 counts["price_waiting"] += left
+                why("price_waiting_reason", reason)
                 break
             if 200 <= code < 300:
                 log.info("prices %s -> %s: sent %d row(s), Render answered %s", source, route, len(rows), text[:200])
@@ -239,6 +258,7 @@ def post_prices(cfg: Settings = default_settings, *, opener: finder.Opener | Non
             else:
                 log.warning("prices %s -> %s: refused HTTP %d %s; moved aside", source, route, code, text[:200])
                 counts["price_dropped"] += 1
+                why("price_dropped_reason", f"Render refused HTTP {code}")
             _finish(path, done)
     return counts
 

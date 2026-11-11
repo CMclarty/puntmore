@@ -225,3 +225,33 @@ def test_a_price_pass_that_raises_is_recorded_and_the_loop_goes_on(cfg, monkeypa
     rec = daemon.last_status(cfg)["inbox"]
     assert rec["error"] is None and rec["counts"]["tip_files"] == 1       # the full pass at 30 s cleared it
     assert "price pass failed" in caplog.text
+
+
+def test_files_moved_aside_stay_on_record_until_a_pass_handles_another_file(cfg):
+    """The Scraper drops a price file about once a minute and the price pass runs every 10 s, so
+    most passes find nothing. Such a pass says nothing new about prices: the last files moved
+    aside, and why, stay on the record (what the Console's Daemon card warns on) until a pass
+    handles a file, whether a full pass or a price pass."""
+    nothing = {**PRICE_COUNTS, "price_dropped_reason": None, "price_waiting_reason": None}
+    daemon.record_inbox(cfg, {"tip_files": 0, "events": 0, **nothing})
+    daemon.record_inbox(cfg, {**nothing, "price_dropped": 1, "price_dropped_reason": "Render refused HTTP 403"},
+                        prices_only=True)
+    daemon.record_inbox(cfg, dict(nothing), prices_only=True)
+    daemon.record_inbox(cfg, {"tip_files": 1, "events": 0, **nothing})
+    counts = daemon.last_status(cfg)["inbox"]["counts"]
+    assert counts["tip_files"] == 1
+    assert (counts["price_dropped"], counts["price_dropped_reason"]) == (1, "Render refused HTTP 403")
+    daemon.record_inbox(cfg, {**nothing, "price_files": 1, "price_rows": 3}, prices_only=True)
+    counts = daemon.last_status(cfg)["inbox"]["counts"]
+    assert (counts["price_files"], counts["price_dropped"], counts["price_dropped_reason"]) == (1, 0, None)
+
+
+def test_files_waiting_are_never_carried_over(cfg):
+    """Waiting files are still on disk, so the next pass counts them again; a pass that finds
+    none means they are gone and the record says so."""
+    nothing = {**PRICE_COUNTS, "price_dropped_reason": None, "price_waiting_reason": None}
+    daemon.record_inbox(cfg, {"tip_files": 0, "events": 0, **nothing, "price_waiting": 2,
+                              "price_waiting_reason": "HTTP 503"})
+    daemon.record_inbox(cfg, dict(nothing), prices_only=True)
+    counts = daemon.last_status(cfg)["inbox"]["counts"]
+    assert (counts["price_waiting"], counts["price_waiting_reason"]) == (0, None)
