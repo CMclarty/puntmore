@@ -259,3 +259,19 @@ def test_restart_does_not_repeat_the_paused_line(tmp_path):
     _runner(other, [job]).tick(_on(SAT, 10))
     _runner(other, [job]).tick(_on(SUN, 10))                                 # a restart, a new reason
     assert [x["msg"] for x in joblog.read(other, "bb")] == ["not a run day - paused", "finished - paused"]
+
+
+def test_run_day_starts_with_running_again(tmp_path, capsys):
+    from scraper import joblog
+    r = _runner(tmp_path, [_bb("bb", days=("fri",))])
+    r.tick(_on(THU, 10))
+    r.tick(_on(FRI, 10))
+    assert [x["msg"] for x in joblog.read(tmp_path, "bb")] == ["not a run day - paused", "running again"]
+    assert "bb: running again" in capsys.readouterr().out
+    w = tmp_path / "w"
+    w.mkdir()
+    r = _runner(w, [_bb("bb", window="09:00-10:00", days=("fri",))])
+    r.tick(_on(FRI, 8))
+    r.tick(_on(FRI, 9))
+    assert [x["msg"] for x in joblog.read(w, "bb")] == ["outside window 09:00-10:00 - paused",
+                                                        "window open - running"]

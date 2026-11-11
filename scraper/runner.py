@@ -323,8 +323,9 @@ class Runner:
                 self._outside_window(t, why)
                 continue
             if t.name in self.outside:
-                del self.outside[t.name]
-                self._say(t.name, "window open - running")
+                was = self.outside.pop(t.name)
+                self._say(t.name, "window open - running" if was.startswith("outside window")
+                          else "running again")
             live.append(t)
         self._sweep(live, now)
         for t in schedule.order(live, self._wanting(live, now), lambda site: self._left(site, now),
