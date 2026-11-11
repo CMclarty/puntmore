@@ -82,8 +82,10 @@ function lines(section, slot, arr, emptyText) {
 }
 
 // ---- fetching -----------------------------------------------------------------------------------
-async function getJSON(url) {
-  const r = await fetch(url, { cache: "no-store", headers: { Accept: "application/json" } });
+async function getJSON(url, timeoutMs) {
+  const opts = { cache: "no-store", headers: { Accept: "application/json" } };
+  if (timeoutMs) opts.signal = AbortSignal.timeout(timeoutMs);   // a request that never settles must not hold its caller
+  const r = await fetch(url, opts);
   if (!r.ok) throw new Error("HTTP " + r.status);
   return r.json();
 }
@@ -386,7 +388,7 @@ async function refreshLog(name) {
   logBusy.add(name);
   const out = document.getElementById("targets-result");
   try {
-    const d = await getJSON("/api/scraper/log/" + encodeURIComponent(name) + "?n=" + LOG_ALL);
+    const d = await getJSON("/api/scraper/log/" + encodeURIComponent(name) + "?n=" + LOG_ALL, 10000);
     const full = fullLogs.get(name);
     if (!full) return;                                       // closed meanwhile
     const first = !full.lines;
@@ -402,10 +404,13 @@ async function refreshLog(name) {
   } catch (e) {
     const full = fullLogs.get(name);
     if (!full) return;
-    full.error = `All lines for ${name}: ${e.message}`;
-    out.hidden = false;
-    out.className = "action-result bad";
-    out.textContent = full.error;
+    const msg = `All lines for ${name}: ${e.message}`;
+    if (full.error !== msg) {                                // say it once: a repeat must not wipe a write's result
+      full.error = msg;
+      out.hidden = false;
+      out.className = "action-result bad";
+      out.textContent = msg;
+    }
     if (!full.lines) { fullLogs.delete(name); redrawTargets(); }
   } finally {
     logBusy.delete(name);
