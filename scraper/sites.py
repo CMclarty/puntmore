@@ -13,7 +13,7 @@ bookiebashing  Your subscription. The Scraper signs in itself with the login in
                A block, a failed sign-in, or a logout with no login in .env
                alerts once and backs off (15 min doubling to 2 h) until a
                person has sorted it (over VNC only in the Docker fallback).
-               Its one target (bb-saves) is an OPEN item for Callum in
+               Its one target (bb-saves) is the single named exception in
                docs/decisions.md.
 generic        Any other site: Finder's sources (tipster pages, listings) and any
                other page a tool needs.

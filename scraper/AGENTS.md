@@ -37,10 +37,11 @@ prices are `scraper_prices` files that the Hub posts to Render.
   tips (each row with its `tip_id`); events. All are drop files for the
   Hub; the Scraper sends Render nothing.
 - `status.py` - the heartbeat, `data/status.json`, the per-site budget summary.
-- `joblog.py` - one log per job, `data/logs/<name>.log` (JSON lines, kept
-  to its newest 1000 lines past 512 KB); the runner writes it through
-  `Runner._say`, `targets log` reads it. A write never raises. A site's
-  block is a line in each of its jobs' logs (`_on_blocked`, never a url).
+- `joblog.py` - one log per job, `data/logs/<name>.log` (JSON lines; past
+  512 KB cut to its newest lines in 256 KB, 1000 at most); the runner
+  writes it through `Runner._say`, `targets log` reads it. A write never
+  raises. A site's block is a line in each of its jobs' logs
+  (`_on_blocked`, never a url).
 - `ids.py` - the one tip id, minted here when rows reach the Hub sink (a copy
   of `hub/puntmore_hub/ids.py`; a test in each suite pins the same vector).
 - `parsers/` - one module per page kind; rows only from what the page shows.
@@ -111,7 +112,6 @@ prices are `scraper_prices` files that the Hub posts to Render.
   across sites (`sites.py load_gap_s`); jitter is drawn once per load. Parsers
   (`scraper/parsers/`, one module each) are written only from what the real
   pages were seen to do: `bb_saves` drives the Bookie Bashing bet builder
-  (above; **OPEN, Callum to decide** in `docs/decisions.md` whether this one
-  BB target stays as the named exception to "BB is never automated" or is
-  disabled); `pp_most` reads Paddy's most-corners / most-cards three-ways
+  (above; this one BB target is the single named exception to "BB is never
+  automated", `docs/decisions.md`); `pp_most` reads Paddy's most-corners / most-cards three-ways
   (written from the 29 Oct 2026 capture).

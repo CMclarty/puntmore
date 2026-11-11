@@ -281,6 +281,7 @@ def test_the_page_has_the_tab_and_no_inline_script(scfg):
         assert page.count(f'name="days" value="{day}"') == 2
     js = client(scfg).get("/static/app.js").text
     assert "/api/scraper/log/" in js and 'finished: "off"' in js
+    assert '"all lines"' in js and '"fewer lines"' in js        # the full-log toggle
     assert ".job" in client(scfg).get("/static/style.css").text
 
 

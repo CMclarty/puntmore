@@ -16,13 +16,26 @@ def test_one_json_line_each_newest_last(tmp_path):
 
 
 def test_past_512_kb_a_log_keeps_its_newest_1000_lines(tmp_path):
-    for i in range(3000):
-        joblog.write(tmp_path, "j", f"line {i} " + "x" * 300, now=float(i))
-    assert joblog.path(tmp_path, "j").stat().st_size <= joblog.MAX_BYTES + 400
-    lines = joblog.read(tmp_path, "j", n=10_000)
-    assert 1000 <= len(lines) < 1600
-    assert lines[-1]["msg"].startswith("line 2999 ")
-    assert [x["ts"] for x in lines] == [float(i) for i in range(3000 - len(lines), 3000)]
+    for i in range(6000):                                            # a normal log: short lines
+        joblog.write(tmp_path, "j", f"line {i} " + "x" * 80, now=float(i))
+    assert joblog.path(tmp_path, "j").stat().st_size <= joblog.MAX_BYTES
+    lines = joblog.read(tmp_path, "j", n=100_000)
+    assert joblog.KEEP_LINES == 1000 <= len(lines) < 6000
+    assert lines[-1]["msg"].startswith("line 5999 ")
+    assert [x["ts"] for x in lines] == [float(i) for i in range(6000 - len(lines), 6000)]
+    joblog._trim(joblog.path(tmp_path, "j"))
+    assert len(joblog.read(tmp_path, "j", n=100_000)) == joblog.KEEP_LINES
+
+
+def test_long_lines_keep_a_log_under_512_kb(tmp_path):
+    for i in range(1000):
+        joblog.write(tmp_path, "j", f"{i} " + "x" * joblog.MSG_MAX, now=float(i))
+    assert joblog.path(tmp_path, "j").stat().st_size <= joblog.MAX_BYTES
+    assert joblog.read(tmp_path, "j", n=1)[0]["msg"].startswith("999 ")
+    for i in range(100):                                             # escaped by json: ~12 KB a line
+        joblog.write(tmp_path, "u", f"{i} " + "é" * joblog.MSG_MAX, now=float(i))
+    assert joblog.path(tmp_path, "u").stat().st_size <= joblog.MAX_BYTES
+    assert joblog.read(tmp_path, "u", n=1)[0]["msg"].startswith("99 ")
 
 
 def test_a_torn_line_is_skipped_and_odd_names_stay_in_logs(tmp_path):
@@ -160,3 +173,31 @@ def test_removing_a_log_never_raises(tmp_path):
     (stuck / "inside").mkdir(parents=True)                           # a directory can't be unlinked
     joblog.remove(tmp_path, "stuck")
     assert stuck.exists()
+
+
+def test_min_rows_breach_and_recovery_reach_the_job_log(tmp_path, capsys):
+    from scraper import config
+    from scraper.tests.test_generic_target import _runner as _generic_runner
+    r = _generic_runner(tmp_path)
+    t = config._target({"name": "tips-a", "site": "generic", "url": "https://a.example.com",
+                        "parser": "example_tipster", "post": "hub:tips", "min_rows": 2})
+    r._check_rows(t, [{"event": "x"}], 1_000.0)
+    r._check_rows(t, [{"event": "x"}], 1_060.0)                     # said once per change
+    r._check_rows(t, [{"event": "x"}, {"event": "y"}], 1_120.0)
+    assert _msgs(tmp_path, "tips-a") == ["only 1 row(s), expected at least 2 - layout change?",
+                                         "healthy again (2 rows)"]
+    out = capsys.readouterr().out
+    assert out.count("layout change?") == 1 and out.count("healthy again") == 1   # printed once, by the alert
+
+
+def test_rows_sent_counts_only_the_rows_handed(tmp_path, monkeypatch):
+    import dataclasses
+    from types import SimpleNamespace
+    t, r = _tips_job(tmp_path)
+    t = dataclasses.replace(t, parser="three_and_two_bad")
+    rows = [_tip(0), {"event": "no market"}, _tip(1), {"selection": "x"}, _tip(2)]
+    monkeypatch.setitem(runner.PARSERS, "three_and_two_bad", lambda page, capture: rows)
+    tab = SimpleNamespace(target=t, page=None, capture=None, next_parse=0.0, url=t.url)
+    r._parse(tab, 1_000.0, force=True)
+    r._parse(tab, 1_060.0, force=True)
+    assert r.rows_posted["tips"] == 6                                # 3 handed each run, not 5

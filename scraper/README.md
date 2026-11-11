@@ -3,7 +3,8 @@
 The Scraper service: the one real Chrome on the Hub's desktop. It reads every
 page any tool needs and fills what OddsPapi lacks: Paddy Power pages kept
 **open** (it listens to what they receive), Finder's sources loaded and
-closed, and one Bookie Bashing page (an open item in the register). After
+closed, and one Bookie Bashing page (`bb-saves`, the register's one named
+exception). After
 the first load the site's own scripts keep each page fresh, so most targets
 cost no further requests. Runs as the user service `puntmore-scraper` on the
 logged-in desktop session, updated by `puntmore-update.timer` with the rest of
@@ -25,8 +26,8 @@ box's Chrome logged in, which the Scraper does itself with the login in
 the 29 Oct 2026 capture; see its docstring).
 
 ## What it will and won't do
-- Opens pages on `paddypower.com`, `bookiebashing.net` (one target, an open
-  item in `docs/decisions.md`) and Finder's `generic` sources, within
+- Opens pages on `paddypower.com`, `bookiebashing.net` (one target, the named
+  exception in `docs/decisions.md`) and Finder's `generic` sources, within
   fixed budgets (`sites.py`): Paddy 15 loads/h and 120/day, Bookie Bashing 8/h
   and 120/day, generic 60/h and 400/day. Nothing in config can raise them.
 - No Paddy traffic between 01:00 and 07:00 (Europe/London). Its pages are
@@ -136,19 +137,20 @@ python -m scraper targets log racing-tips -n 50   # the job's own log, newest la
   `until` it is `finished`, "ended <until>"; either way its tabs close.
 - Each job keeps its own log, `SCRAPER_DATA_DIR/logs/<name>.log`
   (`joblog.py`): every line the runner prints about that job (window and
-  days, kick-off sweep, load and parser failures, market tabs, retired match
-  tabs, dumps, signing in) and its deliveries ("3 row(s) handed to the
-  Hub (hub:tips), 2 left out"): a delivery is logged when what was handed
-  or left out changes, else at most every 10 min. A block of its site is a
-  line in every job of that site, never with the page's url: "blocked:
-  <reason> - backing off" (Bookie Bashing) once per block, as its alert, or
-  "blocked: <reason> - every page closed, cooling off 24 h, then needs
-  resume"; and "no longer blocked" when a back-off ends (unless "signed in"
-  already says so). One `{"ts": <epoch>, "msg": "..."}` per line, a message
-  cut at 2000 characters. Other site-wide lines (paused, a cool-off served
-  or over, `config: ...`) stay in the journal only. Past 512 KB a
-  log is rewritten to its newest 1000 lines. `targets log <name> [-n 50]`
-  prints it (`--json`: `{"name": name, "lines": [{"ts", "msg"}, ...]}`);
+  days, kick-off sweep, load and parser failures, a `min_rows` breach and
+  its recovery, market tabs, retired match tabs, dumps, signing in) and its
+  deliveries ("3 row(s) handed to the Hub (hub:tips), 2 left out"): a
+  delivery is logged when what was handed or left out changes, else at most
+  every 10 min. A block of its site is a line in every job of that site,
+  never with the page's url: "blocked: <reason> - backing off" (Bookie
+  Bashing) once per block, as its alert, or "blocked: <reason> - every page
+  closed, cooling off 24 h, then needs resume"; and "no longer blocked" when
+  a back-off ends (unless "signed in" already says so). One
+  `{"ts": <epoch>, "msg": "..."}` per line, a message cut at 2000
+  characters. Other site-wide lines (paused, a cool-off served or over,
+  `config: ...`) stay in the journal only. Past 512 KB a
+  log is rewritten to its newest lines that fit in 256 KB, 1000 at most.
+  `targets log <name> [-n 50]` prints it (`--json`: `{"name": name, "lines": [{"ts", "msg"}, ...]}`);
   `targets remove` removes it.
 
 ## Running on the Hub's desktop (the default)
@@ -265,7 +267,7 @@ In `/opt/puntmore-scraper/.env`: `SCRAPER_ALERT_WEBHOOK` (Discord), `SCRAPER_HEA
 its prices (`PUNTMORE_RENDER_API_KEY` in the Hub's `.env`). The Scraper no longer reads
 `SAVES_INGEST_KEY` or `PUNTMORE_URL`, so both can be deleted from `/opt/puntmore-scraper/.env`.
 The Bookie Bashing login is `BB_USERNAME` and `BB_PASSWORD` (Callum's own; leave either blank
-and a person logs in, as before). The Scraper types it when its page is found logged out, once
+and a person logs in instead). The Scraper types it when its page is found logged out, once
 per logout and at most 3 sign-ins in 6 hours, then it waits for a person; the password is never
 logged or kept, and Chrome is not given either variable. A failed sign-in is noted in
 `data/login.json` (with the times of recent sign-ins) and nothing is tried again until the site

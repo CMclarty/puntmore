@@ -44,9 +44,9 @@
 #   until      "YYYY-MM-DD", the last day it runs; after it the target is
 #              "finished" and loads nothing. Leave out to run forever
 
-# OPEN, Callum to decide (docs/decisions.md, "Scraping conduct"): this one BB
-# target predates the rule that BB is never automated; keep it as the named
-# exception, or disable it. Left enabled until he decides.
+# The single named exception (docs/decisions.md, "Scraping conduct"): this one
+# BB target predates the rule that BB is never automated, and stays
+# (Callum, 11 Nov 2026).
 [[target]]
 name = "bb-saves"
 site = "bookiebashing"

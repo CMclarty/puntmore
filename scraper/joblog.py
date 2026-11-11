@@ -3,7 +3,8 @@
 `<data>/logs/<name>.log` (the name made safe by sinks._safe, so no name can
 reach outside logs/), one `{"ts": <epoch>, "msg": "..."}` per line, newest
 last. Once a file passes MAX_BYTES it is rewritten (temp file + rename) to
-its newest KEEP_LINES lines, so a log never grows without bound. The runner
+its newest lines that fit in half of that, KEEP_LINES at most, so a log never
+grows without bound. The runner
 writes it (Runner._say); `python -m scraper targets log` reads it; removing a
 job removes its log (targets.remove).
 
@@ -30,7 +31,7 @@ def path(data_dir: pathlib.Path, name: str) -> pathlib.Path:
 
 
 def write(data_dir, name: str, msg: str, now: float | None = None) -> None:
-    """Append one line; past MAX_BYTES keep the newest KEEP_LINES. Never raises."""
+    """Append one line; past MAX_BYTES trim it (_trim). Never raises."""
     p = path(data_dir, name)
     if len(msg) > MSG_MAX:
         msg = msg[:MSG_MAX - 1] + "…"
@@ -53,7 +54,16 @@ def write(data_dir, name: str, msg: str, now: float | None = None) -> None:
 
 
 def _trim(p: pathlib.Path) -> None:
-    keep = p.read_bytes().splitlines(keepends=True)[-KEEP_LINES:]
+    """Keep the newest lines that fit in MAX_BYTES // 2, at most KEEP_LINES and
+    at least the newest one: long lines cannot hold a log above MAX_BYTES (nor
+    make every write a rewrite), and a trimmed log has room to grow again."""
+    keep, size = [], 0
+    for line in reversed(p.read_bytes().splitlines(keepends=True)[-KEEP_LINES:]):
+        if keep and size + len(line) > MAX_BYTES // 2:
+            break
+        keep.append(line)
+        size += len(line)
+    keep.reverse()
     mode = stat.S_IMODE(p.stat().st_mode)
     fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=f".{p.name}.", suffix=".tmp")
     try:

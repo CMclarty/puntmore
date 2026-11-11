@@ -416,8 +416,9 @@ class Runner:
                 self._outside_window(t, why)
                 continue
             if t.name in self.outside:
-                del self.outside[t.name]
-                self._say(t.name, "window open - running")
+                was = self.outside.pop(t.name)
+                self._say(t.name, "window open - running" if was.startswith("outside window")
+                          else "running again")
             live.append(t)
         self._sweep(live, now)
         for t in schedule.order(live, self._wanting(live, now), lambda site: self._left(site, now),
@@ -445,11 +446,16 @@ class Runner:
         days, past its until, outside its window) is treated like quiet
         hours: its tabs close and nothing loads. A fetch target forgets its
         next run, so it runs when it is active again. Said once per change of
-        reason."""
+        reason. A reason new to this process that the job's log already ends
+        with (the line before a restart) is printed but not logged again."""
         if self.outside.get(t.name) != why:
             self.outside[t.name] = why
-            self._say(t.name, f"outside window {t.window} - paused" if why == "outside window"
-                      else f"{why} - paused")
+            msg = f"outside window {t.window} - paused" if why == "outside window" else f"{why} - paused"
+            last = joblog.read(self.s.data_dir, t.name, 1)
+            if last and last[0]["msg"] == msg:
+                print(f"{t.name}: {msg}", flush=True)
+            else:
+                self._say(t.name, msg)
         for key in [k for k, tab in self.tabs.items() if tab.target.name == t.name]:
             self._close(key)
         self.next_fetch.pop(t.name, None)
@@ -647,34 +653,38 @@ class Runner:
 
     def _check_rows(self, t, rows, now):
         """Row-count health for fetch targets: fewer than min_rows is a suspected
-        layout change. Alert and tell the Hub once per change, not per run."""
+        layout change. Alert, tell the Hub and note it in the job's log once per
+        change, not per run."""
         if t.min_rows and len(rows) < t.min_rows:
             msg = f"only {len(rows)} row(s), expected at least {t.min_rows} - layout change?"
             if self.health_said.get(t.name) != msg:
                 self.health_said[t.name] = msg
-                self.alerts.send(f"{t.name}: {msg}")
+                self.alerts.send(f"{t.name}: {msg}")          # prints it; the job's log gets it here
+                joblog.write(self.s.data_dir, t.name, msg)
                 emit_event(self.s.data_dir, "unhealthy_source", t.name, msg, now)
             self.parser_said[t.name] = msg
         elif t.name in self.health_said:
             del self.health_said[t.name]
-            self.alerts.send(f"{t.name}: healthy again ({len(rows)} rows)")
+            msg = f"healthy again ({len(rows)} rows)"
+            self.alerts.send(f"{t.name}: {msg}")
+            joblog.write(self.s.data_dir, t.name, msg)
 
-    def _deliver(self, t, rows, now) -> bool:
-        """Hand the rows to the sink. A delivery that went is noted in the job's
-        log (the sink prints its own line): what was handed and what the sink
-        left out, logged when that differs from the job's last delivery line
+    def _deliver(self, t, rows, now) -> int:
+        """Hand the rows to the sink and return how many it took (0: none). A
+        delivery that went is noted in the job's log (the sink prints its own
+        line): what was handed and what the sink left out, logged when that differs from the job's last delivery line
         or DELIVERY_SAID_S after it, so a job delivering every parse does not
         fill its log with the same line."""
         handed = self.sinks.deliver(t, rows, now)
         if not handed:
-            return False
+            return 0
         counts = (handed, len(rows) - handed)
         last = self.delivery_said.get(t.name)
         if last is None or last[0] != counts or now - last[1] >= DELIVERY_SAID_S:
             self.delivery_said[t.name] = (counts, now)
             joblog.write(self.s.data_dir, t.name, f"{handed} row(s) handed to the Hub ({t.post})"
                          + (f", {counts[1]} left out" if counts[1] else ""))
-        return True
+        return handed
 
     def _tick_matches(self, t, now):
         m = t.matches
@@ -818,8 +828,10 @@ class Runner:
         out.write_text(json.dumps({"at": now, "url": tab.url, "rows": rows}, indent=1))
         if rows:
             self.last_parse_at[t.name] = now
-        if t.post and rows and self._deliver(t, rows, now):
-            self.rows_posted[t.name] = self.rows_posted.get(t.name, 0) + len(rows)
+        if t.post and rows:
+            handed = self._deliver(t, rows, now)
+            if handed:
+                self.rows_posted[t.name] = self.rows_posted.get(t.name, 0) + handed
 
     # --- status, for the Hub and `python -m scraper status` ---------------------------
     def status(self, now) -> dict:

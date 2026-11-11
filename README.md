@@ -15,6 +15,9 @@ both, one directory per deployable.
 5. `CLAUDE.md` (rules for the whole repo), then the `AGENTS.md` of the directory you work in.
 6. `PLAN.md`: the open work.
 
+`docs/research/` holds research notes for work that has not been designed yet (casino offers).
+They are background, not decisions: nothing in them is settled until it is in the register.
+
 Nothing about the system lives outside the repo.
 
 ## Render

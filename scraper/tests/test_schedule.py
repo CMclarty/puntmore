@@ -245,3 +245,33 @@ def test_a_days_or_until_edit_keeps_a_running_jobs_page_open(tmp_path):
     assert closed == [] and r.tabs["bb"] is tab and tab.page is page
     assert len(_loads(r)) == 1
     assert (tab.target.days, tab.target.until) == (("fri", "sat"), "2026-11-30")
+
+
+def test_restart_does_not_repeat_the_paused_line(tmp_path):
+    from scraper import joblog
+    job = _bb("bb", days=("fri",), until="2026-11-14")
+    msgs = lambda: [x["msg"] for x in joblog.read(tmp_path, "bb", n=100)]
+    _runner(tmp_path, [job]).tick(_on(SUN, 10))
+    _runner(tmp_path, [job]).tick(_on(SUN, 10, 1))                          # a restart
+    assert msgs() == ["finished - paused"]
+    other = tmp_path / "other"
+    other.mkdir()
+    _runner(other, [job]).tick(_on(SAT, 10))
+    _runner(other, [job]).tick(_on(SUN, 10))                                 # a restart, a new reason
+    assert [x["msg"] for x in joblog.read(other, "bb")] == ["not a run day - paused", "finished - paused"]
+
+
+def test_run_day_starts_with_running_again(tmp_path, capsys):
+    from scraper import joblog
+    r = _runner(tmp_path, [_bb("bb", days=("fri",))])
+    r.tick(_on(THU, 10))
+    r.tick(_on(FRI, 10))
+    assert [x["msg"] for x in joblog.read(tmp_path, "bb")] == ["not a run day - paused", "running again"]
+    assert "bb: running again" in capsys.readouterr().out
+    w = tmp_path / "w"
+    w.mkdir()
+    r = _runner(w, [_bb("bb", window="09:00-10:00", days=("fri",))])
+    r.tick(_on(FRI, 8))
+    r.tick(_on(FRI, 9))
+    assert [x["msg"] for x in joblog.read(w, "bb")] == ["outside window 09:00-10:00 - paused",
+                                                        "window open - running"]
