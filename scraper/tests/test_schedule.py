@@ -423,6 +423,24 @@ def test_a_repeated_parser_failure_is_logged_once(tmp_path, monkeypatch):
     assert r.parser_said["bb-saves"] == "parser failed: bang"
 
 
+def test_a_long_parser_failure_that_changes_past_the_status_cut_is_logged_again(tmp_path, monkeypatch):
+    from scraper import runner as runner_mod
+    head = "BB xSaves is not listed (listed: " + ", ".join(f"BB x{i}" for i in range(30)) + ")"
+    errors = iter([ValueError(head + " - updating the data again"),
+                   ValueError(head + " - waiting for the next data update")])
+
+    def parser(page, capture):
+        raise next(errors)
+    monkeypatch.setitem(runner_mod.PARSERS, "bb_saves", parser)
+    r = _runner(tmp_path, [_bb("bb-saves", parser="bb_saves")])
+    t0 = time.time()
+    r.tick(t0)
+    r.tick(t0 + 60)
+    failed = [m for m in _msgs(tmp_path, "bb-saves") if m.startswith("parser failed")]
+    assert [m.rsplit(" - ", 1)[1] for m in failed] == ["updating the data again",
+                                                       "waiting for the next data update"]
+
+
 def test_the_wake_command_asks_the_running_service(tmp_path, monkeypatch, capsys):
     import pytest
     from scraper.__main__ import main

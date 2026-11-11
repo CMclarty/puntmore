@@ -113,6 +113,7 @@ class Runner:
         self.pacer = schedule.Pacer(SITES)            # spacing between page loads
         self.retired: dict[str, collections.deque] = {}
         self.parser_said: dict[str, str] = {}
+        self.failure_said: dict[str, str] = {}        # job -> first line of its last parser failure
         # job -> ((handed, left out), when) of its last delivery line in its log
         self.delivery_said: dict[str, tuple[tuple[int, int], float]] = {}
         self.targets = list(settings.targets)
@@ -875,14 +876,18 @@ class Runner:
         except Exception as exc:
             # Shown as the target's detail in status.json until a call succeeds -
             # a driver that cannot bring its page up says so there, not only here.
-            # Written to the job's log only when its first line is new for the
-            # job: a parser failing the same way every minute says it once.
-            said = f"parser failed: {(str(exc).splitlines() or [''])[0][:120]}"
-            if self.parser_said.get(t.name) != said:
+            # Written to the job's log only when its first line (whole, not
+            # the status's cut) is new for the job: a parser failing the same
+            # way every minute says it once.
+            first = (str(exc).splitlines() or [""])[0]
+            said = f"parser failed: {first[:120]}"
+            if self.parser_said.get(t.name) != said or self.failure_said.get(t.name) != first:
                 self._say(t.name, f"parser failed: {exc}")
             self.parser_said[t.name] = said
+            self.failure_said[t.name] = first
             return
         self.parser_said.pop(t.name, None)
+        self.failure_said.pop(t.name, None)
         k = schedule.next_kickoff(rows, now)
         if k is not None:
             self.next_kickoff[t.name] = k
