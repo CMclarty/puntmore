@@ -105,10 +105,9 @@ def need_display(headless: bool = False, environ=None) -> None:
         return
     if not (env.get("WAYLAND_DISPLAY") or env.get("DISPLAY")):
         raise RuntimeError(
-            "no WAYLAND_DISPLAY or DISPLAY: the Scraper runs Chrome on the Hub's "
-            "desktop session. Run it as the user service puntmore-scraper (the "
-            "user manager hands it the session's display once the desktop is "
-            "up), or from a terminal inside that session.")
+            "no WAYLAND_DISPLAY or DISPLAY: the Scraper runs Chrome on its own "
+            "virtual screen. Run it as the user service puntmore-scraper, which "
+            "takes its display from puntmore-screen.service.")
 
 
 def launch(p, settings, headless=False):
