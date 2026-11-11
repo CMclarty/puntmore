@@ -364,6 +364,14 @@ def test_cli_days_and_until(cli, path):
     assert code == 2 and "days must be" in err
 
 
+def test_cli_days_are_read_in_any_case(cli, path):
+    code, out, _ = cli("set", "pp", "--days", "Fri,Sat", "--json")
+    assert code == 0 and json.loads(out)["days"] == ["fri", "sat"]
+    assert T.get(path, "pp").days == ("fri", "sat")
+    code, out, _ = cli("set", "pp", "--days", " SUN , Mon", "--json")
+    assert code == 0 and json.loads(out)["days"] == ["sun", "mon"]
+
+
 def test_removing_a_job_removes_its_log(path):
     from scraper import joblog
     joblog.write(path.parent, "tips", "something")

@@ -199,11 +199,11 @@ def _none_or(kind):
 
 
 def _days(v):
-    """`--days fri,sat` -> ["fri", "sat"]; "none" clears. The names are
-    checked by config._target."""
+    """`--days fri,sat` (any case) -> ["fri", "sat"]; "none" clears. The
+    names are checked by config._target."""
     if v.lower() in ("none", "null", ""):
         return None
-    return [d.strip() for d in v.split(",")]
+    return [d.strip().lower() for d in v.split(",")]
 
 
 def _matches_json(v):
