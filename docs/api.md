@@ -30,10 +30,10 @@ Callum's tips on `me`, or the main domain while `ME_HOST` is blank: Callum's
 account and his Bet Placer's key only). `*`
 includes `finder`, so a key or account issued to anyone but Callum never
 carries `*`, only named grants. Machine grants: `value` (every source on
-`/api/value`), `state` (`/api/state`), `ingest` (the write paths of
-Scraper control's posts of the Scraper's prices, the Bookie Bashing script
-and HubAI, and the Bet Placer's Finder status). A key holding a grant name
-that no longer exists is granted nothing for it.
+`/api/value`), `state` (`/api/state`), `ingest` (the write paths, used by
+Scraper control to post the Scraper's prices, by the Bookie Bashing script,
+by HubAI, and by the Bet Placer for its Finder status). A key holding a
+grant name that no longer exists is granted nothing for it.
 
 **The Bet Placer's key** (register, 6 Nov 2026) carries `accabonus`, `cards`,
 `finder` and `ingest`; **a third party's** carries `accabonus` only.
