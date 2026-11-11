@@ -19,13 +19,13 @@
 #              every near_min instead, and go first among equals when the
 #              site's budget is short. Leave out for no sweep.
 #   parser     name in parsers/ (leave out to just capture)
-#   post       the Render path the parsed rows are POSTed to
+#   post       the Render route the Hub posts the parsed rows to (a scraper_prices drop file), or "hub:tips"
 #   [target.matches]  treat url as a listing: open its match links in
 #              kept-open tabs (max_tabs, at most 6), clicking market_tabs once
 #
 # Finder's sources use site = "generic" (any host except the two bookmakers):
 #   mode       "fetch" (the default for generic): load, parse, close
-#   post       "hub:tips" hands the rows to the Hub (a drop file) instead of POSTing to Render
+#   post       "hub:tips" hands the rows to the Hub as tips (a scraper_tips drop file)
 #   min_rows   fewer parsed rows than this = unhealthy, alert + an event for the Hub
 #   trust_weight  0..1, carried to the Hub beside the rows, for HubAI to weigh
 #   wait_for   CSS selector to wait for before parsing
@@ -38,10 +38,15 @@
 #   window     "HH:MM-HH:MM", local time (may wrap midnight, "22:00-02:00").
 #              Outside it the target is not loaded and its tabs are closed;
 #              they reopen when the window starts
+#   days       the days it runs, e.g. ["fri", "sat"] (mon tue wed thu fri sat
+#              sun, no repeats). Leave out for every day. A window past
+#              midnight belongs to the day it started
+#   until      "YYYY-MM-DD", the last day it runs; after it the target is
+#              "finished" and loads nothing. Leave out to run forever
 
-# OPEN, Callum to decide (docs/decisions.md, "Scraping conduct"): this one BB
-# target predates the rule that BB is never automated; keep it as the named
-# exception, or disable it. Left enabled until he decides.
+# The single named exception (docs/decisions.md, "Scraping conduct"): this one
+# BB target predates the rule that BB is never automated, and stays
+# (Callum, 11 Nov 2026).
 [[target]]
 name = "bb-saves"
 site = "bookiebashing"

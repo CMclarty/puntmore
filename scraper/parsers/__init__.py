@@ -3,8 +3,9 @@
 A parser is `fn(page, capture) -> list[dict]`, named in a target's `parser`
 in targets.toml. It may read the page's DOM,
 or the payloads the page received (`capture.recent`: (ts, kind, url, text)
-tuples, newest last). Rows are POSTed as {"prices": rows} to the target's
-`post` path, so a parser emits exactly the shape that endpoint takes.
+tuples, newest last). Rows are handed to the Hub as a `scraper_prices` drop
+for the target's `post` route, which the Hub posts as {"prices": rows}, so a
+parser still emits exactly the shape that endpoint takes.
 
 Parsers are written ONLY from captured samples (data/samples/) or dumps
 (data/dumps/) - never from a guessed layout. One that raises

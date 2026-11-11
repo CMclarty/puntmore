@@ -188,7 +188,10 @@ def scraper(cfg: Settings) -> dict[str, Any]:
 
 def daemon(cfg: Settings, store: Store, run=None) -> dict[str, Any]:
     """The Hub daemon (`puntmore daemon`, unit puntmore-link.service): the last inbox pass over the
-    Scraper's drop files, the last tipster-mailbox poll, and the drop files still waiting."""
+    Scraper's drop files, the last tipster-mailbox poll, and the drop files still waiting (tips,
+    events, and price drops not yet posted to Render). It warns while price drops wait for Render,
+    and when the last pass that handled a price drop moved any aside; each warning gives the
+    inbox's reason."""
     from .. import daemon as hub_daemon, mail
 
     def go():
@@ -196,12 +199,18 @@ def daemon(cfg: Settings, store: Store, run=None) -> dict[str, Any]:
         last_inbox = hub_daemon.last_status(cfg).get("inbox")
         last_mail = mail.status(cfg)
         drops = {}
-        for sub in ("tips", "events"):
+        for sub in ("tips", "events", "prices"):
             p = cfg.inbox_dir / sub
             drops[sub] = len(list(p.glob("*.json"))) if p.is_dir() else None
         at = parse_iso(last_inbox["at"]) if last_inbox and last_inbox.get("at") else None
         age = int(utcnow().timestamp() - at.timestamp()) if at else None
         seen = f"last inbox pass {age}s ago" if age is not None else "no inbox pass recorded"
+        counts = (last_inbox or {}).get("counts") or {}
+        prices = []
+        for key, words in (("price_waiting", "waiting to go to Render"), ("price_dropped", "moved aside")):
+            if counts.get(key):
+                why = counts.get(f"{key}_reason")
+                prices.append(f"{counts[key]} price drop(s) {words}" + (f" ({why})" if why else ""))
         if svc is None:
             state, detail = "unknown", f"systemctl not available; {seen}"
         elif svc != "active":
@@ -210,6 +219,8 @@ def daemon(cfg: Settings, store: Store, run=None) -> dict[str, Any]:
             state, detail = "warn", f"last inbox pass failed: {last_inbox['error'][:120]}"
         elif age is None or age > INBOX_STALE_S:
             state, detail = "warn", seen
+        elif prices:
+            state, detail = "warn", "; ".join([seen, *prices])
         elif last_mail.get("problems"):
             state, detail = "warn", f"{seen}; mail: {last_mail['detail']}"
         else:

@@ -5,7 +5,7 @@ description: Operate and repair the Scraper (scraper/) on the Puntmore Hub, incl
 
 # Puntmore Scraper operations
 
-Read `docs/decisions.md` first; it wins over this runbook. One Chrome on the Hub does every page load: the Scraper in `~/Projects/puntmore/scraper/`, running as the user service `puntmore-scraper` on the desktop session (real Chrome on the real display) with its data in `/opt/puntmore-scraper/data`; the Docker container is the fallback for a box with no screen. Paddy Power pages are kept open; the one Bookie Bashing target (`bb-saves`) is an OPEN item for Callum in `docs/decisions.md` (keep as the named exception, or disable), so leave it as it is; Finder sources (`site = "generic"`) are loaded, parsed and closed. Targets are `data/targets.toml` on the Hub. Parsers are `scraper/parsers/<name>.py`. The Hub's `puntmore` CLI (`~/.venvs/puntmore/bin/puntmore`) reads what the Scraper reports.
+Read `docs/decisions.md` first; it wins over this runbook. One Chrome on the Hub does every page load: the Scraper in `~/Projects/puntmore/scraper/`, running as the user service `puntmore-scraper` on the desktop session (real Chrome on the real display) with its data in `/opt/puntmore-scraper/data`; the Docker container is the fallback for a box with no screen. Paddy Power pages are kept open; the one Bookie Bashing target (`bb-saves`) is the single named exception in `docs/decisions.md`: it stays and runs, and no other Bookie Bashing page is added; Finder sources (`site = "generic"`) are loaded, parsed and closed. Targets are `data/targets.toml` on the Hub. Parsers are `scraper/parsers/<name>.py`. The Hub's `puntmore` CLI (`~/.venvs/puntmore/bin/puntmore`) reads what the Scraper reports.
 
 ## Hard rules (never break these)
 - Real headful Chrome, one persistent profile, no stealth or fingerprint tooling, no fake mouse movement. The Scraper's `browser.py` is the only place Chrome is configured.
@@ -17,7 +17,7 @@ Read `docs/decisions.md` first; it wins over this runbook. One Chrome on the Hub
 
 ## Triage a broken source
 1. `puntmore health` and `puntmore status` for the Scraper's view: which target, which state, the detail string.
-2. `journalctl --user -u puntmore-scraper -n 200` for the parser's own error (in the Docker fallback, `docker logs --tail 200 puntmore-scraper`), and `data/latest/<target>.json` for the last rows it produced.
+2. `targets log <target> -n 50` (see "Adding a Finder source" for how to run it) for what the Scraper said about that job alone: loads and parser failures, window and days, rows handed to the Hub. Then `journalctl --user -u puntmore-scraper -n 200` for the rest, site-wide lines included, and the parser's own error (in the Docker fallback, `docker logs --tail 200 puntmore-scraper`), and `data/latest/<target>.json` for the last rows it produced.
 3. Classify:
    - **blocked** (state `blocked`): cooling off or backing off. Resolve the escalation with "blocked, cooling off until <time>", stop (`targets.toml` keeps no comments; the escalation is the record). If it repeats after the cool-off, `targets disable <target>` (see "Adding a Finder source" for how to run it) and say so.
    - **layout change** (detail says "layout change?" or "parser failed"): go to step 4.
@@ -32,7 +32,7 @@ Never edit `data/targets.toml` by hand: every change goes through `scraper/targe
 1. Add it disabled: `targets add --name <source> --site generic --url <url> --parser <parser> --post hub:tips --min-rows <n> --trust-weight 0.5 --every-min <minutes> --disabled`. A bookmaker host, or a frequency below the floor, is refused.
 2. Let it capture a sample, then write `scraper/parsers/<parser>.py` from the sample with a fixture test.
 3. `targets enable <source>`. The running Scraper picks it up within 60 s; `targets show <source> --json` shows its `status` once it has reported.
-4. To change it later: `targets set <source> --every-min 120` (any field; `none` clears an optional one). To stop it: `targets disable <source>`; to delete it: `targets remove <source>`.
+4. To change it later: `targets set <source> --every-min 120` (any field; `none` clears an optional one). To run it only on some days and stop on a date: `targets set <source> --days fri,sat --until 2026-11-30` (`--days none` = every day again, `--until none` = forever); after `until` its status is `finished`. To stop it: `targets disable <source>`; to delete it: `targets remove <source>`.
 Rows reach the Hub's inbox as drop files and are stored as tips for HubAI to judge for Finder.
 
 ## Tipster email sources

@@ -3,8 +3,23 @@ files and the tipster mailbox poll, with no socket anywhere, and what it leaves 
 import json
 import logging
 import threading
+import time
 
-from puntmore_hub import aw26_loop, cli, daemon, inbox, mail
+import pytest
+
+from puntmore_hub import aw26_loop, cli, daemon, finder, inbox, mail
+
+
+class _Time:
+    """A clock that moves only when the daemon sleeps, so no test waits in real time."""
+    def __init__(self):
+        self.now = 0.0
+
+    def clock(self):
+        return self.now
+
+    def sleep(self, s):
+        self.now += s
 
 
 def test_the_daemon_runs_inbox_and_mail_without_a_socket(cfg, monkeypatch, caplog):
@@ -25,10 +40,12 @@ def test_the_daemon_runs_inbox_and_mail_without_a_socket(cfg, monkeypatch, caplo
     monkeypatch.setattr(inbox, "ingest", ingest)
     monkeypatch.setattr(mail, "poll", poll)
     caplog.set_level(logging.INFO, logger="puntmore.daemon")
-    daemon.run(live, sleep=lambda s: None)    # returns only when the loop is stopped
+    t = _Time()
+    daemon.run(live, sleep=t.sleep, clock=t.clock)    # returns only when the loop is stopped
     assert len(calls) == 3 and all(c is live for c in calls)
     status = json.loads(daemon.status_file(live).read_text())
-    assert status["inbox"]["counts"] == {"tip_files": 1, "events": 0} and status["inbox"]["at"]
+    counts = status["inbox"]["counts"]        # a price pass may have laid its counts over the full pass's
+    assert {k: counts[k] for k in ("tip_files", "events")} == {"tip_files": 1, "events": 0} and status["inbox"]["at"]
     assert "socket" not in caplog.text and "Render" not in caplog.text
 
 
@@ -110,3 +127,179 @@ def test_resolving_an_escalation_queues_nothing(store, cfg):
     assert store.escalation(esc)["outcome"] == "dropped it"
     tables = {r[0] for r in store.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert "outbox" not in tables and "inbox_seen" not in tables
+
+
+def test_a_pass_that_posted_prices_is_logged(cfg, monkeypatch, caplog):
+    calls = []
+
+    def ingest(store, c):
+        calls.append(1)
+        if len(calls) == 2:
+            raise KeyboardInterrupt
+        return {"tip_files": 0, "events": 0, "price_files": 2, "price_rows": 6, "price_dropped": 0, "price_waiting": 0}
+    monkeypatch.setattr(inbox, "ingest", ingest)
+    caplog.set_level(logging.INFO, logger="puntmore.daemon")
+    t = _Time()
+    daemon.run(cfg, sleep=t.sleep, clock=t.clock)
+    assert "price_files" in caplog.text
+
+
+# The price pass every PRICES_EVERY_S (10 s) between the full passes (INBOX_EVERY_S, 30 s).
+
+PRICE_COUNTS = {"price_files": 0, "price_rows": 0, "price_dropped": 0, "price_waiting": 0}
+
+
+def _stop_at(t, when):
+    """The daemon's sleep, stopping the loop (as SIGTERM would) once fake time reaches `when`."""
+    def sleep(s):
+        t.sleep(s)
+        if t.now >= when:
+            raise KeyboardInterrupt
+    return sleep
+
+
+def test_one_full_pass_then_two_price_passes_every_thirty_seconds(cfg, monkeypatch):
+    assert (daemon.PRICES_EVERY_S, daemon.INBOX_EVERY_S) == (10, 30)
+    t, order = _Time(), []
+
+    def ingest(store, c):
+        order.append(("full", t.now))
+        return {"tip_files": 0, "events": 0, **PRICE_COUNTS}
+
+    def post_prices(c):
+        order.append(("prices", t.now))
+        return dict(PRICE_COUNTS)
+    monkeypatch.setattr(inbox, "ingest", ingest)
+    monkeypatch.setattr(inbox, "post_prices", post_prices)
+    daemon.run(cfg, sleep=_stop_at(t, 40), clock=t.clock)
+    assert order == [("full", 0), ("prices", 10), ("prices", 20), ("full", 30)]
+
+
+def test_a_price_drop_is_posted_at_the_next_ten_second_wake(cfg, monkeypatch):
+    t, sent = _Time(), []
+    c = cfg.with_overrides(render_http="https://puntmore.example/", render_api_key="k-ingest")
+
+    class _Resp:
+        status = 200
+
+        def read(self):
+            return b'{"stored": 1}'
+
+    def render(req, timeout):
+        sent.append((t.now, req.full_url, json.loads(req.data)))
+        return _Resp()
+    monkeypatch.setattr(finder, "_open", render)
+    monkeypatch.setattr(daemon, "_aw26_loop", lambda *a: None)   # Render is set: keep the photo loop off this clock
+    row = {"home": "A", "away": "B", "kickoff": "2026-11-08T16:30:00Z", "market": "most_corners",
+           "home_price": 1.5, "tie_price": 9.0, "away_price": 2.4}
+
+    def sleep(s):
+        if t.now == 0:                            # the Scraper drops a file just after the full pass
+            d = c.inbox_dir / "prices"
+            d.mkdir(parents=True)
+            (d / "1-pp-epl-most-abcd1234.json").write_text(json.dumps(
+                {"source": "pp-epl-most", "at": time.time(), "url": "u", "route": "/api/paddy/most-prices", "rows": [row]}))
+        _stop_at(t, 20)(s)
+    daemon.run(c, sleep=sleep, clock=t.clock)
+    assert sent == [(10, "https://puntmore.example/api/paddy/most-prices", {"prices": [row]})]
+    assert daemon.last_status(c)["inbox"]["counts"]["price_files"] == 1
+
+
+def test_a_price_pass_keeps_the_full_passs_tip_counts_and_updates_the_prices(cfg, monkeypatch):
+    t = _Time()
+    monkeypatch.setattr(inbox, "ingest", lambda store, c: {"tip_files": 1, "tips": 2, "new_tips": 2, "rejected": 0,
+                                                           "events": 1, **PRICE_COUNTS, "price_waiting": 4})
+    monkeypatch.setattr(inbox, "post_prices", lambda c: {**PRICE_COUNTS, "price_files": 3, "price_rows": 9})
+    daemon.run(cfg, sleep=_stop_at(t, 20), clock=t.clock)
+    rec = daemon.last_status(cfg)["inbox"]
+    assert rec["counts"] == {"tip_files": 1, "tips": 2, "new_tips": 2, "rejected": 0, "events": 1,
+                             "price_files": 3, "price_rows": 9, "price_dropped": 0, "price_waiting": 0}
+    assert rec["error"] is None
+
+
+def test_a_price_pass_over_an_empty_folder_logs_nothing(cfg, monkeypatch, caplog):
+    t = _Time()
+    (cfg.inbox_dir / "prices").mkdir(parents=True)
+    monkeypatch.setattr(inbox, "ingest", lambda store, c: {"tip_files": 0, "events": 0, **PRICE_COUNTS})
+    passes = []
+    real = inbox.post_prices
+    monkeypatch.setattr(inbox, "post_prices", lambda c: passes.append(1) or real(c))
+    caplog.set_level(logging.DEBUG)
+    daemon.run(cfg, sleep=_stop_at(t, 30), clock=t.clock)
+    assert len(passes) == 2
+    logged = [r.getMessage() for r in caplog.records if r.name in ("puntmore.daemon", "puntmore.inbox")]
+    assert [m for m in logged if not m.startswith("AW 26 photo loop not started")] == []   # the start-up line only
+
+
+def test_a_price_pass_that_only_left_files_waiting_writes_no_prices_line(cfg, monkeypatch, caplog):
+    """While Render is down the inbox warns once per pass; the daemon adds no `prices:` line of
+    its own unless a file was posted or dropped."""
+    t, passes = _Time(), []
+    monkeypatch.setattr(inbox, "ingest", lambda store, c: {"tip_files": 0, "events": 0, **PRICE_COUNTS})
+
+    def post_prices(c):
+        passes.append(t.now)
+        return {**PRICE_COUNTS, "price_waiting": 3}
+    monkeypatch.setattr(inbox, "post_prices", post_prices)
+    caplog.set_level(logging.INFO, logger="puntmore.daemon")
+    daemon.run(cfg, sleep=_stop_at(t, 30), clock=t.clock)
+    assert passes == [10, 20]
+    assert [r for r in caplog.records if r.getMessage().startswith("prices:")] == []
+
+
+@pytest.mark.parametrize("counts", [{"price_files": 1, "price_rows": 2}, {"price_dropped": 1}])
+def test_a_price_pass_that_posted_or_dropped_a_file_logs_one_prices_line(cfg, monkeypatch, caplog, counts):
+    t = _Time()
+    monkeypatch.setattr(inbox, "ingest", lambda store, c: {"tip_files": 0, "events": 0, **PRICE_COUNTS})
+    monkeypatch.setattr(inbox, "post_prices", lambda c: {**PRICE_COUNTS, "price_waiting": 2, **counts})
+    caplog.set_level(logging.INFO, logger="puntmore.daemon")
+    daemon.run(cfg, sleep=_stop_at(t, 20), clock=t.clock)
+    assert len([r for r in caplog.records if r.getMessage().startswith("prices:")]) == 1
+
+
+def test_a_price_pass_that_raises_is_recorded_and_the_loop_goes_on(cfg, monkeypatch, caplog):
+    t, calls = _Time(), []
+    monkeypatch.setattr(inbox, "ingest", lambda store, c: {"tip_files": 1, "events": 0, **PRICE_COUNTS})
+
+    def post_prices(c):
+        calls.append(t.now)
+        if len(calls) == 1:
+            raise RuntimeError("boom")
+        assert "RuntimeError: boom" in daemon.last_status(cfg)["inbox"]["error"]
+        return dict(PRICE_COUNTS)
+    monkeypatch.setattr(inbox, "post_prices", post_prices)
+    daemon.run(cfg, sleep=_stop_at(t, 40), clock=t.clock)
+    assert calls == [10, 20]
+    rec = daemon.last_status(cfg)["inbox"]
+    assert rec["error"] is None and rec["counts"]["tip_files"] == 1       # the full pass at 30 s cleared it
+    assert "price pass failed" in caplog.text
+
+
+def test_files_moved_aside_stay_on_record_until_a_pass_handles_another_file(cfg):
+    """The Scraper drops a price file about once a minute and the price pass runs every 10 s, so
+    most passes find nothing. Such a pass says nothing new about prices: the last files moved
+    aside, and why, stay on the record (what the Console's Daemon card warns on) until a pass
+    handles a file, whether a full pass or a price pass."""
+    nothing = {**PRICE_COUNTS, "price_dropped_reason": None, "price_waiting_reason": None}
+    daemon.record_inbox(cfg, {"tip_files": 0, "events": 0, **nothing})
+    daemon.record_inbox(cfg, {**nothing, "price_dropped": 1, "price_dropped_reason": "Render refused HTTP 403"},
+                        prices_only=True)
+    daemon.record_inbox(cfg, dict(nothing), prices_only=True)
+    daemon.record_inbox(cfg, {"tip_files": 1, "events": 0, **nothing})
+    counts = daemon.last_status(cfg)["inbox"]["counts"]
+    assert counts["tip_files"] == 1
+    assert (counts["price_dropped"], counts["price_dropped_reason"]) == (1, "Render refused HTTP 403")
+    daemon.record_inbox(cfg, {**nothing, "price_files": 1, "price_rows": 3}, prices_only=True)
+    counts = daemon.last_status(cfg)["inbox"]["counts"]
+    assert (counts["price_files"], counts["price_dropped"], counts["price_dropped_reason"]) == (1, 0, None)
+
+
+def test_files_waiting_are_never_carried_over(cfg):
+    """Waiting files are still on disk, so the next pass counts them again; a pass that finds
+    none means they are gone and the record says so."""
+    nothing = {**PRICE_COUNTS, "price_dropped_reason": None, "price_waiting_reason": None}
+    daemon.record_inbox(cfg, {"tip_files": 0, "events": 0, **nothing, "price_waiting": 2,
+                              "price_waiting_reason": "HTTP 503"})
+    daemon.record_inbox(cfg, dict(nothing), prices_only=True)
+    counts = daemon.last_status(cfg)["inbox"]["counts"]
+    assert (counts["price_waiting"], counts["price_waiting_reason"]) == (0, None)

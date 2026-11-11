@@ -3,7 +3,8 @@
 The Scraper service: the one real Chrome on the Hub's desktop. It reads every
 page any tool needs and fills what OddsPapi lacks: Paddy Power pages kept
 **open** (it listens to what they receive), Finder's sources loaded and
-closed, and one Bookie Bashing page (an open item in the register). After
+closed, and one Bookie Bashing page (`bb-saves`, the register's one named
+exception). After
 the first load the site's own scripts keep each page fresh, so most targets
 cost no further requests. Runs as the user service `puntmore-scraper` on the
 logged-in desktop session, updated by `puntmore-update.timer` with the rest of
@@ -12,28 +13,40 @@ the Hub. Docker is the fallback for a box with no screen.
 **What it reads is `data/targets.toml` on the Hub**, changed only through
 `scraper/targets.py` (the Console, the CLI, HubAI); an edit applies without a
 restart. Its state goes to `data/status.json`, which the Hub reads. Its rows go
-to Scraper control as drop files (`hub/PROTOCOL.md`); Paddy's prices are, for
-now, POSTed straight to Render, and move behind Scraper control next. Nothing
-on Render configures it.
+to Scraper control as drop files (`hub/PROTOCOL.md`), Paddy's prices too: a
+price target's rows are `scraper_prices` files that the Hub's inbox posts to
+Render. The Scraper sends Render nothing, and nothing on Render configures it.
 
 The parsers (`parsers/`, one module each) are written only from what the real
 pages were seen to do. `bb_saves` DRIVES Bookie Bashing's Bet Builder (select
 the game, type each line, read "Total Odds" — see its docstring; needs the
-box's Chrome logged in by a person; over VNC in the Docker fallback).
+box's Chrome logged in, which the Scraper does itself with the login in
+`.env`, below).
 `pp_most` reads Paddy's most-corners / most-cards three-ways (written from
 the 29 Oct 2026 capture; see its docstring).
 
 ## What it will and won't do
-- Opens pages on `paddypower.com`, `bookiebashing.net` (one target, an open
-  item in `docs/decisions.md`) and Finder's `generic` sources, within
+- Opens pages on `paddypower.com`, `bookiebashing.net` (one target, the named
+  exception in `docs/decisions.md`) and Finder's `generic` sources, within
   fixed budgets (`sites.py`): Paddy 15 loads/h and 120/day, Bookie Bashing 8/h
   and 120/day, generic 60/h and 400/day. Nothing in config can raise them.
 - No Paddy traffic between 01:00 and 07:00 (Europe/London). Its pages are
   closed for those hours.
 - Paddy 403/429 or Cloudflare check → every Paddy page closes and a 24 h
   cool-off starts. It also needs `resume`, and you get an alert.
-- Bookie Bashing logout or check → one alert and a back-off, with the tab left
-  open so you can sort it on the Hub's screen (over VNC in Docker).
+- Bookie Bashing logout → it signs in once, on the page already open, with the
+  login in `.env` (`login.py`), then reloads the tool through the guard. At
+  most 3 sign-ins in 6 hours, then it waits for a person (a site that keeps
+  ending the session, e.g. when you log in on another device). A failed
+  sign-in (refused, no form, still logged out after it, a form the site's
+  script did not send, or the 3-in-6-hours limit), a logout with no login in
+  `.env`, or a check → one alert and a back-off, with the tab left open so
+  you can sort it on the Hub's screen (over VNC in Docker). After a failed
+  sign-in it does not try again until it sees the site logged in or you run
+  `resume bookiebashing`, restarts included. Each sign-in is written to
+  `data/login.json` before the form is sent; if that file cannot be written
+  it does not sign in at all and the alert says "cannot write login.json"
+  (once per start of the service).
 - A block is also caught on a page that is already open: 3+ refused
   requests in 10 min, a Cloudflare page, or a logout. Every block alert
   carries a screenshot (also in `data/blocks/`). A Paddy cool-off alerts once
@@ -43,14 +56,15 @@ the 29 Oct 2026 capture; see its docstring).
   Bookie Bashing 60 s+, and 20-45 s between any two), so nothing opens in a
   burst at startup or after quiet hours; timed reloads are jittered once per
   load. Market tabs are clicked through the mouse, then read down.
-- It never answers a challenge, never types a password, and never fakes a
-  fingerprint. On the Hub's desktop Chrome keeps its own defaults on the real
-  display: en-GB from the session's locale, London time, the box's own GPU,
-  fonts and screen. In Docker, with no screen, Chrome gets a 1600x1000 window
-  on Xvfb's 1920x1080 screen and the en-GB language list by flag. Either way
-  it is started as a person's Chrome, not a test run (Playwright's
-  `--enable-automation` is not passed); `selfcheck` shows exactly what a
-  site sees, the WebGL renderer included.
+- It never answers a challenge and never fakes a fingerprint. It types one
+  login only, Bookie Bashing's, from `.env`; a person is needed there only
+  after a failed sign-in or for a challenge. On the Hub's desktop Chrome
+  keeps its own defaults on the real display: en-GB from the session's
+  locale, London time, the box's own GPU, fonts and screen. In Docker, with
+  no screen, Chrome gets a 1600x1000 window on Xvfb's 1920x1080 screen and
+  the en-GB language list by flag. Either way it is started as a person's
+  Chrome, not a test run (Playwright's `--enable-automation` is not passed);
+  `selfcheck` shows exactly what a site sees, the WebGL renderer included.
 - **It runs on the Hub's residential connection**, which is less likely to be
   challenged than a datacentre IP. If Paddy challenges it anyway, the
   scraper stops and tells you. It does not work
@@ -66,7 +80,9 @@ Finder. Too few rows (`min_rows`) or a block raises an alert here and an event
 in `data/hub/events/` that the Hub turns into an escalation for HubAI.
 
 ## Changing targets
-`targets.toml` is changed only through `scraper/targets.py`: this CLI, the
+A target is a job: a page the Scraper reads, on a schedule (`every_min` or
+`stale_min`), on chosen `days`, inside a `window`, until an end date
+(`until`). `targets.toml` is changed only through `scraper/targets.py`: this CLI, the
 Console and HubAI's scraper-manager all call it, so there is one config
 store. It works on `SCRAPER_TARGETS`, else `SCRAPER_DATA_DIR/targets.toml`
 (`--file` for another), and needs no browser.
@@ -79,10 +95,13 @@ python -m scraper targets add --name racing-tips --site generic \
     --every-min 360 --min-rows 2 --trust-weight 0.5 --disabled
 python -m scraper targets set pp-epl-most --every-min 15 --priority 2 --window 07:00-23:30
 python -m scraper targets set racing-tips --window none     # "none" clears a field
+python -m scraper targets set racing-tips --days fri,sat --until 2026-11-30
+python -m scraper targets set racing-tips --days none --until none   # every day, forever
 python -m scraper targets set pp-epl-most --matches '{"max_tabs": 2, "market_tabs": ["Corners"]}'
 python -m scraper targets enable racing-tips
 python -m scraper targets disable racing-tips
 python -m scraper targets remove racing-tips
+python -m scraper targets log racing-tips -n 50   # the job's own log, newest last
 ```
 
 - Every change is validated as a whole by `config._target` (sites, hosts,
@@ -95,7 +114,9 @@ python -m scraper targets remove racing-tips
   the target plus `status`: the running Scraper's last report on it from
   `status.json` (`state`, `detail`, `last_load`, `last_parse`,
   `rows_posted`, `reported_at`), or `null` when it has none (disabled, or
-  not reported yet).
+  not reported yet), and `schedule`: the job's schedule in words
+  (`targets.schedule_words`, "every 15 min · Fri, Sat · 07:00–23:30 · until
+  30 Nov 2026"), which `list` prints too.
 - Saves are atomic (temp file + rename in the same directory) under an
   `flock` on `targets.toml.lock`, so the Console, the CLI and HubAI cannot
   interleave and the running Scraper never reads half a file. The file is
@@ -103,14 +124,34 @@ python -m scraper targets remove racing-tips
   hand-written file as `targets.toml.bak`.
 - The running Scraper picks a change up within 60 s (its re-read of the
   file). A change to only `every_min`, `stale_min`, `near_min`, `near_hours`,
-  `priority`, `window`, `min_rows` or `trust_weight` is applied in place: the open tabs stay and
+  `priority`, `window`, `days`, `until`, `min_rows` or `trust_weight` is applied in place: the open tabs stay and
   are rescheduled (a timed reload is redrawn from the last load), so it
   costs no load. A change to `url`, `site`, `mode`, `parser`, `post`,
   `wait_for` or `matches` closes the target's tabs and reopens them on the
   next tick. Disabling or removing a target closes its tabs.
-- `priority` (higher goes first when a site's hourly budget is short) and
-  `window` (`"HH:MM-HH:MM"` local time; outside it the target's tabs close)
-  are acted on by the runner (`schedule.py`).
+- `priority` (higher goes first when a site's hourly budget is short),
+  `window` (`"HH:MM-HH:MM"` local time; outside it the target's tabs close),
+  `days` (`--days fri,sat`: only on those days; none = every day) and `until`
+  (`--until 2026-11-30`: the last day it runs) are acted on by the runner
+  (`schedule.py`). Off its days a job is `paused`, "not a run day"; after
+  `until` it is `finished`, "ended <until>"; either way its tabs close.
+- Each job keeps its own log, `SCRAPER_DATA_DIR/logs/<name>.log`
+  (`joblog.py`): every line the runner prints about that job (window and
+  days, kick-off sweep, load and parser failures, a `min_rows` breach and
+  its recovery, market tabs, retired match tabs, dumps, signing in) and its
+  deliveries ("3 row(s) handed to the Hub (hub:tips), 2 left out"): a
+  delivery is logged when what was handed or left out changes, else at most
+  every 10 min. A block of its site is a line in every job of that site,
+  never with the page's url: "blocked: <reason> - backing off" (Bookie
+  Bashing) once per block, as its alert, or "blocked: <reason> - every page
+  closed, cooling off 24 h, then needs resume"; and "no longer blocked" when
+  a back-off ends (unless "signed in" already says so). One
+  `{"ts": <epoch>, "msg": "..."}` per line, a message cut at 2000
+  characters. Other site-wide lines (paused, a cool-off served or over,
+  `config: ...`) stay in the journal only. Past 512 KB a
+  log is rewritten to its newest lines that fit in 256 KB, 1000 at most.
+  `targets log <name> [-n 50]` prints it (`--json`: `{"name": name, "lines": [{"ts", "msg"}, ...]}`);
+  `targets remove` removes it.
 
 ## Running on the Hub's desktop (the default)
 Since 5 Nov 2026 the Scraper runs on the Hub's real desktop session, so the
@@ -153,8 +194,8 @@ driver), gives Chrome 90 s to close cleanly, and is capped at 4 GB.
 `puntmore-scraper` (and installs `requirements.txt` when it changed). A change
 to the unit file itself needs `install.sh` run again.
 
-Logging in to Bookie Bashing or looking at a check: the Chrome window is on
-the Hub's screen. No VNC.
+Logging in to Bookie Bashing after a failed sign-in, or looking at a check:
+the Chrome window is on the Hub's screen. No VNC.
 
 ```sh
 journalctl --user -u puntmore-scraper -f
@@ -199,7 +240,7 @@ within 10 minutes (in the Docker fallback, CI publishes the image and the
 box's 15-minute cron restarts onto it). Profile, budget and cool-off state live in `data/`, so they survive
 the restart.
 
-### Logging in to Bookie Bashing, or clearing a check (VNC, Docker only)
+### Logging in to Bookie Bashing after a failed sign-in, or clearing a check (VNC, Docker only)
 VNC listens on the box's `127.0.0.1:5900` only. From your machine:
 
 ```sh
@@ -222,9 +263,18 @@ docker exec puntmore-scraper python -m scraper selfcheck        # what a site se
 ## Credentials (none in the repo)
 
 In `/opt/puntmore-scraper/.env`: `SCRAPER_ALERT_WEBHOOK` (Discord), `SCRAPER_HEALTHCHECK_URL`
-(optional), `SAVES_INGEST_KEY`, which must match the value set on Render, and `VNC_PASSWORD` on
-a box with no screen. The Bookie Bashing login lives in the Chrome profile in the data
-directory; never share `data/profile/`: it holds the login cookies.
+(optional), and `VNC_PASSWORD` on a box with no screen. It holds no Render key: the Hub posts
+its prices (`PUNTMORE_RENDER_API_KEY` in the Hub's `.env`). The Scraper no longer reads
+`SAVES_INGEST_KEY` or `PUNTMORE_URL`, so both can be deleted from `/opt/puntmore-scraper/.env`.
+The Bookie Bashing login is `BB_USERNAME` and `BB_PASSWORD` (Callum's own; leave either blank
+and a person logs in instead). The Scraper types it when its page is found logged out, once
+per logout and at most 3 sign-ins in 6 hours, then it waits for a person; the password is never
+logged or kept, and Chrome is not given either variable. A failed sign-in is noted in
+`data/login.json` (with the times of recent sign-ins) and nothing is tried again until the site
+is seen logged in (log in on the Hub's screen) or `python -m scraper resume bookiebashing` is
+run, which forgets it and the sign-in times. The
+session itself lives in the Chrome profile in the data directory; never share
+`data/profile/`: it holds the login cookies.
 
 ## Each tab's state
 Each match tab's status says what its market-tab clicks did (`loaded`,
@@ -234,7 +284,8 @@ page once per run to `data/samples/<run>/<target>-market-tab-not-found/`.
 Samples: each tab keeps its first distinct payloads on disk
 (`SCRAPER_CAPTURE_TAB_MB`, default 8, inside the run's `SCRAPER_CAPTURE_MB`),
 first-party hosts only, repeats of the same URL+size skipped, plus the page's
-HTML once. `index.jsonl` marks each market-tab click and labels what followed it.
+HTML once. The sign-in's own response (it may repeat what was typed) is never
+kept. `index.jsonl` marks each market-tab click and labels what followed it.
 
 Health: on the desktop the Console's Scraper card goes down when the
 heartbeat is 10 minutes stale (`PUNTMORE_SCRAPER_STALE_MINUTES`); in Docker the
@@ -266,7 +317,7 @@ Targets are of these kinds:
 Timings are clamped to the floors in `config._target`, and `sites.py`
 budgets stay the ceiling whatever the file says.
 
-Four fields say when and who first (`schedule.py`):
+Six fields say when and who first (`schedule.py`):
 - **`near_min`** and **`near_hours`** (default 3): the kick-off sweep. A
   parser's rows may carry a `kickoff` (ISO 8601; `pp_most` and `bb_saves`
   do); the nearest one still ahead is the target's next kick-off (`status`
@@ -284,6 +335,14 @@ Four fields say when and who first (`schedule.py`):
   `paused`, "outside window". When the window starts it opens again through
   the normal spacing and guard; a fetch target runs at the start. No window
   means always. A site's quiet hours and cool-offs still apply inside it.
+- **`days`** (a list of `mon` .. `sun`, no repeats; none = every day) and
+  **`until`** (`"YYYY-MM-DD"`, the last day it runs; none = forever): the
+  days a job runs. Off its days it is `paused`, "not a run day"; after
+  `until` it is `finished`, "ended <until>", whatever its site is doing.
+  Either way nothing loads and its tabs close, as outside the window. A
+  window past midnight belongs to the day it started: a Saturday
+  `"20:00-02:00"` job runs until 02:00 on Sunday, and with `until` set to
+  that Saturday it finishes at 02:00 (`schedule.job_day`).
 - **`priority`** (whole number, default 0): who gets a site's loads when they
   are short. Loads are spaced, so one goes out at a time, to the first target
   in the tick's order that wants one. While a site has at least as many

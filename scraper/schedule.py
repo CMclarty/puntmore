@@ -3,10 +3,13 @@
 Nothing here loads a page or touches the guard's budget: the runner asks
 these questions and the guard still says yes or no to every load.
 
-A target's `window` ("HH:MM-HH:MM", local time, may wrap midnight, end
-exclusive) is when it may load at all: outside it the runner closes its
-tabs. Its `priority` decides who goes first when a site's budget is short
-(`order`).
+A target (a job) is active only on its `days` (none = every day), not after
+its `until` (the last day it runs), and inside its `window` ("HH:MM-HH:MM",
+local time, may wrap midnight, end exclusive); `inactive` says which of these
+stops it, and while one does the runner closes its tabs. A window past
+midnight belongs to the day it started (`job_day`): a Saturday 20:00-02:00
+job runs until 02:00 on Sunday. Its `priority` decides who goes first when a
+site's budget is short (`order`).
 
 Jitter is drawn ONCE per load and kept on the tab (`due_at`), never afresh
 each tick: drawing it every 15 s tick made a reload fire at the low end
@@ -22,7 +25,9 @@ on the target; nothing here is special to a site.
 """
 import random
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+
+from .config import WEEKDAYS
 
 # Jitter on timed reloads, drawn once per load.
 RELOAD_JITTER = (0.75, 1.35)     # every_min (and a fetch target's next run)
@@ -121,6 +126,31 @@ def in_window(window: str | None, now) -> bool:
     d = datetime.fromtimestamp(now)
     m = d.hour * 60 + d.minute
     return start <= m < end if start < end else (m >= start or m < end)
+
+
+def job_day(window: str | None, now: float) -> date:
+    """The day whose run `now` belongs to: the calendar day, except before the
+    end of a window that wraps midnight, which is the previous day's run."""
+    d = datetime.fromtimestamp(now)
+    if window:
+        start, end = (_minutes(x) for x in window.split("-"))
+        if start > end and d.hour * 60 + d.minute < end:
+            return d.date() - timedelta(days=1)
+    return d.date()
+
+
+def inactive(t, now: float) -> str | None:
+    """Why the job is not running now: "finished" (its job day is after
+    `until`), "not a run day" (its job day is not in `days`), "outside
+    window"; None when it is active. Checked in that order."""
+    day = job_day(t.window, now)
+    if t.until and day > date.fromisoformat(t.until):
+        return "finished"
+    if t.days and WEEKDAYS[day.weekday()] not in t.days:
+        return "not a run day"
+    if not in_window(t.window, now):
+        return "outside window"
+    return None
 
 
 # --- the kick-off sweep -----------------------------------------------------

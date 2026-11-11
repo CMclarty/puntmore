@@ -15,12 +15,16 @@ both, one directory per deployable.
 5. `CLAUDE.md` (rules for the whole repo), then the `AGENTS.md` of the directory you work in.
 6. `PLAN.md`: the open work.
 
+`docs/research/` holds research notes for work that has not been designed yet (casino offers).
+They are background, not decisions: nothing in them is settled until it is in the register.
+
 Nothing about the system lives outside the repo.
 
 ## Render
 
 One Docker web service; every push to `main` deploys it. Render never loads a bookmaker page and
-never places a bet. **OddsPapi** is its only odds source.
+never places a bet. **OddsPapi** prices Paddy, 2-Up and the coupon tracker; **odds-api.net**,
+the second odds provider, prices Hills (11 Nov 2026).
 
 It serves **boards**: tool pages, each with a one-way HTTP **feed** of value rows.
 
@@ -55,8 +59,8 @@ One program on Callum's box, in five parts:
   tipster mailbox), driven from the Console; rows go from the Scraper service to Scraper control
   and on to a board or to HubAI. Built today: the targets file and its library
   (`scraper/targets.py`), the Hub's inbox of the Scraper's drop files and the mailbox poll
-  (`hub/`). Paddy's prices still post straight to Render; moving them behind Scraper control is
-  the next Scraper work.
+  (`hub/`). Paddy's prices go through it too: the inbox posts the Scraper's price drops to
+  Render.
 - **HubAI**: the Hub's AI, the whole Hermes layer (a chief of staff on Telegram and its
   specialist profiles, one Qwen model under llama-server). It takes every escalation and judges
   tips for Finder, including a tip Callum asks for on Telegram; that Finder skill is the next

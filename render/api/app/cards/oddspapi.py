@@ -1,6 +1,8 @@
 """Paddy Power corners/cards prices from OddsPapi.
 
-WHY THIS VENDOR. OddsPapi is the only odds source. Its own Paddy Power feed
+WHY THIS VENDOR. OddsPapi prices Paddy, 2-Up and the coupon tracker (Hills
+too while ODDSAPINET_API_KEY is unset; odds-api.net prices it otherwise,
+cards/oddsapinet.py). Its own Paddy Power feed
 carries a family of two-way markets beyond the standard ones, which is where
 the corners and cards lines live.
 
@@ -886,6 +888,8 @@ class OddsPapiPaddySource:
     """The cards tool's Paddy Power side from OddsPapi — and, with
     `oddspapi_fair_book` set (default "pinnacle"), its fair side too. Same interface as
     the sweep expects: `get_events()` and `last_sweep`."""
+
+    vendor = "oddspapi"
 
     def __init__(self, client: OddsPapiClient, book: str = PADDY_POWER,
                  extra_tournaments: tuple[int, ...] = ()):

@@ -5,13 +5,18 @@
                    restart. This is what the service runs.
   status           Budget spent, cool-offs, each target's state, heartbeat age.
   resume <site>    End a cool-off early-ish: it still needs its hours to pass.
+                   It also forgets a failed sign-in (login.py).
   dump <target>    Ask the RUNNING service to save that target's open page(s)
                    (HTML + screenshot) to data/dumps/ - no extra page load.
   check            Load targets.toml and print the targets.
   targets ...      The only way targets.toml is changed: list, show <name>,
                    add --name --site --url [...], set <name> --every-min 15
-                   [...], enable/disable/remove <name>; --json for machine
-                   output, --file for another file. `targets -h` for more.
+                   [...], enable/disable/remove <name>; --days fri,sat and
+                   --until 2026-11-30 limit a target (a job) to those days and
+                   that last day ("none" clears either); log <name> [-n 50]
+                   prints the job's own log (data/logs/<name>.log); --json for
+                   machine output, --file for another file. `targets -h` for
+                   more.
   selfcheck        What a site sees of this browser: navigator.webdriver,
                    userAgent, language, timezone, window, and that Chrome
                    runs without --enable-automation. Asks the running service
@@ -27,6 +32,7 @@ import time
 from datetime import datetime
 
 from . import config
+from . import login
 from .alerts import Alerts
 from .guard import Guard
 from .sites import SITES
@@ -194,6 +200,14 @@ def _none_or(kind):
     return parse
 
 
+def _days(v):
+    """`--days fri,sat` (any case) -> ["fri", "sat"]; "none" clears. The
+    names are checked by config._target."""
+    if v.lower() in ("none", "null", ""):
+        return None
+    return [d.strip().lower() for d in v.split(",")]
+
+
 def _matches_json(v):
     import argparse
     import json
@@ -216,6 +230,7 @@ _TARGET_OPTS = (
     ("--min-rows", "min_rows", int), ("--trust-weight", "trust_weight", float),
     ("--wait-for", "wait_for", _none_or(str)), ("--mode", "mode", str),
     ("--priority", "priority", int), ("--window", "window", _none_or(str)),
+    ("--days", "days", _days), ("--until", "until", _none_or(str)),
     ("--matches", "matches", _matches_json),
 )
 
@@ -232,6 +247,9 @@ def _targets_parser():
     sub.add_parser("list", parents=[common], help="every target, joined to status.json")
     for op in ("show", "enable", "disable", "remove"):
         sub.add_parser(op, parents=[common]).add_argument("name")
+    lg = sub.add_parser("log", parents=[common], help="the newest lines of a job's own log")
+    lg.add_argument("name")
+    lg.add_argument("-n", type=int, default=50, help="how many lines (default 50)")
     a = sub.add_parser("add", parents=[common], help="add a target")
     a.add_argument("--name", required=True)
     s = sub.add_parser("set", parents=[common], help="change fields of a target; 'none' clears one")
@@ -249,15 +267,18 @@ def _targets_parser():
 
 def targets_cmd(argv):
     """`python -m scraper targets ...`: list, show, add, set, enable, disable,
-    remove, through scraper/targets.py. --json prints machine output (the
-    Console and HubAI); a refused change exits 2 with the reason."""
+    remove, through scraper/targets.py, and log (joblog.py). --json prints
+    machine output (the Console and HubAI); a refused change exits 2 with the
+    reason."""
     import json
     import pathlib
+    from . import joblog
     from . import targets as T
     args = vars(_targets_parser().parse_args(argv))
     op, as_json = args.pop("op"), args.pop("json")
     path = pathlib.Path(args.pop("file") or T.default_path())
-    status_json = pathlib.Path(os.environ.get("SCRAPER_DATA_DIR", config.HERE / "data")) / "status.json"
+    data_dir = pathlib.Path(os.environ.get("SCRAPER_DATA_DIR", config.HERE / "data"))
+    status_json = data_dir / "status.json"
 
     def show(t):
         return next(d for d in T.summary(path, status_json) if d["name"] == t.name)
@@ -275,8 +296,10 @@ def targets_cmd(argv):
             out = show(T.set(path, name, **args))
         elif op in ("enable", "disable"):
             out = show(getattr(T, op)(path, args["name"]))
+        elif op == "log":
+            out = {"name": args["name"], "lines": joblog.read(data_dir, args["name"], args["n"])}
         else:                                   # remove
-            T.remove(path, args["name"])
+            T.remove(path, args["name"], data_dir=data_dir)
             out = {"removed": args["name"], "targets": [t.name for t in T.load(path)]}
     except T.TargetsError as exc:
         if as_json:
@@ -294,6 +317,12 @@ def targets_cmd(argv):
               "The running Scraper picks up a change within 60 s.")
     elif op == "remove":
         print(f"removed {out['removed']}; left: {', '.join(out['targets']) or 'none'}")
+    elif op == "log":
+        for x in out["lines"]:
+            print(f"{datetime.fromtimestamp(x['ts']):%Y-%m-%d %H:%M:%S}  {x['msg']}")
+        if not out["lines"]:
+            print(f"no log lines for {out['name']} in {joblog.path(data_dir, out['name'])}",
+                  file=sys.stderr)
     else:
         print(_target_line(out))
         for k, v in out.items():
@@ -306,10 +335,8 @@ def targets_cmd(argv):
 def _target_line(d):
     st = d["status"]
     state = "disabled" if not d["enabled"] else (st["state"] if st else "not reported")
-    every = f"every {d['every_min']:g} min" if d["every_min"] else f"when quiet {d['stale_min']:g} min"
-    extra = "".join((f"  priority {d['priority']}" if d["priority"] else "",
-                     f"  window {d['window']}" if d["window"] else ""))
-    return (f"{d['name']:28} {d['site']:13} {state:12} {every}{extra}"
+    return (f"{d['name']:28} {d['site']:13} {state:12} {d['schedule']}"
+            + (f"  priority {d['priority']}" if d["priority"] else "")
             + (f"  ({st['detail']})" if st and st.get("detail") else ""))
 
 
@@ -331,7 +358,10 @@ def main(argv=None):
         if not rest or rest[0] not in SITES:
             sys.exit(f"resume which site? {', '.join(SITES)}")
         _guard(s).resume(rest[0])
-        print(f"{rest[0]}: resume recorded - it restarts once the cool-off hours have passed.")
+        login.clear(s.data_dir, rest[0], times=True)
+        print(f"{rest[0]}: resume recorded - it restarts once the cool-off hours have passed."
+              + (" A failed sign-in is forgotten: it will try once more the next time it "
+                 "finds the site logged out." if rest[0] in login.FORMS else ""))
     elif cmd == "dump":
         if not rest or rest[0] not in {t.name for t in s.targets}:
             sys.exit(f"dump which target? {', '.join(t.name for t in s.targets)}")

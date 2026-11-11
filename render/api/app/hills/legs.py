@@ -1,10 +1,14 @@
 """The legs a BB Boost bet is logged from: William Hill's own lines on the
-target match, by OddsPapi market and outcome id.
+target match.
 
-Those ids are what /settlements answers in, so a logged bet settles itself
-by lookup (hills/settle.py) — no team names to match, no stats to read.
-Only full-match corners, cards, goals and saves totals and the team corners /
-cards lines are offered, and only half lines (a builder leg never pushes).
+On odds-api.net the source builds them itself (`source.hills_legs`,
+cards/oddsapinet.py): ids "<market key>:<line>" and "Over" / "Under", settled
+from the match's final counts. On OddsPapi they are read here off the sweep's
+boards by OddsPapi market and outcome id, the ids /settlements answers in.
+Either way a logged bet settles itself by lookup (hills/settle.py) — no team
+names to match. Only full-match corners, cards, goals and saves totals and the
+team corners / cards lines are offered (odds-api.net has no saves), and only
+half lines (a builder leg never pushes).
 """
 from ..cards.feed import market_name
 from ..cards.oddspapi import (CARDS, CORNERS, GOALS, SAVES, TEAM_CARDS_AWAY,
@@ -26,7 +30,10 @@ def _label(key: str, side: str, line: float, home: str, away: str) -> str:
 
 def legs_for(source, fixture_id: str, home: str, away: str) -> list[dict]:
     """[{market_id, outcome_id, key, market, side, line, label}] for every line
-    William Hill quotes on the fixture in the source's last sweep."""
+    William Hill quotes on the fixture: the source's own when it builds them
+    (odds-api.net), else off the OddsPapi sweep's last boards."""
+    if hasattr(source, "hills_legs"):
+        return source.hills_legs(fixture_id, home, away)
     fx = (getattr(source, "boards", None) or {}).get(str(fixture_id))
     if not fx:
         return []

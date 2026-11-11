@@ -122,7 +122,10 @@ def build_feed(client, min_edge: float) -> list[CardFeedItem]:
             best_value=max((b.value for b in g["bets"]), default=-1.0),
             bets=g["bets"],
             fairs=g["fairs"],
-            priced_at=getattr(client, "priced_at", None),
+            # Per match where the source can say (odds-api.net fetches each
+            # game on its own); else the source's oldest, as before.
+            priced_at=(client.priced_at_for(g["event_id"]) if hasattr(client, "priced_at_for")
+                       else getattr(client, "priced_at", None)),
         ))
 
     result.sort(key=lambda x: -x.best_value)
@@ -144,8 +147,11 @@ def diagnose(client) -> dict:
     from . import laddered
 
     sweep = dict(getattr(client, "last_sweep", {}) or {})
-    # The fair side comes from OddsPapi on the same fixture id as the book's.
-    oddspapi_fair = str(sweep.get("fair_source", "")).startswith("oddspapi")
+    # A fair side came with the sweep when it names one ("oddspapi:pinnacle",
+    # "odds-api.net:pinnacle"); OddsPapi with ODDSPAPI_FAIR_BOOK blank names none.
+    has_fair = bool(sweep.get("fair_source"))
+    # OddsPapi's own wording, branches and hints are for an OddsPapi sweep only.
+    oddspapi = sweep.get("source") == "oddspapi"
     book = getattr(client, "book", PADDY_POWER)
     name = BOOK_LABELS.get(book, book)
     priced = dict(laddered.LAST_RUNS.get(book) or {})
@@ -157,6 +163,21 @@ def diagnose(client) -> dict:
         )
     elif not sweep:
         verdict = "No sweep has run yet. Open the feed or wait for the 2-minute tick."
+    elif sweep.get("budget_spent"):
+        # odds-api.net only: its page fetches nothing more until the client's
+        # UTC day rolls over, so "Still fetching" would never come true.
+        vendor = sweep.get("source")
+        if (sweep.get("requests_today") or 0) >= (sweep.get("request_budget") or 0):
+            verdict = f"Today's {vendor} credits are spent; prices resume at 00:00 UTC."
+        else:
+            verdict = (f"Today's {vendor} credits for the board are spent (the last "
+                       f"{sweep.get('credit_floor')} are kept for legs and settling); "
+                       f"prices resume at 00:00 UTC.")
+    elif sweep.get("pending", 0) > 0 and sweep.get("carried_paddy_prices", 0) == 0:
+        # A background pass is still fetching the board (odds-api.net): not
+        # "nothing there".
+        verdict = (f"Still fetching {name}'s prices: {sweep['pending']} match(es) to come. "
+                   f"Open the page again in a minute.")
     elif sweep.get("fixtures_in_window", 0) == 0:
         nxt = sweep.get("next_kickoff")
         verdict = (
@@ -166,7 +187,7 @@ def diagnose(client) -> dict:
             + (f"Next listed kickoff: {nxt}. " if nxt else
                "No upcoming fixture is listed in any covered competition. ")
         ).strip()
-    elif sweep.get("carried_paddy_prices", 0) == 0 and any(
+    elif oddspapi and sweep.get("carried_paddy_prices", 0) == 0 and any(
             e.startswith(book) and "FIXTURE_NOT_FOUND" in e for e in sweep.get("errors") or []):
         # OddsPapi answers "no fixtures" for the book across whole competitions:
         # it has no odds of any kind for it, not even the match result. Their
@@ -183,19 +204,21 @@ def diagnose(client) -> dict:
             f"{sweep.get('called')} fixture(s) called and NONE carried {name} "
             f"corners/cards prices. {name} is not posting these markets on "
             f"these fixtures yet."
-            + ("" if book == PADDY_POWER else
+            + ("" if book == PADDY_POWER or not oddspapi else
                f" If that never changes, check the OddsPapi plan covers {book}: "
                f"/oddspapi-check?book={book}.")
         )
-    elif oddspapi_fair and sweep.get("carried_pinnacle_prices", 0) == 0:
-        errs = [e for e in sweep.get("errors") or [] if not e.startswith(book)]
+    elif has_fair and sweep.get("carried_pinnacle_prices", 0) == 0:
+        # OddsPapi fetches each book apart, so a non-book error is Pinnacle's;
+        # an odds-api.net snapshot is both books at once, so it never is.
+        errs = [e for e in sweep.get("errors") or [] if not e.startswith(book)] if oddspapi else []
         verdict = (
             f"{name} priced {sweep.get('carried_paddy_prices')} fixture(s), but "
             f"Pinnacle ({sweep.get('fair_source', '').split(':', 1)[-1]}) came back "
             + (f"with an error: {errs[0][:240]}" if errs else
                "with no corners/cards/goals lines on any of them — nothing to price against.")
         )
-    elif not oddspapi_fair and not priced:
+    elif not has_fair and not priced:
         # No fair side on the sweep AND nothing was ever priced: OddsPapi with
         # the fair book unset.
         verdict = (

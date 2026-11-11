@@ -122,6 +122,13 @@ def create_app(cfg: Settings | None = None, *, allowed_hosts: list[str] | None =
             raise HTTPException(404, f"no latest rows for {target}")
         return out
 
+    @app.get("/api/scraper/log/{target}")
+    def scraper_log(target: str, n: int = 50):
+        try:
+            return scraper_targets.log(cfg, target, n)
+        except scraper_targets.LibraryMissing as exc:
+            raise HTTPException(503, str(exc)) from None
+
     # ---- actions ----------------------------------------------------------------------------------
     def authorise(request: Request, action: str) -> None:
         given = request.headers.get("x-puntmore-token", "")

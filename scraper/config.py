@@ -18,6 +18,7 @@ import pathlib
 import re
 import tomllib
 from dataclasses import dataclass, field
+from datetime import date
 from urllib.parse import urlparse
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -26,6 +27,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 # the tests' fake site. A `generic` target (Finder's sources) may open
 # any host EXCEPT these two: the bookmakers are read only under their own site
 # rules, never under the looser generic budget.
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")   # a target's `days`, in week order
+
 ALLOWED_HOSTS = ("paddypower.com", "bookiebashing.net", "localhost", "127.0.0.1")
 BOOKMAKER_HOSTS = ("paddypower.com", "bookiebashing.net")
 
@@ -68,7 +71,7 @@ class Target:
     every_min: float | None = None      # reload on this interval; None = only when stale
     stale_min: float = 20.0             # reload a page that has gone this quiet
     parser: str | None = None           # name in parsers.PARSERS
-    post: str | None = None             # puntmore path to POST {"prices": rows} to
+    post: str | None = None             # Render route the Hub posts these price rows to (the Scraper only writes it in the drop file)
     matches: Matches | None = None
     mode: str = "keep"                  # keep: page stays open (Paddy/BB) | fetch: load, parse, close
     enabled: bool = True
@@ -85,6 +88,11 @@ class Target:
     # of every_min, and goes first among equals when a site's budget is short.
     near_min: float | None = None
     near_hours: float = 3.0
+    # When the job runs at all (schedule.inactive): only on these `days` (none
+    # = every day), and not after `until` ("YYYY-MM-DD", the last day it runs).
+    # A window past midnight belongs to the day it started.
+    days: tuple[str, ...] = ()
+    until: str | None = None
 
 
 @dataclass(frozen=True)
@@ -94,8 +102,6 @@ class Settings:
     channel: str | None
     alert_webhook: str | None
     healthcheck_url: str | None
-    puntmore_url: str
-    ingest_key: str | None
     capture_mb: float
     targets: list[Target] = field(default_factory=list)
     targets_file: pathlib.Path | None = None   # re-read while running when it changes
@@ -123,9 +129,44 @@ def _priority(name: str, p) -> int:
     return p
 
 
+def _days_refused(name: str, days) -> ValueError:
+    """The one refusal for a bad `days` (targets.py raises it too)."""
+    return ValueError(f"target {name}: days must be a list of {', '.join(WEEKDAYS)} with no repeats, not {days!r}")
+
+
+def _days(name: str, days) -> tuple[str, ...]:
+    """The run days, in the order given; none = every day."""
+    if days is None:
+        return ()
+    if (not isinstance(days, (list, tuple)) or not all(isinstance(d, str) and d in WEEKDAYS for d in days)
+            or len(set(days)) != len(days)):
+        raise _days_refused(name, days)
+    return tuple(days)
+
+
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _until(name: str, until) -> str | None:
+    """The last day the job runs, "YYYY-MM-DD"; none = forever."""
+    if until is None or until == "":
+        return None
+    try:
+        if not isinstance(until, str) or not _DATE.match(until):
+            raise ValueError
+        date.fromisoformat(until)
+    except ValueError:
+        raise ValueError(f"target {name}: until must be a date \"YYYY-MM-DD\", not {until!r}") from None
+    return until
+
+
 def _target(t: dict) -> Target:
+    from .sinks import PRICE_ROUTES
     from .sites import SITES
     name, site, url = t["name"], t["site"], t["url"]
+    post = t.get("post")
+    if post is not None and not (isinstance(post, str) and post.startswith("hub:")) and post not in PRICE_ROUTES:
+        raise ValueError(f"target {name}: post must be \"hub:<channel>\" or one of {', '.join(PRICE_ROUTES)}, not {post!r}")
     if site not in SITES:
         raise ValueError(f"target {name}: unknown site {site!r} (have {', '.join(SITES)})")
     if not host_allowed(url, site):
@@ -151,7 +192,7 @@ def _target(t: dict) -> Target:
         name=name, site=site, url=url,
         every_min=None if every is None else _clamp(float(every), lo=5.0),
         stale_min=_clamp(float(t.get("stale_min", 20.0)), lo=10.0),
-        parser=t.get("parser"), post=t.get("post"), matches=matches,
+        parser=t.get("parser"), post=post, matches=matches,
         mode=mode, enabled=bool(t.get("enabled", True)),
         min_rows=int(_clamp(int(t.get("min_rows", 0)), lo=0)),
         trust_weight=_clamp(float(t.get("trust_weight", 1.0)), 0.0, 1.0),
@@ -160,6 +201,8 @@ def _target(t: dict) -> Target:
         window=_window(name, t.get("window")),
         near_min=None if t.get("near_min") is None else _clamp(float(t["near_min"]), lo=5.0),
         near_hours=_clamp(float(t.get("near_hours", 3.0)), lo=0.5, hi=48.0),
+        days=_days(name, t.get("days")),
+        until=_until(name, t.get("until")),
     )
 
 
@@ -185,8 +228,6 @@ def load() -> Settings:
         channel=os.environ.get("SCRAPER_CHANNEL", "chrome") or None,
         alert_webhook=os.environ.get("SCRAPER_ALERT_WEBHOOK") or None,
         healthcheck_url=os.environ.get("SCRAPER_HEALTHCHECK_URL") or None,
-        puntmore_url=os.environ.get("PUNTMORE_URL") or "https://puntmore.com",
-        ingest_key=os.environ.get("SAVES_INGEST_KEY") or None,
         capture_mb=_clamp(float(os.environ.get("SCRAPER_CAPTURE_MB", 200)), hi=2000.0),
         targets=load_targets(targets_file),
         targets_file=targets_file,

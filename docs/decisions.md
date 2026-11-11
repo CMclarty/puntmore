@@ -43,8 +43,9 @@ names and no other; older names appear only in `docs/retired.md`.
   layer above it: rules, routing and switches for every source's rows (pages
   and the tipster mailbox), driven from the Console's control page; rows go
   from the Scraper service to Scraper control and from there to a board or to
-  HubAI, never from the service straight to a board (the Paddy price posts
-  go direct today and move behind Scraper control as the next Scraper work).
+  HubAI, never from the service straight to a board (Paddy's prices go through
+  Scraper control since 11 Nov 2026: the Scraper service writes them as drop
+  files and the Hub posts them to Render).
   **HubAI**: the Hub's AI, the whole Hermes layer (the chief of staff on
   Telegram and its specialist profiles, one Qwen model under llama-server);
   it judges tips for Finder and may drive Scraper control. **Bet Placer**:
@@ -170,9 +171,18 @@ names and no other; older names appear only in `docs/retired.md`.
   bet value; the Bet Placer reads their three feeds, sizes across all of them,
   runs the phones and keeps the records. Its Console page gets a sizing page.
   (6 Nov 2026, Callum)
-- **OddsPapi is the only odds source.** TheOddsApi is removed entirely, not
-  gated. Goalscorers is parked; if it returns it uses OddsPapi. (5 Nov 2026,
+- **OddsPapi prices Paddy, 2-Up and the coupon tracker; odds-api.net prices
+  Hills.** Callum, 11 Nov 2026: "now we have a provider for william hill odds
+  lets build that out"; "update the planning documents with the 2nd
+  providor"; "Oddspapi is a subscription". odds-api.net is the second odds
+  provider; OddsPapi stays. TheOddsApi stays removed. Goalscorers is parked;
+  if it returns it uses OddsPapi. (5 Nov 2026, Callum; Hills 11 Nov 2026,
   Callum)
+- **Hills has no saves.** Callum, 11 Nov 2026: "Remove saves on hills".
+  (11 Nov 2026, Callum)
+- **Hills shows William Hill's 11.5 corners line**; the 11.5 exclusion is
+  Paddy Power's rule only. Callum, 11 Nov 2026: "add the 11.5 corner lines".
+  (11 Nov 2026, Callum)
 - **365 is one tool**: AccaBonus + 2-Up (+ goalscorers when unparked). The
   `accabonus` grant keeps its name because renaming a grant revokes accounts'
   access. (5 Nov 2026, Callum)
@@ -202,10 +212,14 @@ names and no other; older names appear only in `docs/retired.md`.
   means a 24 h cool-off and a human `resume`; nothing retries. (Oct 2026)
 - **Bookie Bashing is not a Finder source and the 2-Up rescue model is tuned
   against BB's 2-up tracker by hand.** BB's terms ban automated access.
-  **OPEN, Callum to decide:** the Scraper's one existing BB target (`bb-saves`,
-  Paddy's saves fair odds, a kept-open page reloaded every 10 minutes after a
-  person logs in) predates this rule and contradicts it; keep it as the single
-  named exception, or disable it. (raised 5 Nov 2026)
+  **The single named exception is `bb-saves`:** the Scraper's one BB target
+  (Paddy's saves fair odds, a kept-open page reloaded every 10 minutes after
+  the Scraper signs in) predates this rule; it stays, and it runs. (Callum,
+  11 Nov 2026: "reenable the bb scraper"; raised 5 Nov 2026) The Scraper signs
+  in to Bookie Bashing itself with Callum's own login, kept in the Scraper's
+  `.env` (`BB_USERNAME`, `BB_PASSWORD`): one attempt per logout, a failed
+  attempt waits for a person, a challenge is never answered. (Callum, 11 Nov
+  2026: "bb will need to be able to login")
 - **Never guess a tip.** Parsers are written from real pages only; a parser
   that cannot read the page returns nothing and `min_rows` raises the alarm.
 
@@ -239,8 +253,12 @@ names and no other; older names appear only in `docs/retired.md`.
   price (that is the spec, not a retry). Every placement is idempotent on its
   bet id. (spec)
 - **The Scraper's drop files are `hub/PROTOCOL.md` + `hub/schemas/`**: the
-  `scraper_tips` and `scraper_event` envelopes; a change touches the Scraper and
-  the Hub in one pull request. (6 Nov 2026)
+  `scraper_tips`, `scraper_event` and `scraper_prices` envelopes; a change
+  touches the Scraper and the Hub in one pull request. (6 Nov 2026; prices
+  11 Nov 2026)
+- **The Hub checks the Scraper's prices folder every 10 seconds** and posts
+  what it finds to Render on the ingest key. Callum, 11 Nov 2026: "Ten
+  seconds". (11 Nov 2026, Callum)
 
 ## Operating the Hub
 
@@ -250,6 +268,13 @@ names and no other; older names appear only in `docs/retired.md`.
 - **The Console** (`puntmore web`, `http://127.0.0.1:8090`) is how a person
   sees what every Hub sub-component is doing; its actions need a token.
   (5 Nov 2026, Callum)
+- **The Scraper's jobs are a list on the Console's Scraper tab**: one tile per
+  job (a row of `targets.toml`) with its target, its schedule (how often,
+  which days, until when) and its own log. A person on the Console and
+  HubAI's scraper-manager can add, change, pause and remove any of them.
+  (Callum, 11 Nov 2026: "each job is a separate, you know, tile or separate
+  entry with a target, a duration, logs, and then Hermes can manually change
+  or add any of these")
 - **The Scraper service runs as the user service `puntmore-scraper` on the
   desktop session**, data in `/opt/puntmore-scraper/data`, updated by the same
   timer. (5 Nov 2026, Callum)

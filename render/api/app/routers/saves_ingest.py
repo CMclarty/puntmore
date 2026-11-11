@@ -1,7 +1,8 @@
-"""POST /api/paddy/saves-fair — fair goalkeeper-saves prices from the local
-Bookie Bashing scraper (scraper/, target parser `bb_saves`).
+"""POST /api/paddy/saves-fair — fair goalkeeper-saves prices read off Bookie
+Bashing by the Scraper service (scraper/, target parser `bb_saves`), which
+writes them as price drop files; Scraper control on the Hub posts them here.
 
-Key-guarded rather than session-guarded, like /state: the caller is a script
+Key-guarded rather than session-guarded, like /state: the caller is the Hub
 on Callum's PC, not a browser. It writes to a bounded, expiring in-memory store
 (cards/saves.py) and nothing else — no database, no vendor call.
 """

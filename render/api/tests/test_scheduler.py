@@ -426,3 +426,66 @@ def test_the_refresh_loop_stops_pricing_a_played_fixture(db):
     cleanup_kicked_off_legs(db, grace_minutes=30)
     assert refresh_all_live_coupons(provider, notifier=notifier, db=db) == 0
     assert notifier.messages == []
+
+
+# --- Hills: the warmish board's job (Task 5b) ---------------------------------
+
+def test_the_scheduler_adds_hills_warm_only_for_an_odds_api_net_source(monkeypatch):
+    from app.cards.oddsapinet import OddsApiNetHillsSource
+    from app.cards.oddspapi import OddsPapiPaddySource
+    from app.config import settings
+    from app.scheduler import start_scheduler
+    from tests.oan_fixtures import FakeOan
+
+    oan = OddsApiNetHillsSource(FakeOan(), window_hours=168, runner=lambda fn: fn())
+    papi = OddsPapiPaddySource.__new__(OddsPapiPaddySource)    # never touched
+
+    def job(source):
+        s = start_scheduler(odds_provider=None, hills_source=source)
+        try:
+            return s.get_job("hills_warm")
+        finally:
+            s.shutdown(wait=False)
+
+    got = job(oan)
+    assert got is not None and got.trigger.interval.total_seconds() == 600
+    assert got.kwargs == {"source": oan}
+    assert job(None) is None
+    assert job(papi) is None
+    monkeypatch.setattr(settings, "oddsapinet_warm_every_min", 0)
+    assert job(oan) is None
+
+
+def test_a_warm_that_raises_is_logged_not_raised(caplog):
+    import logging
+    from app.scheduler import warm_hills
+
+    class Boom:
+        def warm(self):
+            raise RuntimeError("boom")
+
+    with caplog.at_level(logging.ERROR, logger="uvicorn.error"):
+        assert warm_hills(Boom()) is None
+    assert "Hills warm failed" in caplog.text and "boom" in caplog.text
+
+
+def test_the_warm_job_returns_what_the_warm_did():
+    from app.scheduler import warm_hills
+
+    class Src:
+        def warm(self):
+            return {"due": 3, "fetched": 2, "skipped": None}
+
+    assert warm_hills(Src()) == {"due": 3, "fetched": 2, "skipped": None}
+
+
+def test_main_hands_the_scheduler_only_an_odds_api_net_source():
+    from app.cards.oddsapinet import OddsApiNetHillsSource
+    from app.cards.oddspapi import OddsPapiPaddySource
+    from app.main import _warmable
+    from tests.oan_fixtures import FakeOan
+
+    oan = OddsApiNetHillsSource(FakeOan(), window_hours=168)
+    assert _warmable(oan) is oan
+    assert _warmable(OddsPapiPaddySource.__new__(OddsPapiPaddySource)) is None
+    assert _warmable(None) is None

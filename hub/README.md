@@ -2,17 +2,18 @@
 
 The Hub is Callum's box and the one program on it. Its page loads are the Scraper service's
 (`scraper/`); this directory is the rest: Scraper control's intake (the daemon's inbox of the
-Scraper's drop files and its tipster-mailbox poll), HubAI's side (escalations and the Finder CLI),
-the placement engine the Bet Placer starts from (`docs/placer-spec.md`), and the Console. Read
-`docs/decisions.md` first; it wins over this file.
+Scraper's drop files, posting the Scraper's Paddy prices to Render, and its tipster-mailbox
+poll), HubAI's side (escalations and the Finder CLI), the placement engine the Bet Placer starts
+from (`docs/placer-spec.md`), and the Console. Read `docs/decisions.md` first; it wins over this
+file.
 
 ```
 Render (render/, cloud)                  Hub (hub/ + scraper/)
 ───────────────────────                  ──────────────────────────────────────────────
-Paddy board  ◄── POST /api/paddy/* ───── Scraper service (scraper/): one real Chrome, every page
-                                           │ drop files (PROTOCOL.md)
+                                         Scraper service (scraper/): one real Chrome, every page
+                                           │ drop files (PROTOCOL.md): tips, events, prices
                                            ▼
-                                         Scraper control: hub/ daemon (inbox + mailbox), targets.py
+Paddy board  ◄── POST /api/paddy/* ───── Scraper control: hub/ daemon (inbox + mailbox), targets.py
                                            │ tips (hub.sqlite), escalations
                                            ▼
 Finder board ◄── POST /api/finder/rows ── HubAI (Hermes): judges tips, takes escalations
@@ -25,8 +26,8 @@ Finder board ◄── placed | gone ────────── Bet Placer
 ```
 puntmore_hub/
   config.py        settings from .env; nothing hard-coded
-  daemon.py        `puntmore daemon`: the inbox pass every 30 s, the mailbox poll on its own thread
-  inbox.py         the Scraper's drop files (tips, events) -> stored tips for HubAI, escalations
+  daemon.py        `puntmore daemon`: the inbox pass every 30 s, the price drops every 10 s, the mailbox poll on its own thread
+  inbox.py         the Scraper's drop files: tips, events -> stored tips for HubAI, escalations; prices -> Render
   mail.py          the tipster mailbox (IMAP) -> the same stored tips and escalations, through inbox.ingest_rows
   tipsters/        one parser per email tipster (PARSERS), named in data/tipsters.toml
   finder.py        Finder: the tips HubAI has not posted; its rows and the Bet Placer's status to Render over HTTPS
@@ -38,7 +39,7 @@ puntmore_hub/
   update.py        self-update: fast-forward to origin/main, reinstall, restart (`puntmore update`)
   cli.py           `puntmore ...`
   web/             the Console (`puntmore web`): one page, every part's state, the kill switch
-PROTOCOL.md        the Scraper's drop files; schemas/ holds their JSON Schema and two examples
+PROTOCOL.md        the Scraper's drop files; schemas/ holds their JSON Schema and three examples
 deploy/update.sh   thin wrapper around `puntmore update`, run by the update timer
 deploy/systemd/    the daemon (puntmore-link.service), 09:00 heartbeat timer, 10-minute update timer, the Console
 deploy/hermes-skills/  the Scraper-ops runbook HubAI's scraper-manager follows (`puntmore update` copies it into that profile)
@@ -47,7 +48,7 @@ data/              runtime state (git-ignored): hub.sqlite, KILL, tipsters.toml,
 
 ## The Scraper's drop files
 The Scraper service is the only thing on the Hub that loads a page: Paddy Power pages kept open
-(and one Bookie Bashing page, `bb-saves`, an open item for Callum in the register), and Finder's
+(and one Bookie Bashing page, `bb-saves`, the register's single named exception), and Finder's
 sources as `generic` targets that are loaded, parsed and closed, all under one Chrome, one guard
 and one alert path. For a Finder target it writes one JSON file per run into
 `<scraper data>/hub/tips/` and, when something needs a decision, one into
@@ -58,6 +59,19 @@ for HubAI: a source escalation goes to the `scraper-manager` profile
 reads the Scraper's heartbeat and `status.json` from the same directory (`PUNTMORE_SCRAPER_DATA`,
 the native service's `/opt/puntmore-scraper/data`; the old name `PUNTMORE_WORKER_DATA` is still
 read; on a box with no screen, the container's volume).
+
+Paddy's prices are drop files too. For a target whose `post` is a Paddy route
+(`/api/paddy/most-prices`, `/api/paddy/saves-fair`) the Scraper writes one `scraper_prices` file
+per parse of each tab into `<scraper data>/hub/prices/`. The inbox posts each one to Render as
+`{"prices": rows}` on that route (`inbox.post_prices`, with Finder's `PUNTMORE_RENDER_HTTP` and
+`PUNTMORE_RENDER_API_KEY`), oldest first, and moves it to `done/prices/`. The
+daemon checks the folder every 10 s, so a price reaches Render within about 10 s of the parse;
+`puntmore inbox` posts them too. While Render is down or the key is not set, the files wait in
+order for the next pass; a refused file or a broken one is moved aside and logged, and a file
+older than 15 min is moved aside unsent, so an old price never reaches the board as a fresh one.
+The full table is in `PROTOCOL.md`, "Prices: what the Hub does with them"; the Console's Daemon
+card warns while drops wait and when the last pass that handled one moved any aside, with the
+reason (Render's HTTP status, no key, a network error, a broken file, the 15 min cut-off).
 
 ## Tipster emails
 Finder's email tipsters arrive in one dedicated mailbox that the Hub polls over IMAP with SSL (`PUNTMORE_IMAP_HOST`, `_PORT` 993, `_USER`, `_PASSWORD`, `_FOLDER` INBOX, `_EVERY_MIN` 10); a blank host means not configured. Render never polls a mailbox and the Scraper never reads one. Which senders are tipsters is `data/tipsters.toml` (copy `tipsters.example.toml`; `PUNTMORE_TIPSTERS_FILE` points elsewhere): a `name` (the source id HubAI sees), a `from` rule (an address, or a domain suffix, matched case-insensitively), a `parser` in `puntmore_hub/tipsters/` with the same row contract as the Scraper's parsers, a `trust_weight` and an `enabled` flag; it is validated and re-read every poll, and a file that will not load is reported and that poll does nothing. `puntmore mail` (run by the daemon on its own thread) fetches the messages the mailbox has not shown us (`UNSEEN`, then flagged), skips any whose Message-ID the `mail_seen` table already holds, hands each message from a tipster to its parser, mints the `tip_id` there, at first sight, and stores the rows down the inbox's own path (`inbox.ingest_rows`), so a mail tip is a tip like any other on its way to HubAI and Finder. A parser that reads zero rows or raises is an `unhealthy_source` escalation for that tipster (subject and error, never the body); mail from no configured tipster is ignored and counted; a mailbox that cannot be reached is one de-duplicated alert and the poll stops. `puntmore mail --dry-run` prints what the parsers would store and changes nothing, not even the mailbox flags. Each poll writes `data/mail-status.json`, which `puntmore status` shows and `puntmore health` judges (unhealthy if the last poll errored or is older than three intervals while a host is configured).
@@ -79,7 +93,7 @@ HubAI's contract (the spec's step 2, which Callum tightens in use): **offer** wh
 
 Examples: `football:2026-11-07:manchester-united-v-tottenham-hotspur`, `horse:2026-11-07:cheltenham:13:30`. A key spelt two ways makes a duplicate look like a new bet, so this is the part of the contract to get right; leave `event_id` out of an asked row that has no day and time.
 
-Env: `PUNTMORE_RENDER_HTTP` (the https base of Render) and `PUNTMORE_RENDER_API_KEY`, a Render API client key carrying `ingest` (in Render's shell: `python -m app.apikeys create <name> --tools ingest`), sent as a Bearer key.
+Env: `PUNTMORE_RENDER_HTTP` (the https base of Render) and `PUNTMORE_RENDER_API_KEY`, a Render API client key carrying `ingest` (in Render's shell: `python -m app.apikeys create <name> --tools ingest`), sent as a Bearer key. The inbox posts the Scraper's Paddy prices with the same two settings.
 
 ## Setup (from `hub/`)
 ```bash
@@ -97,7 +111,7 @@ systemctl --user enable --now puntmore-link puntmore-heartbeat.timer puntmore-up
 ## Everyday commands
 ```
 puntmore status                      one screen: mode, the Scraper's targets and their state
-puntmore inbox                       one pass over the drop files
+puntmore inbox                       one pass over the drop files: tips, events, then posts waiting price drops
 puntmore mail [--dry-run]            one poll of the tipster mailbox (--dry-run: what the parsers read, nothing stored)
 puntmore health                      exit 1 if the Scraper is down, a source is blocked or unhealthy, or an escalation is open
 puntmore kill on|off|status          the kill switch (a file: data/KILL)
@@ -108,7 +122,7 @@ puntmore finder post FILE|-          POST HubAI's rows (a JSON list) to Render's
 puntmore finder skip TIP [--reason T] a tip HubAI cannot post: skipped, so `finder new` moves on
 puntmore finder status TIP placed|gone  the Bet Placer's report on an offered row
 puntmore heartbeat                   the daily summary, on demand
-puntmore daemon                      the daemon: the inbox every 30 s and the mailbox poll (`puntmore link` is the same command)
+puntmore daemon                      the daemon: the inbox every 30 s, the price drops every 10 s, and the mailbox poll (`puntmore link` is the same command)
 puntmore web                         the Console on PUNTMORE_WEB_BIND (default http://127.0.0.1:8090)
 puntmore update [--dry-run|--check]  fast-forward to origin/main, reinstall, restart (deploy/update.sh)
 python -m scraper status|dump|resume the Scraper's own commands, from scraper/
@@ -126,7 +140,7 @@ systemctl --user enable --now puntmore-web
 
 **Actions** are POSTs that need the header `X-Puntmore-Token` equal to `PUNTMORE_WEB_TOKEN` (type it into the Token box on the page; that browser remembers it). With the token blank every action answers 403 and the buttons are greyed out; the read-only views still work. The actions are exactly: kill switch on (one click, any time); kill switch off (type `OFF` to confirm; only Callum turns it off); resolve an escalation with an outcome; one inbox pass; heartbeat now; and the Scraper tab's target edits (below). Nothing else: no Scraper commands (`resume` stays the Scraper's own CLI), no placement triggers, no `.env` writes. Every action, done or refused, is a line in `data/console-actions.log`.
 
-**The Scraper tab** is the one place a person changes what the Scraper loads and how often. Its table is `scraper.targets.summary()` over `<PUNTMORE_SCRAPER_DATA>/targets.toml` and `status.json`: every target (disabled ones muted) with its site, mode, `every_min`, `stale_min`, the kick-off sweep (`near_min` in the last `near_hours`) and its next kick-off, priority, window, parser and post, and the Scraper's last word on it (state, last ok, next due, rows, detail). "Next due" is last load + `every_min`, approximate because the Scraper jitters each reload ×0.75–1.35; a target with no `every_min` reloads when its page has been quiet for `stale_min`. Per row: enable / disable, edit (`every_min`, `stale_min`, `near_min`, `near_hours`, `priority`, `window`, `min_rows`, `trust_weight`, `wait_for`, `url`; blank clears to the default) and remove (type the name to confirm); below, an "Add target" form with the fields of `targets add` (site `paddypower`, `bookiebashing` or `generic`; added disabled unless "enabled now" is ticked). Every write is a POST under the token rule, logged like the others: `/api/actions/scraper/targets/add`, `…/<name>/set`, `…/<name>/enable`, `…/<name>/disable`, `…/<name>/remove` (body `{"confirm": "<name>"}`). Each one is `scraper/targets.py`'s own function, so the rules are the CLI's: a refusal (a frequency below the floor, a bookmaker host on a generic target) is the library's message, shown beside the field, and nothing is written; the library's lock held by HubAI or the CLI answers 409 "being changed by something else", try again. After a write the tab re-reads at once; the Scraper applies the change within 60 s. No targets file yet shows an empty table and the add form (the first add creates it). Under it, the site budgets from `status.json` (loads this hour and today, cool-off, needs resume) are read-only, with the exact `python -m scraper resume <site>` command to run on the Hub when one needs it. On a phone (under 700 px) the tables become one card per row.
+**The Scraper tab** is the one place a person changes what the Scraper loads and how often. It shows one tile per job, from `scraper.targets.summary()` over `<PUNTMORE_SCRAPER_DATA>/targets.toml` and `status.json` (disabled ones muted): the name (tap it for the rows of its `latest/<name>.json`) and its state, then its site and url, its schedule in words (`every 15 min · Fri, Sat · all day · until 30 Nov 2026`), its state and the Scraper's detail, last load, last read and rows sent, and the newest 5 lines of its log (`<data>/logs/<name>.log`, times local, with the weekday on a line not from today). "all lines" opens the newest 200 in that tile (`GET /api/scraper/log/<name>?n=200`), read again each time the tab refreshes (a failed read keeps the last lines and says why above the tiles); "fewer lines" closes it back to the 5. Per tile: enable / disable, edit (`every_min`, `stale_min`, `near_min`, `near_hours`, `priority`, `window`, the run days (none ticked is every day), an end date `until`, `min_rows`, `trust_weight`, `wait_for`, `url`; blank clears to the default) and remove (type the name to confirm, which also deletes its log); below, an "Add target" form with the fields of `targets add` (site `paddypower`, `bookiebashing` or `generic`; run days and an end date as in the edit form; added disabled unless "enabled now" is ticked). Every write is a POST under the token rule, logged like the others: `/api/actions/scraper/targets/add`, `…/<name>/set`, `…/<name>/enable`, `…/<name>/disable`, `…/<name>/remove` (body `{"confirm": "<name>"}`). Each one is `scraper/targets.py`'s own function, so the rules are the CLI's: a refusal (a frequency below the floor, a bookmaker host on a generic target) is the library's message, shown beside the field, and nothing is written; the library's lock held by HubAI or the CLI answers 409 "being changed by something else", try again. After a write the tab re-reads at once; the Scraper applies the change within 60 s. No targets file yet shows no tiles and the add form (the first add creates it). Under it, the site budgets from `status.json` (loads this hour and today, cool-off, needs resume) are read-only, with the exact `python -m scraper resume <site>` command to run on the Hub when one needs it. On a phone (under 700 px) the tiles stack one per row and the tables become one card per row.
 
 `scraper` is not an installed package: the console imports `scraper.targets` from `PUNTMORE_SCRAPER_SRC` (the directory holding `scraper/`; blank = the repo this `hub/` is in, so the console and the library are always the same commit). It uses an importable `scraper` if there is one (`PYTHONPATH=.` from the repo root) and otherwise loads the package by file location, without touching `sys.path`.
 

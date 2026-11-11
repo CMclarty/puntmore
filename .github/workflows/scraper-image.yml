@@ -21,7 +21,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r scraper/requirements.txt -r scraper/requirements-dev.txt
-      - run: python -m playwright install --with-deps chromium
+      # No --with-deps: the runner image already has every library Chromium
+      # needs; --with-deps only adds nine font packages from Ubuntu's mirrors,
+      # and when the runner cannot reach them the step fails before any test.
+      - run: python -m playwright install chromium
       - run: python -m pytest scraper/tests -q
 
   image:

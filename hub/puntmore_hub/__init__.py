@@ -8,7 +8,7 @@ starts from, and the Console. Render serves the boards and never loads a bookmak
 Modules:
     config      settings from env / .env, nothing hard-coded
     daemon      `puntmore daemon`: the inbox pass and the mailbox poll, no socket
-    inbox       ingests the Scraper's drop files (tips and events)
+    inbox       ingests the Scraper's drop files (tips, events and prices; prices go on to Render)
     mail        polls the tipster mailbox
     finder      the tips HubAI judges and posts to Finder on Render
     schemas     the drop files' types, the tip, and the placement engine's bet and report

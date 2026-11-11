@@ -1,4 +1,4 @@
-"""Today's 2-up candidates from OddsPapi — the only odds source.
+"""Today's 2-up candidates from OddsPapi, which prices 2-Up, Paddy and the coupon tracker.
 
 Per refresh: for each chunk of the qualifying competitions
 (`twoup_tournament_ids`, `oddspapi_tournaments_per_request` a request), ONE
