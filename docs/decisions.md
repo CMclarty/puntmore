@@ -264,6 +264,13 @@ names and no other; older names appear only in `docs/retired.md`.
 - **The Console** (`puntmore web`, `http://127.0.0.1:8090`) is how a person
   sees what every Hub sub-component is doing; its actions need a token.
   (5 Nov 2026, Callum)
+- **The Scraper's jobs are a list on the Console's Scraper tab**: one tile per
+  job (a row of `targets.toml`) with its target, its schedule (how often,
+  which days, until when) and its own log. A person on the Console and
+  HubAI's scraper-manager can add, change, pause and remove any of them.
+  (Callum, 11 Nov 2026: "each job is a separate, you know, tile or separate
+  entry with a target, a duration, logs, and then Hermes can manually change
+  or add any of these")
 - **The Scraper service runs as the user service `puntmore-scraper` on the
   desktop session**, data in `/opt/puntmore-scraper/data`, updated by the same
   timer. (5 Nov 2026, Callum)
