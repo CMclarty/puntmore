@@ -456,10 +456,24 @@ def leg_result(counts: dict, market_id: str, outcome_id: str) -> str | None:
 LISTING_TTL = 600        # s the /events listing is reused (a failed one is held as long)
 FAILURE_HOLD = 600       # s an event whose snapshot failed is not asked again
 LISTING_PAGES = 3        # /events pages followed at most
+RATE_HOLD = 60           # s every fetch waits after a 429 naming no usable Retry-After
+RATE_HOLD_MAX = 600      # s at most, whatever Retry-After says
 FLOOR_REACHED = ("daily credit budget spent for the board: the last {floor} are kept "
                  "for legs and settling")
 SNAPSHOT_PARAMS = {"bookmakers": f"{WILLIAM_HILL},{PINNACLE}", "price_fields": "odds",
                    "types": "total,team total,handicap", "periods": "full time"}
+
+
+def rate_hold_seconds(retry_after) -> float:
+    """How long a 429 holds every fetch: its Retry-After, capped at
+    RATE_HOLD_MAX; RATE_HOLD when it is missing, not finite or negative."""
+    try:
+        wait = float(retry_after)
+    except (TypeError, ValueError):
+        return RATE_HOLD
+    if not math.isfinite(wait) or wait < 0:
+        return RATE_HOLD
+    return min(wait, RATE_HOLD_MAX)
 
 
 def _iso(when: datetime) -> str:
@@ -492,7 +506,11 @@ class OddsApiNetHillsSource:
     older than the vendor's own refresh interval (`snapshot_ttl`), and not
     held after a failure. Nearest kick-off first, `max_per_pass` a pass. A
     failed snapshot is held FAILURE_HOLD (billed, so not re-sent each page
-    load); a spent budget or a 429 ends the pass and holds nothing. Every pass
+    load); a spent budget or a 429 ends the pass and holds no game, and a 429
+    holds EVERY fetch (listing, pass, warm, target, results) for its
+    Retry-After (`rate_hold_seconds`), serving the boards held. The page's
+    pass, the listing and the warm job send nothing once `floor` credits or
+    fewer are left today; only legs and results spend below it. Every pass
     drops boards whose game is no longer listed, so the boards are bounded by
     the window. Only parsed lines are kept, never a response."""
 
@@ -533,6 +551,7 @@ class OddsApiNetHillsSource:
         self._held: dict[str, float] = {}        # board key -> mono its hold ends
         self._pass_errors: list[str] = []
         self._pass_failed = 0
+        self._rate_held_until: float | None = None   # mono a 429's hold ends
         self.fixtures: list[dict] = []
         self.boards: dict[str, SnapshotLines] = {}
         self.last_sweep: dict = {}
@@ -550,7 +569,8 @@ class OddsApiNetHillsSource:
             # Pruned here too, not only by a pass: a listing that dropped a
             # game needs no pass for its board to go.
             self._prune()
-            start = bool(page_may_spend and self._due() and not self._refreshing)
+            start = bool(page_may_spend and not self._rate_held()
+                         and self._due() and not self._refreshing)
             self._summarise()
             # Set only once nothing here can raise, so a failure above never
             # leaves the source "busy" with no pass to clear it.
@@ -606,13 +626,14 @@ class OddsApiNetHillsSource:
     def _target_board(self, key: str) -> SnapshotLines | None:
         with self._lock:
             board = self.boards.get(key)
-            if self._fresh(key) or self._held_now(key):
+            if self._fresh(key) or self._held_now(key) or self._rate_held():
                 return board
         event_id = key[len(OAN_PREFIX):]
         try:
             lines = parse_snapshot(self._client.get(f"/events/{event_id}/odds/snapshot",
                                                     **SNAPSHOT_PARAMS))
         except (BudgetSpent, RateLimited) as exc:
+            self._note_rate_limit(exc)
             logger.warning("hills (odds-api.net): target board %s not fetched: %s", event_id, exc)
             return board
         except Exception as exc:
@@ -634,7 +655,14 @@ class OddsApiNetHillsSource:
         call (settle.check logs it and waits for the next window)."""
         if not self.owns_fixture(fixture_id):
             return {}
-        body = self._client.get(f"/events/{str(fixture_id)[len(OAN_PREFIX):]}/results")
+        with self._lock:
+            if self._rate_held():
+                raise RateLimited("odds-api.net: held after a 429; results not asked")
+        try:
+            body = self._client.get(f"/events/{str(fixture_id)[len(OAN_PREFIX):]}/results")
+        except RateLimited as exc:
+            self._note_rate_limit(exc)
+            raise
         counts = results_counts(body)
         if counts is None:
             return {}
@@ -659,6 +687,9 @@ class OddsApiNetHillsSource:
                 return
             if not self._page_may_spend():
                 return                   # the last credits are for legs and settling
+            with self._lock:
+                if self._rate_held():
+                    return               # asked again once the 429's hold ends
             self._listed_at = mono
             now = self._now()
             params = {"sport": "soccer", "start_from": int(now.timestamp()),
@@ -681,6 +712,7 @@ class OddsApiNetHillsSource:
             except Exception as exc:
                 # Keep the last listing; the failure is held like a good one,
                 # since a failed call is billed too.
+                self._note_rate_limit(exc)
                 logger.warning("hills (odds-api.net): listing failed: %s", exc)
                 with self._lock:
                     self._listing_error = f"listing: {exc}"
@@ -703,6 +735,20 @@ class OddsApiNetHillsSource:
 
     def _held_now(self, key: str) -> bool:
         return self._held.get(key, float("-inf")) > self._mono()
+
+    def _rate_held(self) -> bool:
+        """True while a 429's hold runs: nothing is sent, so nothing is billed.
+        Called under `_lock`."""
+        return self._rate_held_until is not None and self._mono() < self._rate_held_until
+
+    def _note_rate_limit(self, exc: Exception) -> None:
+        """A 429 holds every fetch (page pass, listing, warm, target, results)
+        for its Retry-After (`rate_hold_seconds`). Anything else: no-op."""
+        if not isinstance(exc, RateLimited):
+            return
+        with self._lock:
+            until = self._mono() + rate_hold_seconds(exc.retry_after)
+            self._rate_held_until = max(until, self._rate_held_until or until)
 
     def _page_fresh(self, listing: Listing) -> bool:
         """The page's reuse rule: the vendor's refresh interval (`snapshot_ttl`),
@@ -745,6 +791,8 @@ class OddsApiNetHillsSource:
         with self._lock:
             if self._refreshing:
                 return skipped("busy")
+            if self._rate_held():
+                return skipped("held")
         if self._client.budget_left() < reserve:
             return skipped("reserve")
         self._refresh_listing()
@@ -807,13 +855,20 @@ class OddsApiNetHillsSource:
                 if not self._page_may_spend():
                     errors.append(FLOOR_REACHED.format(floor=self.floor))
                     break
+                with self._lock:
+                    held = self._rate_held()
+                if held:
+                    errors.append("held after a 429")
+                    break
                 try:
                     body = self._client.get(f"/events/{listing.event_id}/odds/snapshot",
                                             **SNAPSHOT_PARAMS)
                     lines = parse_snapshot(body)
                 except (BudgetSpent, RateLimited) as exc:
                     # Nothing sent past here would be answered: end the pass,
-                    # hold nothing (the games are still pending).
+                    # hold no game (they are still pending); a 429 holds
+                    # every fetch for its Retry-After.
+                    self._note_rate_limit(exc)
                     errors.append(str(exc))
                     failed += 1
                     break

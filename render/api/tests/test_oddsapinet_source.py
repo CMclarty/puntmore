@@ -568,3 +568,76 @@ def test_warm_fetches_an_incomplete_board_again_after_120_s():
     fake.calls.clear()
     assert src.warm()["fetched"] == 1
     assert snapshots(fake) == ["/events/901/odds/snapshot"]
+
+
+# --- a 429 holds every fetch until Retry-After (final review, H) --------------
+
+def _limited(retry_after):
+    return RateLimited("odds-api.net /events/4229698994/odds/snapshot: HTTP 429", retry_after)
+
+
+def test_a_page_load_inside_the_429_hold_sends_nothing_and_after_it_does():
+    r = routes()
+    r[ARM] = _limited(120.0)
+    src, fake, clock = make(FakeOan(r))
+    src.get_events()
+    assert paths(fake) == ["/events", ARM]
+    fake.routes[ARM] = routes()[ARM]
+    clock.advance(119); src.get_events()
+    assert paths(fake) == ["/events", ARM]          # held: no request, so none billed
+    assert src.last_sweep["pending"] == 2
+    clock.advance(2); src.get_events()
+    assert paths(fake)[2:] == [ARM, ENG]
+
+
+@pytest.mark.parametrize("retry_after", [None, float("nan"), float("inf"), -5.0])
+def test_a_missing_or_unusable_retry_after_holds_60_s(retry_after):
+    r = routes()
+    r[ARM] = _limited(retry_after)
+    src, fake, clock = make(FakeOan(r))
+    src.get_events()
+    fake.routes[ARM] = routes()[ARM]
+    clock.advance(59); src.get_events()
+    assert len(fake.calls) == 2
+    clock.advance(2); src.get_events()
+    assert len(fake.calls) == 4
+
+
+def test_the_429_hold_is_capped_at_600_s():
+    r = routes()
+    r[ARM] = _limited(86400.0)
+    src, fake, clock = make(FakeOan(r))
+    src.get_events()
+    fake.routes[ARM] = routes()[ARM]
+    clock.advance(599); src.get_events()
+    assert len(fake.calls) == 2
+    clock.advance(2); src.get_events()
+    assert ARM in paths(fake)[2:]
+
+
+def test_the_hold_covers_the_target_the_warm_job_and_results():
+    src, fake, clock = make()
+    src.get_events()
+    fake.routes[ENG] = _limited(300.0)
+    clock.advance(3601)                            # England's board is due
+    assert src.hills_legs("oan:1417142635", "England", "Croatia")   # the held board's legs
+    fake.calls.clear()
+    fake.routes[ENG] = routes()[ENG]
+    assert src.hills_legs("oan:1417142635", "England", "Croatia")
+    assert src.warm() == {"due": 0, "fetched": 0, "skipped": "held"}
+    with pytest.raises(RateLimited):
+        src.leg_results("oan:1595650036", [("alternate_totals_corners:9.5", "Under")])
+    src.get_events()
+    assert fake.calls == []
+    clock.advance(301)
+    src.hills_legs("oan:1417142635", "England", "Croatia")
+    assert paths(fake) == [ENG]
+
+
+def test_a_429_on_the_listing_holds_the_snapshots_too():
+    src, fake, clock = make()
+    fake.routes["/events"] = RateLimited("odds-api.net /events: HTTP 429", 30.0)
+    src.get_events()
+    assert paths(fake) == ["/events"]
+    assert src.hills_legs("oan:1417142635", "England", "Croatia") == []
+    assert paths(fake) == ["/events"]
