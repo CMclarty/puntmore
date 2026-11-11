@@ -7,10 +7,15 @@ Hub's inbox, as drop files: `hub/PROTOCOL.md`) and from there to a board or to H
 prices are `scraper_prices` files that the Hub posts to Render.
 
 ## Boundaries (agreed; keep them)
-- It detects challenges and logouts and **stops**. It never answers a check, never types a
-  password, and never fakes a fingerprint. No proxies or IP rotation, no clicking through menus
-  to look human, and no other ways to avoid detection. If Paddy blocks the Hub, the answer is to
-  slow down or get the data another way, not to work around the block.
+- It detects challenges and logouts and **stops** (a Bookie Bashing logout after one sign-in,
+  below). It never answers a check and never fakes a fingerprint. It types one login only:
+  Bookie Bashing's, Callum's own, from the Scraper's `.env` (`BB_USERNAME`, `BB_PASSWORD`;
+  Callum, 11 Nov 2026), once per logout, with plain fill and click (`login.py`). A failed
+  sign-in waits for a person or `resume bookiebashing`; a person is needed only then or for a
+  challenge. The password is never written anywhere, and the capture never keeps the sign-in's
+  own response. No proxies or IP rotation, no clicking through menus to look human, and no other
+  ways to avoid detection. If Paddy blocks the Hub, the answer is to slow down or get the data
+  another way, not to work around the block.
 - One agreed exception (Callum, 26 Oct 2026): Chrome is started as a person's Chrome, without
   Playwright's `--enable-automation` test flag and with AutomationControlled off. Nothing else
   about the browser is changed or overridden.
@@ -43,8 +48,11 @@ prices are `scraper_prices` files that the Hub posts to Render.
 - `sites.py` - per-site rules in code: budgets, quiet hours, what a block means.
 - `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite).
 - `browser.py` - the one Chrome: launch, block/logout detection, clicks.
-- `capture.py` / `alerts.py` - what a page receives (and its disk samples) /
-  the alert webhook and log.
+- `login.py` - Bookie Bashing's login form, the login from `.env`, one sign-in
+  per logout on the page already open, and `data/login.json` (the last
+  attempt failed: nothing is tried again until logged in or `resume`).
+- `capture.py` / `alerts.py` - what a page receives (and its disk samples;
+  never the sign-in's own response) / the alert webhook and log.
 
 ## Rules
 - **Finder's sources are Scraper targets** (5 Nov 2026, Callum: one Chrome,
@@ -87,9 +95,11 @@ prices are `scraper_prices` files that the Hub posts to Render.
   (`sites.py`: budgets, Paddy quiet hours 01-07, a Paddy block = every Paddy
   page closed + 24 h cool-off needing `resume`) — no config edit can loosen it.
   It detects challenges and logouts (also on an already-open page: 3+
-  refusals in 10 min, Cloudflare, logout) and never answers them — no
+  refusals in 10 min, Cloudflare, logout) and never answers a challenge — no
   fingerprint spoofing, no solvers, no proxies, no user-agent or navigator
-  overrides; do not add any. Chrome is configured coherently, as a person's
+  overrides; do not add any. A Bookie Bashing logout is the one thing it
+  answers, by signing in once with the login in `.env` (`login.py`). Chrome
+  is configured coherently, as a person's
   Chrome: the one departure from Playwright's defaults is that its
   `--enable-automation` test flag is not passed and AutomationControlled is
   off (Callum's decision, 26 Oct 2026 — `navigator.webdriver` false, no

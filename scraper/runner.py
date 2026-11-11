@@ -43,6 +43,7 @@ from urllib.parse import urlparse
 from . import browser
 from . import config
 from . import joblog
+from . import login
 from . import schedule
 from .capture import Capture, DiskBudget
 from .config import host_allowed
@@ -138,6 +139,7 @@ class Runner:
         # window now (so a flip is acted on once, not every tick).
         self.next_kickoff: dict[str, float] = {}
         self.near: set[str] = set()
+        self.login_pending: dict[str, float] = {}      # site -> when a sign-in was sent (login.py)
 
     # --- site-wide state ----------------------------------------------------
     def _paused(self, site, now) -> str | None:
@@ -179,7 +181,13 @@ class Runner:
             return
         if reason != st.blocked_for:
             where_to = "over VNC" if browser.in_container() else "on the Hub's screen"
-            self.alerts.send(f"{site}: {reason}{where} - needs you {where_to}. Backing off.", image)
+            note = login.failed(self.s.data_dir, site) if reason == "logged out" else None
+            if note:
+                self.alerts.send(f"{site}: {reason}{where} - signing in failed ({note.get('why')}). "
+                                 f"Not trying again until you log in {where_to} or run "
+                                 f"`resume {site}`. Backing off.", image)
+            else:
+                self.alerts.send(f"{site}: {reason}{where} - needs you {where_to}. Backing off.", image)
         st.blocked_for = reason
         st.retry_at = now + st.backoff * 60 * random.uniform(0.9, 1.2)
         st.backoff = min(st.backoff * 2, BACKOFF_MIN[1])
@@ -216,6 +224,12 @@ class Runner:
                 if reason is None:
                     continue
                 bad = True
+                # Signing in: only the tool url's reload says if it took. The
+                # page the form was sent from still reads as logged out (Bookie
+                # Bashing's form lands back on its /how-it-works page).
+                if reason == "logged out" and (site in self.login_pending
+                                               or self._try_login(site, tab, now)):
+                    break
                 if not rules.block_means_cooloff and st.blocked_for == reason:
                     break                       # already said; backing off
                 self._on_blocked(site, reason, now, tab)
@@ -243,6 +257,39 @@ class Runner:
         if st.blocked_for:
             self.alerts.send(f"{site}: clear again ({st.blocked_for} sorted).")
         st.blocked_for, st.backoff, st.retry_at = None, BACKOFF_MIN[0], 0.0
+        if SITES[site].needs_login:             # logged in: a failed sign-in is forgotten
+            pending = self.login_pending.pop(site, None)
+            login.clear(self.s.data_dir, site)
+            if pending is not None:
+                for name in sorted({t.target.name for t in self.tabs.values() if t.target.site == site}):
+                    self._say(name, "signed in")
+
+    def _try_login(self, site, tab, now) -> bool:
+        """A needs_login page found logged out: sign in on it (login.py), once
+        per logout. True when the form was sent: the logout is not reported and
+        the tab's own url is due again at once, through the guard and the
+        spacing; that reload is the read that says whether it took. False when
+        there is no login in .env, when the last attempt failed (until the site
+        is seen logged in or `resume`), or when this attempt failed - and then
+        the logout is reported as today, its alert saying the sign-in failed."""
+        creds = login.credentials(site)
+        if creds is None or login.failed(self.s.data_dir, site):
+            return False
+        if site in self.login_pending:          # sent last time, and still logged out
+            del self.login_pending[site]
+            why = "still logged out after signing in"
+        else:
+            why = login.attempt(tab.page, site, creds)
+            if why is None:
+                self.login_pending[site] = now
+                tab.due_at = now
+                self._say(tab.target.name, "logged out - signing in")
+                return True
+        login.mark_failed(self.s.data_dir, site, why, now)
+        # Alerted even when the site was already backing off for this logout
+        # (a `resume` mid back-off gives it one more try).
+        self.sites[site].blocked_for = None
+        return False
 
     # --- loading ------------------------------------------------------------
     def _may_load(self, site, now) -> bool:
@@ -287,6 +334,8 @@ class Runner:
 
         reason = browser.blocked(tab.page, resp.status if resp else None)
         if reason is None and SITES[site].needs_login and browser.logged_out(tab.page, url):
+            if self._try_login(site, tab, now):
+                return None
             reason = "logged out"
         if reason:
             self._on_blocked(site, reason, now, tab)
@@ -339,7 +388,8 @@ class Runner:
         for tab in list(self.tabs.values()):
             # A paused site's tab stays open (to log in over VNC) but is not
             # driven: parsing a login page every minute is noise, not data.
-            if not self._paused(tab.target.site, now):
+            # Nor is a tab whose site is signing in, until the reload.
+            if not self._paused(tab.target.site, now) and tab.target.site not in self.login_pending:
                 self._parse(tab, now)
         self._requests()
         self._heartbeat(now)

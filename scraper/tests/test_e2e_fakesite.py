@@ -46,6 +46,39 @@ LOGIN = "<html><title>Sign in</title><body><form><input type=password></form></b
 
 PAGE = "<html><title>Saves</title><body><table><tr><td>7.5</td></tr></table></body></html>"
 
+# Bookie Bashing's logged-out page as it was on 11 Nov 2026 (login.py), cut
+# down: a "Login" menu item (and a hidden mobile copy) opens a hidden pop-up,
+# whose form posts in the background, then the page navigates or the refusal
+# is drawn in the section's notice.
+BB_USER, BB_PASS = "u@example.test", "pw-TEST-ONLY"
+BB_LOGIN = """<html><title>How It Works</title><body>
+<ul><li class="xoo-el-login-tgr menu-item"><a class="menu-link">Login</a></li></ul>
+<ul style="display:none"><li class="xoo-el-login-tgr menu-item"><a class="menu-link">Login</a></li></ul>
+<div class="xoo-el-container xoo-el-style-popup" style="visibility: hidden;">
+ <ul class="xoo-el-tabs"><li data-tab="login" class="xoo-el-login-tgr">Login</li></ul>
+ <div data-section="login" class="xoo-el-section"><div class="xoo-el-fields">
+  <div class="xoo-el-notice"></div>
+  <form class="xoo-el-action-form xoo-el-form-login">
+   <input type="text" name="xoo-el-username" placeholder="Username / Email">
+   <input type="password" name="xoo-el-password" placeholder="Password">
+   <label><input type="checkbox" name="xoo-el-rememberme" value="forever"> Remember me</label>
+   <input type="hidden" name="_xoo_el_form" value="login">
+   <button type="submit" class="button btn xoo-el-action-btn xoo-el-login-btn">Sign in</button>
+  </form></div></div></div>
+<script>
+for (const el of document.querySelectorAll('.xoo-el-login-tgr'))
+  el.addEventListener('click', () => {
+    document.querySelector('.xoo-el-container').style.visibility = 'visible'; });
+document.querySelector('.xoo-el-form-login').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const r = await fetch('/wp-admin/admin-ajax.php',
+                        {method: 'POST', body: new URLSearchParams(new FormData(e.target))});
+  const j = await r.json();
+  if (j.error) document.querySelector('[data-section=login] .xoo-el-notice').innerHTML = j.notice;
+  else setTimeout(() => { location.href = j.redirect; }, 300);
+});
+</script></body></html>"""
+
 
 class Handler(http.server.BaseHTTPRequestHandler):
     blocked_path = None
@@ -85,12 +118,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("location", "/how-it-works")
             self.end_headers()
             return
+        if path == "/how-it-works/bb-login":
+            return self._send(200, BB_LOGIN)
         if path == "/how-it-works":
             return self._send(200, "<html><title>How It Works</title><body>Subscribe</body></html>")
         self._send(404, "no")
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("content-length", 0)))
+        if self.path == "/wp-admin/admin-ajax.php":     # the BB login form, one test login
+            from urllib.parse import parse_qs
+            form = {k: v[0] for k, v in parse_qs(body.decode()).items()}
+            if (form.get("xoo-el-username"), form.get("xoo-el-password"),
+                    form.get("xoo-el-rememberme")) == (BB_USER, BB_PASS, "forever"):
+                return self._send(200, json.dumps({"error": 0, "redirect": "/how-it-works/bb-login"}),
+                                  "application/json")         # as the real one: back where it was
+            notice = ('<div class="xoo-el-notice-error"><span class="xoo-el-noticetxt">The password '
+                      f'you entered for the username {form.get("xoo-el-username")} is incorrect.'
+                      '</span></div>')
+            return self._send(200, json.dumps({"error": 1, "notice": notice}), "application/json")
         self._send(404, "no")
 
 
@@ -186,6 +232,27 @@ def test_a_redirect_away_from_the_tool_is_logged_out(tmp_path, site):
         assert r.sites["bookiebashing"].blocked_for == "logged out"
         r.tick(t0 + 61)
         assert "parser" not in (r.parser_said.get("bb") or "")  # not driven while paused
+        ctx.close()
+
+
+def test_bb_login_form(tmp_path, site):
+    """login.attempt on a page built like Bookie Bashing's logged-out page:
+    it opens the hidden pop-up, signs in and the page reloads where it was
+    (the pop-up gone); a wrong login comes back as the site's refusal,
+    without the username in it."""
+    from playwright.sync_api import sync_playwright
+    from scraper import login
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [], p)
+        page = ctx.new_page()
+        page.goto(site + "/how-it-works/bb-login")
+        why = login.attempt(page, "bookiebashing", (BB_USER, "not-the-password"), timeout_s=10)
+        assert why.startswith("refused: ") and "is incorrect" in why
+        assert BB_USER not in why and "not-the-password" not in why
+        page.goto(site + "/how-it-works/bb-login")
+        assert login.attempt(page, "bookiebashing", (BB_USER, BB_PASS), timeout_s=10) is None
+        page.wait_for_load_state()
+        assert not page.locator("form.xoo-el-form-login").is_visible()
         ctx.close()
 
 

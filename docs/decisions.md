@@ -215,7 +215,11 @@ names and no other; older names appear only in `docs/retired.md`.
   **OPEN, Callum to decide:** the Scraper's one existing BB target (`bb-saves`,
   Paddy's saves fair odds, a kept-open page reloaded every 10 minutes after a
   person logs in) predates this rule and contradicts it; keep it as the single
-  named exception, or disable it. (raised 5 Nov 2026)
+  named exception, or disable it. (raised 5 Nov 2026) The Scraper signs in to
+  Bookie Bashing itself with Callum's own login, kept in the Scraper's `.env`
+  (`BB_USERNAME`, `BB_PASSWORD`): one attempt per logout, a failed attempt
+  waits for a person, a challenge is never answered. (Callum, 11 Nov 2026:
+  "bb will need to be able to login")
 - **Never guess a tip.** Parsers are written from real pages only; a parser
   that cannot read the page returns nothing and `min_rows` raises the alarm.
 

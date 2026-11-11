@@ -21,6 +21,11 @@ response and websocket frame goes to:
 page that has stopped receiving anything is reloaded - once, and only then.
 A refusal or an error is not activity.
 
+The sign-in's own response (login.py) is never kept, in the ring or on disk:
+a site's answer to a login may repeat what was typed. It is known by its
+request, a POST naming a password field; one whose post data cannot be read
+is dropped too. The post data is only searched, never kept.
+
 `refusals` records every 403/429 the page's OWN requests get (on the site's
 hosts - a third-party widget's 403 says nothing about us). A kept-open page
 makes no page loads, so a block shows up here first, not as a load failing.
@@ -32,6 +37,7 @@ import pathlib
 import re
 import time
 
+from . import login
 from .config import host_allowed
 
 _TEXTUAL = re.compile(r"json|text/plain|javascript|graphql", re.I)
@@ -40,6 +46,16 @@ _MAX_FILE = 2 * 1024 * 1024
 PIN_WINDOW_S = 20         # how long after mark() a payload is pinned
 RING_BYTES = 12 * 1024 * 1024   # the ring and the pins are capped by size as well
 PIN_BYTES = 6 * 1024 * 1024     # as count: Paddy's price polls are ~300 KB each
+
+
+def _signs_in(req) -> bool:
+    if getattr(req, "method", "GET") != "POST":
+        return False
+    try:
+        data = req.post_data or ""
+    except Exception:
+        return True                                  # unreadable: not kept
+    return any(name in data for name in login.password_fields())
 
 
 class DiskBudget:
@@ -138,6 +154,8 @@ class Capture:
 
     def _on_response(self, resp):
         try:
+            if _signs_in(resp.request):
+                return
             if resp.status in (403, 429) and host_allowed(resp.url):
                 self.refusals.append((time.time(), resp.status, resp.url))
             main_doc = (resp.request.resource_type == "document"
