@@ -154,3 +154,29 @@ def test_the_recorded_game_prices_through_the_unchanged_pipeline():
     assert over95.paddy_odds == 1.8 and over95.fair_odds == pytest.approx(2.05, abs=0.01)
     assert {r.event_id for r in rows} == {"oan:1417142635"}
     assert not [r for r in rows if "saves" in r.market_key]
+
+
+# --- the same game listed twice (final review, D) -------------------------------
+
+_GAME = {"home_team": "Leeds", "away_team": "Hull", "start_time": 1794512700}
+
+
+@pytest.mark.parametrize("flip", [False, True])
+def test_a_duplicate_keeps_the_row_naming_william_hill_whatever_the_order(flip):
+    without = {**_GAME, "event_id": "1", "league": "English Championship",
+               "bookmakers": ["pinnacle"]}
+    with_wh = {**_GAME, "event_id": "2", "league": "EFL Championship",
+               "bookmakers": ["pinnacle", "williamhill"]}
+    rows = [with_wh, without] if flip else [without, with_wh]
+    got = listed_events({"items": rows}, now=NOW, window_hours=168)
+    assert [(l.event_id, "williamhill" in l.books) for l in got] == [("2", True)]
+
+
+@pytest.mark.parametrize("books", [["williamhill"], ["pinnacle"]])
+@pytest.mark.parametrize("flip", [False, True])
+def test_a_duplicate_tie_keeps_the_smaller_event_id_whatever_the_order(books, flip):
+    a = {**_GAME, "event_id": "900", "league": "English Championship", "bookmakers": books}
+    b = {**_GAME, "event_id": "1000", "league": "EFL Championship", "bookmakers": books}
+    rows = [b, a] if flip else [a, b]
+    assert [l.event_id for l in listed_events({"items": rows}, now=NOW,
+                                              window_hours=168)] == ["900"]

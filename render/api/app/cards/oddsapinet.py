@@ -154,11 +154,11 @@ def _from_ms(raw) -> datetime | None:
 
 def listed_events(body: dict, *, now: datetime, window_hours: float) -> list[Listing]:
     """The listed games in Hills' competitions kicking off in (now, now + window],
-    in kick-off order. A game listed twice (the two Championship names) is kept
-    once, on the same teams and kick-off."""
+    in kick-off order. A game listed twice (the two Championship names; the same
+    teams and kick-off) is kept once: the row naming William Hill, else the
+    smaller event id, so the choice never follows the vendor's order."""
     end = now + timedelta(hours=window_hours)
-    seen: set[tuple[str, str, datetime]] = set()
-    out: list[Listing] = []
+    kept: dict[tuple[str, str, datetime], Listing] = {}
     for item in _items(body):
         league = item.get("league")
         if league not in HILLS_LEAGUES:
@@ -170,17 +170,23 @@ def listed_events(body: dict, *, now: datetime, window_hours: float) -> list[Lis
         if not (now < start <= end):
             continue
         key = (str(home), str(away), start)
-        if key in seen:
-            continue
-        seen.add(key)
         books = item.get("bookmakers")
-        out.append(Listing(
+        listing = Listing(
             event_id=str(eid), home=str(home), away=str(away), start=start,
             league=league,
             books=frozenset(str(b) for b in books) if isinstance(books, list) else frozenset(),
-        ))
-    out.sort(key=lambda l: l.start)
-    return out
+        )
+        if key not in kept or _preferred(listing) < _preferred(kept[key]):
+            kept[key] = listing
+    return sorted(kept.values(), key=lambda l: l.start)
+
+
+def _preferred(listing: Listing) -> tuple:
+    """Sort key among duplicate rows: William Hill first, then the smaller
+    event id (numerically when it is a number, as the vendor's are)."""
+    eid = listing.event_id
+    return (WILLIAM_HILL not in listing.books, not eid.isdigit(),
+            int(eid) if eid.isdigit() else 0, eid)
 
 
 def fixture_of(listing: Listing) -> dict:
