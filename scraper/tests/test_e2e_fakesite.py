@@ -106,8 +106,7 @@ def site():
 def _runner(tmp_path, targets, p, targets_file=None):
     from scraper import browser
     s = config.Settings(data_dir=tmp_path, profile_dir=tmp_path / "profile", channel=None,
-                        alert_webhook=None, healthcheck_url=None, puntmore_url="http://x",
-                        ingest_key=None, capture_mb=20, targets=targets,
+                        alert_webhook=None, healthcheck_url=None, capture_mb=20, targets=targets,
                         targets_file=targets_file)
     guard = Guard(tmp_path / "g.sqlite3", {n: (r.per_hour, r.per_day) for n, r in SITES.items()})
     guard.quiet = (0, 0)
@@ -294,8 +293,7 @@ def test_open_page_refused_cools_off_with_a_screenshot(tmp_path, site):
 
 def test_cooloff_alerts_once_when_served_and_once_when_running(tmp_path):
     s = config.Settings(data_dir=tmp_path, profile_dir=tmp_path / "profile", channel=None,
-                        alert_webhook=None, healthcheck_url=None, puntmore_url="http://x",
-                        ingest_key=None, capture_mb=1, targets=[])
+                        alert_webhook=None, healthcheck_url=None, capture_mb=1, targets=[])
     guard = Guard(tmp_path / "g.sqlite3", {n: (r.per_hour, r.per_day) for n, r in SITES.items()})
     guard.quiet = (0, 0)
     r = Runner(s, None, guard, Alerts(tmp_path / "alerts.log", None), tmp_path / "samples")

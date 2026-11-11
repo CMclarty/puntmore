@@ -68,7 +68,7 @@ class Target:
     every_min: float | None = None      # reload on this interval; None = only when stale
     stale_min: float = 20.0             # reload a page that has gone this quiet
     parser: str | None = None           # name in parsers.PARSERS
-    post: str | None = None             # puntmore path to POST {"prices": rows} to
+    post: str | None = None             # Render route the Hub posts these price rows to (the Scraper only writes it in the drop file)
     matches: Matches | None = None
     mode: str = "keep"                  # keep: page stays open (Paddy/BB) | fetch: load, parse, close
     enabled: bool = True
@@ -94,8 +94,6 @@ class Settings:
     channel: str | None
     alert_webhook: str | None
     healthcheck_url: str | None
-    puntmore_url: str
-    ingest_key: str | None
     capture_mb: float
     targets: list[Target] = field(default_factory=list)
     targets_file: pathlib.Path | None = None   # re-read while running when it changes
@@ -124,8 +122,12 @@ def _priority(name: str, p) -> int:
 
 
 def _target(t: dict) -> Target:
+    from .sinks import PRICE_ROUTES
     from .sites import SITES
     name, site, url = t["name"], t["site"], t["url"]
+    post = t.get("post")
+    if post is not None and not (isinstance(post, str) and post.startswith("hub:")) and post not in PRICE_ROUTES:
+        raise ValueError(f"target {name}: post must be \"hub:<channel>\" or one of {', '.join(PRICE_ROUTES)}, not {post!r}")
     if site not in SITES:
         raise ValueError(f"target {name}: unknown site {site!r} (have {', '.join(SITES)})")
     if not host_allowed(url, site):
@@ -151,7 +153,7 @@ def _target(t: dict) -> Target:
         name=name, site=site, url=url,
         every_min=None if every is None else _clamp(float(every), lo=5.0),
         stale_min=_clamp(float(t.get("stale_min", 20.0)), lo=10.0),
-        parser=t.get("parser"), post=t.get("post"), matches=matches,
+        parser=t.get("parser"), post=post, matches=matches,
         mode=mode, enabled=bool(t.get("enabled", True)),
         min_rows=int(_clamp(int(t.get("min_rows", 0)), lo=0)),
         trust_weight=_clamp(float(t.get("trust_weight", 1.0)), 0.0, 1.0),
@@ -185,8 +187,6 @@ def load() -> Settings:
         channel=os.environ.get("SCRAPER_CHANNEL", "chrome") or None,
         alert_webhook=os.environ.get("SCRAPER_ALERT_WEBHOOK") or None,
         healthcheck_url=os.environ.get("SCRAPER_HEALTHCHECK_URL") or None,
-        puntmore_url=os.environ.get("PUNTMORE_URL") or "https://puntmore.com",
-        ingest_key=os.environ.get("SAVES_INGEST_KEY") or None,
         capture_mb=_clamp(float(os.environ.get("SCRAPER_CAPTURE_MB", 200)), hi=2000.0),
         targets=load_targets(targets_file),
         targets_file=targets_file,

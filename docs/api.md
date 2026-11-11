@@ -30,10 +30,10 @@ Callum's tips on `me`, or the main domain while `ME_HOST` is blank: Callum's
 account and his Bet Placer's key only). `*`
 includes `finder`, so a key or account issued to anyone but Callum never
 carries `*`, only named grants. Machine grants: `value` (every source on
-`/api/value`), `state` (`/api/state`), `ingest` (the write paths of the
-Scraper service, the Bookie Bashing script and HubAI, and the Bet Placer's
-Finder status). A key holding a grant name that no longer exists is granted
-nothing for it.
+`/api/value`), `state` (`/api/state`), `ingest` (the write paths, used by
+Scraper control to post the Scraper's prices, by the Bookie Bashing script,
+by HubAI, and by the Bet Placer for its Finder status). A key holding a
+grant name that no longer exists is granted nothing for it.
 
 **The Bet Placer's key** (register, 6 Nov 2026) carries `accabonus`, `cards`,
 `finder` and `ingest`; **a third party's** carries `accabonus` only.
@@ -169,7 +169,7 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 | 365 scorers (`goalscorers`) | `GET /goalscorers/feed` — PARKED, not mounted (`ENABLE_GOALSCORERS=false`) | |
 | 365 2-Up (`accabonus`) | `GET /2up/feed` (`?value_only=`), `GET /2up/diagnostics` | the served board of priced rows; what the feed last saw, the rescue table and the dials |
 | Paddy (`cards`) | `GET /paddy/feed`, `/paddy/diagnostics`, `/paddy/shadow`, `/paddy/oddspapi-check`, `/paddy/board-at?at=` | each feed item carries `priced_at`, when the board's OddsPapi prices were fetched (the oldest chunk; null when unknown; added 8 Nov 2026). `board-at` (10 Nov 2026) is the board as it stood at `at` (ISO 8601, UTC unless it says otherwise), in the feed's shape: each line's Paddy price and fair then, or its first price after when it had none yet, for every game not kicked off at `at`, soonest first; `priced_at` is when its newest line was seen. Every priced line, no value floor (down to −50%), kept 14 days after kick-off (`cards/history.py`). Paddy only, not Hills |
-| Paddy ingest (`ingest`) | `POST /paddy/saves-fair`, `POST /paddy/most-prices` | the Scraper service's writes |
+| Paddy ingest (`ingest`) | `POST /paddy/saves-fair`, `POST /paddy/most-prices` | Scraper control (the Hub's inbox), posting the Scraper service's prices |
 | Finder writes (`ingest`, key only) | `POST /finder/rows`, `POST /finder/rows/{tip_id}/status` | HubAI's rows; the Bet Placer's `placed`\|`gone` |
 | Finder reads (`finder`) | `GET /finder/feed`, `GET /finder/board` (`?days=3`), `GET /value/finder` | the offered rows; the board on `me` |
 | P&L (`pnl`) | `GET/POST /pnl/{dogs\|virtuals}/bets`, `GET /pnl/{c}/bets.csv`, `DELETE /pnl/{c}/bets/{id}` | per-caller ledger |

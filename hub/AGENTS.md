@@ -1,12 +1,13 @@
 # Working in hub/
 
 `hub/` is the Hub's program apart from the Scraper service (`scraper/`): Scraper control's
-intake (the daemon's inbox of the Scraper's drop files and its tipster-mailbox poll), HubAI's
-side (escalations and the Finder CLI), the placement engine the Bet Placer starts from, and the
-Console. It runs on Callum's box, never on Render, and is not part of the Render deploy
-(`.github/workflows/hub-tests.yml` only tests it). `docs/decisions.md` is read first and wins;
-the repo's `CLAUDE.md` applies here too. Read this directory's `README.md` before changing
-anything, and `PROTOCOL.md` before touching the drop files.
+intake (the daemon's inbox of the Scraper's drop files, which posts the Scraper's Paddy prices
+on to Render, and its tipster-mailbox poll), HubAI's side (escalations and the Finder CLI), the
+placement engine the Bet Placer starts from, and the Console. It runs on Callum's box, never on
+Render, and is not part of the Render deploy (`.github/workflows/hub-tests.yml` only tests it).
+`docs/decisions.md` is read first and wins; the repo's `CLAUDE.md` applies here too. Read this
+directory's `README.md` before changing anything, and `PROTOCOL.md` before touching the drop
+files.
 
 ## Rules
 
@@ -19,9 +20,13 @@ anything, and `PROTOCOL.md` before touching the drop files.
   guesses: one that cannot read an email returns nothing and the tipster is escalated.
 - **Tips go to Finder over HTTP only**: HubAI posts them with `puntmore finder post` on the
   ingest key; tips on Finder are Callum's only, never offered to a third party.
-- **The drop files are `PROTOCOL.md` + `schemas/protocol.schema.json`.** A change touches the
-  Scraper's sink and the Hub's inbox in ONE pull request; `tests/test_protocol.py` and
+- **The drop files are `PROTOCOL.md` + `schemas/protocol.schema.json`**: three types,
+  `scraper_tips`, `scraper_event` and `scraper_prices`. A change touches the Scraper's sink and
+  the Hub's inbox in ONE pull request; `tests/test_protocol.py` and
   `scraper/tests/test_sinks_schema.py` are the referees.
+- **Paddy's prices go to Render through the inbox only** (`inbox.post_prices`,
+  `PUNTMORE_RENDER_API_KEY`); no retry loop: a file waits for the next pass, and is dropped once
+  15 min old.
 - **The placement engine is the Bet Placer's** (`docs/placer-spec.md`). Its rules stand while it
   lives here: dry-run is on by default (`PUNTMORE_DRY_RUN`) and only Callum switches it off,
   after two weeks of clean dry-run; the kill switch is the file `data/KILL` (`puntmore kill on`;
@@ -48,7 +53,7 @@ anything, and `PROTOCOL.md` before touching the drop files.
 ```
 cd hub && ~/.venvs/puntmore/bin/pytest -q   # must pass before any commit
 puntmore health                             # exit 1 = Scraper down, a source blocked/unhealthy, or an open escalation
-puntmore inbox                              # one pass over the drop files (the daemon does this every 30 s)
+puntmore inbox                              # one pass over the drop files, then posts waiting price drops (the daemon: every 30 s, prices every 10 s)
 puntmore mail --dry-run                     # what the tipster parsers would read; stores nothing
 ```
 

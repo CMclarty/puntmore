@@ -1,0 +1,23 @@
+{
+  "type": "scraper_prices",
+  "client_id": "scraper",
+  "msg_id": "c0ffee0000000012",
+  "ts": "2026-11-06T09:30:00+00:00",
+  "body": {
+    "source": "pp-epl-most",
+    "at": 1793957400.0,
+    "url": "https://www.paddypower.com/football/english-premier-league",
+    "route": "/api/paddy/most-prices",
+    "rows": [
+      {
+        "home": "Chelsea",
+        "away": "Man Utd",
+        "kickoff": "2026-11-08T16:30:00Z",
+        "market": "most_corners",
+        "home_price": 1.5333,
+        "tie_price": 9.0,
+        "away_price": 2.375
+      }
+    ]
+  }
+}

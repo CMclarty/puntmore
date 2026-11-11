@@ -12,19 +12,34 @@ doubles anything: a tip is deduplicated by its id, an event by its file name.
 A tip's id is the Scraper's: each row of a drop carries `tip_id`, minted where the tip
 was first seen (`ids.py`). Only an old drop without one has it minted here.
 
-Each file is one envelope (`schemas/protocol.schema.json`, type `scraper_tips` or
-`scraper_event`); this reads its `body`. A file written before the envelope (a bare body) is
-read as it is, so an update never strands what is already on disk.
+Each file is one envelope (`schemas/protocol.schema.json`, type `scraper_tips`,
+`scraper_event` or `scraper_prices`); this reads its `body`. A file written before the envelope
+(a bare body) is read as it is, so an update never strands what is already on disk.
+
+The inbox also posts the Scraper's Paddy price drops (`<scraper data>/hub/prices/`, one file
+per parse) to Render, the one thing in the inbox that crosses a network (`post_prices`). That
+pass runs after the tips and events, so a slow Render never delays them, and holds a
+non-blocking lock on `prices/.lock` so two passes never post the same file. Files go oldest
+first, each as `{"prices": rows}` to its `route` through `finder.post_json` (the Hub's Render
+key). A 2xx, a refusal (a 4xx other than 408 and 429), a file older than `PRICE_MAX_AGE_S` or
+an unreadable one is moved to `done/prices/`. When Render is down (408, 429, 5xx, a network
+error or timeout), answers 1xx or 3xx (a setup fault, such as a redirect from a wrong
+PUNTMORE_RENDER_HTTP) or is not configured, the pass stops and that file and every later one wait for the
+next pass, so an older price is never posted after a newer one. Nothing retries in place.
 """
 from __future__ import annotations
 
+import fcntl
+import http.client
 import json
 import logging
+import math
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import escalation
+from . import escalation, finder
 from .config import Settings, settings as default_settings
 from .schemas import FILE_TYPES, Tip
 from .store import Store, utcnow
@@ -34,6 +49,14 @@ log = logging.getLogger("puntmore.inbox")
 PRICE_MIN, PRICE_MAX = 1.01, 1000.0
 KEEP_DONE = 300
 _TIP_ID = re.compile(r"^[0-9a-f]{16,40}$")
+# The Render routes a price drop may name: the schema's enum (`scraper_prices`), kept here too.
+PRICE_ROUTES = ("/api/paddy/saves-fair", "/api/paddy/most-prices")
+PRICE_MAX_AGE_S = 900            # a price drop older than this is moved aside unsent
+PRICE_COUNT_KEYS = ("price_files", "price_rows", "price_dropped", "price_waiting")
+# Why the pass's last file was moved aside, and why files wait (None when nothing was): short
+# strings the Console's Daemon card shows, cut to PRICE_REASON_MAX characters.
+PRICE_REASON_KEYS = ("price_dropped_reason", "price_waiting_reason")
+PRICE_REASON_MAX = 100
 
 
 def _iso(ts: float) -> str:
@@ -98,8 +121,11 @@ def ingest_rows(store: Store, source: str, rows: list[dict], *, at: str, trust_w
     return out
 
 
-def ingest(store: Store, cfg: Settings = default_settings, *, notify: bool = True) -> dict:
-    """One pass over the Scraper's drop folders. Safe to call every few seconds."""
+def ingest(store: Store, cfg: Settings = default_settings, *, notify: bool = True,
+           opener: finder.Opener | None = None) -> dict:
+    """One pass over the Scraper's drop folders: tips, then events, then the price drops
+    (`post_prices`, the only step that talks to Render; `opener` stands in for the network in
+    tests). Safe to call every few seconds."""
     counts = {"tip_files": 0, "tips": 0, "new_tips": 0, "rejected": 0, "events": 0}
     tips_dir, events_dir, done = cfg.inbox_dir / "tips", cfg.inbox_dir / "events", cfg.inbox_dir / "done"
     for path in sorted(tips_dir.glob("*.json")) if tips_dir.exists() else []:
@@ -130,6 +156,110 @@ def ingest(store: Store, cfg: Settings = default_settings, *, notify: bool = Tru
         except (OSError, ValueError) as exc:
             log.warning("inbox: unreadable event %s: %s", path.name, exc)
         _finish(path, done)
+    counts.update(post_prices(cfg, opener=opener))
+    return counts
+
+
+def _read_price_drop(path: Path) -> dict:
+    """A price drop's body, or ValueError naming what is wrong with it."""
+    d = json.loads(path.read_text())
+    if not isinstance(d, dict):
+        raise ValueError("not a JSON object")
+    body = _body(d)
+    at, route, rows = body.get("at"), body.get("route"), body.get("rows")
+    try:                                # an int too large for a float overflows in isfinite
+        finite = not isinstance(at, bool) and isinstance(at, (int, float)) and math.isfinite(at)
+    except OverflowError:
+        finite = False
+    if not finite:
+        raise ValueError("`at` is not a finite number")
+    if not isinstance(route, str):
+        raise ValueError("`route` is not a string")
+    if not isinstance(rows, list) or not rows or not all(isinstance(r, dict) for r in rows):
+        raise ValueError("`rows` is not a non-empty list of objects")
+    return body
+
+
+def _render_down(code: int) -> bool:
+    """Render's answer is no verdict on the file, so it waits: try later (408, 429, a server
+    error), or a 1xx/3xx, which means the setup is wrong (a redirect from a bad
+    PUNTMORE_RENDER_HTTP). Only a 2xx is posted and only another 4xx is a refusal."""
+    return not (200 <= code < 300) and not (400 <= code < 500 and code not in (408, 429))
+
+
+def post_prices(cfg: Settings = default_settings, *,
+                opener: finder.Opener | None = None) -> dict[str, int | str | None]:
+    """One pass over the Scraper's price drops (`<inbox>/prices/`), oldest first: each is
+    posted to Render as `{"prices": rows}` on its route and moved to `done/prices/`. A stale,
+    unreadable or refused drop is moved aside unsent; a route this inbox does not know waits.
+    When Render is down or not configured the pass stops and the rest wait, in order, for the
+    next pass. Returns the counts named by PRICE_COUNT_KEYS and the reasons named by
+    PRICE_REASON_KEYS: the last file moved aside's (a refusal's HTTP status, unreadable, stale)
+    and why files wait (Render's HTTP status, no URL or key, a network error, the lock)."""
+    counts: dict[str, int | str | None] = {**dict.fromkeys(PRICE_COUNT_KEYS, 0),
+                                           **dict.fromkeys(PRICE_REASON_KEYS)}
+
+    def why(key: str, reason: str) -> None:
+        counts[key] = reason[:PRICE_REASON_MAX]
+    prices_dir = cfg.inbox_dir / "prices"
+    if not prices_dir.is_dir():
+        return counts
+    done = cfg.inbox_dir / "done" / "prices"
+    with open(prices_dir / ".lock", "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:                 # another pass (`puntmore inbox`, the Console) holds it
+            counts["price_waiting"] = len(list(prices_dir.glob("*.json")))
+            if counts["price_waiting"]:
+                why("price_waiting_reason", "another price pass is running")
+            return counts
+        files = sorted(prices_dir.glob("*.json"))
+        now = time.time()
+        for i, path in enumerate(files):
+            try:
+                body = _read_price_drop(path)
+            except (OSError, ValueError, RecursionError) as exc:   # RecursionError: JSON nested too deep
+                log.warning("prices: unreadable %s (%s); moved aside", path.name, exc)
+                _finish(path, done)
+                counts["price_dropped"] += 1
+                why("price_dropped_reason", f"unreadable: {exc}")
+                continue
+            source, route, rows = str(body.get("source") or path.name), body["route"], body["rows"]
+            age = now - body["at"]
+            if age > PRICE_MAX_AGE_S:
+                log.warning("prices %s: %ds old, past the %ds cut-off; moved aside unsent",
+                            source, age, PRICE_MAX_AGE_S)
+                _finish(path, done)
+                counts["price_dropped"] += 1
+                why("price_dropped_reason", f"past the {PRICE_MAX_AGE_S // 60} min cut-off")
+                continue
+            if route not in PRICE_ROUTES:
+                log.warning("prices %s: route %r unknown to this inbox; left for one that knows it", source, route)
+                counts["price_waiting"] += 1
+                why("price_waiting_reason", f"route {route!r} unknown to this inbox")
+                continue
+            try:
+                code, text = finder.post_json(cfg, route, {"prices": rows}, opener)
+                reason = f"HTTP {code}" if _render_down(code) else None
+            except RuntimeError as exc:         # no URL or key: its message says which
+                reason = str(exc)
+            except (OSError, http.client.HTTPException) as exc:
+                reason = f"{type(exc).__name__}: {exc}"
+            if reason:
+                left = len(files) - i
+                log.warning("prices %s: %s; %d file(s) wait for the next pass", source, reason, left)
+                counts["price_waiting"] += left
+                why("price_waiting_reason", reason)
+                break
+            if 200 <= code < 300:
+                log.info("prices %s -> %s: sent %d row(s), Render answered %s", source, route, len(rows), text[:200])
+                counts["price_files"] += 1
+                counts["price_rows"] += len(rows)
+            else:
+                log.warning("prices %s -> %s: refused HTTP %d %s; moved aside", source, route, code, text[:200])
+                counts["price_dropped"] += 1
+                why("price_dropped_reason", f"Render refused HTTP {code}")
+            _finish(path, done)
     return counts
 
 

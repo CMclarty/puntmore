@@ -26,7 +26,7 @@ targets are kept. The runner writes its state to
 data/status.json every STATUS_EVERY_S, which the Hub reads.
 
 This module wires the pieces: schedule.py says when a target is due,
-sinks.py delivers its rows (Render or the Hub), status.py writes the
+sinks.py delivers its rows (drop files for the Hub), status.py writes the
 heartbeat and status.json, guard.py says yes or no to every load.
 """
 import collections
