@@ -19,13 +19,13 @@
 #              every near_min instead, and go first among equals when the
 #              site's budget is short. Leave out for no sweep.
 #   parser     name in parsers/ (leave out to just capture)
-#   post       the Render path the parsed rows are POSTed to
+#   post       the Render route the Hub posts the parsed rows to (a scraper_prices drop file), or "hub:tips"
 #   [target.matches]  treat url as a listing: open its match links in
 #              kept-open tabs (max_tabs, at most 6), clicking market_tabs once
 #
 # Finder's sources use site = "generic" (any host except the two bookmakers):
 #   mode       "fetch" (the default for generic): load, parse, close
-#   post       "hub:tips" hands the rows to the Hub (a drop file) instead of POSTing to Render
+#   post       "hub:tips" hands the rows to the Hub as tips (a scraper_tips drop file)
 #   min_rows   fewer parsed rows than this = unhealthy, alert + an event for the Hub
 #   trust_weight  0..1, carried to the Hub beside the rows, for HubAI to weigh
 #   wait_for   CSS selector to wait for before parsing

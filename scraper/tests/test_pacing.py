@@ -50,8 +50,7 @@ class _Ctx:
 
 def _runner(tmp_path, targets):
     s = config.Settings(data_dir=tmp_path, profile_dir=tmp_path / "profile", channel=None,
-                        alert_webhook=None, healthcheck_url=None, puntmore_url="http://x",
-                        ingest_key=None, capture_mb=1, targets=targets)
+                        alert_webhook=None, healthcheck_url=None, capture_mb=1, targets=targets)
     guard = Guard(tmp_path / "g.sqlite3", {n: (r.per_hour, r.per_day) for n, r in SITES.items()})
     guard.quiet = (0, 0)
     return Runner(s, _Ctx(), guard, Alerts(tmp_path / "alerts.log", None), tmp_path / "samples")
