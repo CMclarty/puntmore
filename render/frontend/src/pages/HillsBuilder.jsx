@@ -5,6 +5,7 @@ import {
 } from '../api'
 import OddsWheel, { LADDER } from '../components/OddsWheel'
 import useAutoRefresh from '../hooks/useAutoRefresh'
+import { isAutoSettled } from '../hills'
 import { shortTeams } from '../teams'
 import s from './HillsBuilder.module.css'
 
@@ -23,9 +24,10 @@ import s from './HillsBuilder.module.css'
  *   Log       the builders the team has placed on the target: legs picked off
  *             William Hill's lines on the match (plus a note for anything not
  *             listed), who and when. Anyone opening the page sees what has been
- *             backed already. Picked legs settle themselves from OddsPapi after
- *             the match (api/app/hills/settle.py); a result can also be set by
- *             hand. No prices or fairs are kept.
+ *             backed already. Picked legs settle themselves from odds-api.net
+ *             after the match (OddsPapi for bets logged before the switch;
+ *             api/app/hills/settle.py); a result can also be set by hand. No
+ *             prices or fairs are kept.
  *             Anyone can remove a bet: the first tap arms a warning, the
  *             second removes it.
  *
@@ -219,7 +221,7 @@ export default function HillsBuilder() {
             </span>
             <span className={s.betMeta}>
               {b.placed_by} · {placedAt(b.placed_at)}
-              {b.settled_by === 'oddspapi' && <span className={s.auto}> · auto</span>}
+              {isAutoSettled(b.settled_by) && <span className={s.auto}> · auto</span>}
             </span>
             <span className={s.betResult} role="group" aria-label="Result">
               {RESULTS.map(([k, label]) => (

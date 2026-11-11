@@ -34,6 +34,13 @@ WHAT ODDS-API.NET IS (checked live 11 Nov 2026; do not re-probe):
   `score_records` by side x metric (corners, cards, standard = goals, ...) x
   period, each `status: final`. No saves, no red/yellow split.
 
+BB BOOST'S LEGS (hills/legs.py, hills/settle.py): a leg is one of William
+Hill's half lines in the snapshot, id'd `<market key>:<line>` with the side
+("Over" / "Under") as its outcome id, so it settles by reading the results'
+full-time, final counts: a team key off its side's record, a match key off
+both sides' (and not before both are final). No saves leg is offered, so
+none settles itself.
+
 THE MAPPING (spec "Market mapping"): full time, available, odds > 1.0, William
 Hill and Pinnacle only. Totals read "<over|under> <n>"; odd/even and quarter
 lines (x.25, x.75) are dropped. A handicap (Pinnacle only) becomes
@@ -47,17 +54,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import logging
+import math
 import re
 import threading
 import time
 from typing import Callable
 
+from app.cards.feed import market_name
 from app.cards.oddspapi import (
     CARDS, CARDS_HANDICAP, CORNERS, CORNERS_HANDICAP, GOALS, TEAM_CARDS_AWAY,
     TEAM_CARDS_HOME, TEAM_CORNERS_AWAY, TEAM_CORNERS_HOME, TOURNAMENT_SPORT_KEYS,
     WILLIAM_HILL,
 )
 from app.cards.oddsapinet_client import BudgetSpent, RateLimited
+from app.hills.legs import OFFERED, _label
+from app.pricing.counts.lines import is_half_line
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -300,6 +311,108 @@ def snapshot_ttl(lines: SnapshotLines) -> float:
     return min(TTL_MAX, max(TTL_MIN, lines.refresh_seconds))
 
 
+# --- BB Boost: legs and results -------------------------------------------------
+
+# Market key -> the results' metric and the sides whose counts it adds.
+_SETTLE_METRICS: dict[str, tuple[str, tuple[str, ...]]] = {
+    CORNERS: ("corners", ("home", "away")), CARDS: ("cards", ("home", "away")),
+    GOALS: ("standard", ("home", "away")),
+    TEAM_CORNERS_HOME: ("corners", ("home",)), TEAM_CORNERS_AWAY: ("corners", ("away",)),
+    TEAM_CARDS_HOME: ("cards", ("home",)), TEAM_CARDS_AWAY: ("cards", ("away",)),
+}
+_SIDES = ("Over", "Under")
+
+
+def leg_id(key: str, line: float) -> str:
+    """A BB Boost leg's market id: "alternate_totals_corners:9.5"."""
+    return f"{key}:{float(line)}"
+
+
+def parse_leg_id(market_id: str) -> tuple[str, float] | None:
+    """(key, line) from `leg_id`'s form; None for anything else (an OddsPapi
+    market id, a line that is not a number)."""
+    if not isinstance(market_id, str):
+        return None
+    key, sep, raw = market_id.rpartition(":")
+    if not sep or not key:
+        return None
+    try:
+        line = float(raw)
+    except ValueError:
+        return None
+    return (key, line) if math.isfinite(line) else None
+
+
+def legs_of(lines: SnapshotLines, home: str, away: str) -> list[dict]:
+    """William Hill's half lines on one board as BB Boost legs, in the shape
+    and order of `hills.legs.legs_for`."""
+    out: dict[tuple[str, str], dict] = {}
+    for key, outcomes in (lines.markets.get(WILLIAM_HILL) or {}).items():
+        if key not in OFFERED:
+            continue
+        for o in outcomes:
+            side, line = o.get("name"), o.get("point")
+            if side not in _SIDES or line is None or not is_half_line(line):
+                continue
+            mid = leg_id(key, line)
+            out.setdefault((mid, side), {
+                "market_id": mid, "outcome_id": side, "key": key,
+                "market": market_name(key), "side": side, "line": line,
+                "label": _label(key, side, line, home, away)})
+    return sorted(out.values(),
+                  key=lambda leg: (OFFERED.index(leg["key"]), leg["line"], leg["side"]))
+
+
+def _count(raw) -> int | None:
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, float) and raw.is_integer():
+        return int(raw)
+    return None
+
+
+def results_counts(body: dict) -> dict[tuple[str, str], int] | None:
+    """{(metric, side): score} from a /results body: full-time, final, team
+    records only. None until the vendor has the result (`status: available`)
+    and the match is finished."""
+    if not isinstance(body, dict) or body.get("status") != "available":
+        return None
+    result = body.get("result")
+    if not isinstance(result, dict) or result.get("event_status") != "finished":
+        return None
+    out: dict[tuple[str, str], int] = {}
+    for rec in result.get("score_records") or []:
+        if not isinstance(rec, dict) or rec.get("player_name"):
+            continue
+        if rec.get("period") != "full time" or rec.get("status") != "final":
+            continue
+        side = str(rec.get("side") or "").lower()
+        score = _count(rec.get("score"))
+        if side not in ("home", "away") or score is None:
+            continue
+        out[(str(rec.get("metric") or "").lower(), side)] = score
+    return out
+
+
+def leg_result(counts: dict, market_id: str, outcome_id: str) -> str | None:
+    """"won" or "lost" for one leg off the final counts; None when it cannot
+    be read (an unknown key, a whole line, a side or record missing)."""
+    parsed = parse_leg_id(market_id)
+    if not counts or parsed is None or outcome_id not in _SIDES:
+        return None
+    key, line = parsed
+    spec = _SETTLE_METRICS.get(key)
+    if spec is None or not is_half_line(line):
+        return None
+    metric, sides = spec
+    if any((metric, side) not in counts for side in sides):
+        return None
+    over = sum(counts[(metric, side)] for side in sides) > line
+    return "won" if over == (outcome_id == "Over") else "lost"
+
+
 # --- the source ---------------------------------------------------------------
 
 LISTING_TTL = 600        # s the /events listing is reused (a failed one is held as long)
@@ -416,6 +529,64 @@ class OddsApiNetHillsSource:
             if board is None or not board.markets.get(WILLIAM_HILL):
                 return None
             return priced_at(board)
+
+    # -- BB Boost --------------------------------------------------------------
+
+    def owns_fixture(self, fixture_id: str) -> bool:
+        """True for an odds-api.net fixture (`oan:<id>`): one this source settles."""
+        return str(fixture_id).startswith(OAN_PREFIX)
+
+    def hills_legs(self, fixture_id: str, home: str, away: str) -> list[dict]:
+        """William Hill's lines on one match as BB Boost legs. The target is
+        picked to be bet on, so its board is fetched in the request when it
+        is missing or due (one snapshot); a failure is held like the pass's.
+        [] for a fixture that is not odds-api.net's, with no request."""
+        if not self.owns_fixture(fixture_id):
+            return []
+        board = self._target_board(str(fixture_id))
+        return legs_of(board, home, away) if board is not None else []
+
+    def _target_board(self, key: str) -> SnapshotLines | None:
+        with self._lock:
+            board = self.boards.get(key)
+            if self._fresh(key) or self._held_now(key):
+                return board
+        event_id = key[len(OAN_PREFIX):]
+        try:
+            lines = parse_snapshot(self._client.get(f"/events/{event_id}/odds/snapshot",
+                                                    **SNAPSHOT_PARAMS))
+        except (BudgetSpent, RateLimited) as exc:
+            logger.warning("hills (odds-api.net): target board %s not fetched: %s", event_id, exc)
+            return board
+        except Exception as exc:
+            logger.warning("hills (odds-api.net): target board %s failed: %s", event_id, exc)
+            with self._lock:
+                self._held[key] = self._mono() + FAILURE_HOLD
+            return board
+        with self._lock:
+            self.boards[key] = lines
+            self._fetched[key] = self._mono()
+            self._held.pop(key, None)
+        return lines
+
+    def leg_results(self, fixture_id: str,
+                    legs: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
+        """{(market_id, outcome_id): won | lost} for the legs the match's final
+        counts decide: one /results call. {} until the result is in, and for
+        a fixture that is not odds-api.net's (no request). Raises on a failed
+        call (settle.check logs it and waits for the next window)."""
+        if not self.owns_fixture(fixture_id):
+            return {}
+        body = self._client.get(f"/events/{str(fixture_id)[len(OAN_PREFIX):]}/results")
+        counts = results_counts(body)
+        if counts is None:
+            return {}
+        out = {}
+        for mid, oid in legs:
+            got = leg_result(counts, mid, oid)
+            if got is not None:
+                out[(mid, oid)] = got
+        return out
 
     # -- the listing -----------------------------------------------------------
 

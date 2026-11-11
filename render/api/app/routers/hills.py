@@ -6,7 +6,7 @@
   DELETE /hills/target     clear it
   GET    /hills/legs       William Hill's lines on the target, to log a bet from
   GET    /hills/bets       BB Boost's log: the target's bets (or ?fixture_id=);
-                           settles what is due from OddsPapi first (hills/settle.py)
+                           settles what is due first (hills/settle.py)
   POST   /hills/bets       log one on the target: {legs: [{market_id, outcome_id}], note}
   PATCH  /hills/bets/{id}  set a result by hand: {result: open | won | lost}
   DELETE /hills/bets/{id}  remove one (anyone; the page asks first)
@@ -91,8 +91,9 @@ def get_legs(request: Request, db: Session = Depends(get_db)):
 @router.get("/bets", response_model=OpenModel)
 def get_bets(request: Request, db: Session = Depends(get_db), fixture_id: str | None = None):
     """The bets on `fixture_id`, else on the live target, else the latest.
-    Bets on matches that should be over are settled from OddsPapi first."""
-    settle.check(db, getattr(_source(request), "_client", None))
+    Bets on matches that should be over are settled first, from the vendor
+    whose lines they were logged off (hills/settle.py)."""
+    settle.check(db, _source(request))
     row = target.current(db)
     fid = fixture_id or (row.fixture_id if row else None)
     return {"bets": bets.for_fixture(db, fid) if fid else bets.recent(db)}
