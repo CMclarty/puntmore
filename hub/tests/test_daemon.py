@@ -4,7 +4,7 @@ import json
 import logging
 import threading
 
-from puntmore_hub import cli, daemon, inbox, mail
+from puntmore_hub import aw26_loop, cli, daemon, inbox, mail
 
 
 def test_the_daemon_runs_inbox_and_mail_without_a_socket(cfg, monkeypatch, caplog):
@@ -30,6 +30,47 @@ def test_the_daemon_runs_inbox_and_mail_without_a_socket(cfg, monkeypatch, caplo
     status = json.loads(daemon.status_file(live).read_text())
     assert status["inbox"]["counts"] == {"tip_files": 1, "events": 0} and status["inbox"]["at"]
     assert "socket" not in caplog.text and "Render" not in caplog.text
+
+
+def _stop_after(n):
+    calls = []
+
+    def ingest(store, c):
+        calls.append(c)
+        if len(calls) == n:
+            raise KeyboardInterrupt
+        return {"tip_files": 0, "events": 0}
+    return ingest
+
+
+def test_without_render_the_daemon_starts_no_aw26_thread(cfg, monkeypatch):
+    started = []
+    monkeypatch.setattr(inbox, "ingest", _stop_after(2))
+    monkeypatch.setattr(aw26_loop, "read_once", lambda c, **kw: started.append(c))
+    monkeypatch.setattr(threading.Thread, "start", lambda t: started.append(t.name))
+    daemon.run(cfg, sleep=lambda s: None)
+    assert started == []
+    assert "aw26" not in daemon.last_status(cfg)
+
+
+def test_with_render_the_daemon_reads_photos_on_its_own_thread(cfg, monkeypatch):
+    live = cfg.with_overrides(render_http="https://puntmore.example", render_api_key="k")
+    passed, names = threading.Event(), []
+
+    def read_once(c):
+        names.append(threading.current_thread().name)
+        passed.set()
+        return {"photo": 5, "outcome": "recorded"}
+
+    def ingest(store, c):
+        assert passed.wait(5), "the aw26 thread never ran a pass"
+        raise KeyboardInterrupt
+    monkeypatch.setattr(inbox, "ingest", ingest)
+    monkeypatch.setattr(aw26_loop, "read_once", read_once)
+    daemon.run(live, sleep=lambda s: None)
+    assert names[0] == "aw26"
+    status = daemon.last_status(live)["aw26"]
+    assert status["counts"] == {"photo": 5, "outcome": "recorded"} and status["at"] and status["error"] is None
 
 
 def test_puntmore_link_and_puntmore_daemon_are_the_same_command(cfg, monkeypatch):
