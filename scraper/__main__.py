@@ -358,7 +358,7 @@ def main(argv=None):
         if not rest or rest[0] not in SITES:
             sys.exit(f"resume which site? {', '.join(SITES)}")
         _guard(s).resume(rest[0])
-        login.clear(s.data_dir, rest[0])
+        login.clear(s.data_dir, rest[0], times=True)
         print(f"{rest[0]}: resume recorded - it restarts once the cool-off hours have passed."
               + (" A failed sign-in is forgotten: it will try once more the next time it "
                  "finds the site logged out." if rest[0] in login.FORMS else ""))

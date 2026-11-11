@@ -5,6 +5,7 @@ browser isn't installed.
 """
 import http.server
 import json
+import re
 import threading
 import time
 
@@ -79,9 +80,17 @@ document.querySelector('.xoo-el-form-login').addEventListener('submit', async (e
 });
 </script></body></html>"""
 
+# The same page with the site's submit handler never bound (its script failed
+# to load): the button would have Chrome send the form itself, as a GET to
+# this url with the fields in the query.
+BB_LOGIN_UNBOUND = re.sub(r"document\.querySelector\('\.xoo-el-form-login'\)\.addEventListener"
+                          r"\('submit'.*?\n\}\);\n", "", BB_LOGIN, flags=re.S)
+assert "addEventListener('submit'" not in BB_LOGIN_UNBOUND
+
 
 class Handler(http.server.BaseHTTPRequestHandler):
     blocked_path = None
+    seen: list = []                              # every path asked for
 
     def log_message(self, *a):
         pass
@@ -96,6 +105,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path
+        Handler.seen.append(path)
         if Handler.blocked_path and path.startswith(Handler.blocked_path):
             return self._send(429, "<title>Too many</title>")
         if path == "/football":
@@ -120,6 +130,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         if path == "/how-it-works/bb-login":
             return self._send(200, BB_LOGIN)
+        if path.startswith("/how-it-works/bb-login-unbound"):
+            return self._send(200, BB_LOGIN_UNBOUND)
         if path == "/how-it-works":
             return self._send(200, "<html><title>How It Works</title><body>Subscribe</body></html>")
         self._send(404, "no")
@@ -146,6 +158,7 @@ def site():
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_port}"
     Handler.blocked_path = None
+    Handler.seen = []
     srv.shutdown()
 
 
@@ -253,6 +266,25 @@ def test_bb_login_form(tmp_path, site):
         assert login.attempt(page, "bookiebashing", (BB_USER, BB_PASS), timeout_s=10) is None
         page.wait_for_load_state()
         assert not page.locator("form.xoo-el-form-login").is_visible()
+        ctx.close()
+
+
+def test_bb_login_form_sent_by_chrome_never_leaves_it(tmp_path, site):
+    """The site's script never bound the form: pressing the button would
+    have Chrome send it as a GET with the password in the url. That request
+    is aborted inside Chrome: the server never sees it, and the page's url
+    never carries the password."""
+    from playwright.sync_api import sync_playwright
+    from scraper import login
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [], p)
+        page = ctx.new_page()
+        page.goto(site + "/how-it-works/bb-login-unbound")
+        why = login.attempt(page, "bookiebashing", (BB_USER, BB_PASS), timeout_s=10)
+        assert why == "form not sent by the site's script"
+        assert BB_PASS not in page.url and "xoo-el-password" not in page.url
+        page.goto(site + "/bbpage")                         # nothing left routed
+        assert not any("xoo-el-password" in path for path in Handler.seen)
         ctx.close()
 
 

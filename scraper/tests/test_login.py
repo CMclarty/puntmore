@@ -96,7 +96,7 @@ class _Loc:
         return True
 
     def wait_for(self, state=None, timeout=None):
-        if not self.is_visible():
+        if not self.is_visible() or self.page.timeout_at == "form":
             raise TimeoutError("not visible")
 
     def inner_text(self, timeout=None):
@@ -105,28 +105,42 @@ class _Loc:
 
     def click(self, timeout=None):
         role = self._role()
+        self.page._late(role)
         self.page.calls.append(("click", role))
         if role == "opener":
-            self.page.form_open = True
+            self.page.form_open = self.page.timeout_at != "form"
         elif role == "submit":
             self.page._submit()
 
     def fill(self, value, timeout=None):
         role = self._role()
+        self.page._late(role)
         self.page.calls.append(("fill", role))
         self.page.typed[role] = value
 
     def check(self, timeout=None):
-        self.page.calls.append(("check", self._role()))
+        role = self._role()
+        self.page._late(role)
+        self.page.calls.append(("check", role))
 
 
 class _World:
     """What the site thinks: is this box signed in, and does it accept the login.
     A sent form lands back on the page it was sent from (the real form's
     redirect is the logged-out page itself), so only a fresh load of the tool
-    url can tell whether the sign-in took."""
-    def __init__(self, accept=True, refusal=None, title="Bookie Bashing"):
+    url can tell whether the sign-in took. `native`: the site's script never
+    bound the form, so the button submits it as a GET to the page's own url."""
+    def __init__(self, accept=True, refusal=None, title="Bookie Bashing", native=False):
         self.url, self.accept, self.refusal, self.title = OUT, accept, refusal, title
+        self.native = native
+
+
+class _Route:
+    def __init__(self):
+        self.aborted = False
+
+    def abort(self, *a):
+        self.aborted = True
 
 
 class _BBPage(_Nothing):
@@ -134,13 +148,25 @@ class _BBPage(_Nothing):
     in. Submitting the form sends the background POST (to the page's response
     listeners, as Playwright would) and then navigates, or shows the refusal."""
     def __init__(self, world=None, url=OUT, opener=True, form=True, form_open=False,
-                 refusal=None, raises=False, title="Bookie Bashing"):
+                 refusal=None, raises=False, title="Bookie Bashing", timeout_at=None,
+                 native=False):
         self.world, self.url = world, url
         self.has_opener, self.has_form, self.form_open = opener, form, form_open
         self.refusal, self.raises, self._title = refusal, raises, title
+        self.timeout_at, self.native = timeout_at, native or bool(world and world.native)
         self.submitted = False
-        self.calls, self.typed, self.handlers = [], {}, {}
+        self.calls, self.typed, self.handlers, self.routes = [], {}, {}, []
         self.main_frame = object()
+
+    def _late(self, step):
+        if self.timeout_at == step:
+            raise TimeoutError(f"{step} {USER} {PW}")
+
+    def route(self, match, handler):
+        self.routes.append((match, handler))
+
+    def unroute(self, match, handler=None):
+        self.routes.remove((match, handler))
 
     def _boom(self):
         if self.raises:
@@ -162,10 +188,22 @@ class _BBPage(_Nothing):
 
     def wait_for_load_state(self, state=None, timeout=None):
         self._boom()
+        self._late("load")
         self.calls.append(("wait", state))
 
     def _submit(self):
         self.submitted = True
+        if self.native:                         # Chrome's own GET, through the page's routes
+            url = (f"{self.url}?xoo-el-username=u%40example.test&xoo-el-password={PW}"
+                   "&xoo-el-rememberme=forever&_xoo_el_form=login")
+            route = _Route()
+            for match, handler in list(self.routes):
+                if match(url):
+                    handler(route)
+                    break
+            self.url = "chrome-error://chromewebdata/" if route.aborted else url
+            self.form_open = False
+            return
         if "response" in self.handlers:
             self.handlers["response"](_Resp(self, _Req()))
         if self.refusal is not None:
@@ -235,6 +273,29 @@ def test_attempt_fills_and_submits_in_order():
     assert page.calls[-1] == ("click", "submit")
 
 
+def test_attempt_native_submit_is_stopped():
+    """The site's script never bound the form: the button would send it as a
+    GET with the password in the url. It is aborted inside Chrome."""
+    page = _BBPage(native=True)
+    assert login.attempt(page, "bookiebashing", (USER, PW)) == "form not sent by the site's script"
+    assert PW not in page.url
+    assert page.routes == []                                # the route lived only for the attempt
+
+
+def test_safe_url_drops_a_password_query():
+    leaked = f"{OUT}?xoo-el-username=u%40example.test&xoo-el-password={PW}&x=1#top"
+    assert login.safe_url(leaked) == OUT
+    assert login.safe_url(OUT + "?page=2#a") == OUT + "?page=2#a"
+    assert login.safe_url(IN) == IN
+
+
+def test_attempt_timeout_names_the_step():
+    for at, step in (("load", "load"), ("form", "pop-up"), ("user", "username"),
+                     ("password", "password"), ("remember", "submit"), ("submit", "submit")):
+        why = login.attempt(_BBPage(timeout_at=at), "bookiebashing", (USER, PW))
+        assert why == f"TimeoutError ({step})", at
+
+
 def test_attempt_no_form():
     page = _BBPage(opener=False, form=False)
     assert login.attempt(page, "bookiebashing", (USER, PW)) == "no login form"
@@ -285,6 +346,9 @@ def test_scrub_edge_cases():
     out = scrub(text, ("u@example.test", pw))
     assert "p%26w" not in out and "p&amp;w" not in out and "d%" not in out
     assert out == "sent password=*** or ***, shown ***"
+    # whitespace as the page draws it (inner_text collapses runs)
+    out = scrub("bad: a b, a  b, a\tb", ("u@example.test", "a  b"))
+    assert "a b" not in out and "a  b" not in out and "a\tb" not in out
     # cut after scrubbing, never before
     assert len(scrub("x" * 500 + PW, (USER, PW))) == login.WHY_MAX
 
@@ -401,7 +465,8 @@ def test_runner_signs_in_then_runs(tmp_path, monkeypatch):
     assert st.blocked_for is None and st.retry_at == 0.0
     assert not r._paused("bookiebashing", t0 + 1)
     r.tick(t0 + 200)                                        # the tool url again, through the guard
-    assert r.guard.spent("bookiebashing", t0 + 200)[0] == 2
+    # the load, the site's own navigation after the sign-in, the reload
+    assert r.guard.spent("bookiebashing", t0 + 200)[0] == 3
     assert calls == ["bookiebashing"]
     assert _alerts(tmp_path) == []
     assert login.failed(tmp_path, "bookiebashing") is None
@@ -434,6 +499,8 @@ def test_runner_failed_sign_in_alerts_once_and_stops(tmp_path, monkeypatch):
     st = r.sites["bookiebashing"]
     assert st.blocked_for == "logged out" and st.retry_at > t0 + 200
     assert login.failed(tmp_path, "bookiebashing")["why"] == "still logged out after signing in"
+    said = [line["msg"] for line in joblog.read(tmp_path, "bb-saves")]
+    assert said[-1] == "signing in failed (still logged out after signing in)"
     for h in range(1, 6):                                   # later logged-out reads, after the back-off
         r.tick(t0 + 3600 * h)
     assert len(_loads(r)) >= 3                              # it did read the page again
@@ -452,12 +519,12 @@ def test_runner_failure_survives_restart(tmp_path, monkeypatch):
 
 def test_runner_no_credentials_is_unchanged(tmp_path, monkeypatch):
     calls = _attempts(monkeypatch)
+    login.mark_failed(tmp_path, "bookiebashing", "refused: old", 1.0)   # left from before
     r = _bb_runner(tmp_path, _World())
     r.tick(time.time())
     assert calls == []
     assert _alerts(tmp_path) == [f"bookiebashing: logged out on {OUT} - needs you on the "
                                  "Hub's screen. Backing off."]
-    assert not (tmp_path / login.NOTE_FILE).exists()
 
 
 def test_runner_never_signs_in_on_a_check_or_on_paddy(tmp_path, monkeypatch):
@@ -526,16 +593,21 @@ def test_failure_alert_goes_out_after_a_resume_mid_back_off(tmp_path, monkeypatc
 
 
 def test_runner_unwritable_note_still_stops_at_one_attempt(tmp_path, monkeypatch):
+    """At most one, and since the attempt is written down first, none: a
+    login.json that cannot be written means no sign-in (fails closed)."""
     monkeypatch.setattr(login, "_write", lambda data_dir, notes: False)   # disk full
-    r, calls, t0 = _fail_once(tmp_path, monkeypatch)
-    for i in range(1, 40):
-        r.tick(t0 + 200 + 15 * i)
+    _creds(monkeypatch)
+    calls = _attempts(monkeypatch)
+    r = _bb_runner(tmp_path, _World(accept=False))
+    t0 = time.time()
+    for i in range(40):
+        r.tick(t0 + 15 * i)
     for h in range(1, 6):
         r.tick(t0 + 3600 * h)
     assert login.failed(tmp_path, "bookiebashing") is None   # nothing reached disk
-    assert calls == ["bookiebashing"]
+    assert calls == []
     alerts = _alerts(tmp_path)
-    assert len(alerts) == 1 and "signing in failed (still logged out" in alerts[0]
+    assert len(alerts) == 1 and "signing in failed (cannot write login.json)" in alerts[0]
 
 
 def test_pending_is_dropped_when_the_tab_goes(tmp_path, monkeypatch):
@@ -589,7 +661,106 @@ def test_password_never_written(tmp_path, monkeypatch, capsys):
     assert any("refused: " in a for a in _alerts(tmp_path / "refused"))
     page = r.ctx.pages[0]
     assert page.submitted and "response" in page.handlers   # the Capture was listening
+    # the site's script never bound the form: Chrome's own GET would carry it
+    native = _World(accept=False, native=True)
+    r = _bb_runner(tmp_path / "native", native)
+    r.tick(time.time())
+    assert any("form not sent by the site's script" in a for a in _alerts(tmp_path / "native"))
+    assert PW not in r.ctx.pages[0].url
     out = capsys.readouterr()
     assert PW not in out.out and PW not in out.err
     assert _files_with(tmp_path, PW.encode()) == []
     assert _files_with(tmp_path, USER.encode()) == []
+
+
+def _signed_in_cycles(r, world, t, n):
+    """n logouts of the open page, each signed in and the reload logged in."""
+    for _ in range(n):
+        r.tabs["bb-saves"].page.url = world.url = OUT
+        r.tick(t)
+        r.tick(t + 200)
+        assert "bookiebashing" not in r.login_pending
+        t += 400
+    return t
+
+
+def _first_load(tmp_path, monkeypatch):
+    _creds(monkeypatch)
+    calls = _attempts(monkeypatch)
+    world = _World(accept=True)
+    world.url = IN
+    r = _bb_runner(tmp_path, world)
+    t0 = time.time()
+    r.tick(t0)                                               # opened logged in
+    return r, world, calls, t0 + 200
+
+
+CAP = "signed out again after 3 sign-ins in 6 h"
+
+
+def test_runner_caps_sign_ins_at_3_in_6_h(tmp_path, monkeypatch):
+    r, world, calls, t = _first_load(tmp_path, monkeypatch)
+    t = _signed_in_cycles(r, world, t, 3)
+    assert calls == ["bookiebashing"] * 3 and _alerts(tmp_path) == []
+    assert len(login.sent(tmp_path, "bookiebashing", t)) == 3
+    r.tabs["bb-saves"].page.url = world.url = OUT            # the 4th logout
+    r.tick(t)
+    r.tick(t + 200)
+    assert calls == ["bookiebashing"] * 3
+    assert login.failed(tmp_path, "bookiebashing")["why"] == CAP
+    alerts = _alerts(tmp_path)
+    assert len(alerts) == 1 and f"signing in failed ({CAP})" in alerts[0]
+
+
+def test_runner_cap_survives_restart(tmp_path, monkeypatch):
+    r, world, calls, t = _first_load(tmp_path, monkeypatch)
+    t = _signed_in_cycles(r, world, t, 3)
+    world.url = OUT
+    r = _bb_runner(tmp_path, world)                          # a new service, same data dir
+    r.tick(t)
+    assert calls == ["bookiebashing"] * 3
+    assert login.failed(tmp_path, "bookiebashing")["why"] == CAP
+    assert len(_alerts(tmp_path)) == 1
+
+
+def test_runner_cap_lapses_after_6_h_and_on_resume(tmp_path, monkeypatch):
+    r, world, calls, t = _first_load(tmp_path, monkeypatch)
+    t = _signed_in_cycles(r, world, t, 3)
+    t = _signed_in_cycles(r, world, t + 6 * 3600, 1)         # the first three have aged out
+    assert calls == ["bookiebashing"] * 4 and _alerts(tmp_path) == []
+    t = _signed_in_cycles(r, world, t, 2)                    # 3 in the window again
+    assert len(login.sent(tmp_path, "bookiebashing", t)) == 3
+    _resume(tmp_path, monkeypatch)
+    assert login.sent(tmp_path, "bookiebashing", t) == []
+    _signed_in_cycles(r, world, t, 1)                        # one more allowed
+    assert calls == ["bookiebashing"] * 7 and _alerts(tmp_path) == []
+
+
+def test_good_sign_in_keeps_the_times_and_old_notes_still_read(tmp_path):
+    login.record_sent(tmp_path, "bookiebashing", 100.0)
+    login.clear(tmp_path, "bookiebashing")                   # what a good sign-in does
+    assert login.sent(tmp_path, "bookiebashing", 200.0) == [100.0]
+    login.mark_failed(tmp_path, "bookiebashing", "refused", 150.0)
+    assert login.sent(tmp_path, "bookiebashing", 200.0) == [100.0]
+    login.clear(tmp_path, "bookiebashing", times=True)       # `resume`
+    assert login.sent(tmp_path, "bookiebashing", 200.0) == []
+    assert login.failed(tmp_path, "bookiebashing") is None
+    # the note as the branch first wrote it
+    (tmp_path / login.NOTE_FILE).write_text('{"bookiebashing": {"failed_at": 5.0, "why": "refused"}}')
+    assert login.failed(tmp_path, "bookiebashing") == {"failed_at": 5.0, "why": "refused"}
+    assert login.sent(tmp_path, "bookiebashing", 10.0) == []
+
+
+def test_no_sign_in_while_backing_off_for_refusals(tmp_path, monkeypatch):
+    r, world, calls, t = _first_load(tmp_path, monkeypatch)
+    tab = r.tabs["bb-saves"]
+    now = time.time()
+    for _ in range(3):
+        tab.capture.refusals.append((now, 403, IN))
+    r.tick(t)
+    st = r.sites["bookiebashing"]
+    assert st.blocked_for == "repeated 403/429 on an open page"
+    tab.capture.refusals.clear()                             # the count lapses
+    tab.page.url = world.url = OUT                           # and the page reads logged out
+    r.tick(t + 15)
+    assert calls == []

@@ -34,12 +34,18 @@ the 29 Oct 2026 capture; see its docstring).
 - Paddy 403/429 or Cloudflare check → every Paddy page closes and a 24 h
   cool-off starts. It also needs `resume`, and you get an alert.
 - Bookie Bashing logout → it signs in once, on the page already open, with the
-  login in `.env` (`login.py`), then reloads the tool through the guard. A
-  failed sign-in (refused, no form, or still logged out after it), a logout
-  with no login in `.env`, or a check → one alert and a back-off, with the tab
-  left open so you can sort it on the Hub's screen (over VNC in Docker). After
-  a failed sign-in it does not try again until it sees the site logged in or
-  you run `resume bookiebashing`, restarts included.
+  login in `.env` (`login.py`), then reloads the tool through the guard. At
+  most 3 sign-ins in 6 hours, then it waits for a person (a site that keeps
+  ending the session, e.g. when you log in on another device). A failed
+  sign-in (refused, no form, still logged out after it, a form the site's
+  script did not send, or the 3-in-6-hours limit), a logout with no login in
+  `.env`, or a check → one alert and a back-off, with the tab left open so
+  you can sort it on the Hub's screen (over VNC in Docker). After a failed
+  sign-in it does not try again until it sees the site logged in or you run
+  `resume bookiebashing`, restarts included. Each sign-in is written to
+  `data/login.json` before the form is sent; if that file cannot be written
+  it does not sign in at all and the alert says "cannot write login.json"
+  (once per start of the service).
 - A block is also caught on a page that is already open: 3+ refused
   requests in 10 min, a Cloudflare page, or a logout. Every block alert
   carries a screenshot (also in `data/blocks/`). A Paddy cool-off alerts once
@@ -255,9 +261,11 @@ its prices (`PUNTMORE_RENDER_API_KEY` in the Hub's `.env`). The Scraper no longe
 `SAVES_INGEST_KEY` or `PUNTMORE_URL`, so both can be deleted from `/opt/puntmore-scraper/.env`.
 The Bookie Bashing login is `BB_USERNAME` and `BB_PASSWORD` (Callum's own; leave either blank
 and a person logs in, as before). The Scraper types it when its page is found logged out, once
-per logout; the password is never logged or kept. A failed sign-in is noted in
-`data/login.json` and nothing is tried again until the site is seen logged in (log in on the
-Hub's screen) or `python -m scraper resume bookiebashing` is run, which forgets it. The
+per logout and at most 3 sign-ins in 6 hours, then it waits for a person; the password is never
+logged or kept, and Chrome is not given either variable. A failed sign-in is noted in
+`data/login.json` (with the times of recent sign-ins) and nothing is tried again until the site
+is seen logged in (log in on the Hub's screen) or `python -m scraper resume bookiebashing` is
+run, which forgets it and the sign-in times. The
 session itself lives in the Chrome profile in the data directory; never share
 `data/profile/`: it holds the login cookies.
 

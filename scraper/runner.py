@@ -174,7 +174,7 @@ class Runner:
         screenshot of the page, also kept in data/blocks/."""
         st = self.sites[site]
         image = self._block_shot(site, tab) if tab else None
-        where = f" on {tab.page.url}" if tab else ""
+        where = f" on {login.safe_url(tab.page.url)}" if tab else ""
         emit_event(self.s.data_dir, "blocked_source", site, f"{reason}{where}", now)
         if SITES[site].block_means_cooloff:
             self.guard.start_cooloff(site, reason, now)
@@ -184,8 +184,9 @@ class Runner:
             return
         if reason != st.blocked_for:
             where_to = "over VNC" if browser.in_container() else "on the Hub's screen"
-            note = ((login.failed(self.s.data_dir, site) or self.login_failed.get(site))
-                    if reason == "logged out" else None)
+            note = None                         # a note left after the login was blanked: today's text
+            if reason == "logged out" and login.credentials(site):
+                note = login.failed(self.s.data_dir, site) or self.login_failed.get(site)
             if note:
                 self.alerts.send(f"{site}: {reason}{where} - signing in failed ({note.get('why')}). "
                                  f"Not trying again until you log in {where_to} or run "
@@ -233,8 +234,10 @@ class Runner:
                 # Signing in: only the tool url's reload says if it took. The
                 # page the form was sent from still reads as logged out (Bookie
                 # Bashing's form lands back on its /how-it-works page).
-                if reason == "logged out" and (site in self.login_pending
-                                               or self._try_login(site, tab, now)):
+                # Never during a back-off for something else (403/429, a check).
+                if reason == "logged out" and (
+                        site in self.login_pending
+                        or (st.blocked_for in (None, "logged out") and self._try_login(site, tab, now))):
                     break
                 if not rules.block_means_cooloff and st.blocked_for == reason:
                     break                       # already said; backing off
@@ -278,7 +281,9 @@ class Runner:
         spacing; that reload is the read that says whether it took. False when
         there is no login in .env, when the last attempt failed (until the site
         is seen logged in or `resume`), or when this attempt failed - and then
-        the logout is reported as today, its alert saying the sign-in failed."""
+        the logout is reported as today, its alert saying the sign-in failed.
+        Failing too: login.MAX_SIGNINS already sent in the window, or the
+        sign-in's time could not be written down first."""
         creds = login.credentials(site)
         if creds is None:
             return False
@@ -295,15 +300,23 @@ class Runner:
         if site in self.login_pending:          # sent last time, and still logged out
             del self.login_pending[site]
             why = "still logged out after signing in"
+        elif len(login.sent(self.s.data_dir, site, now)) >= login.MAX_SIGNINS:
+            why = (f"signed out again after {login.MAX_SIGNINS} sign-ins in "
+                   f"{login.SIGNIN_WINDOW_H} h")
+        elif not login.record_sent(self.s.data_dir, site, now):
+            why = "cannot write login.json"     # fail closed: no sign-in it cannot count
         else:
             why = login.attempt(tab.page, site, creds)
             if why is None:
                 self.login_pending[site] = now
                 tab.due_at = now
+                # the site's own navigation after the form is a page load too
+                self.guard.record_load(site, login.safe_url(tab.page.url), now)
                 self._say(tab.target.name, "logged out - signing in")
                 return True
         written = login.mark_failed(self.s.data_dir, site, why, now)
         self.login_failed[site] = {"why": why, "written": written}
+        self._say(tab.target.name, f"signing in failed ({why})")
         # Alerted even when the site was already backing off for this logout
         # (a `resume` mid back-off gives it one more try).
         self.sites[site].blocked_for = None
@@ -734,7 +747,7 @@ class Runner:
                 continue
             loaded = browser.wait_for_feed(page, cap, clicked_at, feed)
             if page.url != before_url or cap.documents != before_docs:
-                self.guard.record_load(t.site, page.url, now)
+                self.guard.record_load(t.site, login.safe_url(page.url), now)
             tab.market_tabs[name] = "loaded" if loaded else "clicked, nothing new"
             try:
                 browser.read_down(page)
@@ -755,7 +768,7 @@ class Runner:
         out = self.run_dir / _safe(f"{t.name}-{why}")
         try:
             out.mkdir(parents=True, exist_ok=True)
-            (out / "page.url").write_text(tab.page.url)
+            (out / "page.url").write_text(login.safe_url(tab.page.url))
             (out / "page.html").write_text(tab.page.content(), encoding="utf-8")
             tab.page.screenshot(path=str(out / "page.png"))
         except Exception as exc:
@@ -858,7 +871,7 @@ class Runner:
             out.mkdir(parents=True, exist_ok=True)
             for i, (key, tab) in enumerate(tabs):
                 try:
-                    (out / f"{i}.url").write_text(tab.page.url)
+                    (out / f"{i}.url").write_text(login.safe_url(tab.page.url))
                     (out / f"{i}.html").write_text(tab.page.content(), encoding="utf-8")
                     tab.page.screenshot(path=str(out / f"{i}.png"), full_page=True)
                 except Exception as exc:

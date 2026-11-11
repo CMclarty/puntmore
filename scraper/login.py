@@ -6,14 +6,21 @@ to be able to login"). It signs in on the page that is already open - the
 logged-out page carries the form - so signing in costs no page load. Plain
 fill and click, nothing else.
 
-One attempt per logout. A failed one is noted in <data>/login.json, and
-nothing is tried again until the site is seen logged in or `resume <site>` is
-run; the note survives a restart. A challenge is never answered: the runner
-never calls this for a page browser.blocked() reports.
+One attempt per logout, and at most MAX_SIGNINS in SIGNIN_WINDOW_H: a site
+that keeps ending the session (a one-session rule set off by Callum's own
+devices) then waits for a person. Each sign-in's time is written to
+<data>/login.json before the form is sent; if it cannot be written, there is
+no sign-in. A failed one is noted there too, and nothing is tried again until
+the site is seen logged in or `resume <site>` is run (which also forgets the
+times); the note and the times survive a restart. A challenge is never
+answered: the runner never calls this for a page browser.blocked() reports.
 
 The password is never written anywhere. Page text (the site's refusal) has
 both credentials removed before it is returned, and the capture never keeps
-the sign-in's own response (capture.py, password_fields()).
+the sign-in's own response (capture.py, password_fields()). A form the site's
+script has not bound would be sent by Chrome itself, as a GET with the
+password in the url: that request is aborted inside Chrome, and safe_url()
+keeps such a url out of anything written.
 """
 import html
 import json
@@ -54,13 +61,30 @@ FORMS = {
         password_field="xoo-el-password"),
 }
 
-NOTE_FILE = "login.json"     # <data>/login.json {"<site>": {"failed_at": <epoch>, "why": "<text>"}}
+# <data>/login.json {"<site>": {"failed_at": <epoch>, "why": "<text>", "sent": [<epoch>, ...]}}
+NOTE_FILE = "login.json"
 WHY_MAX = 120
 POLL_MS = 250                # between looks at the page after the button is pressed
+MAX_SIGNINS = 3              # sign-ins sent per site in SIGNIN_WINDOW_H; the next logout waits for a person
+SIGNIN_WINDOW_H = 6
+NATIVE = "form not sent by the site's script"
 
 
 def password_fields() -> tuple[str, ...]:
     return tuple(f.password_field for f in FORMS.values())
+
+
+def safe_url(url: str) -> str:
+    """`url` without its query and fragment when they name a password field
+    (a form Chrome sent itself); else unchanged. For every url written."""
+    if not _names_a_password(url):
+        return url
+    cut = [i for i in (url.find("?"), url.find("#")) if i >= 0]
+    return url[:min(cut)] if cut else url
+
+
+def _names_a_password(url: str) -> bool:
+    return any(f"{name}=" in url for name in password_fields())
 
 
 def env_names() -> tuple[str, ...]:
@@ -91,6 +115,7 @@ def attempt(page, site: str, creds: tuple[str, str], timeout_s: float = 20.0) ->
     def left() -> int:
         return max(1, int((end - time.monotonic()) * 1000))
 
+    step = "load"
     try:
         # A page at domcontentloaded may not have bound the opener's click yet.
         page.wait_for_load_state("load", timeout=left())
@@ -99,38 +124,69 @@ def attempt(page, site: str, creds: tuple[str, str], timeout_s: float = 20.0) ->
             opener = page.locator(f"{f.opener}:visible").first
             if not opener.count():
                 return "no login form"       # also a lapsed subscription: no Login item
+            step = "pop-up"
             opener.click(timeout=left())
             form.wait_for(state="visible", timeout=left())
+        step = "username"
         form.locator(f.user).fill(creds[0], timeout=left())
+        step = "password"
         form.locator(f.password).fill(creds[1], timeout=left())
+        step = "submit"
         form.locator(f.remember).check(timeout=left())
+        return _send(page, f, form, creds, end, left)
+    except Exception as exc:
+        name = exc.__class__.__name__
+        return _scrub(f"{name} ({step})" if "Timeout" in name else name, creds)
+
+
+def _send(page, f, form, creds, end, left) -> str | None:
+    """Press the button and watch. While it runs, any request whose url names
+    a password field (the form sent by Chrome itself, as a GET, because the
+    site's script never bound it) is aborted inside Chrome. The route lives
+    only for this (Playwright turns the HTTP cache off while one is set)."""
+    native = []
+
+    def stop(route):
+        native.append(True)
+        route.abort()
+
+    page.route(_names_a_password, stop)
+    try:
         before = page.url
         form.locator(f.submit).click(timeout=left())
         error = page.locator(f.error).first
         while time.monotonic() < end:
+            if native:
+                return NATIVE
             try:
                 if error.is_visible():
                     text = error.inner_text(timeout=left())
                     if text.strip():
                         return _scrub("refused: " + text, creds)
                 if page.url != before or not form.is_visible():
-                    return None
+                    return NATIVE if native else None
             except Exception:
                 if page.url != before:       # navigating: the page's context went
-                    return None
+                    return NATIVE if native else None
             page.wait_for_timeout(min(POLL_MS, left()))
-        return None
-    except Exception as exc:
-        return _scrub(exc.__class__.__name__, creds)
+        return NATIVE if native else None
+    finally:
+        try:
+            page.unroute(_names_a_password, stop)
+        except Exception:
+            pass
 
 
 def _scrub(text: str, creds: tuple[str, str]) -> str:
-    """Both credentials out (as typed, URL- and HTML-encoded, any case; the
+    """Both credentials out (as typed, URL- and HTML-encoded, any case, runs
+    of whitespace as one space - as the page's inner_text draws them; the
     longest first, so one inside the other leaves nothing), then cut."""
-    forms = {v for c in creds if c for v in (c, quote(c), quote_plus(c), html.escape(c))}
-    for v in sorted(forms, key=len, reverse=True):
+    text = " ".join(text.split())
+    forms = {" ".join(v.split()) for c in creds if c
+             for v in (c, quote(c), quote_plus(c), html.escape(c))}
+    for v in sorted(forms - {""}, key=len, reverse=True):
         text = re.sub(re.escape(v), "***", text, flags=re.I)
-    return " ".join(text.split())[:WHY_MAX]
+    return text[:WHY_MAX]
 
 
 # --- the note: the last attempt failed ------------------------------------------
@@ -163,21 +219,55 @@ def _write(data_dir, notes: dict) -> bool:
         return False
 
 
+def _entry(notes: dict, site: str) -> dict:
+    entry = notes.get(site)
+    return dict(entry) if isinstance(entry, dict) else {}
+
+
 def failed(data_dir, site: str) -> dict | None:
     """The note of a failed attempt, or None; a corrupt file reads as None."""
-    note = _read(data_dir).get(site)
-    return note if isinstance(note, dict) else None
+    entry = _entry(_read(data_dir), site)
+    return {"failed_at": entry.get("failed_at"), "why": entry["why"]} if "why" in entry else None
 
 
 def mark_failed(data_dir, site: str, why: str, now: float) -> bool:
     """True when the note reached disk. Never raises."""
     notes = _read(data_dir)
-    notes[site] = {"failed_at": now, "why": why[:WHY_MAX]}
+    notes[site] = {**_entry(notes, site), "failed_at": now, "why": why[:WHY_MAX]}
     return _write(data_dir, notes)
 
 
-def clear(data_dir, site: str) -> None:
+def _recent(entry: dict, now: float) -> list[float]:
+    times = entry.get("sent")
+    return [t for t in (times if isinstance(times, list) else [])
+            if isinstance(t, (int, float)) and now - t < SIGNIN_WINDOW_H * 3600]
+
+
+def sent(data_dir, site: str, now: float) -> list[float]:
+    """When the site's sign-ins were sent, within SIGNIN_WINDOW_H of now."""
+    return _recent(_entry(_read(data_dir), site), now)
+
+
+def record_sent(data_dir, site: str, now: float) -> bool:
+    """Write down a sign-in before it is sent (older times pruned). True when
+    it reached disk; if not, the caller does not sign in. Never raises."""
     notes = _read(data_dir)
-    if site in notes:
+    entry = _entry(notes, site)
+    notes[site] = {**entry, "sent": _recent(entry, now) + [now]}
+    return _write(data_dir, notes)
+
+
+def clear(data_dir, site: str, times: bool = False) -> None:
+    """Forget a failed attempt (seen logged in); with `times` (`resume`), the
+    sign-ins sent as well. Never raises."""
+    notes = _read(data_dir)
+    entry = _entry(notes, site)
+    keep = {k: v for k, v in entry.items()
+            if k not in ("failed_at", "why") and not (times and k == "sent")}
+    if keep == entry:
+        return
+    if keep:
+        notes[site] = keep
+    else:
         del notes[site]
-        _write(data_dir, notes)
+    _write(data_dir, notes)
