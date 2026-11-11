@@ -148,10 +148,14 @@ class Runner:
         # that could not be written still stops the next attempt
         self.login_failed: dict[str, dict] = {}
         # A job's rest (rest.py): name -> {"until", "why"}, kept in
-        # data/resting.json; only the current targets' rests are kept.
+        # data/resting.json; only the current targets' rests are kept, each
+        # no further off than MAX_REST_S (a hand-edited or skewed file must
+        # not park a job for years).
         names = {t.name for t in self.targets}
         on_disk = rest.load(settings.data_dir)
-        self.resting: dict[str, dict] = {n: v for n, v in on_disk.items() if n in names}
+        latest = time.time() + rest.MAX_REST_S
+        self.resting: dict[str, dict] = {n: {**v, "until": min(v["until"], latest)}
+                                         for n, v in on_disk.items() if n in names}
         if self.resting != on_disk:
             rest.save(settings.data_dir, self.resting)
         self.rest_said: set[str] = set()               # rests said (or printed) by this process

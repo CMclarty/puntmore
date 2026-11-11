@@ -454,3 +454,53 @@ def test_the_wake_command_asks_the_running_service(tmp_path, monkeypatch, capsys
         main(["wake", "nope"])
     assert "bb-saves" in str(e.value)
     assert "wake <target>" in main.__globals__["__doc__"]
+
+
+def test_a_rest_read_at_start_up_is_clamped_to_a_week(tmp_path):
+    """A hand-edited or skewed resting.json must not park a job for years."""
+    t = _bb("bb-saves", parser="bb_saves")
+    rest.save(tmp_path, {"bb-saves": {"until": time.time() + 10 * 365 * 86400, "why": REST_WHY}})
+    before = time.time()
+    r = _runner(tmp_path, [t])
+    after = time.time()
+    assert before + rest.MAX_REST_S <= r.resting["bb-saves"]["until"] <= after + rest.MAX_REST_S
+    assert rest.load(tmp_path) == r.resting                           # and saved so
+    # A rest already inside the week is kept as it is.
+    soon = time.time() + 3600
+    rest.save(tmp_path, {"bb-saves": {"until": soon, "why": REST_WHY}})
+    assert _runner(tmp_path, [t]).resting["bb-saves"]["until"] == soon
+
+
+def test_a_rest_raised_by_one_tab_stops_the_parse_of_the_jobs_other_tabs(tmp_path, monkeypatch):
+    """A matches target has a listing tab and match tabs, all with the job's
+    parser. Once one tab's parse rests the job (closing all its tabs), the
+    rest of that tick's parse loop must not drive the closed tabs."""
+    from scraper import runner as runner_mod
+    from scraper.tests.test_pacing import _league
+    calls, resting = [], [False]
+
+    def parser(page, capture):
+        calls.append(page)
+        if resting[0]:
+            raise rest.Rest(time.time() + 3600, REST_WHY)
+        return []
+    monkeypatch.setitem(runner_mod.PARSERS, "pp_most", parser)
+    import dataclasses
+    t = dataclasses.replace(_league("epl"), parser="pp_most")
+    r = _runner(tmp_path, [t])
+    t0 = time.time()
+    i = 0
+    while not any(":m:" in k for k in r.tabs):
+        r.tick(t0 + 15 * i)
+        i += 1
+        assert i < 100, "no match tab opened"
+    assert len([k for k in r.tabs if k.startswith("epl")]) >= 2
+    resting[0] = True
+    calls.clear()
+    for tab in r.tabs.values():
+        tab.next_parse = 0.0
+    r.tick(t0 + 15 * i)
+    assert len(calls) == 1                                            # the other tab's parser not called
+    assert not [k for k in r.tabs if k.startswith("epl")]
+    assert "epl" in r.resting
+    assert not [m for m in _msgs(tmp_path, "epl") if m.startswith("parser failed")]
