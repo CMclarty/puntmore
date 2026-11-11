@@ -27,6 +27,37 @@ by hand on 26 Oct 2026:
 - The fair lands in the "Total Odds" field within a second, with no request:
   the model runs in the page. "Infinity" means no price.
 
+ONLY GAMES WITHIN 48 HOURS (Callum, 11 Nov 2026): "It should only be doing
+this for games within the next 48 hours." A pass reads only the games under
+COMPETITIONS kicking off within WITHIN_H hours; the queue is rebuilt at the
+start of every pass, so the window moves with the clock and a game that has
+kicked off drops out. With none that near the parser raises rest.Rest: the
+runner closes the page and loads nothing until WITHIN_H hours before the
+next game it saw, or LOOK_AGAIN_S, whichever is sooner (`python -m scraper
+wake bb-saves` ends a rest by hand).
+
+BB xSAVES IS NOT ALWAYS LISTED. Seen on 11 Nov 2026: at 17:57, after one data
+pull, "BB Player/Team Stats" listed 12 stats (BB xSOT ... BB xScoreOrAssist)
+and no BB xSaves - the page said "304s since data update", the Update Data
+button carried a red dot, and the parser waited on the option every minute
+until its timeout. At 20:05, after another pull, it listed 13, BB xSaves
+between BB Player xCards and BB xScoreOrAssist. So it is there only when the
+pull brought the saves model. Now nothing waits on it: a missing BB xSaves
+marks the data for a fresh pull on the next call (BuilderNotReady says what
+is listed), at most XSAVES_RETRIES (~60 MB each) until it is found or
+UPDATE_EVERY_S has passed since the last of them, the normal UPDATE_EVERY_S
+applying meanwhile. The count is module-wide, not per page, so a timed
+reload's new page does not start it again.
+
+The 48-hour window, like the rest, is absolute time: across a clock change
+London wall-clock arithmetic would be an hour out.
+
+ORDER of a call: bring the builder up (Update Data -> Standard View, at most
+every UPDATE_EVERY_S); choose BB Player/Team Stats (once per data update);
+with no queue, build it from the Game(s) lists (the game list can be read
+before BB xSaves is chosen) - empty means a rest; choose BB xSaves (once per
+data update); read the queued games.
+
 PACING. Nothing here loads a page: every step is an in-page selection, so the
 Bookie Bashing load budget (sites.py) is untouched. Each call (every
 PARSE_EVERY_S) works through games for at most CALL_BUDGET_S, then returns
@@ -38,6 +69,8 @@ import re
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+from ..rest import Rest, when
 
 LONDON = ZoneInfo("Europe/London")
 UTC = ZoneInfo("UTC")
@@ -63,6 +96,9 @@ UPDATE_EVERY_S = 30 * 60      # "Update Data" costs ~60 MB
 READY_TIMEOUT_MS = 60_000     # the builder rendering after Update Data, per try
 READY_ATTEMPTS = 3
 SETTLE_S = 0.25               # Total Odds settles within this after a change
+WITHIN_H = 48                 # only games kicking off within this many hours (Callum, 11 Nov 2026)
+LOOK_AGAIN_S = 24 * 3600      # with none that near, rest at most this long
+XSAVES_RETRIES = 3            # extra data pulls in a row when BB xSaves is not listed
 
 _GAME_RE = re.compile(r"^(?P<home>.+?) v (?P<away>.+?) - (?P<time>\d{1,2}:\d{2})\s*(?P<day>[^\[]*)")
 _GROUP_RE = re.compile(r"^[\w ]+ \(\d+\)")
@@ -70,6 +106,11 @@ _GROUP_RE = re.compile(r"^[\w ]+ \(\d+\)")
 
 class BuilderNotReady(Exception):
     pass
+
+
+def _now() -> datetime:
+    """The clock the 48-hour window is read against (a seam for the tests)."""
+    return datetime.now(LONDON)
 
 
 def parse_game_label(label: str, now: datetime | None = None) -> dict | None:
@@ -170,7 +211,9 @@ def _type_line(page, line: float):
 
 
 def _ensure_ready(page, state: dict, now: float):
-    """Bring the builder up (Update Data -> Standard View) and onto BB xSaves."""
+    """Bring the builder up (Update Data -> Standard View) and onto the BB
+    Player/Team Stats section. BB xSaves is chosen later (_ensure_xsaves), only
+    when there is a game to read."""
     standard = page.get_by_text("Standard View", exact=True).first
     if page.get_by_text("Update Data", exact=True).count() == 0:
         # Not the builder at all: logged out, Bookie Bashing sends the tool's
@@ -189,28 +232,84 @@ def _ensure_ready(page, state: dict, now: float):
                     raise BuilderNotReady("the builder did not render after Update Data")
         state["updated"] = now
         state["queue"] = []                 # the games may have changed
+        state["section_set"] = False
         state["stat_set"] = False
-    if not state.get("stat_set"):
+    if not state.get("section_set"):
         _stat_select(page, "BB Player/Team Stats")
         page.wait_for_timeout(600)
-        _stat_select(page, "BB xSaves")
-        page.wait_for_timeout(600)
-        state["stat_set"] = True
+        state["section_set"] = True
 
 
-def _build_queue(page) -> list[tuple[str, str]]:
-    """(competition option, game option) for every real game under COMPETITIONS."""
+def _ensure_xsaves(page, state: dict, now: float):
+    """BB xSaves in the stats list, once per data update. It is only listed
+    when the data pull brought the saves model (11 Nov 2026): when it is not
+    there, nothing waits on it - the data is marked for a fresh pull on the
+    next call, at most XSAVES_RETRIES times until BB xSaves is found or
+    UPDATE_EVERY_S has passed since the last of them; meanwhile the normal
+    UPDATE_EVERY_S applies. The count is kept in _XSAVES, not per page: the
+    runner gives the job a new page on every timed reload."""
+    if state.get("stat_set"):
+        return
+    if page.locator("select:has(option:text-is('BB xSaves'))").count() == 0:
+        listed = page.locator("select:has(option:text-is('BB xSOT'))")
+        names = _options(listed.first) if listed.count() else []
+        what = f" (listed: {', '.join(names)})" if names else ""
+        if now - _XSAVES["last"] >= UPDATE_EVERY_S:
+            _XSAVES["pulls"] = 0
+        if _XSAVES["pulls"] < XSAVES_RETRIES:
+            _XSAVES["pulls"] += 1
+            _XSAVES["last"] = now
+            state["updated"] = 0            # the next call clicks Update Data again
+            then = "updating the data again"
+        else:
+            then = "waiting for the next data update"
+        raise BuilderNotReady(f"BB xSaves is not listed under BB Player/Team Stats{what} - {then}")
+    _XSAVES["pulls"] = 0
+    _stat_select(page, "BB xSaves")
+    page.wait_for_timeout(600)
+    state["stat_set"] = True
+
+
+def _kickoff(game: dict) -> datetime:
+    return datetime.fromisoformat(game["kickoff"].replace("Z", "+00:00"))
+
+
+def _build_queue(page, now: datetime) -> tuple[list[tuple[str, str]], tuple[datetime, str] | None]:
+    """(competition option, game option) for every game under COMPETITIONS
+    kicking off within WITHIN_H hours of `now`; and the earliest game after
+    that (its kickoff and "Home v Away"), None when there is none. The window
+    is absolute time (UTC), as the rest is: London wall-clock arithmetic would
+    be an hour out across a clock change."""
     comp = _field_select(page, "Competition")
-    queue = []
+    now = now.astimezone(UTC)
+    horizon = now + timedelta(hours=WITHIN_H)
+    queue, later = [], None
     for prefix in COMPETITIONS:
         label = _select_prefix(comp, prefix)
         if label is None:
             continue
         page.wait_for_timeout(500)
         for g in _options(_field_select(page, "Game(s)")):
-            if parse_game_label(g) is not None:
+            game = parse_game_label(g, now)
+            if game is None:
+                continue
+            kickoff = _kickoff(game)
+            if now < kickoff <= horizon:
                 queue.append((label, g))
-    return queue
+            elif kickoff > horizon and (later is None or kickoff < later[0]):
+                later = (kickoff, f"{game['home']} v {game['away']}")
+    return queue, later
+
+
+def _rest(now: datetime, later: tuple[datetime, str] | None) -> Rest:
+    """Nothing within WITHIN_H hours: rest until WITHIN_H hours before the
+    next game seen, or LOOK_AGAIN_S, whichever is sooner."""
+    look_again = now.timestamp() + LOOK_AGAIN_S
+    if later is None:
+        return Rest(look_again, "no games listed under the configured competitions")
+    kickoff, teams = later
+    return Rest(min(kickoff.timestamp() - WITHIN_H * 3600, look_again),
+                f"no games within {WITHIN_H} hours - next is {teams}, {when(kickoff.timestamp())}")
 
 
 def _select_block(page, block: int, comp_label: str, game_label: str) -> bool:
@@ -255,10 +354,10 @@ def _set_total_mode(page) -> bool:
     return True
 
 
-def _read_game(page, comp_label: str, game_label: str) -> list[dict]:
+def _read_game(page, comp_label: str, game_label: str, now: datetime) -> list[dict]:
     """Both blocks on this game, one team each, then every line. [] when the
     builder has no saves model for the game (empty Player list)."""
-    game = parse_game_label(game_label)
+    game = parse_game_label(game_label, now)
     if game is None:
         return []
     if not _select_block(page, 0, comp_label, game_label):
@@ -276,26 +375,43 @@ def _read_game(page, comp_label: str, game_label: str) -> list[dict]:
     return rows
 
 
+# Per page (the game queue, when the data was last refreshed), by id(page).
+# Each entry holds its page, so the id is not reused while the entry lives,
+# and an entry whose page has closed is dropped on the next call.
 _STATE: dict[int, dict] = {}
+# The extra data pulls for a missing BB xSaves (_ensure_xsaves): how many since
+# it was last found, and when the last was asked for. Not per page: a timed
+# reload gives the job a new page, and the cap must hold across it.
+_XSAVES = {"pulls": 0, "last": 0.0}
+
+
+def _state(page) -> dict:
+    for key in [k for k, st in _STATE.items() if st["page"] is not page and st["page"].is_closed()]:
+        del _STATE[key]
+    return _STATE.setdefault(id(page), {"page": page})
 
 
 def bb_saves(page, capture) -> list[dict]:
     """Drive the builder for up to CALL_BUDGET_S and return the saves fairs read.
-    State (the game queue, when the data was last refreshed) lives per page."""
-    state = _STATE.setdefault(id(page), {})
+    State (the game queue, when the data was last refreshed) lives per page.
+    Raises Rest when no game kicks off within WITHIN_H hours."""
+    state = _state(page)
     started = time.time()
+    now = _now()
     page.set_default_timeout(8_000)         # a control that is not there is a skip, not a stall
     _ensure_ready(page, state, started)
     if not state.get("queue"):
-        state["queue"] = _build_queue(page)
+        state["queue"], later = _build_queue(page, now)
         state["cursor"] = 0
         if not state["queue"]:
-            raise BuilderNotReady("no games listed under the configured competitions")
+            _STATE.pop(id(page), None)      # the runner closes the page
+            raise _rest(now, later)
+    _ensure_xsaves(page, state, started)
     rows = []
     while state["cursor"] < len(state["queue"]) and time.time() - started < CALL_BUDGET_S:
         comp_label, game_label = state["queue"][state["cursor"]]
         state["cursor"] += 1
-        rows.extend(_read_game(page, comp_label, game_label))
+        rows.extend(_read_game(page, comp_label, game_label, now))
     if state["cursor"] >= len(state["queue"]):
         state["queue"] = []                 # next call rebuilds (and refreshes when due)
     capture.last_activity = time.time()     # driven, not idle: never reload as stale
