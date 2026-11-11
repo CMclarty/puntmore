@@ -22,7 +22,9 @@ prices are `scraper_prices` files that the Hub posts to Render.
   through the guard, applies a targets.toml edit (in place for a timing-only
   change).
 - `schedule.py` - when each target is due: `every_min`, `stale_min`, jitter
-  drawn once per load, the per-site load gaps, `window`, `priority`, and the
+  drawn once per load, the per-site load gaps, whether a job is active at
+  all (`inactive`: `until`, `days`, `window`; a window past midnight belongs
+  to the day it started, `job_day`), `priority`, and the
   kick-off sweep (`near_min` within `near_hours` of a kick-off the rows
   report; nearest kick-off first when a budget is short).
 - `sinks.py` - where rows go, by `post`: `/api/...` targets:
@@ -30,6 +32,10 @@ prices are `scraper_prices` files that the Hub posts to Render.
   tips (each row with its `tip_id`); events. All are drop files for the
   Hub; the Scraper sends Render nothing.
 - `status.py` - the heartbeat, `data/status.json`, the per-site budget summary.
+- `joblog.py` - one log per job, `data/logs/<name>.log` (JSON lines; past
+  512 KB cut to its newest lines in 256 KB, 1000 at most); the runner
+  writes it through `Runner._say`, `targets log` reads it. A write never
+  raises.
 - `ids.py` - the one tip id, minted here when rows reach the Hub sink (a copy
   of `hub/puntmore_hub/ids.py`; a test in each suite pins the same vector).
 - `parsers/` - one module per page kind; rows only from what the page shows.

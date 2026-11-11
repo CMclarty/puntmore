@@ -29,7 +29,9 @@ import time
 from dataclasses import asdict, fields
 
 from . import config
+from . import joblog
 from .config import Matches, Target
+from .schedule import FETCH_DEFAULT_MIN
 
 LOCK_TIMEOUT_S = 10.0
 
@@ -50,7 +52,7 @@ MATCH_FIELDS = tuple(f.name for f in fields(Matches))
 # Numbers config._target clamps: a value it would change is refused here.
 _NUMERIC = ("every_min", "stale_min", "min_rows", "trust_weight", "near_min", "near_hours")
 _MATCH_NUMERIC = ("max_tabs", "open_gap_min", "tab_max_hours", "relist_min")
-_STRINGS = ("name", "site", "url", "parser", "post", "mode", "wait_for", "window")
+_STRINGS = ("name", "site", "url", "parser", "post", "mode", "wait_for", "window", "until")
 
 
 class TargetsError(ValueError):
@@ -73,6 +75,7 @@ def _msg(exc) -> str:
 def to_mapping(t: Target) -> dict:
     """A Target as the plain dict validate() takes (and --json prints)."""
     d = asdict(t)
+    d["days"] = list(t.days)
     if t.matches is not None:
         d["matches"]["market_tabs"] = list(t.matches.market_tabs)
     return d
@@ -92,6 +95,9 @@ def validate(mapping: dict) -> Target:
     for key in _STRINGS:
         if m.get(key) is not None and not isinstance(m[key], str):
             raise TargetsError(f"target {name}: {key} must be text, not {m[key]!r}")
+    days = m.get("days")
+    if days is not None and (not isinstance(days, (list, tuple)) or not all(isinstance(x, str) for x in days)):
+        raise TargetsError(str(config._days_refused(name, days)))
     if "enabled" in m and not isinstance(m["enabled"], bool):
         raise TargetsError(f"target {name}: enabled must be true or false, not {m['enabled']!r}")
     for key in (k for k in (*_NUMERIC, "priority") if m.get(k) is not None):
@@ -290,24 +296,51 @@ def disable(path, name, timeout=None) -> Target:
     return set(path, name, timeout=timeout, enabled=False)
 
 
-def remove(path, name, timeout=None) -> list[Target]:
-    """Drop one target; returns what is left."""
+def remove(path, name, timeout=None, data_dir=None) -> list[Target]:
+    """Drop one target, and its log (joblog) under data_dir, which defaults to
+    the targets file's directory; returns what is left."""
     with locked(path, timeout):
         targets = load(path)
         del targets[_find(targets, name)]
         save(path, targets)
+    joblog.remove(pathlib.Path(path).parent if data_dir is None else data_dir, name)
     return targets
 
 
 # --- what the console renders -------------------------------------------------
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def schedule_words(d: dict) -> str:
+    """A target's schedule in words, from its mapping: "every 15 min · Fri, Sat
+    · 07:00–01:00 · until 30 Nov 2026". Days in week order whatever order
+    they were given in. A fetch job with no every_min runs every
+    FETCH_DEFAULT_MIN; a kept-open page with none reloads when it goes quiet
+    (a mapping with no mode is the Target default, a kept-open page)."""
+    if d["every_min"]:
+        every = f"every {d['every_min']:g} min"
+    elif d.get("mode", Target.mode) == "fetch":
+        every = f"every {FETCH_DEFAULT_MIN:g} min"
+    else:
+        every = f"when quiet {d['stale_min']:g} min"
+    days = ", ".join(x.title() for x in config.WEEKDAYS if x in (d["days"] or ())) or "every day"
+    window = d["window"].replace("-", "–") if d["window"] else "all day"
+    if d["until"]:
+        y, mo, day = (int(x) for x in d["until"].split("-"))
+        until = f"until {day} {_MONTHS[mo - 1]} {y}"
+    else:
+        until = "forever"
+    return " · ".join((every, days, window, until))
+
+
 STATUS_KEYS = ("state", "detail", "last_load", "last_parse", "rows_posted")
 
 
 def summary(path, status_json_path=None) -> list[dict]:
     """One dict per target in the file (file order): every field (to_mapping),
-    plus "status": the running Scraper's last report on it from status.json
-    (state, detail, last_load, last_parse, rows_posted, reported_at), or None
-    when there is no status.json or it does not name the target. A disabled
+    "schedule" (schedule_words), and "status": the running Scraper's last
+    report on it from status.json (state, detail, last_load, last_parse,
+    rows_posted, reported_at), or None when there is no status.json or it does not name the target. A disabled
     target is not loaded, so it has no status unless it was running when it
     was disabled (then "retired" until the Scraper restarts)."""
     path = pathlib.Path(path)
@@ -323,6 +356,7 @@ def summary(path, status_json_path=None) -> list[dict]:
     out = []
     for t in load(path):
         d = to_mapping(t)
+        d["schedule"] = schedule_words(d)
         r = reported.get(t.name)
         d["status"] = None if r is None else {
             **{k: r.get(k) for k in STATUS_KEYS}, "reported_at": at}
@@ -337,4 +371,4 @@ def default_path() -> pathlib.Path:
 
 
 __all__ = ["load", "validate", "save", "add", "set", "enable", "disable", "remove",
-           "get", "summary", "render", "to_mapping", "locked", "TargetsError"]
+           "get", "summary", "render", "to_mapping", "schedule_words", "locked", "TargetsError"]

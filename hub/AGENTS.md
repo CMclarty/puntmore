@@ -38,7 +38,7 @@ files.
 
 | Want to... | Change |
 |---|---|
-| Add or pause a Scraper target (a Finder source is `site = "generic"`) | the Console's Scraper tab, or `python -m scraper targets …` (`scraper/README.md`, "Changing targets"); never `targets.toml` by hand |
+| Add or pause a Scraper job (days, end date; a Finder source is `site = "generic"`) | the Console's Scraper tab, or `python -m scraper targets …` (`scraper/README.md`, "Changing targets"); never `targets.toml` by hand |
 | Fix a broken parser | `scraper/parsers/<name>.py` + a fixture under `scraper/tests/fixtures/` |
 | Add an email tipster | an entry in `data/tipsters.toml` (see `tipsters.example.toml`) + a parser in `puntmore_hub/tipsters/<name>.py` registered in `PARSERS`, written from a real email; `puntmore mail --dry-run` shows what it reads |
 | Change where the drop files are read from | `.env` (`PUNTMORE_SCRAPER_DATA`; the old `PUNTMORE_WORKER_DATA` is still read) |

@@ -31,10 +31,10 @@
   <section id="tab-scraper" class="tab" hidden>
     <div class="feedhead"><h2>Scraper</h2><span class="feedstate"></span></div>
     <div class="summary" data-slot="summary"></div>
-    <h3>Targets</h3>
-    <p class="hint">What <code data-slot="targets-file">targets.toml</code> says, joined to the Scraper's last report. Every change goes through <code>scraper/targets.py</code> (the same rules as <code>python -m scraper targets …</code>); <strong>the Scraper applies changes within 60 s</strong>. Tap a target's name to see the rows in its <code>latest/&lt;target&gt;.json</code>. “next due” is last load + <code>every_min</code>, give or take the Scraper's jitter (×0.75–1.35).</p>
+    <h3>Jobs</h3>
+    <p class="hint">One tile per job in <code data-slot="targets-file">targets.toml</code>, joined to the Scraper's last report and the newest lines of its log. Every change goes through <code>scraper/targets.py</code> (the same rules as <code>python -m scraper targets …</code>); <strong>the Scraper applies changes within 60 s</strong>. Tap a job's name to see the rows in its <code>latest/&lt;target&gt;.json</code>.</p>
     <p id="targets-result" class="action-result" role="status" hidden></p>
-    <div class="scroll" data-slot="config"></div>
+    <div data-slot="config"></div>
     <div data-slot="orphans"></div>
 
     <form id="target-edit-form" class="card form" autocomplete="off" hidden>
@@ -46,6 +46,17 @@
       <label>near_hours <input name="near_hours" type="number" step="any" inputmode="decimal" placeholder="3"><span class="field-error" data-err="near_hours"></span></label>
       <label>priority <input name="priority" type="number" step="1" inputmode="numeric" placeholder="0"><span class="field-error" data-err="priority"></span></label>
       <label>window <input name="window" type="text" placeholder="HH:MM-HH:MM"><span class="field-error" data-err="window"></span></label>
+      <fieldset class="days"><legend>days</legend>
+        <label><input type="checkbox" name="days" value="mon"> Mon</label>
+        <label><input type="checkbox" name="days" value="tue"> Tue</label>
+        <label><input type="checkbox" name="days" value="wed"> Wed</label>
+        <label><input type="checkbox" name="days" value="thu"> Thu</label>
+        <label><input type="checkbox" name="days" value="fri"> Fri</label>
+        <label><input type="checkbox" name="days" value="sat"> Sat</label>
+        <label><input type="checkbox" name="days" value="sun"> Sun</label>
+        <span class="field-error" data-err="days"></span>
+      </fieldset>
+      <label>until <input name="until" type="date"><span class="field-error" data-err="until"></span></label>
       <label>min_rows <input name="min_rows" type="number" step="1" inputmode="numeric" placeholder="0"><span class="field-error" data-err="min_rows"></span></label>
       <label>trust_weight <input name="trust_weight" type="number" step="any" inputmode="decimal" placeholder="1.0"><span class="field-error" data-err="trust_weight"></span></label>
       <label class="wide">wait_for <input name="wait_for" type="text" placeholder="CSS selector (fetch targets)"><span class="field-error" data-err="wait_for"></span></label>
@@ -79,6 +90,17 @@
       <label>near_hours <input name="near_hours" type="number" step="any" inputmode="decimal" placeholder="3"><span class="field-error" data-err="near_hours"></span></label>
       <label>priority <input name="priority" type="number" step="1" inputmode="numeric" placeholder="0"><span class="field-error" data-err="priority"></span></label>
       <label>window <input name="window" type="text" placeholder="HH:MM-HH:MM"><span class="field-error" data-err="window"></span></label>
+      <fieldset class="days"><legend>days</legend>
+        <label><input type="checkbox" name="days" value="mon"> Mon</label>
+        <label><input type="checkbox" name="days" value="tue"> Tue</label>
+        <label><input type="checkbox" name="days" value="wed"> Wed</label>
+        <label><input type="checkbox" name="days" value="thu"> Thu</label>
+        <label><input type="checkbox" name="days" value="fri"> Fri</label>
+        <label><input type="checkbox" name="days" value="sat"> Sat</label>
+        <label><input type="checkbox" name="days" value="sun"> Sun</label>
+        <span class="field-error" data-err="days"></span>
+      </fieldset>
+      <label>until <input name="until" type="date"><span class="field-error" data-err="until"></span></label>
       <label>min_rows <input name="min_rows" type="number" step="1" inputmode="numeric" placeholder="0"><span class="field-error" data-err="min_rows"></span></label>
       <label>trust_weight <input name="trust_weight" type="number" step="any" inputmode="decimal" placeholder="1.0"><span class="field-error" data-err="trust_weight"></span></label>
       <label class="wide">wait_for <input name="wait_for" type="text" placeholder="CSS selector (fetch targets)"><span class="field-error" data-err="wait_for"></span></label>

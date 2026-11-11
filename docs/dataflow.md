@@ -9,7 +9,7 @@ change, not a bug fix, and needs a line in the register.
 
 | # | Stage | Record produced | Owner, where it lives | Id | Status words |
 |---|---|---|---|---|---|
-| 1 | A page is loaded | nothing durable: a page load, counted against the site's budget | Scraper service, `guard.sqlite3` | — | per target: `running`, `paused`, `blocked`, `retired` (`status.json`) |
+| 1 | A page is loaded | nothing durable: a page load, counted against the site's budget | Scraper service, `guard.sqlite3` | — | per target: `running`, `paused`, `blocked`, `retired`, `finished` (past its `until`) (`status.json`) |
 | 2 | A parser reads rows | **prices** (raw rows the Paddy board turns into value bets: Paddy Power's lines off a Paddy page, and the fair saves prices read from Bookie Bashing, `bb-saves`) or **tips** (an external source's bets): event, market, selection, optional advised price, stake units, tip time, expiry, origin. A tipster's email is parsed the same way on the Hub (`hub/puntmore_hub/mail.py`, one parser per tipster in `tipsters/`) | Scraper service, `latest/<target>.json`; an email: the Hub, in memory (the message recorded in `mail_seen`) | **`tip_id`**, minted here: sha1 of source, normalised event, market, selection, day (`scraper/ids.py` = `hub/puntmore_hub/ids.py`) | — |
 | 3 | Rows leave the Scraper service | a **drop file** per run under `<data>/hub/tips/` (`scraper_tips`), problems as **event** files under `<data>/hub/events/` (`scraper_event`), and Paddy's **prices** as `scraper_prices` files under `<data>/hub/prices/`, one per parse of a price target's tab: `hub/PROTOCOL.md`. The Scraper service sends nothing to Render | Scraper service writes; the Hub reads and moves each file to `done/` (prices: `done/prices/`) | `tip_id` on every row; `msg_id` per file | event kinds: `unhealthy_source`, `blocked_source` |
 | 4 | Scraper control takes them in | a **tip** row in the Hub store, deduplicated on `tip_id` (`inbox.ingest_rows`, the one storage path, also for an email's rows); an event becomes an **escalation** for HubAI; prices: posted to Render as `{"prices": rows}` on the file's route (`inbox.post_prices`), oldest first, within about 10 s of the drop; a file older than 15 min is moved aside unsent; each handled file goes to `done/prices/` | the Hub daemon (`hub/puntmore_hub/inbox.py`, `mail.py`), `hub.sqlite` (`tips`, `escalations`); prices: Render's Paddy store (`/api/paddy/*`) | `tip_id` | escalation: open, resolved |
@@ -79,6 +79,9 @@ The Hub's side of it is not built yet: until it is, a photo stays `waiting`.
      its edge clears the minimum (`cards/saves.py::saves_value`). The proof is the 2xx in the
      daemon's journal ("sent N row(s), Render answered …"); a file in `done/prices/` was handled,
      and the journal says how.
+- **What one Scraper job did (paused, failed, delivered, went quiet):** its own log,
+  `<scraper data>/logs/<name>.log`: `python -m scraper targets log NAME`, or the newest lines on
+  its tile in the Console's Scraper tab.
 - **A photo that never became a slip:** `GET /api/aw26/photos` (its state, tries and reason).
 - **A drop file that is not being read:** the Console's Daemon card (the last inbox pass, the
   drop files waiting) and `systemctl --user status puntmore-link`.

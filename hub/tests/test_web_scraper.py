@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+import urllib.parse
 
 import pytest
 
@@ -275,3 +276,98 @@ def test_the_page_has_the_tab_and_no_inline_script(scfg):
     assert page.count("<script") == 1 and "onclick=" not in page and "Worker" not in page
     css = client(scfg).get("/static/style.css").text
     assert "@media (max-width: 700px)" in css and "table.cards" in css
+    assert page.count('name="until" type="date"') == 2
+    for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun"):
+        assert page.count(f'name="days" value="{day}"') == 2
+    js = client(scfg).get("/static/app.js").text
+    assert "/api/scraper/log/" in js and 'finished: "off"' in js
+    assert '"all lines"' in js and '"fewer lines"' in js        # the full-log toggle
+    assert ".job" in client(scfg).get("/static/style.css").text
+
+
+def test_days_and_until_through_the_console(scfg):
+    c = client(scfg)
+    r = c.post("/api/actions/scraper/targets/bb-saves/set", headers=H,
+               json={"days": ["fri", "sat"], "until": "2026-11-30"})
+    assert r.status_code == 200, r.text
+    assert (r.json()["target"]["days"], r.json()["target"]["until"]) == (["fri", "sat"], "2026-11-30")
+    v = {t["name"]: t for t in c.get("/api/scraper").json()["config"]["targets"]}["bb-saves"]["view"]
+    assert v["schedule"] == "every 10 min · Fri, Sat · all day · until 30 Nov 2026"
+    r = c.post("/api/actions/scraper/targets/bb-saves/set", headers=H, json={"days": ["funday"]})
+    assert r.status_code == 400 and r.json()["field"] == "days"
+    r = c.post("/api/actions/scraper/targets/bb-saves/set", headers=H, json={"until": "next week"})
+    assert r.status_code == 400 and r.json()["field"] == "until"
+    r = c.post("/api/actions/scraper/targets/bb-saves/set", headers=H, json={"days": None})
+    assert r.status_code == 200 and r.json()["target"]["days"] == []
+    r = c.post("/api/actions/scraper/targets/add", headers=H, json={
+        "name": "weekend", "site": "generic", "url": "https://tips.example/w", "days": ["sat"], "enabled": False})
+    assert r.status_code == 200 and r.json()["target"]["days"] == ["sat"]
+
+
+def test_the_log_route_and_the_tile_tail(scfg):
+    jl = scraper_targets.joblog(scfg)
+    for i in range(8):
+        jl.write(scfg.scraper_data_dir, "bb-saves", f"line {i}", now=1_800_000_000.0 + i)
+    c = client(scfg)
+    v = {t["name"]: t for t in c.get("/api/scraper").json()["config"]["targets"]}["bb-saves"]["view"]
+    assert [x["msg"] for x in v["log"]] == [f"line {i}" for i in range(3, 8)]
+    assert v["log"][0]["at"].endswith("+00:00")
+    d = c.get("/api/scraper/log/bb-saves?n=3").json()
+    assert d["target"] == "bb-saves" and [x["msg"] for x in d["lines"]] == ["line 5", "line 6", "line 7"]
+    assert c.get("/api/scraper/log/bb-saves?n=0").json()["n"] == 1
+    assert c.get("/api/scraper/log/bb-saves?n=99999").json()["n"] == 1000
+    assert c.get("/api/scraper/log/nobody").json()["lines"] == []
+    (scfg.scraper_data_dir / "secret.log").write_text('{"ts": 1, "msg": "outside logs/"}\n')
+    assert scraper_targets.log(scfg, "../secret", 5)["lines"] == []        # never read outside logs/
+    r = c.post("/api/actions/scraper/targets/bb-saves/remove", headers=H, json={"confirm": "bb-saves"})
+    assert r.status_code == 200
+    assert not (scfg.scraper_data_dir / "logs" / "bb-saves.log").exists()
+
+
+@pytest.mark.parametrize("name", ["../secret", "../../secret", "..", ".", "", "/secret", "a/b", "a b", "../secret.log"])
+def test_the_log_route_never_reads_outside_logs(scfg, name):
+    # a log file at every place a hostile name could reach: <data>/, its parent, logs/../ and a sub-dir
+    line = '{"ts": 1, "msg": "outside logs/"}\n'
+    for p in (scfg.scraper_data_dir / "secret.log", scfg.scraper_data_dir.parent / "secret.log",
+              scfg.scraper_data_dir / "..log", scfg.scraper_data_dir / "a" / "b.log",
+              scfg.scraper_data_dir / "logs" / "a" / "b.log"):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(line)
+    assert scraper_targets.log(scfg, name, 50)["lines"] == []
+    # through the route: a "/" or a dot segment never reaches {target} (404, or another route), and
+    # whatever does reach it reads nothing outside logs/
+    r = client(scfg).get("/api/scraper/log/" + urllib.parse.quote(name, safe=""))
+    assert r.status_code in (200, 404) and "outside logs/" not in r.text
+
+
+def test_a_log_that_fails_never_breaks_the_view(scfg, monkeypatch):
+    jl = scraper_targets.joblog(scfg)
+
+    def boom(*a, **k):
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(jl, "read", boom)
+    rows = client(scfg).get("/api/scraper").json()["config"]["targets"]
+    assert [t["view"]["log"] for t in rows] == [[], []]
+
+
+def test_the_log_route_without_the_library_is_a_503(scfg, monkeypatch):
+    def missing(cfg):
+        raise scraper_targets.LibraryMissing("the Scraper's code is not at /nowhere")
+
+    monkeypatch.setattr(scraper_targets, "joblog", missing)
+    assert client(scfg).get("/api/scraper/log/bb-saves").status_code == 503
+
+
+def test_remove_takes_the_log_from_the_scraper_data_dir(scfg, monkeypatch):
+    lib = scraper_targets.library(scfg)
+    seen = {}
+    real = lib.remove
+
+    def spy(path, name, timeout=None, data_dir=None):
+        seen["data_dir"] = data_dir
+        return real(path, name, timeout=timeout, data_dir=data_dir)
+
+    monkeypatch.setattr(lib, "remove", spy)
+    r = client(scfg).post("/api/actions/scraper/targets/bb-saves/remove", headers=H, json={"confirm": "bb-saves"})
+    assert r.status_code == 200 and seen["data_dir"] == scfg.scraper_data_dir

@@ -1,6 +1,7 @@
 """A target's `window` and `priority`, with a stand-in browser: outside its
 window a target is not loaded and its tabs close; when a site's hourly budget
 cannot cover every target that wants a load, higher priority goes first."""
+import os
 import random
 import time
 from datetime import datetime, timedelta
@@ -173,3 +174,104 @@ def test_a_kickoff_in_the_rows_pulls_the_reload_forward_then_lets_go(tmp_path, m
     after = [ts for ts in loads if ts > kickoff]
     assert all(b - a >= 20 * 60 for a, b in zip(after, after[1:])), after     # the recycle rhythm again
     assert r.status(t0 + 4 * 3600)["targets"][0]["near"] is False
+
+
+# --- days and until ----------------------------------------------------------
+FRI, SAT, SUN, THU = (datetime(2026, 11, d) for d in (13, 14, 15, 12))   # 13 Nov 2026 is a Friday
+
+
+def _on(day, hh, mm=0):
+    return day.replace(hour=hh, minute=mm).timestamp()
+
+
+def test_days_and_until_decide_whether_a_job_is_active():
+    t = _bb("j", days=("fri", "sat"))
+    assert schedule.inactive(t, _on(FRI, 10)) is None
+    assert schedule.inactive(t, _on(SAT, 23, 59)) is None
+    assert schedule.inactive(t, _on(THU, 10)) == "not a run day"
+    assert schedule.inactive(t, _on(SUN, 0)) == "not a run day"
+    assert schedule.inactive(_bb("every"), _on(THU, 10)) is None             # no days = every day
+    u = _bb("u", until="2026-11-14")
+    assert schedule.inactive(u, _on(SAT, 23, 59)) is None
+    assert schedule.inactive(u, _on(SUN, 0)) == "finished"
+    w = _bb("w", window="09:00-10:00", until="2026-11-14")
+    assert schedule.inactive(w, _on(FRI, 8)) == "outside window"
+    assert schedule.inactive(w, _on(SUN, 9, 30)) == "finished"               # finished wins
+
+
+def test_a_window_past_midnight_belongs_to_the_day_it_started():
+    t = _bb("late", window="20:00-02:00", days=("sat",), until="2026-11-14")
+    assert schedule.inactive(t, _on(SAT, 21)) is None
+    assert schedule.inactive(t, _on(SUN, 1, 59)) is None                     # Saturday's run
+    assert schedule.inactive(t, _on(SUN, 2)) == "finished"
+    assert schedule.inactive(t, _on(SAT, 1, 30)) == "not a run day"          # Friday's run
+    assert schedule.inactive(_bb("x", window="20:00-02:00", days=("sat",)), _on(SUN, 21)) == "not a run day"
+    assert schedule.inactive(_bb("x", window="20:00-02:00", days=("sat",)), _on(SUN, 20)) == "not a run day"
+    assert schedule.job_day("20:00-02:00", _on(SUN, 1)) == SAT.date()
+    assert schedule.job_day(None, _on(SUN, 1)) == SUN.date()
+
+
+def test_off_days_close_the_job_and_status_says_why(tmp_path):
+    r = _runner(tmp_path, [_bb("bb", days=("fri",), until="2026-11-14")])
+    r.tick(_on(FRI, 10))
+    assert "bb" in r.tabs and len(_loads(r)) == 1
+    r.tick(_on(SAT, 10))
+    assert "bb" not in r.tabs
+    st = r.status(_on(SAT, 10))["targets"][0]
+    assert (st["state"], st["detail"]) == ("paused", "not a run day")
+    r.tick(_on(SUN, 10))
+    st = r.status(_on(SUN, 10))["targets"][0]
+    assert (st["state"], st["detail"]) == ("finished", "ended 2026-11-14")
+    assert len(_loads(r)) == 1
+
+
+def test_a_days_or_until_edit_keeps_a_running_jobs_page_open(tmp_path):
+    from scraper import targets as T
+    job = _bb("bb", days=("fri",), until="2026-11-14")
+    r = _runner(tmp_path, [job])
+    r.targets_file = tmp_path / "targets.toml"
+    T.save(r.targets_file, [job])
+    r.targets_mtime = r._mtime()
+    r.tick(_on(FRI, 10))
+    tab, page = r.tabs["bb"], r.tabs["bb"].page
+    closed = []
+    close = r._close
+    r._close = lambda key: (closed.append(key), close(key))
+    T.set(r.targets_file, "bb", days=["fri", "sat"], until="2026-11-30")     # still active on Friday
+    st = r.targets_file.stat()
+    os.utime(r.targets_file, ns=(st.st_atime_ns, st.st_mtime_ns + 2_000_000_000))
+    r._reload_targets(_on(FRI, 10, 1))
+    r.tick(_on(FRI, 10, 1))
+    assert closed == [] and r.tabs["bb"] is tab and tab.page is page
+    assert len(_loads(r)) == 1
+    assert (tab.target.days, tab.target.until) == (("fri", "sat"), "2026-11-30")
+
+
+def test_restart_does_not_repeat_the_paused_line(tmp_path):
+    from scraper import joblog
+    job = _bb("bb", days=("fri",), until="2026-11-14")
+    msgs = lambda: [x["msg"] for x in joblog.read(tmp_path, "bb", n=100)]
+    _runner(tmp_path, [job]).tick(_on(SUN, 10))
+    _runner(tmp_path, [job]).tick(_on(SUN, 10, 1))                          # a restart
+    assert msgs() == ["finished - paused"]
+    other = tmp_path / "other"
+    other.mkdir()
+    _runner(other, [job]).tick(_on(SAT, 10))
+    _runner(other, [job]).tick(_on(SUN, 10))                                 # a restart, a new reason
+    assert [x["msg"] for x in joblog.read(other, "bb")] == ["not a run day - paused", "finished - paused"]
+
+
+def test_run_day_starts_with_running_again(tmp_path, capsys):
+    from scraper import joblog
+    r = _runner(tmp_path, [_bb("bb", days=("fri",))])
+    r.tick(_on(THU, 10))
+    r.tick(_on(FRI, 10))
+    assert [x["msg"] for x in joblog.read(tmp_path, "bb")] == ["not a run day - paused", "running again"]
+    assert "bb: running again" in capsys.readouterr().out
+    w = tmp_path / "w"
+    w.mkdir()
+    r = _runner(w, [_bb("bb", window="09:00-10:00", days=("fri",))])
+    r.tick(_on(FRI, 8))
+    r.tick(_on(FRI, 9))
+    assert [x["msg"] for x in joblog.read(w, "bb")] == ["outside window 09:00-10:00 - paused",
+                                                        "window open - running"]

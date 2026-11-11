@@ -20,14 +20,16 @@ Targets are targets.toml on the Hub, changed only through scraper/targets.py
 (an atomic rename, so a half-written file is never read). The file is checked every
 TARGETS_CHECK_S: after an edit a removed or changed target's tabs close, a new
 one opens on the next tick - no restart. A change to its timing, priority,
-window, min_rows or trust_weight only is applied to the open tabs in place
-(RESCHEDULE_FIELDS). A file that will not parse is reported and the running
-targets are kept. The runner writes its state to
+window, days, until, min_rows or trust_weight only is applied to the open
+tabs in place (RESCHEDULE_FIELDS). A file that will not parse is reported and
+the running targets are kept. The runner writes its state to
 data/status.json every STATUS_EVERY_S, which the Hub reads.
 
 This module wires the pieces: schedule.py says when a target is due,
 sinks.py delivers its rows (drop files for the Hub), status.py writes the
-heartbeat and status.json, guard.py says yes or no to every load.
+heartbeat and status.json, guard.py says yes or no to every load. Every
+line about one job goes to stdout and to that job's own log (joblog.py,
+Runner._say); site-wide lines are stdout only.
 """
 import collections
 import dataclasses
@@ -40,6 +42,7 @@ from urllib.parse import urlparse
 
 from . import browser
 from . import config
+from . import joblog
 from . import schedule
 from .capture import Capture, DiskBudget
 from .config import host_allowed
@@ -56,8 +59,11 @@ PARSE_EVERY_S = 60
 # to any other (url, site, mode, parser, post, wait_for, matches) closes the
 # target's tabs and reopens them.
 RESCHEDULE_FIELDS = ("every_min", "stale_min", "priority", "window", "min_rows", "trust_weight",
-                     "near_min", "near_hours")
+                     "near_min", "near_hours", "days", "until")
 TARGETS_CHECK_S = 60             # a stat of targets.toml; read only when it changed
+# A job that delivers every parse logs the same delivery line again only
+# after this long (a change in what was handed or left out is logged at once).
+DELIVERY_SAID_S = 600
 
 
 class Tab:
@@ -105,6 +111,8 @@ class Runner:
         self.pacer = schedule.Pacer(SITES)            # spacing between page loads
         self.retired: dict[str, collections.deque] = {}
         self.parser_said: dict[str, str] = {}
+        # job -> ((handed, left out), when) of its last delivery line in its log
+        self.delivery_said: dict[str, tuple[tuple[int, int], float]] = {}
         self.targets = list(settings.targets)
         self.targets_file = settings.targets_file
         self.targets_mtime = self._mtime()            # load() has just read it
@@ -123,7 +131,7 @@ class Runner:
         self.next_fetch: dict[str, float] = {}
         self.health_said: dict[str, str] = {}
         self.sinks = Sinks(settings)
-        self.outside: set[str] = set()                 # targets now outside their window
+        self.outside: dict[str, str] = {}              # inactive targets -> why (schedule.inactive)
         self.wanting_since: dict[str, float] = {}      # target -> when it began wanting a load
         # The kick-off sweep (schedule.py): the nearest kick-off ahead that a
         # target's own rows reported, and which targets are inside their near
@@ -273,7 +281,8 @@ class Runner:
             tab.due_at = None
         except Exception as exc:
             self.guard.record_load(site, url, now)     # a failed load still went out
-            print(f"{key}: load failed: {exc.__class__.__name__}: {exc}", flush=True)
+            self._say(target.name, (f"{key}: " if key != target.name else "")
+                      + f"load failed: {exc.__class__.__name__}: {exc}")
             return None
 
         reason = browser.blocked(tab.page, resp.status if resp else None)
@@ -309,12 +318,14 @@ class Runner:
         for t in self.targets:
             if self._paused(t.site, now):
                 continue
-            if not schedule.in_window(t.window, now):
-                self._outside_window(t)
+            why = schedule.inactive(t, now)
+            if why:
+                self._outside_window(t, why)
                 continue
             if t.name in self.outside:
-                self.outside.discard(t.name)
-                print(f"{t.name}: window open - running", flush=True)
+                was = self.outside.pop(t.name)
+                self._say(t.name, "window open - running" if was.startswith("outside window")
+                          else "running again")
             live.append(t)
         self._sweep(live, now)
         for t in schedule.order(live, self._wanting(live, now), lambda site: self._left(site, now),
@@ -335,14 +346,22 @@ class Runner:
         self._heartbeat(now)
         self._report(now)
 
-    # --- window and priority -------------------------------------------------
-    def _outside_window(self, t):
-        """Outside its window a target is treated like quiet hours: its tabs
-        close and nothing loads. A fetch target forgets its next run, so it
-        runs when the window opens."""
-        if t.name not in self.outside:
-            self.outside.add(t.name)
-            print(f"{t.name}: outside window {t.window} - paused", flush=True)
+    # --- days, until, window and priority ------------------------------------
+    def _outside_window(self, t, why):
+        """A target that is not active (`why`, from schedule.inactive: off its
+        days, past its until, outside its window) is treated like quiet
+        hours: its tabs close and nothing loads. A fetch target forgets its
+        next run, so it runs when it is active again. Said once per change of
+        reason. A reason new to this process that the job's log already ends
+        with (the line before a restart) is printed but not logged again."""
+        if self.outside.get(t.name) != why:
+            self.outside[t.name] = why
+            msg = f"outside window {t.window} - paused" if why == "outside window" else f"{why} - paused"
+            last = joblog.read(self.s.data_dir, t.name, 1)
+            if last and last[0]["msg"] == msg:
+                print(f"{t.name}: {msg}", flush=True)
+            else:
+                self._say(t.name, msg)
         for key in [k for k, tab in self.tabs.items() if tab.target.name == t.name]:
             self._close(key)
         self.next_fetch.pop(t.name, None)
@@ -363,8 +382,8 @@ class Runner:
                 continue
             (self.near.add if is_near else self.near.discard)(t.name)
             every = schedule.effective_every(t, k, now)
-            print(f"{t.name}: " + (f"kick-off in {(k - now) / 60:.0f} min - every {every:g} min"
-                                   if is_near else "past the near window - normal interval"), flush=True)
+            self._say(t.name, f"kick-off in {(k - now) / 60:.0f} min - every {every:g} min"
+                      if is_near else "past the near window - normal interval")
             for tab in self.tabs.values():
                 if tab.target.name == t.name:
                     tab.due_at = None
@@ -473,6 +492,7 @@ class Runner:
                 self.retired.pop(name, None)
                 self.next_open.pop(name, None)
                 self.parser_said.pop(name, None)
+                self.delivery_said.pop(name, None)
             if name not in new:
                 self.retired_targets[name] = t
         for name in new:
@@ -490,7 +510,7 @@ class Runner:
         """A change to RESCHEDULE_FIELDS only: the open tabs keep their pages
         and take the new definition. A timed reload is redrawn from the last
         load with the new every_min; a fetch target's next run likewise. The
-        window and priority apply from the next tick."""
+        window, days, until and priority apply from the next tick."""
         for tab in self.tabs.values():
             if tab.target.name == t.name:
                 if (tab.target.every_min, tab.target.near_min, tab.target.near_hours) != \
@@ -532,27 +552,45 @@ class Runner:
                 try:
                     tab.page.wait_for_selector(t.wait_for, timeout=20_000)
                 except Exception:
-                    print(f"{t.name}: wait_for {t.wait_for!r} not seen", flush=True)
+                    self._say(t.name, f"wait_for {t.wait_for!r} not seen")
             self._parse(tab, now, force=True)
         finally:
             self._close(key)
 
     def _check_rows(self, t, rows, now):
         """Row-count health for fetch targets: fewer than min_rows is a suspected
-        layout change. Alert and tell the Hub once per change, not per run."""
+        layout change. Alert, tell the Hub and note it in the job's log once per
+        change, not per run."""
         if t.min_rows and len(rows) < t.min_rows:
             msg = f"only {len(rows)} row(s), expected at least {t.min_rows} - layout change?"
             if self.health_said.get(t.name) != msg:
                 self.health_said[t.name] = msg
-                self.alerts.send(f"{t.name}: {msg}")
+                self.alerts.send(f"{t.name}: {msg}")          # prints it; the job's log gets it here
+                joblog.write(self.s.data_dir, t.name, msg)
                 emit_event(self.s.data_dir, "unhealthy_source", t.name, msg, now)
             self.parser_said[t.name] = msg
         elif t.name in self.health_said:
             del self.health_said[t.name]
-            self.alerts.send(f"{t.name}: healthy again ({len(rows)} rows)")
+            msg = f"healthy again ({len(rows)} rows)"
+            self.alerts.send(f"{t.name}: {msg}")
+            joblog.write(self.s.data_dir, t.name, msg)
 
-    def _deliver(self, t, rows, now) -> bool:
-        return self.sinks.deliver(t, rows, now)
+    def _deliver(self, t, rows, now) -> int:
+        """Hand the rows to the sink and return how many it took (0: none). A
+        delivery that went is noted in the job's log (the sink prints its own
+        line): what was handed and what the sink left out, logged when that differs from the job's last delivery line
+        or DELIVERY_SAID_S after it, so a job delivering every parse does not
+        fill its log with the same line."""
+        handed = self.sinks.deliver(t, rows, now)
+        if not handed:
+            return 0
+        counts = (handed, len(rows) - handed)
+        last = self.delivery_said.get(t.name)
+        if last is None or last[0] != counts or now - last[1] >= DELIVERY_SAID_S:
+            self.delivery_said[t.name] = (counts, now)
+            joblog.write(self.s.data_dir, t.name, f"{handed} row(s) handed to the Hub ({t.post})"
+                         + (f", {counts[1]} left out" if counts[1] else ""))
+        return handed
 
     def _tick_matches(self, t, now):
         m = t.matches
@@ -571,7 +609,7 @@ class Runner:
             quiet = tab.capture.quiet_for(now) >= t.stale_min * 60
             if now - tab.opened >= m.tab_max_hours * 3600 or (quiet and tab.reloaded_stale
                                                               and now - tab.last_load >= t.stale_min * 60):
-                print(f"{key}: retired", flush=True)
+                self._say(t.name, f"{key}: retired")
                 retired.append(tab.url)
                 self._close(key)
             elif quiet and now - tab.last_load >= t.stale_min * 60:
@@ -621,8 +659,8 @@ class Runner:
                 # yet, not a locator miss - the page is kept once per run
                 # so a real miss can still be checked.
                 if tab.market_tabs.get(name) != "not offered":    # once, not every round
-                    print(f"{tab.url}: no {name!r} tab; tabs drawn: "
-                          f"{', '.join(browser.visible_tabs(page)) or 'none found'}", flush=True)
+                    self._say(t.name, f"{tab.url}: no {name!r} tab; tabs drawn: "
+                                      f"{', '.join(browser.visible_tabs(page)) or 'none found'}")
                 tab.market_tabs[name] = "not offered"
                 self._snapshot_once(t, tab, "market-tab-not-found")
                 continue
@@ -634,7 +672,7 @@ class Runner:
                 browser.click(page, loc)
             except Exception as exc:
                 tab.market_tabs[name] = "click failed"
-                print(f"{tab.url}: market tab {label!r}: click failed: {exc}", flush=True)
+                self._say(t.name, f"{tab.url}: market tab {label!r}: click failed: {exc}")
                 continue
             loaded = browser.wait_for_feed(page, cap, clicked_at, feed)
             if page.url != before_url or cap.documents != before_docs:
@@ -647,7 +685,7 @@ class Runner:
         tab.next_clicks = schedule.next_clicks_at(now)
         said = ", ".join(f"{n} {o}" for n, o in tab.market_tabs.items())
         if said and said != tab.tabs_said:
-            print(f"{tab.url}: market tabs: {said}", flush=True)
+            self._say(t.name, f"{tab.url}: market tabs: {said}")
             tab.tabs_said = said
 
     def _snapshot_once(self, t, tab, why):
@@ -663,7 +701,7 @@ class Runner:
             (out / "page.html").write_text(tab.page.content(), encoding="utf-8")
             tab.page.screenshot(path=str(out / "page.png"))
         except Exception as exc:
-            print(f"{t.name}: snapshot failed: {exc}", flush=True)
+            self._say(t.name, f"snapshot failed: {exc}")
 
     # --- output -------------------------------------------------------------
     def _parse(self, tab, now, force=False):
@@ -678,13 +716,13 @@ class Runner:
             rows = fn(tab.page, tab.capture)
         except NotImplementedError as exc:
             if t.name not in self.parser_said:
-                print(f"{t.name}: {exc} - capturing only", flush=True)
+                self._say(t.name, f"{exc} - capturing only")
                 self.parser_said[t.name] = f"parser not written ({t.parser}) - capturing only"
             return
         except Exception as exc:
             # Shown as the target's detail in status.json until a call succeeds -
             # a driver that cannot bring its page up says so there, not only here.
-            print(f"{t.name}: parser failed: {exc}", flush=True)
+            self._say(t.name, f"parser failed: {exc}")
             self.parser_said[t.name] = f"parser failed: {str(exc).splitlines()[0][:120]}"
             return
         self.parser_said.pop(t.name, None)
@@ -696,25 +734,32 @@ class Runner:
         out.write_text(json.dumps({"at": now, "url": tab.url, "rows": rows}, indent=1))
         if rows:
             self.last_parse_at[t.name] = now
-        if t.post and rows and self._deliver(t, rows, now):
-            self.rows_posted[t.name] = self.rows_posted.get(t.name, 0) + len(rows)
+        if t.post and rows:
+            handed = self._deliver(t, rows, now)
+            if handed:
+                self.rows_posted[t.name] = self.rows_posted.get(t.name, 0) + handed
 
     # --- status, for the Hub and `python -m scraper status` ---------------------------
     def status(self, now) -> dict:
         """Per target: state, detail, last load/parse, rows posted. Per site:
-        budget spent and cool-off. What `python -m scraper status` prints."""
+        budget spent and cool-off. What `python -m scraper status` prints.
+        A job past its `until` is "finished" whatever its site is doing; off
+        its days or outside its window it is "paused" with the reason."""
         targets = []
         for t in [*self.targets, *self.retired_targets.values()]:
             retired = t.name in self.retired_targets
             why = self._paused(t.site, now)
+            off = schedule.inactive(t, now)
             if retired:
                 state, detail = "retired", "removed from targets.toml"
+            elif off == "finished":
+                state, detail = "finished", f"ended {t.until}"
             elif why and (why.startswith("cooling off") or why.startswith("backing off")):
                 state, detail = "blocked", why
             elif why:
                 state, detail = "paused", why
-            elif not schedule.in_window(t.window, now):
-                state, detail = "paused", "outside window"
+            elif off:
+                state, detail = "paused", off
             else:
                 mine = [tab for tab in self.tabs.values() if tab.target.name == t.name]
                 n = len(mine)
@@ -748,7 +793,10 @@ class Runner:
             req.unlink(missing_ok=True)
             tabs = [(k, tab) for k, tab in self.tabs.items() if tab.target.name == name]
             if not tabs:
-                print(f"dump {name}: no open page for that target", flush=True)
+                if any(t.name == name for t in self.targets):
+                    self._say(name, "dump: no open page for that target")
+                else:                           # not a job: no log to write to
+                    print(f"dump {name}: no open page for that target", flush=True)
                 continue
             out = self.s.data_dir / "dumps" / f"{_safe(name)}-{datetime.now():%Y%m%d-%H%M%S}"
             out.mkdir(parents=True, exist_ok=True)
@@ -758,8 +806,14 @@ class Runner:
                     (out / f"{i}.html").write_text(tab.page.content(), encoding="utf-8")
                     tab.page.screenshot(path=str(out / f"{i}.png"), full_page=True)
                 except Exception as exc:
-                    print(f"dump {key}: {exc}", flush=True)
-            print(f"dump {name}: saved {out}", flush=True)
+                    self._say(name, f"dump: {key + ': ' if key != name else ''}{exc}")
+            self._say(name, f"dump: saved {out}")
+
+    def _say(self, name: str, msg: str) -> None:
+        """A line about one job: printed as "<name>: <msg>" for the journal, and
+        written to the job's own log (joblog; a write that fails is dropped)."""
+        print(f"{name}: {msg}", flush=True)
+        joblog.write(self.s.data_dir, name, msg)
 
     def _heartbeat(self, now):
         self.reporter.heartbeat(now)
