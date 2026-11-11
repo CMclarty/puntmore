@@ -18,7 +18,9 @@ prices are `scraper_prices` files that the Hub posts to Render.
   the Hub, the answer is to slow down or get the data another way, not to work around the block.
 - One agreed exception (Callum, 26 Oct 2026): Chrome is started as a person's Chrome, without
   Playwright's `--enable-automation` test flag and with AutomationControlled off. Nothing else
-  about the browser is changed or overridden.
+  about the browser is changed or overridden. Its window has its own name on the desktop
+  (`--class=puntmore-scraper`; Callum, 11 Nov 2026), so GNOME keeps it on its own workspace:
+  a label for the window manager, which a page cannot read (`README.md`, "Its own workspace").
 - Per-site rules live in code (`sites.py`). Config can only make it slower.
 - Targets are direct page URLs in `targets.toml`.
 
