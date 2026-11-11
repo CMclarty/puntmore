@@ -21,12 +21,6 @@ Wayland Chrome never finishes starting - it waits for an output that never
 comes - and the service sat dead for 15 h behind launch timeouts, three times
 in two days, until a screen was plugged back in. Xwayland keeps its last
 geometry and starts Chrome in under a second either way. Measured 7 Nov 2026.
-
-Its window has its own name on the desktop (Callum, 11 Nov 2026):
-`--class=puntmore-scraper`, the X11 window class. GNOME reads it to tell this
-Chrome from Callum's own and keeps it on its own workspace, so a load never
-opens over his work (deploy/native/puntmore-scraper.desktop, README). It is a
-label for the window manager; a page cannot read it.
 """
 import os
 import random
@@ -76,10 +70,6 @@ _NOT_A_TEST_RUN = ["--disable-blink-features=AutomationControlled"]
 _PLAYWRIGHT_TEST_FLAGS = ["--enable-automation"]
 # Desktop only: Xwayland, so Chrome starts with no monitor on (module docstring).
 _X11 = ["--ozone-platform=x11"]
-# Desktop only: the window's own name, so GNOME can keep it on its own
-# workspace (module docstring). The .desktop file's StartupWMClass is the same.
-WINDOW_CLASS = "puntmore-scraper"
-_OWN_WINDOW = [f"--class={WINDOW_CLASS}"]
 
 
 def in_container(environ=None) -> bool:
@@ -100,7 +90,7 @@ def launch_options(headless: bool = False, environ=None) -> dict:
         args += _WINDOW + _LANGUAGE
         env.update(_ENV)
     else:
-        args += _X11 + _OWN_WINDOW
+        args += _X11
         env.setdefault("TZ", "Europe/London")
     args += _NOT_A_TEST_RUN
     return dict(headless=headless, no_viewport=True, args=args,
