@@ -5,6 +5,8 @@ import logging
 import threading
 import time
 
+import pytest
+
 from puntmore_hub import cli, daemon, finder, inbox, mail
 
 
@@ -179,6 +181,32 @@ def test_a_price_pass_over_an_empty_folder_logs_nothing(cfg, monkeypatch, caplog
     daemon.run(cfg, sleep=_stop_at(t, 30), clock=t.clock)
     assert len(passes) == 2
     assert [r for r in caplog.records if r.name in ("puntmore.daemon", "puntmore.inbox")] == []
+
+
+def test_a_price_pass_that_only_left_files_waiting_writes_no_prices_line(cfg, monkeypatch, caplog):
+    """While Render is down the inbox warns once per pass; the daemon adds no `prices:` line of
+    its own unless a file was posted or dropped."""
+    t, passes = _Time(), []
+    monkeypatch.setattr(inbox, "ingest", lambda store, c: {"tip_files": 0, "events": 0, **PRICE_COUNTS})
+
+    def post_prices(c):
+        passes.append(t.now)
+        return {**PRICE_COUNTS, "price_waiting": 3}
+    monkeypatch.setattr(inbox, "post_prices", post_prices)
+    caplog.set_level(logging.INFO, logger="puntmore.daemon")
+    daemon.run(cfg, sleep=_stop_at(t, 30), clock=t.clock)
+    assert passes == [10, 20]
+    assert [r for r in caplog.records if r.getMessage().startswith("prices:")] == []
+
+
+@pytest.mark.parametrize("counts", [{"price_files": 1, "price_rows": 2}, {"price_dropped": 1}])
+def test_a_price_pass_that_posted_or_dropped_a_file_logs_one_prices_line(cfg, monkeypatch, caplog, counts):
+    t = _Time()
+    monkeypatch.setattr(inbox, "ingest", lambda store, c: {"tip_files": 0, "events": 0, **PRICE_COUNTS})
+    monkeypatch.setattr(inbox, "post_prices", lambda c: {**PRICE_COUNTS, "price_waiting": 2, **counts})
+    caplog.set_level(logging.INFO, logger="puntmore.daemon")
+    daemon.run(cfg, sleep=_stop_at(t, 20), clock=t.clock)
+    assert len([r for r in caplog.records if r.getMessage().startswith("prices:")]) == 1
 
 
 def test_a_price_pass_that_raises_is_recorded_and_the_loop_goes_on(cfg, monkeypatch, caplog):

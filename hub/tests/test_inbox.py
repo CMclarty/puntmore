@@ -299,7 +299,7 @@ def test_the_hubs_routes_are_the_schemas():
     assert set(inbox.PRICE_ROUTES) == set(SCHEMA.schema["$defs"]["scraper_prices"]["properties"]["route"]["enum"])
 
 
-@pytest.mark.parametrize("at", ["NaN", "Infinity", "-Infinity", "true", '"1731000000"'])
+@pytest.mark.parametrize("at", ["NaN", "Infinity", "-Infinity", "true", '"1731000000"', "1" + "0" * 400])
 def test_at_must_be_a_finite_number_and_a_bad_one_does_not_stop_the_pass(pcfg, store, at):
     d = pcfg.inbox_dir / "prices"
     d.mkdir(parents=True)

@@ -163,7 +163,11 @@ def _read_price_drop(path: Path) -> dict:
         raise ValueError("not a JSON object")
     body = _body(d)
     at, route, rows = body.get("at"), body.get("route"), body.get("rows")
-    if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
+    try:                                # an int too large for a float overflows in isfinite
+        finite = not isinstance(at, bool) and isinstance(at, (int, float)) and math.isfinite(at)
+    except OverflowError:
+        finite = False
+    if not finite:
         raise ValueError("`at` is not a finite number")
     if not isinstance(route, str):
         raise ValueError("`route` is not a string")

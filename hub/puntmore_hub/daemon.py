@@ -31,7 +31,7 @@ log = logging.getLogger("puntmore.daemon")
 
 INBOX_EVERY_S = 30
 PRICES_EVERY_S = 10
-_PRICE_LOG_KEYS = ("price_files", "price_dropped", "price_waiting")
+_PRICE_LOG_KEYS = ("price_files", "price_dropped")   # a waiting file: the inbox warns
 STATUS_FILE = "daemon-status.json"
 _lock = threading.Lock()
 
