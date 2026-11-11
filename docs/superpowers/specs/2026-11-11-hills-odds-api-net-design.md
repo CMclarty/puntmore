@@ -117,7 +117,8 @@ and an odds-api.net id can then never be confused, and settling can tell whose b
 - **Window:** 168 hours, as now (`oddsapinet_window_hours`); the vendor lists about six days.
 - **Fixtures** (what the target can be): every listed event in those competitions, whether
   or not William Hill prices it yet. A game listed twice under the two Championship names is
-  kept once (same teams, same kick-off).
+  kept once (same teams, same kick-off): the row whose bookmakers name `williamhill`, else the
+  smaller event id, whatever the vendor's order (final review, 11 Nov 2026).
 - **Snapshots** are taken only for events whose listing names `williamhill`.
 - **Finals.** The vendor sends no round name, so `target.is_final` gets `None` and the
   existing rule applies: a cup counts as a final only when it is that cup's one game in the
@@ -173,7 +174,10 @@ fields are cross-check only under the register.
 `/hills/bets` still settles what is due before answering: open bets with legs, kick-off two
 hours to two days ago, each fixture at most every 30 minutes. For an `oan:` fixture it calls
 `GET /events/{id}/results` (one credit). Nothing is settled unless `status == "available"`,
-`event_status == "finished"`, and the records the leg needs are `final`. A match leg uses
+`event_status == "finished"`, `identity_match == "matched"` (the vendor tied the result to
+its own event; anything else may be another game's counts), and the records the leg needs
+are `final`. Two final records for the same metric and side that disagree leave the whole
+result for a hand one. A match leg uses
 home + away; a team leg uses its side; over wins when the count is above the line. Every leg
 is a half line, so there are no pushes. A leg with no record (saves) stays open for a hand
 result. The bet's result rule is unchanged. `settled_by` is `"odds-api.net"`, and the page
@@ -203,8 +207,12 @@ window before this ships.
 - **Listing:** one `/events` call, cached 600 s; follow `next_cursor`, at most 3 pages.
 - **Per-event snapshot cache (my call):** an event's board is reused for the vendor's own
   `target_refresh_interval_seconds`, clamped to 120–3,600 s. Asking sooner than the vendor
-  refreshes buys nothing. Boards for events no longer listed are dropped on every pass, so the
-  cache is bounded by the window. Only parsed lines are kept, never the response.
+  refreshes buys nothing. The page reuses a board on a game inside 6 hours
+  (`oddsapinet_warm_near_hours`) for at least `oddsapinet_page_near_ttl_seconds` (300) rather
+  than the vendor's 60 s clamped to 120 (final review, 11 Nov 2026). A snapshot marked
+  incomplete (`complete: false`, or a `next_cursor` that is not followed) is reused 120 s only,
+  on the page, the target and the warm job alike. Boards for events no longer listed are
+  dropped on every pass, so the cache is bounded by the window. Only parsed lines are kept, never the response.
 - **Refresh in the background, serve what is held (my call).** A cold board is 40–60
   snapshots at ~1.4 s each, too slow for a page request. `get_events()` returns the boards it
   has at once and, when any are due, starts **one** background pass (never two at a time).
@@ -213,20 +221,37 @@ window before this ships.
   `last_sweep.pending`, and `/hills/diagnostics` says "still fetching" rather than "nothing
   there". The target's own board is fetched in the request when `/hills/legs` needs it and it
   is missing or due (one credit).
-- **Failures:** an event whose snapshot fails is not asked again for 600 s. A 429 or a spent
-  budget ends the pass; the error is named in `last_sweep.errors`. Nothing retries.
+- **Failures:** an event whose snapshot fails is not asked again for 600 s. A failed listing
+  is held 600 s, or 60 s while the source has never listed successfully. A 429 or a spent
+  budget ends the pass; the error is named in `last_sweep.errors`. Nothing retries. A 429
+  also holds every fetch (listing, page pass, warm job, target, results) until its
+  `Retry-After` has passed: 60 s when it is missing, not finite or negative, 600 s at most.
+  While held nothing is sent, so nothing is billed, and the boards held are served.
 - **Spacing and cap:** requests at least 0.5 s apart (the plan's 120 a minute). A daily cap,
   `oddsapinet_daily_credit_budget = 8000` (Callum, 11 Nov 2026: "there is 250k credits per
-  month"), counted on every request sent; 8,000 × 31 = 248,000, inside the 250,000 in any
-  month.
+  month"), counted on every request sent. The count is kept in SQLite (table
+  `oddsapinet_usage`, one row of `(utc_day, count)`), so a deploy or a restart carries on
+  from it rather than starting at 0; the cap therefore holds across restarts and
+  8,000 × 31 = 248,000 is inside the 250,000 in any month. A store that fails is logged and
+  the count carries on in memory.
+- **The settling floor:** the page's pass, the listing and the warm job send nothing once
+  `oddsapinet_settle_floor` (300) or fewer credits are left today; BB Boost's legs and
+  settling may spend below it, down to zero. The warm job's own reserve (2,000) sits above
+  it. When the page can spend no more, `/hills/diagnostics` says so ahead of "Still
+  fetching": "Today's odds-api.net credits are spent; prices resume at 00:00 UTC.", or that
+  the board's share is spent and the last 300 are kept for legs and settling.
 - **Expected spend:** the warm job's 1,000–2,500 a day, plus page use: about 1 credit per
-  far-out game per hour plus 30 per game per hour inside six hours while the page is open,
-  plus 6 an hour for the listing. A Saturday with 40 far-out games, 15 near ones and four
-  hours on the page is about 2,000 of page use; a light weekday about 300. All of it inside
-  the 8,000 daily cap.
+  far-out game per hour plus 12 per game per hour inside six hours while a tab is open (one
+  board per game per 300 s), plus 6 an hour for the listing. The worst case is a Saturday at
+  15:00 with about 40 William Hill games inside six hours: about 40 × 12 ≈ 480 credits an
+  hour with a tab open, so four hours on the page is about 2,000.
+  A light weekday is about 300. The cap stops it at 8,000, and the floor keeps the last 300
+  for legs and settling.
 - **Staleness:** a match's `priced_at` is the older of William Hill's and Pinnacle's
-  `bookmaker_as_of_ts_ms` (served per match through `priced_at_for`), and the source's
-  `priced_at` is the oldest on the board. The page already shows the board's oldest. When a
+  `bookmaker_as_of_ts_ms` (served per match through `priced_at_for`); when William Hill
+  carried lines but has no stamp, it is the snapshot's `oldest_bookmaker_as_of_ts_ms` (or
+  unknown), never Pinnacle's fresher stamp. The source's `priced_at` is the oldest on the
+  board. The page already shows the board's oldest. When a
   far-out game is on the board, the band will often read an hour or more. That is the truth:
   William Hill's far-out prices are that old. A match whose William Hill side the vendor
   marks stale is still priced; it is counted in `last_sweep.stale_williamhill`. Prices the
@@ -234,7 +259,8 @@ window before this ships.
 
 `last_sweep` keys: `source` (`"odds-api.net"`), `book`, `fair_source`, `window_hours`,
 `fixtures_in_window`, `called`, `carried_paddy_prices`, `carried_pinnacle_prices`, `pending`,
-`stale_williamhill`, `failed`, `errors`, `requests_today`, `request_budget`, `next_kickoff`.
+`stale_williamhill`, `failed`, `errors`, `requests_today`, `request_budget`, `credit_floor`,
+`budget_spent`, `next_kickoff`.
 
 ## Config and switching
 

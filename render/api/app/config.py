@@ -101,7 +101,9 @@ class Settings(BaseSettings):
     # How far ahead fixtures are priced, as `oddspapi_window_hours`.
     oddsapinet_window_hours: float = 168.0
     # A ceiling, not a target: the plan's 250,000 a month over 31 days
-    # (Callum, 11 Nov 2026), so no month can overspend. Every request counts.
+    # (Callum, 11 Nov 2026). Every request counts, and the count is stored
+    # (table `oddsapinet_usage`), so it holds across a restart and no month
+    # can overspend.
     oddsapinet_daily_credit_budget: int = 8000
     # A warmish board (Callum, 11 Nov 2026: "could we get a warmish board, with
     # slow pre-loads"): the `hills_warm` job refreshes boards with nobody on

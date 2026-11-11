@@ -702,35 +702,60 @@ William Hill's corners, cards and goals lines with Pinnacle's as the fair side, 
   request in flight, at least 0.5 s apart. Every request counts against
   `oddsapinet_daily_credit_budget`, default **8000** (Callum, 11 Nov 2026: "there is 250k
   credits per month"; 8,000 × 31 = 248,000); a spent cap sends nothing (`BudgetSpent`).
-  The count is per process, so a deploy starts it again. A 429 raises `RateLimited` and is
+  **The count survives a restart**: the client loads `(utc_day, count)` from its store when
+  built and saves after every counted request (`cards/oddsapinet_usage.SqlUsageStore`, table
+  `oddsapinet_usage`, one row; wired in `hills/vendor.py` from `main.py`), so a deploy carries
+  on from today's count and the cap holds across restarts. A store that fails is logged and
+  never stops a fetch (the count carries on in memory). A 429 raises `RateLimited` and is
   never retried.
+- **The settling floor** (`oddsapinet_settle_floor`, default **300**): the page's pass, the
+  listing and the warm job send nothing once that many or fewer credits are left today; only
+  BB Boost's legs (`_target_board`, `hills_legs`) and settling (`leg_results`) spend below it,
+  down to zero. The warm job's reserve (2,000) sits above it. `last_sweep.budget_spent` is
+  true then, and `/hills/diagnostics` says so ahead of "Still fetching": "Today's odds-api.net
+  credits are spent; prices resume at 00:00 UTC.", or that the board's share is spent and the
+  last 300 are kept for legs and settling.
+- **A 429 holds every fetch**: on `RateLimited` the source sends nothing (listing, page pass,
+  warm job, target, results) until its `Retry-After` has passed; 60 s when it is missing, not
+  finite or negative, 600 s at most (`rate_hold_seconds`). Every 429 is billed, so nothing is
+  sent into one; the boards held are served meanwhile, and the warm job reports `held`.
 - **The listing**: one `/events` call (at most 3 pages), reused 600 s, a failed one held as
-  long; window `oddsapinet_window_hours` (168; the vendor lists about six days). Competitions
-  are `HILLS_LEAGUES`, the vendor's league names mapped to the Sofascore ids the rest of the
-  code keys on. The Championship is listed under two names; a game listed twice is kept once
-  (same teams, same kick-off). The vendor sends no round name, so a fixture's `round` is
-  None. Every listed game is a fixture the target can be; only games whose listing names
-  `williamhill` get a snapshot.
+  long (60 s while the source has never listed successfully, so a blip at boot does not
+  blank the page for ten minutes); window `oddsapinet_window_hours` (168; the vendor lists
+  about six days). Competitions are `HILLS_LEAGUES`, the vendor's league names mapped to the
+  Sofascore ids the rest of the code keys on. The Championship is listed under two names; a
+  game listed twice (same teams, same kick-off) is kept once: the row whose bookmakers name
+  `williamhill`, else the smaller event id, so the kept id never follows the vendor's order.
+  The vendor sends no round name, so a fixture's `round` is None. Every listed game is a
+  fixture the target can be; only games whose listing names `williamhill` get a snapshot.
 - **The per-event snapshot**: `GET /events/{id}/odds/snapshot` with
   `bookmakers=williamhill,pinnacle`, `price_fields=odds`, `types=total,team total,handicap`,
   `periods=full time`: both books in one call (~160 KB, ~1.4 s). Only the parsed lines are
   kept, never the response. A board is reused for the vendor's own
-  `target_refresh_interval_seconds`, clamped to 120–3,600 s.
+  `target_refresh_interval_seconds`, clamped to 120–3,600 s; the page reuses a board on a game
+  inside `oddsapinet_warm_near_hours` (6) for at least `oddsapinet_page_near_ttl_seconds`
+  (default **300**) rather than the vendor's 60 s, about 12 snapshots an hour per near game
+  with a tab open. A snapshot marked incomplete (`complete: false`, or a `next_cursor`, which
+  is never followed) is reused 120 s only, whatever the page's or the warm job's rule says.
 - **Freshness**: the vendor's target is 60 s inside six hours of kick-off and ~2,559–3,599 s
   further out. Seen 11 Nov 2026: William Hill 1.5–1.7 min old inside six hours, 64–108 min old
   6–31 hours out; Pinnacle always under five minutes. A match's `priced_at` (feed, through
   `priced_at_for`) is the older of the two books' stamps, counting only a book that carried
-  lines; the source's `priced_at` is the oldest on the board. A far-out game makes the band
-  read an hour or more: that is the truth. A William Hill side the vendor marks stale is still
-  priced and counted in `last_sweep.stale_williamhill`.
+  lines; William Hill carrying lines with no stamp takes the snapshot's
+  `oldest_bookmaker_as_of_ts_ms` (or none), never Pinnacle's fresher stamp; the source's
+  `priced_at` is the oldest on the board. A far-out game makes the band read an hour or more:
+  that is the truth. A William Hill side the vendor marks stale is still priced and counted in
+  `last_sweep.stale_williamhill`.
 - **The page's pass**: `get_events()` serves the boards it holds at once and, when any
   William Hill game is due (no board, or older than its reuse time, and not held), starts ONE
   background pass (never two): nearest kick-off first, at most 60 snapshots. Only the first
   request after a boot waits for it, up to 15 s. Games not fetched yet are
   `last_sweep.pending`, and `/hills/diagnostics` says "Still fetching" rather than "nothing
   there". `/hills/legs` fetches the target's own board in the request when it is missing or
-  due (one credit). A failed snapshot is not asked again for 600 s; a 429 or a spent budget
-  ends the pass, holds nothing and is named in `last_sweep.errors`. Nothing retries.
+  due (one credit). A failed snapshot is not asked again for 600 s; a 429, a spent budget or
+  the settling floor ends the pass, holds no game and is named in `last_sweep.errors`.
+  Nothing retries. The pass clears its busy flag in a `finally` that covers its summary too,
+  so a failure there never leaves the source busy for good.
 - **A warmish board** (Callum, 11 Nov 2026: "could we get a warmish board, with slow
   pre-loads"): the scheduler job `hills_warm` (`scheduler.warm_hills` →
   `OddsApiNetHillsSource.warm`) runs every `oddsapinet_warm_every_min` (10; 0 turns it off),
@@ -739,10 +764,10 @@ William Hill's corners, cards and goals lines with Pinnacle's as the fair side, 
   `oddsapinet_warm_far_s` (7200) old, and one inside that whose board is over
   `oddsapinet_warm_near_s` (900) old; nearest first, at most 60, held games skipped. It sends
   nothing once fewer than `oddsapinet_warm_reserve` (2000) credits are left today and never
-  spends into them, so the page keeps them. It shares the page pass's flag, so the two never
-  run together (a warm finding a pass running skips). A failure is logged, never raised: no
-  Discord alert. There is no warm at boot; the first comes 10 minutes after a deploy. About
-  1,000–2,500 credits a day.
+  spends into them, so the page keeps them; nor while a 429's hold runs (`skipped: held`). It
+  shares the page pass's flag, so the two never run together (a warm finding a pass running
+  skips). A failure is logged, never raised: no Discord alert. There is no warm at boot; the
+  first comes 10 minutes after a deploy. About 1,000–2,500 credits a day.
 - **The mapping** (`parse_snapshot`): full time, `is_available`, odds > 1.0, William Hill and
   Pinnacle only. Totals read `"<over|under> <n>"`; odd/even and quarter lines are dropped.
   `market_key` is inconsistent and never read; metrics are compared lower-case.
@@ -775,18 +800,23 @@ William Hill's corners, cards and goals lines with Pinnacle's as the fair side, 
 - **Settling** (`hills/settle.py`, on `GET /hills/bets`): open bets with legs, kick-off two
   hours to two days ago, each fixture at most every 30 minutes; one `GET /events/{id}/results`
   (one credit). Nothing settles until the result is `available`, the match `finished` with
-  `status_detail` "FT" (90 minutes: "AET", "Pen" or no detail waits for a hand result), and
-  the records the leg needs are full time and `final`. A match leg adds both sides, a team
+  `status_detail` "FT" (90 minutes: "AET", "Pen" or no detail waits for a hand result), the
+  result's `identity_match` is "matched" (the vendor tied it to its own event; anything else
+  may be another game's counts), and the records the leg needs are full time and `final`.
+  Two final records for the same metric and side that disagree leave the result for a hand
+  one; an identical repeat is fine. A match leg adds both sides, a team
   leg reads its own; cards are the vendor's count (William Hill's red-card rule may differ;
   anyone can override by hand). `settled_by` is `"odds-api.net"` and the page shows "auto".
   Each vendor settles only its own bets, and only while Hills is on it.
 - **Diagnostics**: `last_sweep` keys are `source` (`"odds-api.net"`), `book`, `fair_source`
   (`"odds-api.net:pinnacle"`), `window_hours`, `fixtures_in_window`, `called`,
   `carried_paddy_prices`, `carried_pinnacle_prices`, `pending`, `stale_williamhill`, `failed`,
-  `errors`, `requests_today`, `request_budget`, `next_kickoff`; each event's `fair_source` is
-  `"odds-api.net"`. A warm's pass writes `last_sweep` as a page pass does. `/api/ready` → `providers.hills_detail`:
+  `errors`, `requests_today`, `request_budget`, `credit_floor`, `budget_spent`,
+  `next_kickoff`; each event's `fair_source` is `"odds-api.net"`. A warm's pass writes
+  `last_sweep` as a page pass does. `/api/ready` → `providers.hills_detail`:
   `{provider, degraded, requests_today}`, `degraded` with no source or when the last sweep
-  failed and carried nothing. `/hills/oddspapi-check` answers that Hills is not on OddsPapi.
+  failed and carried nothing; `requests_today` is today's stored count after a restart, and
+  0 shows as 0. `/hills/oddspapi-check` answers that Hills is not on OddsPapi.
 
 
 ### Notification provider (`app/notifications/`)
