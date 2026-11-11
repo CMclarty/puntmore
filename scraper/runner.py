@@ -575,22 +575,22 @@ class Runner:
             self.alerts.send(f"{t.name}: {msg}")
             joblog.write(self.s.data_dir, t.name, msg)
 
-    def _deliver(self, t, rows, now) -> bool:
-        """Hand the rows to the sink. A delivery that went is noted in the job's
-        log (the sink prints its own line): what was handed and what the sink
-        left out, logged when that differs from the job's last delivery line
+    def _deliver(self, t, rows, now) -> int:
+        """Hand the rows to the sink and return how many it took (0: none). A
+        delivery that went is noted in the job's log (the sink prints its own
+        line): what was handed and what the sink left out, logged when that differs from the job's last delivery line
         or DELIVERY_SAID_S after it, so a job delivering every parse does not
         fill its log with the same line."""
         handed = self.sinks.deliver(t, rows, now)
         if not handed:
-            return False
+            return 0
         counts = (handed, len(rows) - handed)
         last = self.delivery_said.get(t.name)
         if last is None or last[0] != counts or now - last[1] >= DELIVERY_SAID_S:
             self.delivery_said[t.name] = (counts, now)
             joblog.write(self.s.data_dir, t.name, f"{handed} row(s) handed to the Hub ({t.post})"
                          + (f", {counts[1]} left out" if counts[1] else ""))
-        return True
+        return handed
 
     def _tick_matches(self, t, now):
         m = t.matches
@@ -734,8 +734,10 @@ class Runner:
         out.write_text(json.dumps({"at": now, "url": tab.url, "rows": rows}, indent=1))
         if rows:
             self.last_parse_at[t.name] = now
-        if t.post and rows and self._deliver(t, rows, now):
-            self.rows_posted[t.name] = self.rows_posted.get(t.name, 0) + len(rows)
+        if t.post and rows:
+            handed = self._deliver(t, rows, now)
+            if handed:
+                self.rows_posted[t.name] = self.rows_posted.get(t.name, 0) + handed
 
     # --- status, for the Hub and `python -m scraper status` ---------------------------
     def status(self, now) -> dict:

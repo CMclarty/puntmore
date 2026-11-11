@@ -175,3 +175,16 @@ def test_min_rows_breach_and_recovery_reach_the_job_log(tmp_path, capsys):
                                          "healthy again (2 rows)"]
     out = capsys.readouterr().out
     assert out.count("layout change?") == 1 and out.count("healthy again") == 1   # printed once, by the alert
+
+
+def test_rows_sent_counts_only_the_rows_handed(tmp_path, monkeypatch):
+    import dataclasses
+    from types import SimpleNamespace
+    t, r = _tips_job(tmp_path)
+    t = dataclasses.replace(t, parser="three_and_two_bad")
+    rows = [_tip(0), {"event": "no market"}, _tip(1), {"selection": "x"}, _tip(2)]
+    monkeypatch.setitem(runner.PARSERS, "three_and_two_bad", lambda page, capture: rows)
+    tab = SimpleNamespace(target=t, page=None, capture=None, next_parse=0.0, url=t.url)
+    r._parse(tab, 1_000.0, force=True)
+    r._parse(tab, 1_060.0, force=True)
+    assert r.rows_posted["tips"] == 6                                # 3 handed each run, not 5
