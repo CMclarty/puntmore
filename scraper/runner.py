@@ -27,7 +27,9 @@ data/status.json every STATUS_EVERY_S, which the Hub reads.
 
 This module wires the pieces: schedule.py says when a target is due,
 sinks.py delivers its rows (drop files for the Hub), status.py writes the
-heartbeat and status.json, guard.py says yes or no to every load. Every
+heartbeat and status.json, guard.py says yes or no to every load, rest.py
+keeps a job's rest (a parser that raised rest.Rest: its tabs closed, nothing
+loaded until then, like a job outside its window). Every
 line about one job goes to stdout and to that job's own log (joblog.py,
 Runner._say); site-wide lines are stdout only.
 """
