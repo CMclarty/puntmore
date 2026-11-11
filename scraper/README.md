@@ -129,8 +129,8 @@ python -m scraper targets log racing-tips -n 50   # the job's own log, newest la
   changes, else at most every 10 min. One `{"ts": <epoch>, "msg": "..."}`
   per line, a message cut at 2000 characters. Site-wide lines
   (paused, cool-off, `config: ...`) stay in the journal only. Past 512 KB a
-  log is rewritten to its newest 1000 lines. `targets log <name> [-n 50]`
-  prints it (`--json`: `{"name": name, "lines": [{"ts", "msg"}, ...]}`);
+  log is rewritten to its newest lines that fit in 256 KB, 1000 at most.
+  `targets log <name> [-n 50]` prints it (`--json`: `{"name": name, "lines": [{"ts", "msg"}, ...]}`);
   `targets remove` removes it.
 
 ## Running on the Hub's desktop (the default)

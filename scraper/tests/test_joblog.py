@@ -16,13 +16,26 @@ def test_one_json_line_each_newest_last(tmp_path):
 
 
 def test_past_512_kb_a_log_keeps_its_newest_1000_lines(tmp_path):
-    for i in range(3000):
-        joblog.write(tmp_path, "j", f"line {i} " + "x" * 300, now=float(i))
-    assert joblog.path(tmp_path, "j").stat().st_size <= joblog.MAX_BYTES + 400
-    lines = joblog.read(tmp_path, "j", n=10_000)
-    assert 1000 <= len(lines) < 1600
-    assert lines[-1]["msg"].startswith("line 2999 ")
-    assert [x["ts"] for x in lines] == [float(i) for i in range(3000 - len(lines), 3000)]
+    for i in range(6000):                                            # a normal log: short lines
+        joblog.write(tmp_path, "j", f"line {i} " + "x" * 80, now=float(i))
+    assert joblog.path(tmp_path, "j").stat().st_size <= joblog.MAX_BYTES
+    lines = joblog.read(tmp_path, "j", n=100_000)
+    assert joblog.KEEP_LINES == 1000 <= len(lines) < 6000
+    assert lines[-1]["msg"].startswith("line 5999 ")
+    assert [x["ts"] for x in lines] == [float(i) for i in range(6000 - len(lines), 6000)]
+    joblog._trim(joblog.path(tmp_path, "j"))
+    assert len(joblog.read(tmp_path, "j", n=100_000)) == joblog.KEEP_LINES
+
+
+def test_long_lines_keep_a_log_under_512_kb(tmp_path):
+    for i in range(1000):
+        joblog.write(tmp_path, "j", f"{i} " + "x" * joblog.MSG_MAX, now=float(i))
+    assert joblog.path(tmp_path, "j").stat().st_size <= joblog.MAX_BYTES
+    assert joblog.read(tmp_path, "j", n=1)[0]["msg"].startswith("999 ")
+    for i in range(100):                                             # escaped by json: ~12 KB a line
+        joblog.write(tmp_path, "u", f"{i} " + "é" * joblog.MSG_MAX, now=float(i))
+    assert joblog.path(tmp_path, "u").stat().st_size <= joblog.MAX_BYTES
+    assert joblog.read(tmp_path, "u", n=1)[0]["msg"].startswith("99 ")
 
 
 def test_a_torn_line_is_skipped_and_odd_names_stay_in_logs(tmp_path):
