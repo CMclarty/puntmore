@@ -12,12 +12,14 @@ The Paddy terminal prints times month first, in London time ("10/17/2026, 12:06:
 from __future__ import annotations
 
 import json
+import mimetypes
 import re
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
@@ -123,3 +125,112 @@ def request(cfg: Settings, method: str, path: str, *, body: dict | None = None,
     resp_headers = getattr(resp, "headers", None)
     ctype = (resp_headers.get("Content-Type") if resp_headers is not None else None) or ""
     return int(code), raw if isinstance(raw, bytes) else str(raw).encode(), ctype
+
+
+# ---- the commands HubAI calls (`puntmore aw26 ...`) -------------------------------------------
+
+# What Render's AwSlipRecordIn and AwSlipLegIn take (render/api/app/schemas.py); anything else
+# HubAI read off a slip (a printed total, max return, bonus) is dropped, never sent.
+SLIP_KEYS = ("receipt", "placed_at", "offer", "stake", "legs", "photo_id")
+LEG_KEYS = ("event", "market", "selection", "odds", "kickoff", "fair_odds", "kind", "line", "side",
+            "fixture_id", "fair_assumed")
+EXTS = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+BET_KEYS = ("market", "line", "side", "pick", "odds", "fair")
+
+
+def _detail(raw: bytes) -> str:
+    """Render's `detail`, or the body's first 200 characters."""
+    text = raw.decode(errors="replace")
+    try:
+        detail = json.loads(text).get("detail")
+    except (ValueError, AttributeError):
+        detail = None
+    return detail if isinstance(detail, str) else (json.dumps(detail) if detail else text[:200])
+
+
+def _json(cfg: Settings, method: str, path: str, opener: Opener | None, **kw) -> Any:
+    """A call that succeeds on 200 only, answered as its JSON; anything else is a RenderError."""
+    code, raw, _ = request(cfg, method, path, opener=opener, **kw)
+    if code != 200:
+        raise RenderError(code, _detail(raw))
+    return json.loads(raw)
+
+
+def photos(cfg: Settings, opener: Opener | None = None) -> list[dict]:
+    """Every photo on the queue not done yet, oldest first."""
+    return _json(cfg, "GET", "/api/aw26/photos", opener)
+
+
+def take(cfg: Settings, photo_id: int, dest_dir: Path, opener: Opener | None = None) -> Path:
+    """Take a waiting photo (once; Render refuses a second take with 409), then save its image
+    to `dest_dir/<id><ext>`."""
+    _json(cfg, "POST", f"/api/aw26/photos/{int(photo_id)}/take", opener)
+    code, raw, ctype = request(cfg, "GET", f"/api/aw26/photos/{int(photo_id)}/image", opener=opener)
+    if code != 200:
+        raise RenderError(code, _detail(raw))
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    path = dest_dir / f"{int(photo_id)}{EXTS.get(ctype.split(';')[0].strip().lower(), '.img')}"
+    path.write_bytes(raw)
+    return path
+
+
+def fail(cfg: Settings, photo_id: int, reason: str, opener: Opener | None = None) -> dict:
+    """A photo HubAI could not make a slip of: back on the queue while tries are left."""
+    return _json(cfg, "POST", f"/api/aw26/photos/{int(photo_id)}/fail", opener, body={"reason": reason})
+
+
+def upload(cfg: Settings, path: Path, source: str = "telegram", opener: Opener | None = None) -> dict:
+    """Put one photo on the queue; Render's row for it."""
+    ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    rows = _json(cfg, "POST", "/api/aw26/photos", opener,
+                 files=[(path.name, path.read_bytes(), ctype)], form={"source": source})
+    return rows[0]
+
+
+def board(cfg: Settings, at: str, match: str | None = None, opener: Opener | None = None) -> list[dict]:
+    """Paddy's board as it stood at `at` (printed or ISO), each game compact. With `match`, only
+    the games whose home, away or match name holds a word of four letters or more from it."""
+    query = urllib.parse.urlencode({"at": parse_printed(at)})
+    games = _json(cfg, "GET", f"/api/paddy/board-at?{query}", opener)
+    if match is not None:
+        words = [w for w in re.findall(r"\w+", match.lower()) if len(w) >= 4]
+        games = [g for g in games
+                 if any(w in (g.get(k) or "").lower() for w in words for k in ("home", "away", "match"))]
+    return [{"event_id": g["event_id"], "match": g["match"], "commence_time": g["commence_time"],
+             "bets": [{k: b.get(k) for k in BET_KEYS} for b in g.get("bets") or []]} for g in games]
+
+
+def _normalise(slip: dict) -> dict:
+    """The body Render takes: its keys only, every time in ISO UTC. ValueError names the field."""
+    body = {k: slip[k] for k in SLIP_KEYS if k in slip}
+    try:
+        body["placed_at"] = parse_printed(slip.get("placed_at") or "")
+    except ValueError as exc:
+        raise ValueError(f"placed_at: {exc}") from None
+    legs = []
+    for i, leg in enumerate(slip.get("legs") or []):
+        out = {k: leg[k] for k in LEG_KEYS if k in leg}
+        if (leg.get("kickoff") or "").strip():
+            try:
+                out["kickoff"] = parse_printed(leg["kickoff"])
+            except ValueError as exc:
+                raise ValueError(f"legs[{i}].kickoff: {exc}") from None
+        legs.append(out)
+    body["legs"] = legs
+    return body
+
+
+def record(cfg: Settings, slip: dict, *, dry_run: bool = False, opener: Opener | None = None) -> dict:
+    """Record the slip HubAI read: {"recorded": <Render's slip>}, or {"duplicate": <detail>} when
+    the receipt is already in or the photo is already a slip (both success). An unreadable time
+    is a ValueError before anything is sent; any other refusal a RenderError. `dry_run` answers
+    {"dry_run": <the body>} and sends nothing."""
+    body = _normalise(slip)
+    if dry_run:
+        return {"dry_run": body}
+    code, raw, _ = request(cfg, "POST", "/api/aw26/slips/record", body=body, opener=opener)
+    if code == 200:
+        return {"recorded": json.loads(raw)}
+    if code == 409:
+        return {"duplicate": _detail(raw)}
+    raise RenderError(code, _detail(raw))
