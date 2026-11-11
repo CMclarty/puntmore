@@ -66,7 +66,9 @@ Finder. Too few rows (`min_rows`) or a block raises an alert here and an event
 in `data/hub/events/` that the Hub turns into an escalation for HubAI.
 
 ## Changing targets
-`targets.toml` is changed only through `scraper/targets.py`: this CLI, the
+A target is a job: a page the Scraper reads, on a schedule (`every_min` or
+`stale_min`), on chosen `days`, inside a `window`, until an end date
+(`until`). `targets.toml` is changed only through `scraper/targets.py`: this CLI, the
 Console and HubAI's scraper-manager all call it, so there is one config
 store. It works on `SCRAPER_TARGETS`, else `SCRAPER_DATA_DIR/targets.toml`
 (`--file` for another), and needs no browser.
@@ -79,6 +81,8 @@ python -m scraper targets add --name racing-tips --site generic \
     --every-min 360 --min-rows 2 --trust-weight 0.5 --disabled
 python -m scraper targets set pp-epl-most --every-min 15 --priority 2 --window 07:00-23:30
 python -m scraper targets set racing-tips --window none     # "none" clears a field
+python -m scraper targets set racing-tips --days fri,sat --until 2026-11-30
+python -m scraper targets set racing-tips --days none --until none   # every day, forever
 python -m scraper targets set pp-epl-most --matches '{"max_tabs": 2, "market_tabs": ["Corners"]}'
 python -m scraper targets enable racing-tips
 python -m scraper targets disable racing-tips
@@ -95,7 +99,9 @@ python -m scraper targets remove racing-tips
   the target plus `status`: the running Scraper's last report on it from
   `status.json` (`state`, `detail`, `last_load`, `last_parse`,
   `rows_posted`, `reported_at`), or `null` when it has none (disabled, or
-  not reported yet).
+  not reported yet), and `schedule`: the job's schedule in words
+  (`targets.schedule_words`, "every 15 min · Fri, Sat · 07:00–23:30 · until
+  30 Nov 2026"), which `list` prints too.
 - Saves are atomic (temp file + rename in the same directory) under an
   `flock` on `targets.toml.lock`, so the Console, the CLI and HubAI cannot
   interleave and the running Scraper never reads half a file. The file is
@@ -103,14 +109,17 @@ python -m scraper targets remove racing-tips
   hand-written file as `targets.toml.bak`.
 - The running Scraper picks a change up within 60 s (its re-read of the
   file). A change to only `every_min`, `stale_min`, `near_min`, `near_hours`,
-  `priority`, `window`, `min_rows` or `trust_weight` is applied in place: the open tabs stay and
+  `priority`, `window`, `days`, `until`, `min_rows` or `trust_weight` is applied in place: the open tabs stay and
   are rescheduled (a timed reload is redrawn from the last load), so it
   costs no load. A change to `url`, `site`, `mode`, `parser`, `post`,
   `wait_for` or `matches` closes the target's tabs and reopens them on the
   next tick. Disabling or removing a target closes its tabs.
-- `priority` (higher goes first when a site's hourly budget is short) and
-  `window` (`"HH:MM-HH:MM"` local time; outside it the target's tabs close)
-  are acted on by the runner (`schedule.py`).
+- `priority` (higher goes first when a site's hourly budget is short),
+  `window` (`"HH:MM-HH:MM"` local time; outside it the target's tabs close),
+  `days` (`--days fri,sat`: only on those days; none = every day) and `until`
+  (`--until 2026-11-30`: the last day it runs) are acted on by the runner
+  (`schedule.py`). Off its days a job is `paused`, "not a run day"; after
+  `until` it is `finished`, "ended <until>"; either way its tabs close.
 
 ## Running on the Hub's desktop (the default)
 Since 5 Nov 2026 the Scraper runs on the Hub's real desktop session, so the
@@ -268,7 +277,7 @@ Targets are of these kinds:
 Timings are clamped to the floors in `config._target`, and `sites.py`
 budgets stay the ceiling whatever the file says.
 
-Four fields say when and who first (`schedule.py`):
+Six fields say when and who first (`schedule.py`):
 - **`near_min`** and **`near_hours`** (default 3): the kick-off sweep. A
   parser's rows may carry a `kickoff` (ISO 8601; `pp_most` and `bb_saves`
   do); the nearest one still ahead is the target's next kick-off (`status`
@@ -286,6 +295,14 @@ Four fields say when and who first (`schedule.py`):
   `paused`, "outside window". When the window starts it opens again through
   the normal spacing and guard; a fetch target runs at the start. No window
   means always. A site's quiet hours and cool-offs still apply inside it.
+- **`days`** (a list of `mon` .. `sun`, no repeats; none = every day) and
+  **`until`** (`"YYYY-MM-DD"`, the last day it runs; none = forever): the
+  days a job runs. Off its days it is `paused`, "not a run day"; after
+  `until` it is `finished`, "ended <until>", whatever its site is doing.
+  Either way nothing loads and its tabs close, as outside the window. A
+  window past midnight belongs to the day it started: a Saturday
+  `"20:00-02:00"` job runs until 02:00 on Sunday, and with `until` set to
+  that Saturday it finishes at 02:00 (`schedule.job_day`).
 - **`priority`** (whole number, default 0): who gets a site's loads when they
   are short. Loads are spaced, so one goes out at a time, to the first target
   in the tick's order that wants one. While a site has at least as many

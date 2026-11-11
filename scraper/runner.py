@@ -20,9 +20,9 @@ Targets are targets.toml on the Hub, changed only through scraper/targets.py
 (an atomic rename, so a half-written file is never read). The file is checked every
 TARGETS_CHECK_S: after an edit a removed or changed target's tabs close, a new
 one opens on the next tick - no restart. A change to its timing, priority,
-window, min_rows or trust_weight only is applied to the open tabs in place
-(RESCHEDULE_FIELDS). A file that will not parse is reported and the running
-targets are kept. The runner writes its state to
+window, days, until, min_rows or trust_weight only is applied to the open
+tabs in place (RESCHEDULE_FIELDS). A file that will not parse is reported and
+the running targets are kept. The runner writes its state to
 data/status.json every STATUS_EVERY_S, which the Hub reads.
 
 This module wires the pieces: schedule.py says when a target is due,
@@ -56,7 +56,7 @@ PARSE_EVERY_S = 60
 # to any other (url, site, mode, parser, post, wait_for, matches) closes the
 # target's tabs and reopens them.
 RESCHEDULE_FIELDS = ("every_min", "stale_min", "priority", "window", "min_rows", "trust_weight",
-                     "near_min", "near_hours")
+                     "near_min", "near_hours", "days", "until")
 TARGETS_CHECK_S = 60             # a stat of targets.toml; read only when it changed
 
 
@@ -123,7 +123,7 @@ class Runner:
         self.next_fetch: dict[str, float] = {}
         self.health_said: dict[str, str] = {}
         self.sinks = Sinks(settings)
-        self.outside: set[str] = set()                 # targets now outside their window
+        self.outside: dict[str, str] = {}              # inactive targets -> why (schedule.inactive)
         self.wanting_since: dict[str, float] = {}      # target -> when it began wanting a load
         # The kick-off sweep (schedule.py): the nearest kick-off ahead that a
         # target's own rows reported, and which targets are inside their near
@@ -309,11 +309,12 @@ class Runner:
         for t in self.targets:
             if self._paused(t.site, now):
                 continue
-            if not schedule.in_window(t.window, now):
-                self._outside_window(t)
+            why = schedule.inactive(t, now)
+            if why:
+                self._outside_window(t, why)
                 continue
             if t.name in self.outside:
-                self.outside.discard(t.name)
+                del self.outside[t.name]
                 print(f"{t.name}: window open - running", flush=True)
             live.append(t)
         self._sweep(live, now)
@@ -335,14 +336,17 @@ class Runner:
         self._heartbeat(now)
         self._report(now)
 
-    # --- window and priority -------------------------------------------------
-    def _outside_window(self, t):
-        """Outside its window a target is treated like quiet hours: its tabs
-        close and nothing loads. A fetch target forgets its next run, so it
-        runs when the window opens."""
-        if t.name not in self.outside:
-            self.outside.add(t.name)
-            print(f"{t.name}: outside window {t.window} - paused", flush=True)
+    # --- days, until, window and priority ------------------------------------
+    def _outside_window(self, t, why):
+        """A target that is not active (`why`, from schedule.inactive: off its
+        days, past its until, outside its window) is treated like quiet
+        hours: its tabs close and nothing loads. A fetch target forgets its
+        next run, so it runs when it is active again. Said once per change of
+        reason."""
+        if self.outside.get(t.name) != why:
+            self.outside[t.name] = why
+            print(f"{t.name}: outside window {t.window} - paused" if why == "outside window"
+                  else f"{t.name}: {why} - paused", flush=True)
         for key in [k for k, tab in self.tabs.items() if tab.target.name == t.name]:
             self._close(key)
         self.next_fetch.pop(t.name, None)
@@ -490,7 +494,7 @@ class Runner:
         """A change to RESCHEDULE_FIELDS only: the open tabs keep their pages
         and take the new definition. A timed reload is redrawn from the last
         load with the new every_min; a fetch target's next run likewise. The
-        window and priority apply from the next tick."""
+        window, days, until and priority apply from the next tick."""
         for tab in self.tabs.values():
             if tab.target.name == t.name:
                 if (tab.target.every_min, tab.target.near_min, tab.target.near_hours) != \
@@ -702,19 +706,24 @@ class Runner:
     # --- status, for the Hub and `python -m scraper status` ---------------------------
     def status(self, now) -> dict:
         """Per target: state, detail, last load/parse, rows posted. Per site:
-        budget spent and cool-off. What `python -m scraper status` prints."""
+        budget spent and cool-off. What `python -m scraper status` prints.
+        A job past its `until` is "finished" whatever its site is doing; off
+        its days or outside its window it is "paused" with the reason."""
         targets = []
         for t in [*self.targets, *self.retired_targets.values()]:
             retired = t.name in self.retired_targets
             why = self._paused(t.site, now)
+            off = schedule.inactive(t, now)
             if retired:
                 state, detail = "retired", "removed from targets.toml"
+            elif off == "finished":
+                state, detail = "finished", f"ended {t.until}"
             elif why and (why.startswith("cooling off") or why.startswith("backing off")):
                 state, detail = "blocked", why
             elif why:
                 state, detail = "paused", why
-            elif not schedule.in_window(t.window, now):
-                state, detail = "paused", "outside window"
+            elif off:
+                state, detail = "paused", off
             else:
                 mine = [tab for tab in self.tabs.values() if tab.target.name == t.name]
                 n = len(mine)

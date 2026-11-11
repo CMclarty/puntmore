@@ -18,6 +18,7 @@ import pathlib
 import re
 import tomllib
 from dataclasses import dataclass, field
+from datetime import date
 from urllib.parse import urlparse
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -26,6 +27,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 # the tests' fake site. A `generic` target (Finder's sources) may open
 # any host EXCEPT these two: the bookmakers are read only under their own site
 # rules, never under the looser generic budget.
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")   # a target's `days`, in week order
+
 ALLOWED_HOSTS = ("paddypower.com", "bookiebashing.net", "localhost", "127.0.0.1")
 BOOKMAKER_HOSTS = ("paddypower.com", "bookiebashing.net")
 
@@ -85,6 +88,11 @@ class Target:
     # of every_min, and goes first among equals when a site's budget is short.
     near_min: float | None = None
     near_hours: float = 3.0
+    # When the job runs at all (schedule.inactive): only on these `days` (none
+    # = every day), and not after `until` ("YYYY-MM-DD", the last day it runs).
+    # A window past midnight belongs to the day it started.
+    days: tuple[str, ...] = ()
+    until: str | None = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +127,37 @@ def _priority(name: str, p) -> int:
     if isinstance(p, bool) or not isinstance(p, int):
         raise ValueError(f"target {name}: priority must be a whole number, not {p!r}")
     return p
+
+
+def _days_refused(name: str, days) -> ValueError:
+    """The one refusal for a bad `days` (targets.py raises it too)."""
+    return ValueError(f"target {name}: days must be a list of {', '.join(WEEKDAYS)} with no repeats, not {days!r}")
+
+
+def _days(name: str, days) -> tuple[str, ...]:
+    """The run days, in the order given; none = every day."""
+    if days is None:
+        return ()
+    if (not isinstance(days, (list, tuple)) or not all(isinstance(d, str) and d in WEEKDAYS for d in days)
+            or len(set(days)) != len(days)):
+        raise _days_refused(name, days)
+    return tuple(days)
+
+
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _until(name: str, until) -> str | None:
+    """The last day the job runs, "YYYY-MM-DD"; none = forever."""
+    if until is None or until == "":
+        return None
+    try:
+        if not isinstance(until, str) or not _DATE.match(until):
+            raise ValueError
+        date.fromisoformat(until)
+    except ValueError:
+        raise ValueError(f"target {name}: until must be a date \"YYYY-MM-DD\", not {until!r}") from None
+    return until
 
 
 def _target(t: dict) -> Target:
@@ -162,6 +201,8 @@ def _target(t: dict) -> Target:
         window=_window(name, t.get("window")),
         near_min=None if t.get("near_min") is None else _clamp(float(t["near_min"]), lo=5.0),
         near_hours=_clamp(float(t.get("near_hours", 3.0)), lo=0.5, hi=48.0),
+        days=_days(name, t.get("days")),
+        until=_until(name, t.get("until")),
     )
 
 

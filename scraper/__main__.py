@@ -10,7 +10,9 @@
   check            Load targets.toml and print the targets.
   targets ...      The only way targets.toml is changed: list, show <name>,
                    add --name --site --url [...], set <name> --every-min 15
-                   [...], enable/disable/remove <name>; --json for machine
+                   [...], enable/disable/remove <name>; --days fri,sat and
+                   --until 2026-11-30 limit a target (a job) to those days and
+                   that last day ("none" clears either); --json for machine
                    output, --file for another file. `targets -h` for more.
   selfcheck        What a site sees of this browser: navigator.webdriver,
                    userAgent, language, timezone, window, and that Chrome
@@ -194,6 +196,14 @@ def _none_or(kind):
     return parse
 
 
+def _days(v):
+    """`--days fri,sat` -> ["fri", "sat"]; "none" clears. The names are
+    checked by config._target."""
+    if v.lower() in ("none", "null", ""):
+        return None
+    return [d.strip() for d in v.split(",")]
+
+
 def _matches_json(v):
     import argparse
     import json
@@ -216,6 +226,7 @@ _TARGET_OPTS = (
     ("--min-rows", "min_rows", int), ("--trust-weight", "trust_weight", float),
     ("--wait-for", "wait_for", _none_or(str)), ("--mode", "mode", str),
     ("--priority", "priority", int), ("--window", "window", _none_or(str)),
+    ("--days", "days", _days), ("--until", "until", _none_or(str)),
     ("--matches", "matches", _matches_json),
 )
 
@@ -306,10 +317,8 @@ def targets_cmd(argv):
 def _target_line(d):
     st = d["status"]
     state = "disabled" if not d["enabled"] else (st["state"] if st else "not reported")
-    every = f"every {d['every_min']:g} min" if d["every_min"] else f"when quiet {d['stale_min']:g} min"
-    extra = "".join((f"  priority {d['priority']}" if d["priority"] else "",
-                     f"  window {d['window']}" if d["window"] else ""))
-    return (f"{d['name']:28} {d['site']:13} {state:12} {every}{extra}"
+    return (f"{d['name']:28} {d['site']:13} {state:12} {d['schedule']}"
+            + (f"  priority {d['priority']}" if d["priority"] else "")
             + (f"  ({st['detail']})" if st and st.get("detail") else ""))
 
 

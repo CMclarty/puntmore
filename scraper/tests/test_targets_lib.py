@@ -1,6 +1,7 @@
 """scraper/targets.py: the only way targets.toml is changed (the CLI, the Hub
 Console, HubAI). Round-trip, atomic save, the lock, each operation, the
 refusals, the status.json join and the CLI's JSON. No browser needed."""
+import dataclasses
 import json
 import os
 import threading
@@ -196,7 +197,7 @@ def test_summary_joins_status_json(path, tmp_path):
     assert pp["every_min"] == 15.0 and pp["priority"] == 5 and pp["window"] == "07:00-23:30"
     assert pp["matches"]["market_tabs"] == ["Corners", 'Cards "x"']
     assert rows[1]["status"] is None and rows[1]["enabled"] is False
-    assert set(pp) == {*T.FIELDS, "status"}
+    assert set(pp) == {*T.FIELDS, "schedule", "status"}
     json.dumps(rows)                                   # what the console is sent
 
 
@@ -261,6 +262,7 @@ def test_cli_errors_exit_2_with_the_reason(cli, path):
 def test_cli_human_list(cli):
     code, out, _ = cli("list")
     assert code == 0 and "pp" in out and "priority 5" in out and "disabled" in out
+    assert "every 15 min · every day · 07:00–23:30 · forever" in out
 
 
 def test_running_scraper_applies_a_save_through_its_re_read(path, monkeypatch, capsys):
@@ -312,3 +314,46 @@ def test_cli_file_option(cli, tmp_path):
     code, _, _ = cli("add", "--file", str(other), "--name", "a", "--site", "generic",
                      "--url", "https://a.example.org/")
     assert code == 0 and [t.name for t in T.load(other)] == ["a"]
+
+
+# --- days and until ----------------------------------------------------------
+def test_days_and_until_round_trip_and_are_refused_when_wrong(path):
+    T.set(path, "pp", days=["fri", "sat"], until="2026-11-30")
+    t = T.get(path, "pp")
+    assert (t.days, t.until) == (("fri", "sat"), "2026-11-30")
+    text = path.read_text()
+    assert 'days = ["fri", "sat"]' in text and 'until = "2026-11-30"' in text
+    assert T.to_mapping(t)["days"] == ["fri", "sat"]
+    before = path.read_text()
+    for bad, why in (({"days": ["friday"]}, "days must be"), ({"days": ["fri", "fri"]}, "days must be"),
+                     ({"days": "fri"}, "days must be"), ({"until": "30/11/2026"}, "until must be"),
+                     ({"until": "2026-02-30"}, "until must be")):
+        with pytest.raises(T.TargetsError, match=why):
+            T.set(path, "pp", **bad)
+    assert path.read_text() == before
+    T.set(path, "pp", days=None, until=None)
+    assert (T.get(path, "pp").days, T.get(path, "pp").until) == ((), None)
+
+
+def test_a_days_or_until_edit_is_applied_in_place():
+    from scraper.runner import reschedule_only
+    assert reschedule_only(FULL[0], dataclasses.replace(FULL[0], days=("fri",), until="2026-12-31"))
+
+
+def test_schedule_in_words():
+    w = T.schedule_words
+    assert w({"every_min": 15, "stale_min": 20, "days": ["sat", "fri"], "window": "07:00-01:00",
+              "until": None}) == "every 15 min · Fri, Sat · 07:00–01:00 · forever"
+    assert w({"every_min": None, "stale_min": 20, "days": [], "window": None,
+              "until": "2026-11-30"}) == "when quiet 20 min · every day · all day · until 30 Nov 2026"
+
+
+def test_cli_days_and_until(cli, path):
+    code, out, _ = cli("set", "pp", "--days", "fri,sat", "--until", "2026-11-30", "--json")
+    d = json.loads(out)
+    assert code == 0 and d["days"] == ["fri", "sat"] and d["until"] == "2026-11-30"
+    assert d["schedule"] == "every 15 min · Fri, Sat · 07:00–23:30 · until 30 Nov 2026"
+    code, out, _ = cli("set", "pp", "--days", "none", "--until", "none", "--json")
+    assert (json.loads(out)["days"], json.loads(out)["until"]) == ([], None)
+    code, _, err = cli("set", "pp", "--days", "fri,funday")
+    assert code == 2 and "days must be" in err

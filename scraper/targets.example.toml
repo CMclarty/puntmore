@@ -38,6 +38,11 @@
 #   window     "HH:MM-HH:MM", local time (may wrap midnight, "22:00-02:00").
 #              Outside it the target is not loaded and its tabs are closed;
 #              they reopen when the window starts
+#   days       the days it runs, e.g. ["fri", "sat"] (mon tue wed thu fri sat
+#              sun, no repeats). Leave out for every day. A window past
+#              midnight belongs to the day it started
+#   until      "YYYY-MM-DD", the last day it runs; after it the target is
+#              "finished" and loads nothing. Leave out to run forever
 
 # OPEN, Callum to decide (docs/decisions.md, "Scraping conduct"): this one BB
 # target predates the rule that BB is never automated; keep it as the named

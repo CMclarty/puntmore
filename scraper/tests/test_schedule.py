@@ -173,3 +173,51 @@ def test_a_kickoff_in_the_rows_pulls_the_reload_forward_then_lets_go(tmp_path, m
     after = [ts for ts in loads if ts > kickoff]
     assert all(b - a >= 20 * 60 for a, b in zip(after, after[1:])), after     # the recycle rhythm again
     assert r.status(t0 + 4 * 3600)["targets"][0]["near"] is False
+
+
+# --- days and until ----------------------------------------------------------
+FRI, SAT, SUN, THU = (datetime(2026, 11, d) for d in (13, 14, 15, 12))   # 13 Nov 2026 is a Friday
+
+
+def _on(day, hh, mm=0):
+    return day.replace(hour=hh, minute=mm).timestamp()
+
+
+def test_days_and_until_decide_whether_a_job_is_active():
+    t = _bb("j", days=("fri", "sat"))
+    assert schedule.inactive(t, _on(FRI, 10)) is None
+    assert schedule.inactive(t, _on(SAT, 23, 59)) is None
+    assert schedule.inactive(t, _on(THU, 10)) == "not a run day"
+    assert schedule.inactive(t, _on(SUN, 0)) == "not a run day"
+    assert schedule.inactive(_bb("every"), _on(THU, 10)) is None             # no days = every day
+    u = _bb("u", until="2026-11-14")
+    assert schedule.inactive(u, _on(SAT, 23, 59)) is None
+    assert schedule.inactive(u, _on(SUN, 0)) == "finished"
+    w = _bb("w", window="09:00-10:00", until="2026-11-14")
+    assert schedule.inactive(w, _on(FRI, 8)) == "outside window"
+    assert schedule.inactive(w, _on(SUN, 9, 30)) == "finished"               # finished wins
+
+
+def test_a_window_past_midnight_belongs_to_the_day_it_started():
+    t = _bb("late", window="20:00-02:00", days=("sat",), until="2026-11-14")
+    assert schedule.inactive(t, _on(SAT, 21)) is None
+    assert schedule.inactive(t, _on(SUN, 1, 59)) is None                     # Saturday's run
+    assert schedule.inactive(t, _on(SUN, 2)) == "finished"
+    assert schedule.inactive(t, _on(SAT, 1, 30)) == "not a run day"          # Friday's run
+    assert schedule.inactive(_bb("x", window="20:00-02:00", days=("sat",)), _on(SUN, 21)) == "not a run day"
+    assert schedule.job_day("20:00-02:00", _on(SUN, 1)) == SAT.date()
+    assert schedule.job_day(None, _on(SUN, 1)) == SUN.date()
+
+
+def test_off_days_close_the_job_and_status_says_why(tmp_path):
+    r = _runner(tmp_path, [_bb("bb", days=("fri",), until="2026-11-14")])
+    r.tick(_on(FRI, 10))
+    assert "bb" in r.tabs and len(_loads(r)) == 1
+    r.tick(_on(SAT, 10))
+    assert "bb" not in r.tabs
+    st = r.status(_on(SAT, 10))["targets"][0]
+    assert (st["state"], st["detail"]) == ("paused", "not a run day")
+    r.tick(_on(SUN, 10))
+    st = r.status(_on(SUN, 10))["targets"][0]
+    assert (st["state"], st["detail"]) == ("finished", "ended 2026-11-14")
+    assert len(_loads(r)) == 1

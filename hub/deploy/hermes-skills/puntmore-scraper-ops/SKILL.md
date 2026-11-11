@@ -32,7 +32,7 @@ Never edit `data/targets.toml` by hand: every change goes through `scraper/targe
 1. Add it disabled: `targets add --name <source> --site generic --url <url> --parser <parser> --post hub:tips --min-rows <n> --trust-weight 0.5 --every-min <minutes> --disabled`. A bookmaker host, or a frequency below the floor, is refused.
 2. Let it capture a sample, then write `scraper/parsers/<parser>.py` from the sample with a fixture test.
 3. `targets enable <source>`. The running Scraper picks it up within 60 s; `targets show <source> --json` shows its `status` once it has reported.
-4. To change it later: `targets set <source> --every-min 120` (any field; `none` clears an optional one). To stop it: `targets disable <source>`; to delete it: `targets remove <source>`.
+4. To change it later: `targets set <source> --every-min 120` (any field; `none` clears an optional one). To run it only on some days and stop on a date: `targets set <source> --days fri,sat --until 2026-11-30` (`--days none` = every day again, `--until none` = forever); after `until` its status is `finished`. To stop it: `targets disable <source>`; to delete it: `targets remove <source>`.
 Rows reach the Hub's inbox as drop files and are stored as tips for HubAI to judge for Finder.
 
 ## Tipster email sources

@@ -22,7 +22,9 @@ prices are `scraper_prices` files that the Hub posts to Render.
   through the guard, applies a targets.toml edit (in place for a timing-only
   change).
 - `schedule.py` - when each target is due: `every_min`, `stale_min`, jitter
-  drawn once per load, the per-site load gaps, `window`, `priority`, and the
+  drawn once per load, the per-site load gaps, whether a job is active at
+  all (`inactive`: `until`, `days`, `window`; a window past midnight belongs
+  to the day it started, `job_day`), `priority`, and the
   kick-off sweep (`near_min` within `near_hours` of a kick-off the rows
   report; nearest kick-off first when a budget is short).
 - `sinks.py` - where rows go, by `post`: `/api/...` targets:
