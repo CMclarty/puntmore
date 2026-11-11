@@ -45,7 +45,8 @@ homage to the bookmaker. What Callum asked for, piece by piece; keep it:
 - **White ground, black text.** A band in the book's colour across the top
   (`THEME` in the page: Paddy `#004833`, paddypower.com's own; Hills
   `#1F3A5F`) holds the book's name in capitals, **"Updated 3m"** under it (the
-  oldest OddsPapi fetch behind the board, the feed's `priced_at`; Callum asked
+  oldest fetch behind the board, the feed's oldest `priced_at`: OddsPapi's on
+  Paddy, odds-api.net's per match on Hills; Callum asked
   for this, so it overrides the older "no updated time" rule below), and one
   pill per filter on the same line: markets, kick-off window, max odds, and
   "per match" on Refund/Boost. A pill shows its setting; a changed one is

@@ -38,7 +38,7 @@ from ..ttl_cache import MISS, TTLCache
 from . import shadow_store
 
 from ..pricing.counts.config import CARDS, CORNERS, GOALS, TEAM_CARDS, TEAM_CORNERS, ModelConfig
-from .oddspapi import (CARDS_HANDICAP, CORNERS_HANDICAP, TEAM_CARDS_AWAY,
+from .oddspapi import (CARDS_HANDICAP, CORNERS_HANDICAP, PADDY_POWER, TEAM_CARDS_AWAY,
                        TEAM_CARDS_HOME, TEAM_CORNERS_AWAY, TEAM_CORNERS_HOME)
 from ..pricing.counts.errors import LadderError
 from ..pricing.counts.fit import fit_ladder
@@ -278,15 +278,20 @@ def team_split(event: dict, pin: dict, market_key: str, sport_key: str):
 
 def _price_paddy_lines(event: dict, market_key: str, sport_key: str, config: ModelConfig,
                        paddy_outcomes: list[dict], tally: dict, min_edge: float,
-                       price_fn, rows: list[CardValueRow], basis: str) -> int:
+                       price_fn, rows: list[CardValueRow], basis: str, book: str) -> int:
     """Price every line Paddy quotes for one market with `price_fn(line) ->
     FairPrice | None`, appending the value rows. Returns the priceable count.
 
     ONE body for the fitted ladder and the team split, so the eligibility
     rules (named exclusions, .5 only, the market's bounds) and the edge rule
     (against the band, extrapolation-penalised) cannot drift apart.
+
+    The named exclusions are Paddy's SHOP rule (lines its shops don't carry),
+    so they apply to Paddy Power only: William Hill (Hills) prices every half
+    line its book quotes, 11.5 corners included (Callum, 11 Nov 2026).
     """
-    excluded = _excluded_lines().get(_market_name(market_key), set())
+    excluded = (_excluded_lines().get(_market_name(market_key), set())
+                if book == PADDY_POWER else set())
     priceable = 0
     for line, sides in sorted(_lines(paddy_outcomes).items()):
         if line in excluded:
@@ -449,7 +454,7 @@ def _compute_laddered_value(
 
                     priceable_lines += _price_paddy_lines(
                         event, market_key, sport_key, config, paddy_outcomes, tally,
-                        min_edge, priced_off_split, rows, "hybrid",
+                        min_edge, priced_off_split, rows, "hybrid", book,
                     )
                     continue
                 else:
@@ -528,7 +533,7 @@ def _compute_laddered_value(
 
             priceable_lines += _price_paddy_lines(
                 event, market_key, sport_key, config, paddy_outcomes, tally,
-                min_edge, priced_off_ladder, rows, "ladder",
+                min_edge, priced_off_ladder, rows, "ladder", book,
             )
 
     LAST_RUNS.setdefault(book, {}).update({

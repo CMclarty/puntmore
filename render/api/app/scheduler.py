@@ -1,6 +1,7 @@
 """APScheduler setup: 10-min odds refresh + daily 30-day cleanup + the daily
 first-goalscorer watchlist that schedules each fixture's pre-kickoff scan +
-the 2-Up board's refresh + the 04:00 sweep of files no row points at."""
+the 2-Up board's refresh + Hills' slow pre-loads on odds-api.net + the 04:00
+sweep of files no row points at."""
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -374,6 +375,20 @@ def refresh_twoup(feed) -> None:
         logger.exception("2up refresh failed")
 
 
+def warm_hills(source) -> dict | None:
+    """One slow pre-load of Hills' board (OddsApiNetHillsSource.warm), so the
+    page opens warm. Logged, never raised: a vendor outage is the source's to
+    report (`last_sweep.errors`), not a Discord alert every 10 minutes."""
+    try:
+        got = source.warm()
+    except Exception:
+        logger.exception("Hills warm failed")
+        return None
+    if got.get("skipped"):
+        logger.info("hills warm: skipped (%s)", got["skipped"])
+    return got
+
+
 def expire_finder() -> int:
     """Tips on Finder past kick-off (or the tip's own expiry) → `expired`, on
     Render's clock: every minute, so a row leaves the feed on time."""
@@ -419,7 +434,7 @@ def sweep_finder() -> int:
 
 def start_scheduler(
     odds_provider, notifier=None, odds_client=None, cards_client=None,
-    twoup_feed=None,
+    twoup_feed=None, hills_source=None,
 ) -> BackgroundScheduler:
     """Create, configure, and start the background scheduler."""
     scheduler = BackgroundScheduler()
@@ -491,6 +506,23 @@ def start_scheduler(
             coalesce=True,
             max_instances=1,
             kwargs={"feed": twoup_feed},
+        )
+
+    # Hills: a warmish board (Callum, 11 Nov 2026), slow pre-loads with nobody
+    # on the page. Only a source that can warm (odds-api.net's; main.py passes
+    # no other); `oddsapinet_warm_every_min = 0` turns it off.
+    if (hills_source is not None and callable(getattr(hills_source, "warm", None))
+            and settings.oddsapinet_warm_every_min > 0):
+        scheduler.add_job(
+            warm_hills,
+            trigger="interval",
+            minutes=settings.oddsapinet_warm_every_min,
+            id="hills_warm",
+            replace_existing=True,
+            # A slow pass skips the next tick rather than queueing it.
+            coalesce=True,
+            max_instances=1,
+            kwargs={"source": hills_source},
         )
 
     # Finder: expiry on Render's own clock, every minute; the 30-day sweep daily.

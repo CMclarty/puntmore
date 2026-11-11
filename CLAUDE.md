@@ -31,7 +31,8 @@ the main domain.
   corners, cards, goals and saves against Paddy Power; a board, feed `GET /api/paddy/feed`.
   `/cards` is its legacy alias, page redirect and API mounted twice. The grant, flag and package
   keep the old name on purpose: renaming a grant revokes accounts' access.
-- **Hills** (`/hills`, `hills` grant): William Hill boosted bet builders.
+- **Hills** (`/hills`, `hills` grant): William Hill boosted bet builders; priced from odds-api.net
+  (`ODDSAPINET_API_KEY`), OddsPapi without it.
 - **365** (`/365/<tab>`, `accabonus` grant): bet365's offers, one tool. Tabs: `2up`, **2-Up**
   (`app/twoup/`, `ENABLE_TWOUP`), a board whose one-way feed is `GET /api/2up/feed`, the page
   showing the same rows; `acca`, the acca boost, removed and returning on OddsPapi; `scorers`,

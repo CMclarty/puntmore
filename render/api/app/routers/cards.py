@@ -63,6 +63,9 @@ def oddspapi_check(request: Request, book: str | None = None, tournament: int = 
     )
     cards = _client(request)
     if not isinstance(cards, OddsPapiPaddySource):
+        if getattr(cards, "vendor", None) == "odds-api.net":
+            return {"error": "Hills prices from odds-api.net, not OddsPapi: "
+                             "see /hills/diagnostics."}
         return {"error": "OddsPapi is not configured — set ODDSPAPI_API_KEY."}
     client = cards._client
     out: dict = {}

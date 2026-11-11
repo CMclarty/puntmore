@@ -20,7 +20,8 @@ Nothing about the system lives outside the repo.
 ## Render
 
 One Docker web service; every push to `main` deploys it. Render never loads a bookmaker page and
-never places a bet. **OddsPapi** is its only odds source.
+never places a bet. **OddsPapi** prices Paddy, 2-Up and the coupon tracker; **odds-api.net**,
+the second odds provider, prices Hills (11 Nov 2026).
 
 It serves **boards**: tool pages, each with a one-way HTTP **feed** of value rows.
 
