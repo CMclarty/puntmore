@@ -67,3 +67,5 @@ The Hub's side of it is not built yet: until it is, a photo stays `waiting`.
 - **A fixture missing from the 2-Up feed:** `GET /api/2up/diagnostics` (what the last pass saw
   and could not price), then `status` on the feed (`stale`, `not_yet_refreshed`, `killed`,
   `degraded`) and each row's `priced_at`.
+- **A match missing from Hills:** `GET /api/hills/diagnostics` (`sweep.pending`,
+  `sweep.stale_williamhill`, `sweep.errors`), then each match's `priced_at` on `/api/hills/feed`.

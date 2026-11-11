@@ -170,8 +170,12 @@ names and no other; older names appear only in `docs/retired.md`.
   bet value; the Bet Placer reads their three feeds, sizes across all of them,
   runs the phones and keeps the records. Its Console page gets a sizing page.
   (6 Nov 2026, Callum)
-- **OddsPapi is the only odds source.** TheOddsApi is removed entirely, not
-  gated. Goalscorers is parked; if it returns it uses OddsPapi. (5 Nov 2026,
+- **OddsPapi prices Paddy, 2-Up and the coupon tracker; odds-api.net prices
+  Hills.** Callum, 11 Nov 2026: "now we have a provider for william hill odds
+  lets build that out"; "update the planning documents with the 2nd
+  providor"; "Oddspapi is a subscription". odds-api.net is the second odds
+  provider; OddsPapi stays. TheOddsApi stays removed. Goalscorers is parked;
+  if it returns it uses OddsPapi. (5 Nov 2026, Callum; Hills 11 Nov 2026,
   Callum)
 - **365 is one tool**: AccaBonus + 2-Up (+ goalscorers when unparked). The
   `accabonus` grant keeps its name because renaming a grant revokes accounts'

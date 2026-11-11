@@ -1,8 +1,9 @@
 """BB Boost's bet log: the builders the team has placed on target matches.
 
 A bet is the legs picked off William Hill's lines on the match (hills/legs.py,
-by OddsPapi id, so it settles itself from /settlements — hills/settle.py) plus
-an optional note for a leg not on the list. A result can also be set by hand.
+by the ids of the vendor Hills is on, so it settles itself from that vendor's
+results — hills/settle.py) plus an optional note for a leg not on the list. A
+result can also be set by hand.
 No prices, stakes or fairs are stored: builders cannot be priced from their
 legs, and the page's fair wheel is an on-the-spot check only.
 """

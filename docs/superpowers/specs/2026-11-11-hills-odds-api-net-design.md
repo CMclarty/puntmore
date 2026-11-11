@@ -27,8 +27,9 @@ Oddschecker.
 a board-at history for Hills (Paddy's alone is kept); any change to the pricing model.
 
 **Anti-goals:** using the vendor's de-vigged or `fair_odds` fields to price anything; using
-a fair book other than Pinnacle when Pinnacle is missing; polling on a timer when nobody has
-the page open; storing raw vendor responses (the instance has hit its memory cap before).
+a fair book other than Pinnacle when Pinnacle is missing; polling at the page's pace when
+nobody has the page open (the warm job below is slow on purpose); storing raw vendor
+responses (the instance has hit its memory cap before).
 
 ## What odds-api.net is (checked live, 11 Nov, 22 credits)
 
@@ -189,12 +190,16 @@ window before this ships.
 
 - **A warmish board (Callum, 11 Nov 2026: "could we get a warmish board, with slow
   pre-loads").** A scheduler job every 10 minutes refreshes boards with nobody on the page,
-  slowly: a game more than 6 hours from kick-off when its board is over 2 hours old, a game
-  inside 6 hours when over 15 minutes old. It stops for the day once fewer than 2,000 credits
-  are left. A page request still refreshes at the page pace below. About 1,000–2,500 credits a
-  day, 45,000–60,000 a month, of the 250,000. Replaces the earlier "only when the page asks".
-- **Sweep only when the page asks.** No scheduler job. A request reads the board as it
-  stands; the work happens on requests.
+  slowly: a game with no board, a game more than 6 hours from kick-off when its board is over
+  2 hours old, a game inside 6 hours when over 15 minutes old. It stops for the day once fewer than 2,000 credits
+  are left, and never spends into those 2,000, so the page keeps them. A page request still
+  refreshes at the page pace below. About 1,000–2,500 credits a day. This replaces the earlier
+  design's "sweep only when the page asks, no scheduler job". The job is `hills_warm`
+  (`scheduler.warm_hills`), settings `oddsapinet_warm_every_min` (10; 0 turns it off),
+  `_far_s` (7200), `_near_s` (900), `_near_hours` (6) and `_reserve` (2000). It runs only for
+  an odds-api.net source, skips while a page pass runs, and has no run at boot.
+- **The page's pace.** A request reads the board as it stands and starts a refresh of what
+  is due (below).
 - **Listing:** one `/events` call, cached 600 s; follow `next_cursor`, at most 3 pages.
 - **Per-event snapshot cache (my call):** an event's board is reused for the vendor's own
   `target_refresh_interval_seconds`, clamped to 120–3,600 s. Asking sooner than the vendor
@@ -214,10 +219,11 @@ window before this ships.
   `oddsapinet_daily_credit_budget = 8000` (Callum, 11 Nov 2026: "there is 250k credits per
   month"), counted on every request sent; 8,000 × 31 = 248,000, inside the 250,000 in any
   month.
-- **Expected spend:** about 1 credit per far-out game per hour plus 30 per game per hour
-  inside six hours, while the page is open, plus 6 an hour for the listing. A Saturday with
-  40 far-out games, 15 near ones and four hours on the page is about 2,000. A light weekday
-  is about 300. Roughly 25,000 a month.
+- **Expected spend:** the warm job's 1,000–2,500 a day, plus page use: about 1 credit per
+  far-out game per hour plus 30 per game per hour inside six hours while the page is open,
+  plus 6 an hour for the listing. A Saturday with 40 far-out games, 15 near ones and four
+  hours on the page is about 2,000 of page use; a light weekday about 300. All of it inside
+  the 8,000 daily cap.
 - **Staleness:** a match's `priced_at` is the older of William Hill's and Pinnacle's
   `bookmaker_as_of_ts_ms` (served per match through `priced_at_for`), and the source's
   `priced_at` is the oldest on the board. The page already shows the board's oldest. When a
@@ -269,23 +275,26 @@ window before this ships.
 
 ## The register
 
-The register says **"OddsPapi is the only odds source"** (5 Nov 2026, Callum). This work
-contradicts it, so it needs Callum's dated edit in the same pull request. Proposed wording,
-replacing that bullet:
+The register said **"OddsPapi is the only odds source"** (5 Nov 2026, Callum). This work
+contradicts it, so it needs Callum's dated edit in the same pull request. The wording,
+replacing that bullet, from his words of 11 Nov 2026:
 
-> - **OddsPapi prices Paddy, 2-Up and the coupon tracker; odds-api.net prices Hills.**
->   Callum, 11 Nov 2026: "now we have a provider for william hill odds lets build that out".
->   Callum, 11 Nov 2026: "update the planning documents with the 2nd providor";
->   "Oddspapi is a subscription".
->   TheOddsApi stays removed. Goalscorers is parked; if it returns it uses OddsPapi.
->   (5 Nov 2026, Callum; Hills 11 Nov 2026, Callum)
+> - **OddsPapi prices Paddy, 2-Up and the coupon tracker; odds-api.net prices
+>   Hills.** Callum, 11 Nov 2026: "now we have a provider for william hill odds
+>   lets build that out"; "update the planning documents with the 2nd
+>   providor"; "Oddspapi is a subscription". odds-api.net is the second odds
+>   provider; OddsPapi stays. TheOddsApi stays removed. Goalscorers is parked;
+>   if it returns it uses OddsPapi. (5 Nov 2026, Callum; Hills 11 Nov 2026,
+>   Callum)
+
+This is the text now in `docs/decisions.md`, "Where the logic lives".
 
 `docs/architecture.md`'s "Fixed 6" and diagram, and `render/api/AGENTS.md`'s "Odds sources",
 follow the register.
 
 ## Docs to change
 
-- `docs/decisions.md`: the bullet above, once Callum approves it.
+- `docs/decisions.md`: the bullet above.
 - `render/api/AGENTS.md`: "Odds sources" names odds-api.net for Hills. A new section, "Hills
   (`cards/oddsapinet.py`) — odds-api.net", holds the facts above: billing, rate, freshness,
   mapping, results, no saves, `oan:` ids.
@@ -296,6 +305,9 @@ follow the register.
 - `.env.example`, `render.yaml`: `ODDSAPINET_API_KEY`.
 - `render/frontend/src/pages/HillsBuilder.jsx`: its comment says the bets settle from
   odds-api.net.
+- `README.md`, `PLAN.md` (Done, 13), `render/frontend/AGENTS.md` ("Updated 3m"), and the
+  comments that said OddsPapi is the only source or that legs are by OddsPapi id
+  (`hills/bets.py`, `models.py`, `main.py`, `config.py`).
 
 ## Callum's jobs
 
@@ -310,3 +322,5 @@ follow the register.
   and the coupon tracker.
 - "Remove saves on hills."
 - "add the 11.5 corner lines": Paddy's excluded-lines rule applies to Paddy Power only.
+- "there is 250k credits per month": the daily cap is 8,000.
+- "could we get a warmish board, with slow pre-loads": the `hills_warm` job.

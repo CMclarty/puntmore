@@ -115,8 +115,8 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
-    # Goalscorers is PARKED (5 Nov 2026): its odds vendor is gone and OddsPapi
-    # is the only source. The pipeline stays in the tree behind
+    # Goalscorers is PARKED (5 Nov 2026): its odds vendor is gone and it
+    # returns on OddsPapi only. The pipeline stays in the tree behind
     # ENABLE_GOALSCORERS=false and gets no client until it is rebuilt on
     # OddsPapi (PLAN.md, Parked).
     odds_client = None
@@ -139,8 +139,9 @@ async def lifespan(app: FastAPI):
 
     # Hills: on odds-api.net when ODDSAPINET_API_KEY is set, else the same
     # pipeline against William Hill on the SAME OddsPapi client (one budget,
-    # one rate limit, Pinnacle's chunks cached once) — hills/vendor.py. Either
-    # way it fetches only when its page asks, so an unused grant costs nothing.
+    # one rate limit, Pinnacle's chunks cached once) — hills/vendor.py. On
+    # OddsPapi it fetches only when its page asks; on odds-api.net the
+    # `hills_warm` job also pre-loads it slowly (scheduler.warm_hills).
     from .hills.vendor import build_hills_source
     app.state.hills_client = build_hills_source(settings.oddsapinet_api_key, oddspapi_client)
     if app.state.hills_client is None:

@@ -143,8 +143,8 @@ class Settings(BaseSettings):
     # the UI when on. The scheduler builds a daily watchlist of major fixtures
     # and scans each at kickoff − 45 min (Pinnacle only posts the market near KO
     # for majors), storing rows and alerting Discord on new value.
-    # Goalscorers is PARKED (5 Nov 2026): its odds vendor is gone and OddsPapi
-    # is the only source. Off until rebuilt on OddsPapi (PLAN.md, Parked).
+    # Goalscorers is PARKED (5 Nov 2026): its odds vendor is gone. Off until
+    # rebuilt on OddsPapi (PLAN.md, Parked).
     enable_goalscorers: bool = False
     # Private P&L bet tracker. Mounted when on, but gated by the "pnl" tool
     # grant — only users whose AUTH_USERS permission is "*" (or lists "pnl")

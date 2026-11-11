@@ -24,15 +24,21 @@ The main domain serves every public tool; `me` serves Callum's personal tools
   app installed from shalgo on its old worker for good.
 
 ## Odds sources
-**OddsPapi is the only odds source** (Callum, 5 Nov 2026). The coupon tracker
+**OddsPapi prices Paddy, 2-Up and the coupon tracker; odds-api.net prices
+Hills** (the register; Callum, 11 Nov 2026: "update the planning documents
+with the 2nd providor", "Oddspapi is a subscription"). The coupon tracker
 prices on `OddsPapiCouponProvider` (`providers/oddspapi_coupon.py`,
-`COUPON_ODDS_SOURCE=oddspapi`, the default) and the Paddy tool on
-`cards/oddspapi.py`. Fair odds are de-vigged in-house from its raw prices.
-bettingiscool is gone, and so are the acca boost package and the TheOddsApi
-coupon fallback (5 Nov 2026): without an OddsPapi key the tracker runs on the
-mock and says so at boot and on `/api/ready`.
+`COUPON_ODDS_SOURCE=oddspapi`, the default), the Paddy tool on
+`cards/oddspapi.py`, 2-Up on `twoup/feed.py`. Hills prices on
+`cards/oddsapinet.py` when `ODDSAPINET_API_KEY` is set, and on OddsPapi
+without it (`hills/vendor.py`; below, "Hills (`cards/oddsapinet.py`) —
+odds-api.net"). Fair odds are de-vigged in-house from either vendor's raw
+prices. bettingiscool is gone, and so are the acca boost package and the
+TheOddsApi coupon fallback (5 Nov 2026): without an OddsPapi key the tracker
+runs on the mock and says so at boot and on `/api/ready`.
 
-No other odds vendor exists in the code. **Goalscorers is PARKED** (Callum,
+No other odds vendor exists in the code. UK Odds API (ukoddsapi.com) was
+tested on 11 Nov 2026 and not adopted. **Goalscorers is PARKED** (Callum,
 5 Nov 2026): its vendor was removed, so `goalscorers/` stays in the tree
 behind `ENABLE_GOALSCORERS=false` with no client, and comes back on OddsPapi
 after the open work is done (PLAN.md, Parked). The acca boost returns as a
@@ -542,6 +548,8 @@ Pinnacle's fair reference, joined on the same fixture id.
   **Lines Paddy SHOPS don't carry are never listed** (`paddy_excluded_lines`,
   default `corners:11.5`, Callum Oct 2026 — the team bets in shops). Only
   Paddy's price is dropped; Pinnacle's rung at that line still feeds the fit.
+  It is Paddy Power's rule only (`laddered._price_paddy_lines`, keyed on the
+  book): Hills shows William Hill's 11.5 (Callum, 11 Nov 2026).
 - **THE COUNTS MODEL IS MEASURED, NOT ASSUMED** (`pricing/counts`, Oct 2026).
   Tested against real outcomes — football-data.co.uk matches via the public
   `xgabora/club-football-match-data-2000-2025` dataset (git clone, no API
@@ -677,6 +685,108 @@ Pinnacle's fair reference, joined on the same fixture id.
   swept each pass. Cards rows are computed, never stored, so there is no row to
   flag — but the map must keep dropping bets that fall off the sweep, or it is
   the same unbounded-dict leak `ttl_cache.py` exists to prevent.
+
+### Hills (`cards/oddsapinet.py`) — odds-api.net
+William Hill's corners, cards and goals lines with Pinnacle's as the fair side, from
+**odds-api.net**, Puntmore's second odds provider (the register, 11 Nov 2026). Design:
+`docs/superpowers/specs/2026-11-11-hills-odds-api-net-design.md`.
+- **Which vendor** (`hills/vendor.py::build_hills_source`): `ODDSAPINET_API_KEY` set →
+  `OddsApiNetHillsSource` on its own `OddsApiNetClient` and its own daily budget;
+  unset → `OddsPapiPaddySource(book=WILLIAM_HILL)` on the SHARED OddsPapi client, as before;
+  neither → no source, and `/api/ready` says so. No switch setting: removing the key puts
+  Hills back on OddsPapi. A target picked on one vendor keeps that vendor's id, so its legs
+  come back empty on the other: re-pick it after a switch.
+- **Billing** (`oddsapinet_client.py`): base `https://api.odds-api.net/v1`, the key in the
+  `X-API-Key` header only (never a URL, a log line or an error). The plan is 250,000 credits
+  a month and 120 requests a minute; **every call is one credit, failures included**. One
+  request in flight, at least 0.5 s apart. Every request counts against
+  `oddsapinet_daily_credit_budget`, default **8000** (Callum, 11 Nov 2026: "there is 250k
+  credits per month"; 8,000 × 31 = 248,000); a spent cap sends nothing (`BudgetSpent`).
+  The count is per process, so a deploy starts it again. A 429 raises `RateLimited` and is
+  never retried.
+- **The listing**: one `/events` call (at most 3 pages), reused 600 s, a failed one held as
+  long; window `oddsapinet_window_hours` (168; the vendor lists about six days). Competitions
+  are `HILLS_LEAGUES`, the vendor's league names mapped to the Sofascore ids the rest of the
+  code keys on. The Championship is listed under two names; a game listed twice is kept once
+  (same teams, same kick-off). The vendor sends no round name, so a fixture's `round` is
+  None. Every listed game is a fixture the target can be; only games whose listing names
+  `williamhill` get a snapshot.
+- **The per-event snapshot**: `GET /events/{id}/odds/snapshot` with
+  `bookmakers=williamhill,pinnacle`, `price_fields=odds`, `types=total,team total,handicap`,
+  `periods=full time`: both books in one call (~160 KB, ~1.4 s). Only the parsed lines are
+  kept, never the response. A board is reused for the vendor's own
+  `target_refresh_interval_seconds`, clamped to 120–3,600 s.
+- **Freshness**: the vendor's target is 60 s inside six hours of kick-off and ~2,559–3,599 s
+  further out. Seen 11 Nov 2026: William Hill 1.5–1.7 min old inside six hours, 64–108 min old
+  6–31 hours out; Pinnacle always under five minutes. A match's `priced_at` (feed, through
+  `priced_at_for`) is the older of the two books' stamps, counting only a book that carried
+  lines; the source's `priced_at` is the oldest on the board. A far-out game makes the band
+  read an hour or more: that is the truth. A William Hill side the vendor marks stale is still
+  priced and counted in `last_sweep.stale_williamhill`.
+- **The page's pass**: `get_events()` serves the boards it holds at once and, when any
+  William Hill game is due (no board, or older than its reuse time, and not held), starts ONE
+  background pass (never two): nearest kick-off first, at most 60 snapshots. Only the first
+  request after a boot waits for it, up to 15 s. Games not fetched yet are
+  `last_sweep.pending`, and `/hills/diagnostics` says "Still fetching" rather than "nothing
+  there". `/hills/legs` fetches the target's own board in the request when it is missing or
+  due (one credit). A failed snapshot is not asked again for 600 s; a 429 or a spent budget
+  ends the pass, holds nothing and is named in `last_sweep.errors`. Nothing retries.
+- **A warmish board** (Callum, 11 Nov 2026: "could we get a warmish board, with slow
+  pre-loads"): the scheduler job `hills_warm` (`scheduler.warm_hills` →
+  `OddsApiNetHillsSource.warm`) runs every `oddsapinet_warm_every_min` (10; 0 turns it off),
+  for an odds-api.net source only (`main._warmable`). It fetches a game with no board, a game
+  more than `oddsapinet_warm_near_hours` (6) from kick-off whose board is over
+  `oddsapinet_warm_far_s` (7200) old, and one inside that whose board is over
+  `oddsapinet_warm_near_s` (900) old; nearest first, at most 60, held games skipped. It sends
+  nothing once fewer than `oddsapinet_warm_reserve` (2000) credits are left today and never
+  spends into them, so the page keeps them. It shares the page pass's flag, so the two never
+  run together (a warm finding a pass running skips). A failure is logged, never raised: no
+  Discord alert. There is no warm at boot; the first comes 10 minutes after a deploy. About
+  1,000–2,500 credits a day.
+- **The mapping** (`parse_snapshot`): full time, `is_available`, odds > 1.0, William Hill and
+  Pinnacle only. Totals read `"<over|under> <n>"`; odd/even and quarter lines are dropped.
+  `market_key` is inconsistent and never read; metrics are compared lower-case.
+
+  | `bet_type`, `metric`, `side` | Pipeline key | Books |
+  |---|---|---|
+  | `total`, `corners` | `alternate_totals_corners` | WH, Pinnacle |
+  | `total`, `cards` | `alternate_totals_cards` | WH, Pinnacle |
+  | `total`, `standard` | `totals_goals` | WH, Pinnacle |
+  | `team total`, `corners`, `home` / `away` | `team_corners_home` / `_away` | WH, Pinnacle |
+  | `team total`, `cards`, `home` / `away` | `team_cards_home` / `_away` | WH, Pinnacle |
+  | `handicap`, `corners` / `cards` | `corners_handicap` / `cards_handicap` | Pinnacle only |
+
+  A handicap becomes `{name: Home | Away, point: the HOME side's handicap}`: the home item's
+  line as given, the away item's negated, as `pricing/counts/split.py` reads it.
+- **Pinnacle-only fairs, no fallback.** Prices stay raw; `value.py` and `laddered.py` de-vig
+  them. The vendor's de-vigged and `fair_odds` fields are never requested or read. An event
+  with no Pinnacle lines carries William Hill alone and gets no rows (counted in
+  `carried_paddy_prices`, not `carried_pinnacle_prices`); no other book stands in.
+- **No saves on Hills** (Callum, 11 Nov 2026: "Remove saves on hills"): odds-api.net has no
+  match saves total, only per-keeper player props, so there are no saves rows and no saves
+  legs.
+- **The 11.5 corners line shows on Hills** (Callum, 11 Nov 2026: "add the 11.5 corner
+  lines"): `paddy_excluded_lines` is Paddy Power's shop rule only, so William Hill's 11.5 is
+  priced on either vendor.
+- **Ids**: `oan:<vendor event id>` wherever Hills stores or serves an event (the feed's
+  `event_id`, `HillsTarget.fixture_id`, `HillsBet.fixture_id`), so an OddsPapi id and an
+  odds-api.net id never meet. A BB Boost leg is one of William Hill's half lines: `market_id`
+  `"<key>:<line>"` (`"alternate_totals_corners:9.5"`), `outcome_id` `"Over"` or `"Under"`.
+- **Settling** (`hills/settle.py`, on `GET /hills/bets`): open bets with legs, kick-off two
+  hours to two days ago, each fixture at most every 30 minutes; one `GET /events/{id}/results`
+  (one credit). Nothing settles until the result is `available`, the match `finished` with
+  `status_detail` "FT" (90 minutes: "AET", "Pen" or no detail waits for a hand result), and
+  the records the leg needs are full time and `final`. A match leg adds both sides, a team
+  leg reads its own; cards are the vendor's count (William Hill's red-card rule may differ;
+  anyone can override by hand). `settled_by` is `"odds-api.net"` and the page shows "auto".
+  Each vendor settles only its own bets, and only while Hills is on it.
+- **Diagnostics**: `last_sweep` keys are `source` (`"odds-api.net"`), `book`, `fair_source`
+  (`"odds-api.net:pinnacle"`), `window_hours`, `fixtures_in_window`, `called`,
+  `carried_paddy_prices`, `carried_pinnacle_prices`, `pending`, `stale_williamhill`, `failed`,
+  `errors`, `requests_today`, `request_budget`, `next_kickoff`; each event's `fair_source` is
+  `"odds-api.net"`. A warm's pass writes `last_sweep` as a page pass does. `/api/ready` → `providers.hills_detail`:
+  `{provider, degraded, requests_today}`, `degraded` with no source or when the last sweep
+  failed and carried nothing. `/hills/oddspapi-check` answers that Hills is not on OddsPapi.
 
 
 ### Notification provider (`app/notifications/`)

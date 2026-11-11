@@ -93,6 +93,13 @@ in the tree.
 - **2f.** U19 fixtures: competition and day checks before a fixture is priced (Sept 2026).
 - **11.** One odds source (OddsPapi), one 365 tool with 2-Up as a one-way feed inside it, no `/scraper` page (5–6 Nov 2026). Its grep for the old vendors still matches a legacy alias in `app/main.py` (`COUPON_ODDS_SOURCE=bettingiscool` routes to OddsPapi), test names and `tools/probe_oddspapi.py`; none is a live dependency.
 - **12.** Finder (6 Nov 2026, `docs/finder-spec.md`).
+- **13.** Hills on odds-api.net, Puntmore's second odds provider (11 Nov 2026,
+  `docs/superpowers/specs/2026-11-11-hills-odds-api-net-design.md`): William Hill and Pinnacle in
+  one snapshot per match, a warmish board (`hills_warm`), BB Boost legs and settling from its
+  results, no saves on Hills, William Hill's 11.5 corners shown. OddsPapi stays, a running
+  subscription, for Paddy, 2-Up and the coupon tracker. Callum's to do: set `ODDSAPINET_API_KEY`
+  in Render's dashboard and redeploy (Hills stays on OddsPapi until then), then re-pick the
+  Hills target if one was set.
 
 The Bet Placer's open work (the phone interface, two weeks of dry-run) is in `docs/placer-spec.md`.
 
@@ -101,7 +108,7 @@ The Bet Placer's open work (the phone interface, two weeks of dry-run) is in `do
 ### Goalscorers on OddsPapi
 Parked 5 Nov 2026. The first/anytime-goalscorer finder (`render/api/app/goalscorers/`,
 page `/365/scorers`, `goalscorers` grant) read a vendor that is now removed;
-OddsPapi is the only odds source. Code and tests stay (the tests use a stub
+it returns on OddsPapi (the register). Code and tests stay (the tests use a stub
 client). To revive, and only via OddsPapi: confirm its catalogue carries a
 goalscorer market (`/api/cards/oddspapi-check`), write an OddsPapi
 watchlist/event source with the duck-typed `fetch_event` shape the service
