@@ -380,3 +380,117 @@ def test_a_warmed_board_is_served_without_a_page_fetch():
     fake.calls.clear()
     assert [e["id"] for e in src.get_events()] == ["oan:1417142635"]
     assert snapshots(fake) == []
+
+
+# --- the page's spend: near reuse and the settling floor (final review, B) ----
+
+def _near_routes(refresh=60):
+    """Two William Hill games inside the near window (2 h, 3 h), whose
+    snapshots name the vendor's 60 s refresh."""
+    r = _warm_routes()
+    r["/events"]["items"] = [i for i in r["/events"]["items"] if i["event_id"] in ("903", "904")]
+    for eid in ("901", "902"):
+        del r[f"/events/{eid}/odds/snapshot"]
+    for eid in ("903", "904"):
+        r[f"/events/{eid}/odds/snapshot"]["target_refresh_interval_seconds"] = refresh
+    return r
+
+
+def test_the_new_page_settings_default_to_300():
+    from app.config import Settings
+    assert Settings.model_fields["oddsapinet_page_near_ttl_seconds"].default == 300
+    assert Settings.model_fields["oddsapinet_settle_floor"].default == 300
+
+
+def test_the_page_reuses_a_near_board_for_the_near_ttl():
+    src, fake, clock = make(FakeOan(_near_routes()))
+    src.get_events()
+    assert len(snapshots(fake)) == 2
+    clock.advance(299); src.get_events()
+    assert len(snapshots(fake)) == 2               # 299 s: reused, not the vendor's 120 s
+    clock.advance(2); src.get_events()
+    assert len(snapshots(fake)) == 4               # 301 s: fetched again
+
+
+def test_a_far_board_keeps_the_vendors_refresh():
+    src, fake, clock = make()                      # England, 31 h out, refresh 3,599 s
+    src.get_events()
+    clock.advance(3000); src.get_events()
+    assert paths(fake).count(ENG) == 1
+    clock.advance(601); src.get_events()
+    assert paths(fake).count(ENG) == 2
+
+
+def test_the_page_pass_stops_at_the_floor_and_serves_the_boards_held():
+    fake = FakeOan()
+    fake.requests_today = fake.daily_budget - 302   # the listing and ONE snapshot reach 300
+    src, fake, clock = make(fake)
+    assert src.get_events() == []
+    assert paths(fake) == ["/events", ARM]
+    assert src.last_sweep["budget_spent"] is True and src.last_sweep["credit_floor"] == 300
+    assert src.last_sweep["pending"] == 1
+    assert fake.budget_left() == 300
+
+
+def test_at_the_floor_a_page_load_sends_nothing_and_keeps_its_boards():
+    src, fake, clock = make()
+    src.get_events()
+    fake.requests_today = fake.daily_budget - 300
+    fake.calls.clear()
+    clock.advance(3601)                            # listing and both boards due
+    assert [e["id"] for e in src.get_events()] == ["oan:1417142635"]
+    assert fake.calls == []
+    assert src.last_sweep["budget_spent"] is True
+
+
+def test_warm_stops_at_the_floor_whatever_its_reserve(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "oddsapinet_warm_reserve", 0)
+    fake = FakeOan(_warm_routes())
+    fake.requests_today = fake.daily_budget - 302
+    src, fake, _ = make(fake)
+    assert src.warm()["fetched"] == 1              # the listing, one snapshot, then 300 left
+    assert fake.budget_left() == 300
+    fake.calls.clear()
+    assert src.warm()["skipped"] == "reserve" and fake.calls == []
+
+
+def test_a_legs_fetch_still_spends_below_the_floor():
+    fake = FakeOan()
+    fake.requests_today = fake.daily_budget - 10
+    src, fake, _ = make(fake)
+    legs = src.hills_legs("oan:1417142635", "England", "Croatia")
+    assert legs and paths(fake) == [ENG]
+
+
+def test_the_verdict_names_a_spent_budget_and_the_reset_before_still_fetching():
+    started = []
+    src, fake, _ = make(runner=started.append, first_wait=0)
+    src.get_events()                               # listed; the pass has not run
+    assert feed.diagnose(src)["verdict"].startswith("Still fetching")
+    fake.requests_today = fake.daily_budget
+    fake.calls.clear()
+    src.get_events()
+    assert fake.calls == [] and src.last_sweep["pending"] == 2
+    assert feed.diagnose(src)["verdict"] == (
+        "Today's odds-api.net credits are spent; prices resume at 00:00 UTC.")
+    fake.requests_today = fake.daily_budget - 300
+    src.get_events()
+    assert feed.diagnose(src)["verdict"] == (
+        "Today's odds-api.net credits for the board are spent (the last 300 are kept "
+        "for legs and settling); prices resume at 00:00 UTC.")
+
+
+def test_a_budget_spent_mid_pass_gives_the_spent_verdict():
+    r = routes()
+    r[ARM] = BudgetSpent("daily credit budget spent")
+
+    class Spent(FakeOan):
+        def get(self, path, **params):
+            if path == ARM:
+                self.requests_today = self.daily_budget
+            return super().get(path, **params)
+
+    src, fake, _ = make(Spent(r))
+    src.get_events()
+    assert feed.diagnose(src)["verdict"].startswith("Today's odds-api.net credits are spent")

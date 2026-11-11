@@ -163,6 +163,16 @@ def diagnose(client) -> dict:
         )
     elif not sweep:
         verdict = "No sweep has run yet. Open the feed or wait for the 2-minute tick."
+    elif sweep.get("budget_spent"):
+        # odds-api.net only: its page fetches nothing more until the client's
+        # UTC day rolls over, so "Still fetching" would never come true.
+        vendor = sweep.get("source")
+        if (sweep.get("requests_today") or 0) >= (sweep.get("request_budget") or 0):
+            verdict = f"Today's {vendor} credits are spent; prices resume at 00:00 UTC."
+        else:
+            verdict = (f"Today's {vendor} credits for the board are spent (the last "
+                       f"{sweep.get('credit_floor')} are kept for legs and settling); "
+                       f"prices resume at 00:00 UTC.")
     elif sweep.get("pending", 0) > 0 and sweep.get("carried_paddy_prices", 0) == 0:
         # A background pass is still fetching the board (odds-api.net): not
         # "nothing there".

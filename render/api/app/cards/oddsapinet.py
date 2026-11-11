@@ -437,6 +437,8 @@ def leg_result(counts: dict, market_id: str, outcome_id: str) -> str | None:
 LISTING_TTL = 600        # s the /events listing is reused (a failed one is held as long)
 FAILURE_HOLD = 600       # s an event whose snapshot failed is not asked again
 LISTING_PAGES = 3        # /events pages followed at most
+FLOOR_REACHED = ("daily credit budget spent for the board: the last {floor} are kept "
+                 "for legs and settling")
 SNAPSHOT_PARAMS = {"bookmakers": f"{WILLIAM_HILL},{PINNACLE}", "price_fields": "odds",
                    "types": "total,team total,handicap", "periods": "full time"}
 
@@ -481,14 +483,20 @@ class OddsApiNetHillsSource:
 
     def __init__(self, client, *, window_hours: float | None = None, max_per_pass: int = 60,
                  first_wait: float = 15.0,
+                 near_ttl: float | None = None, floor: int | None = None,
                  runner: Callable[[Callable[[], None]], None] | None = None,
                  now: Callable[[], datetime] | None = None,
                  monotonic: Callable[[], float] = time.monotonic):
+        from app.config import settings
         if window_hours is None:
-            from app.config import settings
             window_hours = settings.oddsapinet_window_hours
         self._client = client
         self.window_hours = window_hours
+        # The page's reuse of a near game's board, and the credits it and the
+        # warm job leave for legs and settling (final review, Important 2).
+        self.near_ttl = (settings.oddsapinet_page_near_ttl_seconds if near_ttl is None
+                         else near_ttl)
+        self.floor = settings.oddsapinet_settle_floor if floor is None else floor
         self.max_per_pass = max_per_pass
         self.first_wait = first_wait
         self._runner = runner or _thread_runner
@@ -515,12 +523,15 @@ class OddsApiNetHillsSource:
 
     def get_events(self) -> list[dict]:
         self._refresh_listing()
+        # Read outside `_lock` (the client's own lock is held across a
+        # request); it also rolls the client's day at 00:00 UTC.
+        page_may_spend = self._page_may_spend()
         start = False
         with self._lock:
             # Pruned here too, not only by a pass: a listing that dropped a
             # game needs no pass for its board to go.
             self._prune()
-            if self._due() and not self._refreshing:
+            if page_may_spend and self._due() and not self._refreshing:
                 self._refreshing = True
                 self._pass_done.clear()
                 start = True
@@ -615,11 +626,18 @@ class OddsApiNetHillsSource:
 
     # -- the listing -----------------------------------------------------------
 
+    def _page_may_spend(self) -> bool:
+        """True while more than `floor` credits are left today: the page's pass,
+        the listing and the warm job send nothing below that."""
+        return self._client.budget_left() > self.floor
+
     def _refresh_listing(self) -> None:
         with self._listing_lock:
             mono = self._mono()
             if self._listed_at is not None and mono - self._listed_at < LISTING_TTL:
                 return
+            if not self._page_may_spend():
+                return                   # the last credits are for legs and settling
             self._listed_at = mono
             now = self._now()
             params = {"sport": "soccer", "start_from": int(now.timestamp()),
@@ -665,10 +683,24 @@ class OddsApiNetHillsSource:
     def _held_now(self, key: str) -> bool:
         return self._held.get(key, float("-inf")) > self._mono()
 
+    def _page_fresh(self, listing: Listing) -> bool:
+        """The page's reuse rule: the vendor's refresh interval (`snapshot_ttl`),
+        but at least `near_ttl` on a game inside `oddsapinet_warm_near_hours`
+        of kick-off, where the vendor's 60 s would cost 30 snapshots an hour."""
+        from app.config import settings
+        key = OAN_PREFIX + listing.event_id
+        board = self.boards.get(key)
+        if board is None:
+            return False
+        ttl = snapshot_ttl(board)
+        if listing.start - self._now() <= timedelta(hours=settings.oddsapinet_warm_near_hours):
+            ttl = max(ttl, self.near_ttl)
+        return self._mono() - self._fetched[key] < ttl
+
     def _due(self) -> list[Listing]:
         """William Hill games with no fresh board and no hold, nearest first."""
         return [l for l in self._wh()
-                if not self._fresh(OAN_PREFIX + l.event_id)
+                if not self._page_fresh(l)
                 and not self._held_now(OAN_PREFIX + l.event_id)]
 
     # -- the warmish board ------------------------------------------------------
@@ -681,7 +713,8 @@ class OddsApiNetHillsSource:
         Skipped (no request at all) below the reserve, or while a page pass
         runs. {"due", "fetched", "skipped": None | "reserve" | "busy"}."""
         from app.config import settings
-        reserve = settings.oddsapinet_warm_reserve
+        # The warm's reserve sits above the settling floor; never below it.
+        reserve = max(settings.oddsapinet_warm_reserve, self.floor)
 
         def skipped(reason: str) -> dict:
             return {"due": 0, "fetched": 0, "skipped": reason}
@@ -745,6 +778,9 @@ class OddsApiNetHillsSource:
                     due = self._due()[:self.max_per_pass]
             for listing in due:
                 key = OAN_PREFIX + listing.event_id
+                if not self._page_may_spend():
+                    errors.append(FLOOR_REACHED.format(floor=self.floor))
+                    break
                 try:
                     body = self._client.get(f"/events/{listing.event_id}/odds/snapshot",
                                             **SNAPSHOT_PARAMS)
@@ -808,6 +844,8 @@ class OddsApiNetHillsSource:
         self.fixtures = [fixture_of(l) for l in listed]
         self.priced_at = min(stamps, default=None)
         errors = ([self._listing_error] if self._listing_error else []) + list(self._pass_errors)
+        used = getattr(self._client, "requests_today", None)
+        budget = getattr(self._client, "daily_budget", None)
         self.last_sweep = {
             "source": VENDOR,
             "book": WILLIAM_HILL,
@@ -821,7 +859,12 @@ class OddsApiNetHillsSource:
             "stale_williamhill": sum(1 for b in boards if WILLIAM_HILL in b.stale_books),
             "failed": self._pass_failed + (1 if self._listing_error else 0),
             "errors": errors,
-            "requests_today": getattr(self._client, "requests_today", None),
-            "request_budget": getattr(self._client, "daily_budget", None),
+            "requests_today": used,
+            "request_budget": budget,
+            "credit_floor": self.floor,
+            # The page fetches nothing more today (the client's own count,
+            # read without its lock).
+            "budget_spent": (isinstance(used, int) and isinstance(budget, int)
+                             and budget - used <= self.floor),
             "next_kickoff": _iso(wh[0].start) if wh else None,
         }

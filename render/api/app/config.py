@@ -115,6 +115,15 @@ class Settings(BaseSettings):
     oddsapinet_warm_near_s: int = 900
     oddsapinet_warm_near_hours: float = 6.0
     oddsapinet_warm_reserve: int = 2000
+    # The page reuses a board on a game inside `oddsapinet_warm_near_hours`
+    # for this long rather than the vendor's 60 s (clamped to 120): about 12
+    # snapshots an hour per near game with a tab open, not 30.
+    oddsapinet_page_near_ttl_seconds: int = 300
+    # The last credits of the day are for BB Boost's legs and settling only:
+    # the page's pass and the warm job send nothing once this many or fewer
+    # are left (the warm's reserve sits above it). Legs and results may spend
+    # down to zero.
+    oddsapinet_settle_floor: int = 300
 
     # Discord alerts for the cards sweep. OFF while the feed is being proven —
     # a value tool that alerts before anyone has checked its prices trains you
