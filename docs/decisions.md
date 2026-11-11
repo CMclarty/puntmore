@@ -39,7 +39,7 @@ names and no other; older names appear only in `docs/retired.md`.
     signs in once per host; a known cost of `me`. (6 Nov 2026, the branch's
     final review)
 - **The Hub has five sub-components.** **Scraper service**: the one real
-  Chrome on the desktop, reads pages, hands rows up. **Scraper control**: the
+  Chrome, on its own virtual screen, reads pages, hands rows up. **Scraper control**: the
   layer above it: rules, routing and switches for every source's rows (pages
   and the tipster mailbox), driven from the Console's control page; rows go
   from the Scraper service to Scraper control and from there to a board or to
@@ -214,8 +214,9 @@ names and no other; older names appear only in `docs/retired.md`.
 
 ## Scraping conduct
 
-- **Real, live Chrome on the Hub's own desktop**: the real binary, the real
-  GPU and display, the real fonts, one persistent profile. The point is to
+- **Real, live Chrome on the Hub itself**: the real binary, the real GPU,
+  the real fonts, one persistent profile; its screen is its own virtual one
+  on that GPU (below). The point is to
   minimise the risk of countermeasures, so a container on a virtual display
   does not satisfy it (measured 5 Nov 2026: no WebGL at all inside the
   container). The Docker image is a fallback for a box with no screen only.
@@ -224,11 +225,15 @@ names and no other; older names appear only in `docs/retired.md`.
   no user-agent or navigator overrides.** The one deliberate departure from
   Playwright's defaults is that Chrome's `--enable-automation` flag is not
   passed and AutomationControlled is off. (26 Oct 2026, Callum)
-- **The Scraper's Chrome keeps to its own workspace.** Its window carries its
-  own name (`--class=puntmore-scraper`), and GNOME's Auto Move Windows
-  extension sends that name to workspace 2, so a load never opens over
-  Callum's work. The name is a label for the window manager; no page can
-  read it. (11 Nov 2026, Callum)
+- **The Scraper's Chrome has its own screen.** It runs on a virtual
+  1920x1080 screen (`puntmore-screen.service`: a headless sway on the box's
+  real GPU), not on Callum's desktop, so nothing it does can take his screen;
+  it runs whether or not he is logged in. The screen is viewed over VNC on
+  this machine only (`127.0.0.1:5910`), which is how a person signs in by
+  hand. It is still one real Chrome with the box's graphics and fonts;
+  nothing about the browser is overridden. This replaces the own-workspace
+  rule of the same day, which made Chrome drag the desktop to its workspace.
+  (11 Nov 2026, Callum)
 - **Budgets are code** (`scraper/sites.py`): Paddy Power 15 loads/h with quiet
   hours 01–07; Bookie Bashing 8/h; generic sources 60/h and 400/day. A block
   means a 24 h cool-off and a human `resume`; nothing retries. (Oct 2026)
@@ -301,8 +306,8 @@ names and no other; older names appear only in `docs/retired.md`.
   (Callum, 11 Nov 2026: "each job is a separate, you know, tile or separate
   entry with a target, a duration, logs, and then Hermes can manually change
   or add any of these")
-- **The Scraper service runs as the user service `puntmore-scraper` on the
-  desktop session**, data in `/opt/puntmore-scraper/data`, updated by the same
+- **The Scraper service runs as the user service `puntmore-scraper` on its
+  own virtual screen** (`puntmore-screen`), data in `/opt/puntmore-scraper/data`, updated by the same
   timer. (5 Nov 2026, Callum)
 - **Secrets live in `.env` files only**; a gitleaks pre-commit hook guards
   commits. Databases and build metadata are never committed.

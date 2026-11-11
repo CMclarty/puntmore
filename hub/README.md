@@ -107,7 +107,7 @@ cp .env.example .env                                   # fill in Render URL/key,
 puntmore init && pytest -q
 ```
 
-Services (user units, headful Chrome needs the desktop session):
+Services (user units; the Scraper's Chrome has its own virtual screen, `puntmore-screen`):
 ```bash
 cp deploy/systemd/* ~/.config/systemd/user/ && systemctl --user daemon-reload
 systemctl --user enable --now puntmore-link puntmore-heartbeat.timer puntmore-update.timer   # puntmore-link runs the daemon

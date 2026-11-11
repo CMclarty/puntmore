@@ -34,7 +34,7 @@ flowchart TB
 
   subgraph HUB["HUB — Callum's box, one program"]
     direction TB
-    SVC["Scraper service<br/>one real Chrome on the desktop; every page any tool needs<br/><i>live</i>"]
+    SVC["Scraper service<br/>one real Chrome on its own virtual screen; every page any tool needs<br/><i>live</i>"]
     CTRL["Scraper control<br/>rules, routing, switches for every source's rows<br/><i>part built: targets library, inbox (tips, events, Paddy's prices), mailbox poll</i>"]
     HUBAI["HubAI<br/>the Hermes layer: chief of staff + specialists, one Qwen model<br/><i>live; AW 26 slip reading built; Finder skill to build</i>"]
     subgraph PLACER["Bet Placer — a black box for now"]
@@ -80,7 +80,7 @@ flowchart TB
 | Finder | `finder_rows`, its status machine, `/api/finder/*` (`app/finder/`, `docs/finder-spec.md`) | Render · me | live, Callum only; on the main domain until `ME_HOST` is set |
 | Personal tools | dogs, Virtuals, P&L, Kelly, shop | Render · me | live on the main domain until `ME_HOST` is set |
 | AW 26 | Callum's Paddy terminal slips (`app/aw26/`): the page, the slips HubAI records and the photo queue `aw_photos` the Hub takes from; Render reads no photo | Render · me | live on the main domain until `ME_HOST` is set |
-| Scraper service | `scraper/`, user service `puntmore-scraper`: one real Chrome on the desktop session, budgets in code (Docker is the fallback for a box with no screen) | Hub | live |
+| Scraper service | `scraper/`, user service `puntmore-scraper`: one real Chrome on its own virtual screen (`puntmore-screen`), budgets in code (Docker is the fallback for a box with no screen) | Hub | live |
 | Scraper control | `targets.toml` changed only through `scraper/targets.py` (Console, CLI, HubAI); the Hub daemon's inbox of the drop files and its tipster-mailbox poll (`hub/`); posts the Scraper's Paddy prices to Render (`inbox.post_prices`) | Hub | part built |
 | HubAI | the Hermes layer: chief of staff on Telegram, specialist profiles, Qwen3.5-122B under llama-server; takes every escalation; judges tips for Finder (`puntmore finder`) and takes a tip Callum asks for on Telegram; reads AW 26's slip photos, which the Hub daemon's AW 26 loop hands it one at a time, and records the slips (`puntmore aw26`, the runbook `hub/deploy/hermes-skills/puntmore-aw26/`) | Hub | live; AW 26 slip reading built, the loop off (`PUNTMORE_AW26_READ`) until proved on real slips; the Finder skill to build |
 | Bet Placer | reads the three feeds, sizes, places through DeviceFarmer, keeps the only book, posts `placed` / `gone` to Finder (`docs/placer-spec.md`); starts from the placement engine in `hub/puntmore_hub/placement/` (dry-run adapter only) | Hub; third parties, 2-Up only | to build |

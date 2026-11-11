@@ -18,9 +18,10 @@ prices are `scraper_prices` files that the Hub posts to Render.
   the Hub, the answer is to slow down or get the data another way, not to work around the block.
 - One agreed exception (Callum, 26 Oct 2026): Chrome is started as a person's Chrome, without
   Playwright's `--enable-automation` test flag and with AutomationControlled off. Nothing else
-  about the browser is changed or overridden. Its window has its own name on the desktop
-  (`--class=puntmore-scraper`; Callum, 11 Nov 2026), so GNOME keeps it on its own workspace:
-  a label for the window manager, which a page cannot read (`README.md`, "Its own workspace").
+  about the browser is changed or overridden. It runs on its own virtual screen
+  (`puntmore-screen`, a headless sway on the box's GPU; Callum, 11 Nov 2026), never on Callum's
+  desktop: a page sees the screen it is really on, and a person reaches it over VNC on
+  `127.0.0.1` only (`README.md`, "Its own screen").
 - Per-site rules live in code (`sites.py`). Config can only make it slower.
 - Targets are direct page URLs in `targets.toml`.
 
@@ -82,13 +83,15 @@ prices are `scraper_prices` files that the Hub posts to Render.
   Console, HubAI's scraper-manager); never by hand while the Scraper runs.
   Validation stays in `config._target`; `targets.py` must not grow its own
   copy of a clamp, host or site rule.
-- **The Scraper service is a SEPARATE service**: ONE real Chrome on the Hub's desktop session, the systemd user
-  service `puntmore-scraper` (`deploy/native/`), updated by
+- **The Scraper service is a SEPARATE service**: ONE real Chrome on the Hub, the systemd user
+  service `puntmore-scraper` (`deploy/native/`), on its own virtual 1920x1080 screen, the user
+  service `puntmore-screen` (a headless sway with its own Xwayland; VNC on `127.0.0.1:5910`
+  only), not on Callum's desktop; updated by
   `puntmore-update.timer` with the rest of the Hub, so the sites see a
-  person's Chrome: the box's GPU, fonts and screen (in the container Chrome
+  person's Chrome: the box's GPU and fonts, on that screen (in the container Chrome
   had no WebGL at all). Docker (`.github/workflows/scraper-image.yml` → GHCR,
   plain `docker run`, the no-docker-compose rule untouched) is only the
-  fallback for a box with no screen: Xvfb and VNC exist only there, and the
+  fallback for a box with no screen: Xvfb exists only there, and the
   window and language flags apply only there (`SCRAPER_IN_CONTAINER=1`) and
   headless. Never run both: they share one profile, one budget, one data dir.
   It is NOT part of the Render deploy; nothing in it imports the API. Its

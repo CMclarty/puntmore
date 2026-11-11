@@ -1,0 +1,25 @@
+[Unit]
+Description=Puntmore screen: the Scraper's own virtual 1920x1080 screen (headless sway + Xwayland, VNC on 127.0.0.1:5910)
+# The Scraper's Chrome runs here, not on Callum's desktop, so nothing it does can
+# take his screen (docs/decisions.md). A headless sway on the box's real GPU: no
+# monitor, no login needed (the user lingers). scraper/README.md, "Its own screen".
+
+[Service]
+Type=simple
+Environment=WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1
+# When Callum is logged in the user manager carries his desktop's display; sway
+# must not see it (it would open as a window on his desktop, or talk to his sway).
+UnsetEnvironment=WAYLAND_DISPLAY DISPLAY XAUTHORITY SWAYSOCK
+# screen.conf writes the Xwayland DISPLAY here once sway is up; the Scraper unit
+# reads it. A stale one from the last run must not count.
+ExecStartPre=/bin/rm -f %t/puntmore-screen.env
+# install.sh writes the checkout's path here (the box's ~/Projects/puntmore).
+ExecStart=/usr/bin/sway -c %h/Projects/puntmore/scraper/deploy/native/screen.conf
+# Started only once the display is known (15 s at most), so the Scraper, ordered
+# after this unit, never starts without one.
+ExecStartPost=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do [ -s %t/puntmore-screen.env ] && exit 0; sleep 1; done; echo "puntmore-screen: sway wrote no DISPLAY to %t/puntmore-screen.env in 15 s" >&2; exit 1'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

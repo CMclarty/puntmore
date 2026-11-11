@@ -1,12 +1,13 @@
 [Unit]
-Description=Puntmore Scraper: one real Chrome on the Hub's desktop, every target kept open (scraper/)
-# Chrome runs on the logged-in desktop session, so the Scraper starts with it and
-# stops with it. GNOME imports WAYLAND_DISPLAY, DISPLAY and XAUTHORITY into the
-# user manager when the session starts (checked on the Hub with
-# `systemctl --user show-environment`, 5 Nov 2026), and every unit started after
-# graphical-session.target inherits them: nothing about the display is set here.
-After=graphical-session.target
-PartOf=graphical-session.target
+Description=Puntmore Scraper: one real Chrome on its own virtual screen, every target kept open (scraper/)
+# Chrome runs on puntmore-screen.service (a headless sway with its own Xwayland,
+# deploy/native/screen.conf), not on Callum's desktop, so nothing it does can take
+# his screen, and it runs whether or not he is logged in. The screen writes its
+# DISPLAY to %t/puntmore-screen.env and counts as started only once it has; a
+# restart of the screen restarts the Scraper, and the Scraper never runs without it.
+After=puntmore-screen.service
+Requires=puntmore-screen.service
+PartOf=puntmore-screen.service
 # A crash loop (a bad deploy) must not reload pages forever: 5 starts in 10 min,
 # then the unit stays failed and the Hub Console shows the Scraper down.
 StartLimitIntervalSec=600
@@ -17,6 +18,11 @@ Type=simple
 # install.sh writes the checkout's path here (the box's ~/Projects/puntmore).
 WorkingDirectory=%h/Projects/puntmore
 EnvironmentFile=/opt/puntmore-scraper/.env
+# DISPLAY=:N, the screen's Xwayland (written by screen.conf).
+EnvironmentFile=%t/puntmore-screen.env
+# The user manager carries Callum's desktop session's display while he is logged
+# in; Chrome must not see it. DISPLAY is not listed: it comes from the file above.
+UnsetEnvironment=WAYLAND_DISPLAY XAUTHORITY
 Environment=SCRAPER_DATA_DIR=/opt/puntmore-scraper/data
 Environment=SCRAPER_PROFILE_DIR=/opt/puntmore-scraper/data/profile
 Environment=SCRAPER_CHROME_PATH=/usr/bin/google-chrome
@@ -39,4 +45,4 @@ TimeoutStopSec=90
 MemoryMax=4G
 
 [Install]
-WantedBy=graphical-session.target
+WantedBy=default.target

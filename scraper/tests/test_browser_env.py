@@ -26,7 +26,7 @@ def test_desktop_launch_is_chromes_own_defaults():
     kw = browser.launch_options(headless=False, environ=DESKTOP)
     assert not {"--window-size", "--window-position", "--accept-lang"} & _flags(kw)
     assert "--ozone-platform=x11" in kw["args"]           # Xwayland: starts with no monitor on
-    assert "--class=puntmore-scraper" in kw["args"]       # its own window name: its own workspace
+    assert "--class" not in _flags(kw)                    # no window name: it has its own screen
     assert "--no-sandbox" not in _flags(kw)
     assert kw["env"]["LANG"] == "en_GB.UTF-8"             # the session's own, untouched
     assert kw["env"]["WAYLAND_DISPLAY"] == "wayland-0"
@@ -40,7 +40,7 @@ def test_no_screen_gets_the_stand_ins(environ, headless):
     assert "--window-size=1600,1000" in kw["args"]
     assert "--accept-lang=en-GB,en-US,en" in kw["args"]
     assert "--ozone-platform" not in _flags(kw)           # no Wayland session to work round
-    assert "--class" not in _flags(kw)                    # no desktop to keep it off
+    assert "--class" not in _flags(kw)
     assert kw["env"]["LANG"] == "en_GB.UTF-8" and kw["env"]["TZ"] == "Europe/London"
 
 
@@ -75,9 +75,3 @@ def test_selfcheck_lines_show_the_webgl_renderer():
     del seen["webgl"], seen["deviceMemory"]        # a selfcheck.json from before this line
     assert any("WebGL renderer" in l for l in browser.selfcheck_lines(seen, "test"))
 
-
-def test_the_desktop_file_names_the_same_window():
-    """GNOME ties the window to deploy/native/puntmore-scraper.desktop by this name."""
-    from pathlib import Path
-    text = (Path(browser.__file__).parent / "deploy/native/puntmore-scraper.desktop").read_text()
-    assert f"StartupWMClass={browser.WINDOW_CLASS}" in text.splitlines()
