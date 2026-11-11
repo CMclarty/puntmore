@@ -103,3 +103,9 @@ def test_ready_shows_the_count_kept_across_a_restart():
     store.saved = (datetime.now(timezone.utc).date().isoformat(), 412)
     app.state.hills_client = build_hills_source("k-test", None, usage_store=store)
     assert _hills_detail()["requests_today"] == 412
+
+
+def test_ready_shows_no_requests_as_0_not_null():
+    src, _, _ = make()
+    app.state.hills_client = src
+    assert _hills_detail()["requests_today"] == 0

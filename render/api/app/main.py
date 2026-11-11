@@ -553,8 +553,7 @@ def ready():
         "provider": getattr(hills, "vendor", None) or None,
         "degraded": hills is None or bool(sweep.get("failed")
                                           and not sweep.get("carried_paddy_prices")),
-        "requests_today": getattr(getattr(hills, "_client", None), "requests_today", None)
-                          or None,
+        "requests_today": getattr(getattr(hills, "_client", None), "requests_today", None),
     }
     # The process's resident size, object and thread counts ride along: the
     # instance was restarting at its memory cap (Oct 2026) and this is the one
