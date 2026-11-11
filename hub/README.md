@@ -48,7 +48,7 @@ data/              runtime state (git-ignored): hub.sqlite, KILL, tipsters.toml,
 
 ## The Scraper's drop files
 The Scraper service is the only thing on the Hub that loads a page: Paddy Power pages kept open
-(and one Bookie Bashing page, `bb-saves`, an open item for Callum in the register), and Finder's
+(and one Bookie Bashing page, `bb-saves`, the register's single named exception), and Finder's
 sources as `generic` targets that are loaded, parsed and closed, all under one Chrome, one guard
 and one alert path. For a Finder target it writes one JSON file per run into
 `<scraper data>/hub/tips/` and, when something needs a decision, one into

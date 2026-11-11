@@ -10,8 +10,8 @@ paddypower     Logged out. Budget 15 loads/h, 120/day across ALL its targets.
 bookiebashing  Your subscription, logged in by a person (over VNC only in the
                Docker fallback). Budget 8/h, 120/day. No quiet hours. A block
                or logout alerts once and backs off (15 min doubling to 2 h)
-               until a person has sorted it. Its one target (bb-saves) is an
-               OPEN item for Callum in docs/decisions.md.
+               until a person has sorted it. Its one target (bb-saves) is the
+               single named exception in docs/decisions.md.
 generic        Any other site: Finder's sources (tipster pages, listings) and any
                other page a tool needs.
                Never Paddy or Bookie Bashing. Budget 60/h, 400/day across ALL

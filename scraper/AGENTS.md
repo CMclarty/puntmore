@@ -92,7 +92,6 @@ prices are `scraper_prices` files that the Hub posts to Render.
   across sites (`sites.py load_gap_s`); jitter is drawn once per load. Parsers
   (`scraper/parsers/`, one module each) are written only from what the real
   pages were seen to do: `bb_saves` drives the Bookie Bashing bet builder
-  (above; **OPEN, Callum to decide** in `docs/decisions.md` whether this one
-  BB target stays as the named exception to "BB is never automated" or is
-  disabled); `pp_most` reads Paddy's most-corners / most-cards three-ways
+  (above; this one BB target is the single named exception to "BB is never
+  automated", `docs/decisions.md`); `pp_most` reads Paddy's most-corners / most-cards three-ways
   (written from the 29 Oct 2026 capture).
