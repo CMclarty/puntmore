@@ -120,7 +120,7 @@ def test_no_rows_or_no_route_drops_nothing(tmp_path):
     assert not deliver_prices(tmp_path, _price_target(), [], time.time())
     unknown = SimpleNamespace(name="x", url="https://www.paddypower.com/", post="/api/paddy/feed")
     assert not deliver_prices(tmp_path, unknown, MOST, time.time())
-    assert not list((tmp_path / "hub" / "prices").glob("*.json")) if (tmp_path / "hub" / "prices").exists() else True
+    assert not list((tmp_path / "hub" / "prices").glob("*"))      # no file, whether or not the folder exists
 
 
 def test_the_scrapers_routes_are_the_schemas():

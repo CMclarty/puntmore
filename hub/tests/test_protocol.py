@@ -1,5 +1,5 @@
-"""The Scraper's drop files (PROTOCOL.md): the schema holds the envelope and the two file types
-and nothing else, both examples validate, and the Hub reads what the Scraper writes. The
+"""The Scraper's drop files (PROTOCOL.md): the schema holds the envelope and the three file types
+and nothing else, all three examples validate, and the Hub reads what the Scraper writes. The
 Scraper's own side is scraper/tests/test_sinks_schema.py."""
 import json
 from pathlib import Path

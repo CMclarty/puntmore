@@ -68,7 +68,7 @@ class Target:
     every_min: float | None = None      # reload on this interval; None = only when stale
     stale_min: float = 20.0             # reload a page that has gone this quiet
     parser: str | None = None           # name in parsers.PARSERS
-    post: str | None = None             # puntmore path to POST {"prices": rows} to
+    post: str | None = None             # Render route the Hub posts these price rows to (the Scraper only writes it in the drop file)
     matches: Matches | None = None
     mode: str = "keep"                  # keep: page stays open (Paddy/BB) | fetch: load, parse, close
     enabled: bool = True
