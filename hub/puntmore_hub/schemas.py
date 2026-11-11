@@ -2,7 +2,7 @@
 
 ``Bet`` and ``Report`` are the placement engine's own (``placement/engine.py``): a bet it is asked
 to place and what it records about it. ``Tip`` is a row stored from the Scraper's drop files or
-the tipster mailbox (``inbox.py``). ``FILE_TYPES`` names the two envelopes of the Scraper's drop
+the tipster mailbox (``inbox.py``). ``FILE_TYPES`` names the three envelopes of the Scraper's drop
 files (``PROTOCOL.md``, ``schemas/protocol.schema.json``).
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ def utcnow_iso() -> str:
 
 
 # The Scraper's drop files: one envelope per file, of one of these types.
-FILE_TYPES = ("scraper_tips", "scraper_event")
+FILE_TYPES = ("scraper_tips", "scraper_event", "scraper_prices")
 
 
 # ---- A bet for the placement engine -----------------------------------------------------------

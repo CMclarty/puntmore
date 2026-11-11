@@ -19,10 +19,38 @@ def test_schema_itself_is_valid():
     Draft202012Validator.check_schema(SCHEMA)
 
 
-def test_the_schema_knows_the_two_drop_files_and_nothing_else():
-    assert set(FILE_TYPES) == {"scraper_tips", "scraper_event"}
+def test_the_schema_knows_the_three_drop_files_and_nothing_else():
+    assert set(FILE_TYPES) == {"scraper_tips", "scraper_event", "scraper_prices"}
     assert set(SCHEMA["properties"]["type"]["enum"]) == set(FILE_TYPES)
     assert {p.stem for p in EXAMPLES} == set(FILE_TYPES)
+
+
+MOST_ROW = {"home": "Chelsea", "away": "Man Utd", "kickoff": "2026-11-08T16:30:00Z", "market": "most_corners",
+            "home_price": 1.5333, "tie_price": 9.0, "away_price": 2.375}
+
+
+def _prices(**body):
+    base = {"source": "pp-epl-most", "at": 1793957400.0,
+            "url": "https://www.paddypower.com/football/english-premier-league",
+            "route": "/api/paddy/most-prices", "rows": [MOST_ROW]}
+    return {"type": "scraper_prices", "client_id": "scraper", "msg_id": "c0ffee0000000012",
+            "ts": "2026-11-06T09:30:00+00:00", "body": {**base, **body}}
+
+
+def test_a_prices_drop_names_one_of_the_two_paddy_routes():
+    validator.validate(_prices())
+    validator.validate(_prices(route="/api/paddy/saves-fair"))
+    for bad in ("/api/finder/rows", "/api/paddy/feed", "hub:tips", ""):
+        with pytest.raises(ValidationError):
+            validator.validate(_prices(route=bad))
+
+
+def test_a_prices_drop_has_rows_and_passes_them_through():
+    with pytest.raises(ValidationError):
+        validator.validate(_prices(rows=[]))
+    validator.validate(_prices(rows=[{"anything": "Render's handler validates rows"}]))
+    with pytest.raises(ValidationError):
+        validator.validate(_prices(trust_weight=0.5))        # a tips field: additionalProperties is false
 
 
 @pytest.mark.parametrize("path", EXAMPLES, ids=[p.stem for p in EXAMPLES])

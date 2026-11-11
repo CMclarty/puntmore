@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/CMclarty/puntmore/hub/schemas/protocol.schema.json",
   "title": "The Scraper's drop files, version 1",
-  "description": "Every file the Scraper drops for the Hub is one envelope, of type scraper_tips or scraper_event; body is validated according to type. See PROTOCOL.md.",
+  "description": "Every file the Scraper drops for the Hub is one envelope, of type scraper_tips, scraper_event or scraper_prices; body is validated according to type. See PROTOCOL.md.",
   "type": "object",
   "required": [
     "type",
@@ -16,7 +16,8 @@
     "type": {
       "enum": [
         "scraper_tips",
-        "scraper_event"
+        "scraper_event",
+        "scraper_prices"
       ]
     },
     "client_id": {
@@ -64,6 +65,22 @@
         "properties": {
           "body": {
             "$ref": "#/$defs/scraper_event"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "scraper_prices"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "body": {
+            "$ref": "#/$defs/scraper_prices"
           }
         }
       }
@@ -209,6 +226,45 @@
         "at": {
           "type": "number",
           "description": "unix seconds, UTC"
+        }
+      }
+    },
+    "scraper_prices": {
+      "type": "object",
+      "description": "One file per parse of a Paddy price target, <scraper data>/hub/prices/<ms>-<source>-<msg_id[:8]>.json; the Hub posts the rows to route as {\"prices\": rows}. The rows pass through to Render unchanged: Render's handler is their validator, not this schema.",
+      "required": [
+        "source",
+        "at",
+        "url",
+        "route",
+        "rows"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "at": {
+          "type": "number",
+          "description": "unix seconds, UTC"
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "route": {
+          "enum": [
+            "/api/paddy/saves-fair",
+            "/api/paddy/most-prices"
+          ]
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object"
+          }
         }
       }
     }
