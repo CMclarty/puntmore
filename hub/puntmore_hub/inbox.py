@@ -205,7 +205,7 @@ def post_prices(cfg: Settings = default_settings, *, opener: finder.Opener | Non
         for i, path in enumerate(files):
             try:
                 body = _read_price_drop(path)
-            except (OSError, ValueError) as exc:
+            except (OSError, ValueError, RecursionError) as exc:   # RecursionError: JSON nested too deep
                 log.warning("prices: unreadable %s (%s); moved aside", path.name, exc)
                 _finish(path, done)
                 counts["price_dropped"] += 1

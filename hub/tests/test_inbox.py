@@ -357,3 +357,17 @@ def test_the_render_key_is_never_logged_or_written(cfg, store, caplog):
     assert caplog.records and not any(key in r.getMessage() for r in caplog.records) and key not in caplog.text
     files = [p for p in c.inbox_dir.rglob("*") if p.is_file()]
     assert len(files) >= 3 and not any(key in p.read_text(errors="replace") for p in files)
+
+
+def test_a_price_file_nested_too_deeply_is_moved_aside_and_the_pass_goes_on(pcfg, store, caplog):
+    """json.loads raises RecursionError, not ValueError, on very deep nesting; the file is
+    unreadable like any other, so it must not stop the pass and hold every later file."""
+    d = pcfg.inbox_dir / "prices"
+    d.mkdir(parents=True)
+    (d / "0-deep.json").write_text("[" * 100_000 + "]" * 100_000)
+    _price_drop(pcfg, time.time())
+    render = _Render()
+    counts = inbox.ingest(store, pcfg, notify=False, opener=render)
+    assert counts["price_dropped"] == 1 and counts["price_files"] == 1 and len(render.sent) == 1
+    assert _left(pcfg) == [] and "0-deep.json" in [p.name for p in _done(pcfg)]
+    assert "unreadable 0-deep.json" in caplog.text
