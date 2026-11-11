@@ -46,13 +46,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import logging
 import re
+import threading
+import time
+from typing import Callable
 
 from app.cards.oddspapi import (
     CARDS, CARDS_HANDICAP, CORNERS, CORNERS_HANDICAP, GOALS, TEAM_CARDS_AWAY,
     TEAM_CARDS_HOME, TEAM_CORNERS_AWAY, TEAM_CORNERS_HOME, TOURNAMENT_SPORT_KEYS,
     WILLIAM_HILL,
 )
+from app.cards.oddsapinet_client import BudgetSpent, RateLimited
+
+logger = logging.getLogger("uvicorn.error")
 
 OAN_PREFIX = "oan:"
 PINNACLE = "pinnacle"
@@ -279,8 +286,9 @@ def to_event(listing: Listing, lines: SnapshotLines) -> dict | None:
 
 def priced_at(lines: SnapshotLines) -> datetime | None:
     """The older of William Hill's and Pinnacle's stamps: the board never
-    claims fresher prices than its oldest side."""
-    stamps = [lines.as_of[b] for b in _BOOKS if b in lines.as_of]
+    claims fresher prices than its oldest side. Only a book that carried lines
+    counts: a stamp behind no price would only make the board look older."""
+    stamps = [lines.as_of[b] for b in _BOOKS if b in lines.as_of and lines.markets.get(b)]
     return min(stamps) if stamps else None
 
 
@@ -290,3 +298,269 @@ def snapshot_ttl(lines: SnapshotLines) -> float:
     if lines.refresh_seconds is None:
         return TTL_MAX
     return min(TTL_MAX, max(TTL_MIN, lines.refresh_seconds))
+
+
+# --- the source ---------------------------------------------------------------
+
+LISTING_TTL = 600        # s the /events listing is reused (a failed one is held as long)
+FAILURE_HOLD = 600       # s an event whose snapshot failed is not asked again
+LISTING_PAGES = 3        # /events pages followed at most
+SNAPSHOT_PARAMS = {"bookmakers": f"{WILLIAM_HILL},{PINNACLE}", "price_fields": "odds",
+                   "types": "total,team total,handicap", "periods": "full time"}
+
+
+def _iso(when: datetime) -> str:
+    return when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _thread_runner(fn: Callable[[], None]) -> None:
+    threading.Thread(target=fn, name="hills-oan", daemon=True).start()
+
+
+class OddsApiNetHillsSource:
+    """Hills' William Hill board and Pinnacle fair side from odds-api.net, at
+    `app.state.hills_client` (spec "The seam", "Budget, caching and freshness").
+
+    WORK HAPPENS ON REQUESTS, never on a job. `get_events()` refreshes the
+    listing (one /events call, reused LISTING_TTL), serves the boards it holds
+    and, when any listed William Hill game is due, hands ONE pass to `runner`
+    (a daemon thread by default; never two at once). A cold board is 40-60
+    snapshots at ~1.4 s each, too slow for a page request, so only the first
+    request after a boot waits for the pass (up to `first_wait`); later ones
+    serve what is held and the pass catches up behind them.
+
+    Due: listed, naming williamhill, not kicked off, with no board or a board
+    older than the vendor's own refresh interval (`snapshot_ttl`), and not
+    held after a failure. Nearest kick-off first, `max_per_pass` a pass. A
+    failed snapshot is held FAILURE_HOLD (billed, so not re-sent each page
+    load); a spent budget or a 429 ends the pass and holds nothing. Every pass
+    drops boards whose game is no longer listed, so the boards are bounded by
+    the window. Only parsed lines are kept, never a response."""
+
+    vendor = VENDOR
+    book = WILLIAM_HILL
+    label = "William Hill"
+
+    def __init__(self, client, *, window_hours: float | None = None, max_per_pass: int = 60,
+                 first_wait: float = 15.0,
+                 runner: Callable[[Callable[[], None]], None] | None = None,
+                 now: Callable[[], datetime] | None = None,
+                 monotonic: Callable[[], float] = time.monotonic):
+        if window_hours is None:
+            from app.config import settings
+            window_hours = settings.oddsapinet_window_hours
+        self._client = client
+        self.window_hours = window_hours
+        self.max_per_pass = max_per_pass
+        self.first_wait = first_wait
+        self._runner = runner or _thread_runner
+        self._now = now or (lambda: datetime.now(timezone.utc))
+        self._mono = monotonic
+        self._lock = threading.Lock()            # guards every field below
+        self._listing_lock = threading.Lock()    # one /events fetch at a time
+        self._refreshing = False
+        self._passes_done = 0
+        self._pass_done = threading.Event()
+        self._listings: list[Listing] = []
+        self._listed_at: float | None = None     # mono of the last listing ATTEMPT
+        self._listing_error: str | None = None
+        self._fetched: dict[str, float] = {}     # board key -> mono it was fetched
+        self._held: dict[str, float] = {}        # board key -> mono its hold ends
+        self._pass_errors: list[str] = []
+        self._pass_failed = 0
+        self.fixtures: list[dict] = []
+        self.boards: dict[str, SnapshotLines] = {}
+        self.last_sweep: dict = {}
+        self.priced_at: datetime | None = None
+
+    # -- reading ---------------------------------------------------------------
+
+    def get_events(self) -> list[dict]:
+        self._refresh_listing()
+        start = False
+        with self._lock:
+            # Pruned here too, not only by a pass: a listing that dropped a
+            # game needs no pass for its board to go.
+            self._prune()
+            if self._due() and not self._refreshing:
+                self._refreshing = True
+                self._pass_done.clear()
+                start = True
+            self._summarise()
+        if start:
+            try:
+                self._runner(self._pass)
+            except Exception as exc:     # a thread that would not start
+                logger.error("hills (odds-api.net): pass not started: %s", exc)
+                with self._lock:
+                    self._refreshing = False
+                    self._pass_done.set()
+        with self._lock:
+            waiting = self._refreshing and self._passes_done == 0
+        if waiting:
+            self._pass_done.wait(self.first_wait)
+        with self._lock:
+            events = []
+            for listing in self._listed():
+                board = self.boards.get(OAN_PREFIX + listing.event_id)
+                event = to_event(listing, board) if board is not None else None
+                if event is not None:
+                    events.append(event)
+            return events
+
+    def priced_at_for(self, event_id: str) -> datetime | None:
+        """When the prices behind one match were fetched (the older of its two
+        books); None unless William Hill carried lines on it."""
+        with self._lock:
+            board = self.boards.get(event_id)
+            if board is None or not board.markets.get(WILLIAM_HILL):
+                return None
+            return priced_at(board)
+
+    # -- the listing -----------------------------------------------------------
+
+    def _refresh_listing(self) -> None:
+        with self._listing_lock:
+            mono = self._mono()
+            if self._listed_at is not None and mono - self._listed_at < LISTING_TTL:
+                return
+            self._listed_at = mono
+            now = self._now()
+            params = {"sport": "soccer", "start_from": int(now.timestamp()),
+                      "start_to": int(now.timestamp()) + int(self.window_hours * 3600),
+                      "limit": 1000}
+            try:
+                items: list = []
+                cursor = None
+                for _ in range(LISTING_PAGES):
+                    body = self._client.get("/events", **params,
+                                            **({"cursor": cursor} if cursor else {}))
+                    body = body if isinstance(body, dict) else {}
+                    page = body.get("items")
+                    items.extend(page if isinstance(page, list) else [])
+                    cursor = body.get("next_cursor")
+                    if not cursor:
+                        break
+                listings = listed_events({"items": items}, now=now,
+                                         window_hours=self.window_hours)
+            except Exception as exc:
+                # Keep the last listing; the failure is held like a good one,
+                # since a failed call is billed too.
+                logger.warning("hills (odds-api.net): listing failed: %s", exc)
+                with self._lock:
+                    self._listing_error = f"listing: {exc}"
+                return
+            with self._lock:
+                self._listings = listings
+                self._listing_error = None
+
+    def _listed(self) -> list[Listing]:
+        """The listing, less the games that have kicked off since it was read."""
+        now = self._now()
+        return [l for l in self._listings if now < l.start]
+
+    def _wh(self) -> list[Listing]:
+        return [l for l in self._listed() if WILLIAM_HILL in l.books]
+
+    def _fresh(self, key: str) -> bool:
+        board = self.boards.get(key)
+        return board is not None and self._mono() - self._fetched[key] < snapshot_ttl(board)
+
+    def _held_now(self, key: str) -> bool:
+        return self._held.get(key, float("-inf")) > self._mono()
+
+    def _due(self) -> list[Listing]:
+        """William Hill games with no fresh board and no hold, nearest first."""
+        return [l for l in self._wh()
+                if not self._fresh(OAN_PREFIX + l.event_id)
+                and not self._held_now(OAN_PREFIX + l.event_id)]
+
+    # -- the pass --------------------------------------------------------------
+
+    def _pass(self) -> None:
+        errors: list[str] = []
+        failed = fetched = 0
+        try:
+            with self._lock:
+                due = self._due()[:self.max_per_pass]
+            for listing in due:
+                key = OAN_PREFIX + listing.event_id
+                try:
+                    body = self._client.get(f"/events/{listing.event_id}/odds/snapshot",
+                                            **SNAPSHOT_PARAMS)
+                    lines = parse_snapshot(body)
+                except (BudgetSpent, RateLimited) as exc:
+                    # Nothing sent past here would be answered: end the pass,
+                    # hold nothing (the games are still pending).
+                    errors.append(str(exc))
+                    failed += 1
+                    break
+                except Exception as exc:
+                    errors.append(f"{listing.event_id}: {exc}")
+                    failed += 1
+                    with self._lock:
+                        self._held[key] = self._mono() + FAILURE_HOLD
+                    continue
+                if not lines.complete:
+                    errors.append(f"{listing.event_id}: snapshot incomplete")
+                fetched += 1
+                with self._lock:
+                    self.boards[key] = lines
+                    self._fetched[key] = self._mono()
+                    self._held.pop(key, None)
+        except Exception as exc:         # never let the thread die unexplained
+            logger.exception("hills (odds-api.net): pass failed")
+            errors.append(f"pass failed: {exc}")
+            failed += 1
+        finally:
+            with self._lock:
+                self._pass_errors, self._pass_failed = errors, failed
+                self._prune()
+                self._summarise()
+                self._refreshing = False
+                self._passes_done += 1
+                sweep = dict(self.last_sweep)
+            self._pass_done.set()
+        log = logger.info if not errors else logger.warning
+        log("hills sweep (odds-api.net): %d snapshot(s), %d William Hill game(s) listed, "
+            "%d carried, %d with Pinnacle, %d pending, %d error(s), %d request(s) today",
+            fetched, sweep.get("fixtures_in_window", 0), sweep.get("carried_paddy_prices", 0),
+            sweep.get("carried_pinnacle_prices", 0), sweep.get("pending", 0), len(errors),
+            sweep.get("requests_today", 0))
+
+    def _prune(self) -> None:
+        """Drop boards and holds for games no longer listed (or kicked off)."""
+        keep = {OAN_PREFIX + l.event_id for l in self._listed()}
+        for store in (self.boards, self._fetched, self._held):
+            for key in [k for k in store if k not in keep]:
+                del store[key]
+
+    def _summarise(self) -> None:
+        """`fixtures`, `priced_at` and `last_sweep` from what is held now.
+        Called under `_lock`; no I/O."""
+        listed = self._listed()
+        wh = [l for l in listed if WILLIAM_HILL in l.books]
+        boards = [self.boards[OAN_PREFIX + l.event_id] for l in wh
+                  if OAN_PREFIX + l.event_id in self.boards]
+        carried = [b for b in boards if b.markets.get(WILLIAM_HILL)]
+        stamps = [t for t in (priced_at(b) for b in carried) if t is not None]
+        self.fixtures = [fixture_of(l) for l in listed]
+        self.priced_at = min(stamps, default=None)
+        errors = ([self._listing_error] if self._listing_error else []) + list(self._pass_errors)
+        self.last_sweep = {
+            "source": VENDOR,
+            "book": WILLIAM_HILL,
+            "fair_source": f"{VENDOR}:{PINNACLE}",
+            "window_hours": self.window_hours,
+            "fixtures_in_window": len(wh),
+            "called": len(boards),
+            "carried_paddy_prices": len(carried),
+            "carried_pinnacle_prices": sum(1 for b in carried if b.markets.get(PINNACLE)),
+            "pending": len(self._due()),
+            "stale_williamhill": sum(1 for b in boards if WILLIAM_HILL in b.stale_books),
+            "failed": self._pass_failed + (1 if self._listing_error else 0),
+            "errors": errors,
+            "requests_today": getattr(self._client, "requests_today", None),
+            "request_budget": getattr(self._client, "daily_budget", None),
+            "next_kickoff": _iso(wh[0].start) if wh else None,
+        }
