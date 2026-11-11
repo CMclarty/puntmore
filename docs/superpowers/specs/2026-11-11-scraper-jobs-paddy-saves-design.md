@@ -177,8 +177,8 @@ One page, kept open. A pass runs every `every_min`:
 
 Rules:
 
-- The runner is tick-driven, so the rotation is a small state machine that makes at most one
-  move per tick. A pass that is still running when the next is due finishes first; two never
+- The runner is tick-driven, so the rotation is a small state machine that makes its moves one at a
+  time, several inside a slice of each tick. A pass that is still running when the next is due finishes first; two never
   overlap.
 - **Every move is a load to the guard**: it asks `guard.can_load` and the spacer first and
   records the load after, by the rule already in `_open_market_tabs` (the URL or the document
