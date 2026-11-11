@@ -27,7 +27,9 @@ data/status.json every STATUS_EVERY_S, which the Hub reads.
 
 This module wires the pieces: schedule.py says when a target is due,
 sinks.py delivers its rows (drop files for the Hub), status.py writes the
-heartbeat and status.json, guard.py says yes or no to every load.
+heartbeat and status.json, guard.py says yes or no to every load. Every
+line about one job goes to stdout and to that job's own log (joblog.py,
+Runner._say); site-wide lines are stdout only.
 """
 import collections
 import dataclasses
@@ -40,6 +42,7 @@ from urllib.parse import urlparse
 
 from . import browser
 from . import config
+from . import joblog
 from . import schedule
 from .capture import Capture, DiskBudget
 from .config import host_allowed
@@ -273,7 +276,8 @@ class Runner:
             tab.due_at = None
         except Exception as exc:
             self.guard.record_load(site, url, now)     # a failed load still went out
-            print(f"{key}: load failed: {exc.__class__.__name__}: {exc}", flush=True)
+            self._say(target.name, (f"{key}: " if key != target.name else "")
+                      + f"load failed: {exc.__class__.__name__}: {exc}")
             return None
 
         reason = browser.blocked(tab.page, resp.status if resp else None)
@@ -315,7 +319,7 @@ class Runner:
                 continue
             if t.name in self.outside:
                 del self.outside[t.name]
-                print(f"{t.name}: window open - running", flush=True)
+                self._say(t.name, "window open - running")
             live.append(t)
         self._sweep(live, now)
         for t in schedule.order(live, self._wanting(live, now), lambda site: self._left(site, now),
@@ -345,8 +349,8 @@ class Runner:
         reason."""
         if self.outside.get(t.name) != why:
             self.outside[t.name] = why
-            print(f"{t.name}: outside window {t.window} - paused" if why == "outside window"
-                  else f"{t.name}: {why} - paused", flush=True)
+            self._say(t.name, f"outside window {t.window} - paused" if why == "outside window"
+                      else f"{why} - paused")
         for key in [k for k, tab in self.tabs.items() if tab.target.name == t.name]:
             self._close(key)
         self.next_fetch.pop(t.name, None)
@@ -367,8 +371,8 @@ class Runner:
                 continue
             (self.near.add if is_near else self.near.discard)(t.name)
             every = schedule.effective_every(t, k, now)
-            print(f"{t.name}: " + (f"kick-off in {(k - now) / 60:.0f} min - every {every:g} min"
-                                   if is_near else "past the near window - normal interval"), flush=True)
+            self._say(t.name, f"kick-off in {(k - now) / 60:.0f} min - every {every:g} min"
+                      if is_near else "past the near window - normal interval")
             for tab in self.tabs.values():
                 if tab.target.name == t.name:
                     tab.due_at = None
@@ -536,7 +540,7 @@ class Runner:
                 try:
                     tab.page.wait_for_selector(t.wait_for, timeout=20_000)
                 except Exception:
-                    print(f"{t.name}: wait_for {t.wait_for!r} not seen", flush=True)
+                    self._say(t.name, f"wait_for {t.wait_for!r} not seen")
             self._parse(tab, now, force=True)
         finally:
             self._close(key)
@@ -556,7 +560,12 @@ class Runner:
             self.alerts.send(f"{t.name}: healthy again ({len(rows)} rows)")
 
     def _deliver(self, t, rows, now) -> bool:
-        return self.sinks.deliver(t, rows, now)
+        """Hand the rows to the sink; a delivery that went is noted in the job's
+        log (the sink prints its own line)."""
+        ok = self.sinks.deliver(t, rows, now)
+        if ok:
+            joblog.write(self.s.data_dir, t.name, f"{len(rows)} row(s) handed to the Hub ({t.post})")
+        return ok
 
     def _tick_matches(self, t, now):
         m = t.matches
@@ -575,7 +584,7 @@ class Runner:
             quiet = tab.capture.quiet_for(now) >= t.stale_min * 60
             if now - tab.opened >= m.tab_max_hours * 3600 or (quiet and tab.reloaded_stale
                                                               and now - tab.last_load >= t.stale_min * 60):
-                print(f"{key}: retired", flush=True)
+                self._say(t.name, f"{key}: retired")
                 retired.append(tab.url)
                 self._close(key)
             elif quiet and now - tab.last_load >= t.stale_min * 60:
@@ -625,8 +634,8 @@ class Runner:
                 # yet, not a locator miss - the page is kept once per run
                 # so a real miss can still be checked.
                 if tab.market_tabs.get(name) != "not offered":    # once, not every round
-                    print(f"{tab.url}: no {name!r} tab; tabs drawn: "
-                          f"{', '.join(browser.visible_tabs(page)) or 'none found'}", flush=True)
+                    self._say(t.name, f"{tab.url}: no {name!r} tab; tabs drawn: "
+                                      f"{', '.join(browser.visible_tabs(page)) or 'none found'}")
                 tab.market_tabs[name] = "not offered"
                 self._snapshot_once(t, tab, "market-tab-not-found")
                 continue
@@ -638,7 +647,7 @@ class Runner:
                 browser.click(page, loc)
             except Exception as exc:
                 tab.market_tabs[name] = "click failed"
-                print(f"{tab.url}: market tab {label!r}: click failed: {exc}", flush=True)
+                self._say(t.name, f"{tab.url}: market tab {label!r}: click failed: {exc}")
                 continue
             loaded = browser.wait_for_feed(page, cap, clicked_at, feed)
             if page.url != before_url or cap.documents != before_docs:
@@ -651,7 +660,7 @@ class Runner:
         tab.next_clicks = schedule.next_clicks_at(now)
         said = ", ".join(f"{n} {o}" for n, o in tab.market_tabs.items())
         if said and said != tab.tabs_said:
-            print(f"{tab.url}: market tabs: {said}", flush=True)
+            self._say(t.name, f"{tab.url}: market tabs: {said}")
             tab.tabs_said = said
 
     def _snapshot_once(self, t, tab, why):
@@ -667,7 +676,7 @@ class Runner:
             (out / "page.html").write_text(tab.page.content(), encoding="utf-8")
             tab.page.screenshot(path=str(out / "page.png"))
         except Exception as exc:
-            print(f"{t.name}: snapshot failed: {exc}", flush=True)
+            self._say(t.name, f"snapshot failed: {exc}")
 
     # --- output -------------------------------------------------------------
     def _parse(self, tab, now, force=False):
@@ -682,13 +691,13 @@ class Runner:
             rows = fn(tab.page, tab.capture)
         except NotImplementedError as exc:
             if t.name not in self.parser_said:
-                print(f"{t.name}: {exc} - capturing only", flush=True)
+                self._say(t.name, f"{exc} - capturing only")
                 self.parser_said[t.name] = f"parser not written ({t.parser}) - capturing only"
             return
         except Exception as exc:
             # Shown as the target's detail in status.json until a call succeeds -
             # a driver that cannot bring its page up says so there, not only here.
-            print(f"{t.name}: parser failed: {exc}", flush=True)
+            self._say(t.name, f"parser failed: {exc}")
             self.parser_said[t.name] = f"parser failed: {str(exc).splitlines()[0][:120]}"
             return
         self.parser_said.pop(t.name, None)
@@ -757,7 +766,10 @@ class Runner:
             req.unlink(missing_ok=True)
             tabs = [(k, tab) for k, tab in self.tabs.items() if tab.target.name == name]
             if not tabs:
-                print(f"dump {name}: no open page for that target", flush=True)
+                if any(t.name == name for t in self.targets):
+                    self._say(name, "dump: no open page for that target")
+                else:                           # not a job: no log to write to
+                    print(f"dump {name}: no open page for that target", flush=True)
                 continue
             out = self.s.data_dir / "dumps" / f"{_safe(name)}-{datetime.now():%Y%m%d-%H%M%S}"
             out.mkdir(parents=True, exist_ok=True)
@@ -767,8 +779,14 @@ class Runner:
                     (out / f"{i}.html").write_text(tab.page.content(), encoding="utf-8")
                     tab.page.screenshot(path=str(out / f"{i}.png"), full_page=True)
                 except Exception as exc:
-                    print(f"dump {key}: {exc}", flush=True)
-            print(f"dump {name}: saved {out}", flush=True)
+                    self._say(name, f"dump: {key + ': ' if key != name else ''}{exc}")
+            self._say(name, f"dump: saved {out}")
+
+    def _say(self, name: str, msg: str) -> None:
+        """A line about one job: printed as "<name>: <msg>" for the journal, and
+        written to the job's own log (joblog; a write that fails is dropped)."""
+        print(f"{name}: {msg}", flush=True)
+        joblog.write(self.s.data_dir, name, msg)
 
     def _heartbeat(self, now):
         self.reporter.heartbeat(now)

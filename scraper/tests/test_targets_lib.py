@@ -362,3 +362,23 @@ def test_cli_days_and_until(cli, path):
     assert (json.loads(out)["days"], json.loads(out)["until"]) == ([], None)
     code, _, err = cli("set", "pp", "--days", "fri,funday")
     assert code == 2 and "days must be" in err
+
+
+def test_removing_a_job_removes_its_log(path):
+    from scraper import joblog
+    joblog.write(path.parent, "tips", "something")
+    T.remove(path, "tips")
+    assert not joblog.path(path.parent, "tips").exists()
+
+
+def test_cli_targets_log(cli, path):
+    from scraper import joblog
+    for i in range(3):
+        joblog.write(path.parent, "pp", f"line {i}", now=1_800_000_000.0 + i)
+    code, out, _ = cli("log", "pp", "-n", "2", "--json")
+    assert code == 0 and json.loads(out) == {"name": "pp", "lines": [
+        {"ts": 1_800_000_001.0, "msg": "line 1"}, {"ts": 1_800_000_002.0, "msg": "line 2"}]}
+    code, out, _ = cli("log", "pp")
+    assert code == 0 and out.splitlines()[-1].endswith("  line 2")
+    cli("remove", "pp")
+    assert not joblog.path(path.parent, "pp").exists()

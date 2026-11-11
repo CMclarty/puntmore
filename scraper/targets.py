@@ -29,6 +29,7 @@ import time
 from dataclasses import asdict, fields
 
 from . import config
+from . import joblog
 from .config import Matches, Target
 from .schedule import FETCH_DEFAULT_MIN
 
@@ -295,12 +296,14 @@ def disable(path, name, timeout=None) -> Target:
     return set(path, name, timeout=timeout, enabled=False)
 
 
-def remove(path, name, timeout=None) -> list[Target]:
-    """Drop one target; returns what is left."""
+def remove(path, name, timeout=None, data_dir=None) -> list[Target]:
+    """Drop one target, and its log (joblog) under data_dir, which defaults to
+    the targets file's directory; returns what is left."""
     with locked(path, timeout):
         targets = load(path)
         del targets[_find(targets, name)]
         save(path, targets)
+    joblog.remove(pathlib.Path(path).parent if data_dir is None else data_dir, name)
     return targets
 
 

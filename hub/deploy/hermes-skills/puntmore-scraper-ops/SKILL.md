@@ -17,7 +17,7 @@ Read `docs/decisions.md` first; it wins over this runbook. One Chrome on the Hub
 
 ## Triage a broken source
 1. `puntmore health` and `puntmore status` for the Scraper's view: which target, which state, the detail string.
-2. `journalctl --user -u puntmore-scraper -n 200` for the parser's own error (in the Docker fallback, `docker logs --tail 200 puntmore-scraper`), and `data/latest/<target>.json` for the last rows it produced.
+2. `targets log <target> -n 50` (see "Adding a Finder source" for how to run it) for what the Scraper said about that job alone: loads and parser failures, window and days, rows handed to the Hub. Then `journalctl --user -u puntmore-scraper -n 200` for the rest, site-wide lines included, and the parser's own error (in the Docker fallback, `docker logs --tail 200 puntmore-scraper`), and `data/latest/<target>.json` for the last rows it produced.
 3. Classify:
    - **blocked** (state `blocked`): cooling off or backing off. Resolve the escalation with "blocked, cooling off until <time>", stop (`targets.toml` keeps no comments; the escalation is the record). If it repeats after the cool-off, `targets disable <target>` (see "Adding a Finder source" for how to run it) and say so.
    - **layout change** (detail says "layout change?" or "parser failed"): go to step 4.

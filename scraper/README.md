@@ -87,6 +87,7 @@ python -m scraper targets set pp-epl-most --matches '{"max_tabs": 2, "market_tab
 python -m scraper targets enable racing-tips
 python -m scraper targets disable racing-tips
 python -m scraper targets remove racing-tips
+python -m scraper targets log racing-tips -n 50   # the job's own log, newest last
 ```
 
 - Every change is validated as a whole by `config._target` (sites, hosts,
@@ -120,6 +121,15 @@ python -m scraper targets remove racing-tips
   (`--until 2026-11-30`: the last day it runs) are acted on by the runner
   (`schedule.py`). Off its days a job is `paused`, "not a run day"; after
   `until` it is `finished`, "ended <until>"; either way its tabs close.
+- Each job keeps its own log, `SCRAPER_DATA_DIR/logs/<name>.log`
+  (`joblog.py`): every line the runner prints about that job (window and
+  days, kick-off sweep, load and parser failures, market tabs, retired match
+  tabs, dumps) and one line per delivery ("3 row(s) handed to the Hub
+  (hub:tips)"), one `{"ts": <epoch>, "msg": "..."}` per line. Site-wide lines
+  (paused, cool-off, `config: ...`) stay in the journal only. Past 512 KB a
+  log is rewritten to its newest 1000 lines. `targets log <name> [-n 50]`
+  prints it (`--json`: `{"name": name, "lines": [{"ts", "msg"}, ...]}`);
+  `targets remove` removes it.
 
 ## Running on the Hub's desktop (the default)
 Since 5 Nov 2026 the Scraper runs on the Hub's real desktop session, so the
