@@ -346,6 +346,11 @@ def test_schedule_in_words():
               "until": None}) == "every 15 min · Fri, Sat · 07:00–01:00 · forever"
     assert w({"every_min": None, "stale_min": 20, "days": [], "window": None,
               "until": "2026-11-30"}) == "when quiet 20 min · every day · all day · until 30 Nov 2026"
+    from scraper.schedule import FETCH_DEFAULT_MIN
+    fetch = {"every_min": None, "stale_min": 20, "days": [], "window": None, "until": None, "mode": "fetch"}
+    assert w(fetch) == f"every {FETCH_DEFAULT_MIN:g} min · every day · all day · forever"
+    assert w({**fetch, "every_min": 360}) == "every 360 min · every day · all day · forever"
+    assert w({**fetch, "mode": "keep"}).startswith("when quiet 20 min · ")
 
 
 def test_cli_days_and_until(cli, path):
