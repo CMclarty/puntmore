@@ -93,6 +93,17 @@ class Settings(BaseSettings):
     # fit — only Paddy's price is dropped.
     paddy_excluded_lines: str = "corners:11.5"
 
+    # --- Hills via odds-api.net (Nov 2026) -----------------------------------
+    # William Hill and Pinnacle prices for Hills (cards/oddsapinet_client.py).
+    # The plan: 250,000 credits/month, 120 requests/min, 1 credit per call
+    # (failures included). Blank key keeps Hills on OddsPapi.
+    oddsapinet_api_key: str = ""
+    # How far ahead fixtures are priced, as `oddspapi_window_hours`.
+    oddsapinet_window_hours: float = 168.0
+    # A ceiling, not a target: 250,000 / 30 = ~8,333/day, so one runaway day
+    # cannot spend the month. Every request counts against it.
+    oddsapinet_daily_credit_budget: int = 5000
+
     # Discord alerts for the cards sweep. OFF while the feed is being proven —
     # a value tool that alerts before anyone has checked its prices trains you
     # to trust it. The coupon tracker's alerts are unaffected.
