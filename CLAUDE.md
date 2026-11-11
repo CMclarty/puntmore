@@ -49,8 +49,13 @@ the main domain.
 - **AW 26** (`/aw26` on `me`, `aw26` grant, `app/aw26/`): Callum's slips from the Paddy
   terminal, a page over the stored rows with two screens: a Summary (the all-time profit, the
   day against the targets, the selections in aggregate with win or lose) and a Slips sub
-  screen. A photo uploaded on the page waits in a queue on Render (`aw_photos`) for the Hub
-  to collect; HubAI reads it on the Hub and records the slip. Slips are recorded and marked
+  screen. A photo uploaded on the page, or sent to HubAI on Telegram, waits in a queue on
+  Render (`aw_photos`); once a minute the Hub daemon takes the oldest and starts HubAI on it,
+  which reads it by the runbook `hub/deploy/hermes-skills/puntmore-aw26/` and records the slip
+  or fails the photo with a reason (`hub/AGENTS.md`). It records Paddy Power accumulators
+  only, never sends the total odds, max return or bonus Paddy prints, and takes a slip with
+  BONUS at its top as a free bet (offer `free`); the Hub turns the terminal's printed times
+  (month first, London) into UTC before they reach Render. Slips are recorded and marked
   on the same `aw26` routes by the page and by HubAI's key. Render does the sums
   (`aw26/offers.py`: EV from odds and fairs, returns from leg results) when a request asks;
   it reads no photo and runs nothing in the background, except the 04:00 sweep of the upload
@@ -69,7 +74,7 @@ nothing on Render stakes or places.
 | `render/api/` | `render/api/AGENTS.md` | odds sources, pricing and OCR hard rules, the provider seams, API clients |
 | `render/frontend/` | `render/frontend/AGENTS.md` | UI rules (tools, build only what is asked), the acca maths |
 | `scraper/` | `scraper/AGENTS.md` | the Scraper service: every page load on the Hub |
-| `hub/` | `hub/AGENTS.md` | the Hub: daemon, Finder CLI, escalations, Console, the placement engine |
+| `hub/` | `hub/AGENTS.md` | the Hub: daemon, Finder CLI, escalations, AW 26's photo loop, Console, the placement engine |
 
 An agent working in a directory reads its `AGENTS.md`; Claude Code loads it through the
 directory's `CLAUDE.md`. The architecture is `docs/architecture.md`, the flow of a row is
@@ -81,6 +86,9 @@ code.
 
 - NEVER commit secrets. All credentials (OddsPapi key, OCR key, Discord webhook, auth users and
   session key) live in `.env` only. `.env` is git-ignored; only `.env.example` is committed.
+- AW 26's slip photos are private (the register): never commit one, and nothing in the repo
+  carries a real receipt number, barcode or QR code; an example uses the invented receipt
+  `B0000000000000-000000-0`.
 - Render (`render/api/`) never places a bet and never loads a bookmaker page; no
   bookmaker-account automation is added to it (`render/api/AGENTS.md`, API clients). Pricing and
   the boards live on Render; sizing and placing live in the Bet Placer; every page load lives in

@@ -3,9 +3,9 @@
 The Hub is Callum's box and the one program on it. Its page loads are the Scraper service's
 (`scraper/`); this directory is the rest: Scraper control's intake (the daemon's inbox of the
 Scraper's drop files, posting the Scraper's Paddy prices to Render, and its tipster-mailbox
-poll), HubAI's side (escalations and the Finder CLI), the placement engine the Bet Placer starts
-from (`docs/placer-spec.md`), and the Console. Read `docs/decisions.md` first; it wins over this
-file.
+poll), HubAI's side (escalations, the Finder CLI and the reading of AW 26's slip photos), the
+placement engine the Bet Placer starts from (`docs/placer-spec.md`), and the Console. Read
+`docs/decisions.md` first; it wins over this file.
 
 ```
 Render (render/, cloud)                  Hub (hub/ + scraper/)
@@ -19,6 +19,8 @@ Paddy board  ◄── POST /api/paddy/* ───── Scraper control: hub/ d
 Finder board ◄── POST /api/finder/rows ── HubAI (Hermes): judges tips, takes escalations
 Paddy, 2-Up, Finder feeds ── GET ───────► Bet Placer: staking logic, phone interface → DeviceFarmer → phones
 Finder board ◄── placed | gone ────────── Bet Placer
+AW 26 photos ── take, image ────────────► hub/ daemon, AW 26 loop: a waiting photo taken, HubAI started on it
+AW 26 slips ◄── /aw26/slips/record ────── HubAI (`puntmore aw26 record`): the slip it read
                                          Console (hub/ web): every part, live; the control page
 ```
 
@@ -26,7 +28,9 @@ Finder board ◄── placed | gone ────────── Bet Placer
 ```
 puntmore_hub/
   config.py        settings from .env; nothing hard-coded
-  daemon.py        `puntmore daemon`: the inbox pass every 30 s, the price drops every 10 s, the mailbox poll on its own thread
+  daemon.py        `puntmore daemon`: the inbox pass every 30 s, the price drops every 10 s, the mailbox poll and the AW 26 photo loop on their own threads
+  aw26.py          AW 26: Render's photo queue, Paddy's board at a moment, a slip recorded (`puntmore aw26`); printed times to UTC
+  aw26_loop.py     the daemon's AW 26 loop: the oldest waiting photo taken, read by HubAI, checked on Render after
   inbox.py         the Scraper's drop files: tips, events -> stored tips for HubAI, escalations; prices -> Render
   mail.py          the tipster mailbox (IMAP) -> the same stored tips and escalations, through inbox.ingest_rows
   tipsters/        one parser per email tipster (PARSERS), named in data/tipsters.toml
@@ -44,7 +48,7 @@ deploy/update.sh   thin wrapper around `puntmore update`, run by the update time
 deploy/systemd/    the daemon (puntmore-link.service), 09:00 heartbeat timer, 10-minute update timer, the Console
 deploy/hermes-skills/  HubAI's runbooks, which `puntmore update` copies in: Scraper ops (scraper-manager), AW 26 slip reading
                    (the AW 26 reader's profile and the chief of staff)
-data/              runtime state (git-ignored): hub.sqlite, KILL, tipsters.toml, mail-status.json, daemon-status.json
+data/              runtime state (git-ignored): hub.sqlite, KILL, tipsters.toml, mail-status.json, daemon-status.json, aw26/ (HubAI's output per photo)
 ```
 
 ## The Scraper's drop files
@@ -94,7 +98,7 @@ HubAI's contract (the spec's step 2, which Callum tightens in use): **offer** wh
 
 Examples: `football:2026-11-07:manchester-united-v-tottenham-hotspur`, `horse:2026-11-07:cheltenham:13:30`. A key spelt two ways makes a duplicate look like a new bet, so this is the part of the contract to get right; leave `event_id` out of an asked row that has no day and time.
 
-Env: `PUNTMORE_RENDER_HTTP` (the https base of Render) and `PUNTMORE_RENDER_API_KEY`, a Render API client key carrying `ingest` (in Render's shell: `python -m app.apikeys create <name> --tools ingest`), sent as a Bearer key. The inbox posts the Scraper's Paddy prices with the same two settings.
+Env: `PUNTMORE_RENDER_HTTP` (the https base of Render) and `PUNTMORE_RENDER_API_KEY`, a Render API client key carrying `ingest` (in Render's shell: `python -m app.apikeys create <name> --tools ingest`), sent as a Bearer key. The inbox posts the Scraper's Paddy prices with the same two settings, and AW 26 uses them too, with the key also granted `aw26` and `cards` (`python -m app.apikeys grant <name> --tools aw26,cards`; `hub/AGENTS.md` has the AW 26 loop and its runbook).
 
 ## Setup (from `hub/`)
 ```bash
@@ -122,8 +126,14 @@ puntmore finder new [--limit N]      tips HubAI has not posted to Finder yet, on
 puntmore finder post FILE|-          POST HubAI's rows (a JSON list) to Render's /api/finder/rows
 puntmore finder skip TIP [--reason T] a tip HubAI cannot post: skipped, so `finder new` moves on
 puntmore finder status TIP placed|gone  the Bet Placer's report on an offered row
+puntmore aw26 photos                 AW 26's photo queue on Render: the photos not done, oldest first
+puntmore aw26 take ID                take a waiting photo and save its image under data/aw26/
+puntmore aw26 fail ID --reason T     a photo HubAI cannot make a slip of
+puntmore aw26 upload FILE [--source page|telegram]  put a photo on the queue (the chief of staff, for one sent on Telegram)
+puntmore aw26 board --at T [--match "Home v Away"]  Paddy's board as it stood at T (printed or ISO)
+puntmore aw26 record FILE|- [--dry-run]  record a slip HubAI read (--dry-run: print the body, send nothing)
 puntmore heartbeat                   the daily summary, on demand
-puntmore daemon                      the daemon: the inbox every 30 s, the price drops every 10 s, and the mailbox poll (`puntmore link` is the same command)
+puntmore daemon                      the daemon: the inbox every 30 s, the price drops every 10 s, the mailbox poll, and the AW 26 photo loop (`puntmore link` is the same command)
 puntmore web                         the Console on PUNTMORE_WEB_BIND (default http://127.0.0.1:8090)
 puntmore update [--dry-run|--check]  fast-forward to origin/main, reinstall, restart (deploy/update.sh)
 python -m scraper status|dump|resume the Scraper's own commands, from scraper/

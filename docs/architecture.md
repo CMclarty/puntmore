@@ -23,6 +23,7 @@ flowchart TB
     subgraph ME["me — Callum's personal tools; on the main domain until ME_HOST is set"]
       FINDER["Finder board<br/>Callum's tips, judged on the Hub<br/><i>live on the main domain until ME_HOST is set</i>"]
       PERS["Dogs · Virtuals · P&amp;L · Kelly · shop<br/><i>live on the main domain until ME_HOST is set</i>"]
+      AW26["AW 26<br/>Callum's Paddy slips and their photo queue<br/><i>live on the main domain until ME_HOST is set</i>"]
     end
   end
 
@@ -35,7 +36,7 @@ flowchart TB
     direction TB
     SVC["Scraper service<br/>one real Chrome on the desktop; every page any tool needs<br/><i>live</i>"]
     CTRL["Scraper control<br/>rules, routing, switches for every source's rows<br/><i>part built: targets library, inbox (tips, events, Paddy's prices), mailbox poll</i>"]
-    HUBAI["HubAI<br/>the Hermes layer: chief of staff + specialists, one Qwen model<br/><i>live; Finder skill to build</i>"]
+    HUBAI["HubAI<br/>the Hermes layer: chief of staff + specialists, one Qwen model<br/><i>live; AW 26 slip reading built; Finder skill to build</i>"]
     subgraph PLACER["Bet Placer — a black box for now"]
       STAKE["staking logic<br/><i>to build</i>"]
       PHONEIF["phone interface<br/><i>to build</i>"]
@@ -49,6 +50,9 @@ flowchart TB
   CTRL -- "prices: POST /api/paddy/saves-fair, /most-prices" --> PADDY
   CTRL -- "new tips (hub.sqlite); escalations" --> HUBAI
   HUBAI -- "POST /api/finder/rows" --> FINDER
+  AW26 -- "slip photos: the Hub daemon takes one a minute" --> HUBAI
+  PADDY -- "GET /api/paddy/board-at" --> HUBAI
+  HUBAI -- "POST /api/aw26/slips/record" --> AW26
   HUBAI <-->|"Telegram: questions, tips asked for by hand"| CALLUM["Callum"]
   PADDY -- "GET /api/paddy/feed" --> STAKE
   T365 -- "GET /api/2up/feed" --> STAKE
@@ -75,15 +79,16 @@ flowchart TB
 | Coupon tracker, Hills | photographed coupons priced off the score grid (OddsPapi); William Hill boosted bet builders, priced from odds-api.net (`app/cards/oddsapinet.py`, `app/hills/`; OddsPapi without `ODDSAPINET_API_KEY`) | Render · main | live |
 | Finder | `finder_rows`, its status machine, `/api/finder/*` (`app/finder/`, `docs/finder-spec.md`) | Render · me | live, Callum only; on the main domain until `ME_HOST` is set |
 | Personal tools | dogs, Virtuals, P&L, Kelly, shop | Render · me | live on the main domain until `ME_HOST` is set |
+| AW 26 | Callum's Paddy terminal slips (`app/aw26/`): the page, the slips HubAI records and the photo queue `aw_photos` the Hub takes from; Render reads no photo | Render · me | live on the main domain until `ME_HOST` is set |
 | Scraper service | `scraper/`, user service `puntmore-scraper`: one real Chrome on the desktop session, budgets in code (Docker is the fallback for a box with no screen) | Hub | live |
 | Scraper control | `targets.toml` changed only through `scraper/targets.py` (Console, CLI, HubAI); the Hub daemon's inbox of the drop files and its tipster-mailbox poll (`hub/`); posts the Scraper's Paddy prices to Render (`inbox.post_prices`) | Hub | part built |
-| HubAI | the Hermes layer: chief of staff on Telegram, specialist profiles, Qwen3.5-122B under llama-server; takes every escalation; judges tips for Finder (`puntmore finder`) and takes a tip Callum asks for on Telegram | Hub | live; the Finder skill to build |
+| HubAI | the Hermes layer: chief of staff on Telegram, specialist profiles, Qwen3.5-122B under llama-server; takes every escalation; judges tips for Finder (`puntmore finder`) and takes a tip Callum asks for on Telegram; reads AW 26's slip photos, which the Hub daemon's AW 26 loop hands it one at a time, and records the slips (`puntmore aw26`, the runbook `hub/deploy/hermes-skills/puntmore-aw26/`) | Hub | live; AW 26 slip reading built; the Finder skill to build |
 | Bet Placer | reads the three feeds, sizes, places through DeviceFarmer, keeps the only book, posts `placed` / `gone` to Finder (`docs/placer-spec.md`); starts from the placement engine in `hub/puntmore_hub/placement/` (dry-run adapter only) | Hub; third parties, 2-Up only | to build |
 | Console | `puntmore web`: a card per part, the kill switch, the Scraper tab; actions behind a token | Hub | built (localhost; the tunnel is to build) |
 
 ## What crosses between the boxes
 
-Four HTTP flows and nothing else; no socket, no Hub endpoint on Render.
+Five HTTP flows and nothing else; no socket, no Hub endpoint on Render.
 
 | Flow | Route | Who | Key |
 |---|---|---|---|
@@ -91,6 +96,7 @@ Four HTTP flows and nothing else; no socket, no Hub endpoint on Render.
 | Tips up to Finder | `POST /api/finder/rows` | HubAI, through `puntmore finder post` | ingest key |
 | Feeds down | `GET /api/paddy/feed`, `/api/2up/feed`, `/api/finder/feed` | Bet Placer | its key: `accabonus`, `cards`, `finder`, `ingest` (a third party's: `accabonus`) |
 | Placed / gone up | `POST /api/finder/rows/{tip_id}/status` | Bet Placer, through `puntmore finder status` | ingest key |
+| AW 26 slips | `GET /api/aw26/photos`, `POST /api/aw26/photos/{id}/take`, `GET /api/aw26/photos/{id}/image`, `POST /api/aw26/photos/{id}/fail`, `POST /api/aw26/photos` (a photo sent on Telegram), `GET /api/paddy/board-at`, `POST /api/aw26/slips/record` | the Hub daemon's AW 26 loop takes and downloads a photo; HubAI, through `puntmore aw26`, reads the board and records the slip or fails the photo | the ingest key (`PUNTMORE_RENDER_API_KEY`), also granted `aw26` and `cards` |
 
 The Console also reads Render's `/api/ready`. Render holds no Hub configuration and sends no Hub
 command.

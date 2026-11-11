@@ -22,15 +22,23 @@ change, not a bug fix, and needs a line in the register.
 ## AW 26's photos (beside the chain)
 
 A slip photo goes its own short way, not through the chain. The page uploads a photo
-(`POST /api/aw26/photos`) → Render keeps it in `aw_photos`, `waiting` → HubAI's key takes it
-(`reading`), fetches the file and reads it on the Hub → records the slip with `photo_id`
-(`done`; a receipt already in: `duplicate`; no slip made of it: back to `waiting`, `failed`
-after 3 tries, resent from the page). Id: the photo's `id`, then the slip's `receipt`. Status
-words `waiting | reading | failed | duplicate | done`, defined in `render/api/app/aw26/photos.py`.
+(`POST /api/aw26/photos`; a photo sent to HubAI on Telegram comes in the same way, through
+`puntmore aw26 upload --source telegram`) → Render keeps it in `aw_photos`, `waiting` → the
+Hub daemon's AW 26 loop takes the oldest once a minute (`reading`), downloads it and starts
+HubAI on it, one at a time (`hub/puntmore_hub/aw26_loop.py`) → HubAI reads it by its runbook
+and records the slip with `photo_id` (`done`; a receipt already in: `duplicate`), or fails it
+with a reason (back to `waiting`, `failed` after 3 tries, resent from the page). A run that
+ends without either, or is stopped 60 s past its 600 s budget, is failed by the Hub, "Qwen did
+not finish".
+Id: the photo's `id`, then the slip's `receipt`. Status words `waiting | reading | failed |
+duplicate | done`, defined in `render/api/app/aw26/photos.py`. The Hub sends Render the
+slip's own fields only, never Paddy's printed total odds, max return or bonus, and every time
+in UTC, turned from the terminal's printed London time on the Hub (`aw26.py`).
 Each leg's fair comes from Paddy's board as it stood at the slip's printed time
 (`GET /api/paddy/board-at`, kept by the Paddy sweep in `paddy_lines` for 14 days after
-kick-off, `render/api/app/cards/history.py`); a leg not on it is neutral.
-The Hub's side of it is not built yet: until it is, a photo stays `waiting`.
+kick-off, `render/api/app/cards/history.py`); a leg not on it is neutral. Paddy's board
+prices saves as a match total only, so a per-goalkeeper saves leg is recorded with an assumed
+fair.
 
 ## The four rules
 
@@ -82,7 +90,9 @@ The Hub's side of it is not built yet: until it is, a photo stays `waiting`.
 - **What one Scraper job did (paused, failed, delivered, went quiet):** its own log,
   `<scraper data>/logs/<name>.log`: `python -m scraper targets log NAME`, or the newest lines on
   its tile in the Console's Scraper tab.
-- **A photo that never became a slip:** `GET /api/aw26/photos` (its state, tries and reason).
+- **A photo that never became a slip:** `GET /api/aw26/photos` or `puntmore aw26 photos` (its
+  state, tries and reason); on the Hub, HubAI's output for it in `hub/data/aw26/<id>.txt` and
+  the daemon's last AW 26 pass under `aw26` in `hub/data/daemon-status.json`.
 - **A drop file that is not being read:** the Console's Daemon card (the last inbox pass, the
   drop files waiting) and `systemctl --user status puntmore-link`.
 - **A fixture missing from the 2-Up feed:** `GET /api/2up/diagnostics` (what the last pass saw
