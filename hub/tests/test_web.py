@@ -116,7 +116,7 @@ def test_daemon_collector(wcfg):
     from puntmore_hub import daemon
     st = Store(wcfg.db_path)
     out = collect.daemon(wcfg, st)
-    assert out["state"] == "unknown" and out["inbox_drops"] == {"tips": 1, "events": 0}   # no systemctl
+    assert out["state"] == "unknown" and out["inbox_drops"] == {"tips": 1, "events": 0, "prices": None}   # no systemctl
     assert out["last_inbox"] is None and "no inbox pass recorded" in out["detail"]
     daemon.record_inbox(wcfg, {"tip_files": 1, "events": 0})
     out = collect.daemon(wcfg, st, run=lambda c, timeout=5: (0, "active\n"))
@@ -124,6 +124,15 @@ def test_daemon_collector(wcfg):
     assert out["last_mail"]["detail"]                                 # mail.status(): not configured
     assert collect.daemon(wcfg, st, run=lambda c, timeout=5: (3, "inactive\n"))["state"] == "down"
     assert "outbox" not in out and "configured" not in out
+
+
+def test_the_daemon_card_warns_while_prices_wait_for_render(wcfg):
+    from puntmore_hub import daemon
+    st = Store(wcfg.db_path)
+    daemon.record_inbox(wcfg, {"tip_files": 0, "events": 0, "price_files": 0, "price_rows": 0,
+                               "price_dropped": 0, "price_waiting": 3})
+    out = collect.daemon(wcfg, st, run=lambda c, timeout=5: (0, "active\n"))
+    assert out["state"] == "warn" and "3 price drop(s) waiting for Render" in out["detail"]
 
 
 def test_placement_and_escalation_collectors(cfg):

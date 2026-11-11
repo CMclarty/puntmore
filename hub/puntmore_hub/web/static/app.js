@@ -205,7 +205,7 @@ const RENDER = {
       ["last inbox pass", li.at ? `${when(li.at, skew)}${li.error ? " — failed: " + li.error : ""}` : "none recorded"],
       ["last inbox counts", li.counts ? Object.entries(li.counts).map(([k, v]) => `${k} ${v}`).join(", ") : "—"],
       ["last mail poll", show(m.detail)],
-      ["drop files waiting", `tips ${show(drops.tips)}, events ${show(drops.events)}`], ["inbox dir", d.inbox_dir],
+      ["drop files waiting", `tips ${show(drops.tips)}, events ${show(drops.events)}, prices ${show(drops.prices)}`], ["inbox dir", d.inbox_dir],
     ]));
   },
 

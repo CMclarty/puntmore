@@ -2,10 +2,11 @@
 installed unit `puntmore-link.service` uses).
 
 Two loops, no socket: an inbox pass over the Scraper's drop files every 30 s (`inbox.ingest`:
-tips stored for HubAI, events raised as escalations), and a poll of the tipster mailbox every
+tips stored for HubAI, events raised as escalations, and the Scraper's Paddy price drops posted
+to Render, `inbox.post_prices`), and a poll of the tipster mailbox every
 PUNTMORE_IMAP_EVERY_MIN on its own thread when a mailbox is configured (`mail.poll`, which
 writes `mail-status.json`). Each inbox pass is recorded in `daemon-status.json` in the data
-directory, which the Console's Daemon card reads. Nothing here talks to Render.
+directory, which the Console's Daemon card reads.
 """
 from __future__ import annotations
 
@@ -72,7 +73,7 @@ def run(cfg: Settings = default_settings, *, sleep: Callable[[float], None] = ti
             try:
                 counts = inbox.ingest(Store(cfg.db_path), cfg)
                 record_inbox(cfg, counts)
-                if counts.get("tip_files") or counts.get("events"):
+                if any(counts.get(k) for k in ("tip_files", "events", "price_files", "price_dropped")):
                     log.info("inbox: %s", counts)
             except KeyboardInterrupt:
                 raise

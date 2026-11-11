@@ -64,3 +64,17 @@ def test_resolving_an_escalation_queues_nothing(store, cfg):
     assert store.escalation(esc)["outcome"] == "dropped it"
     tables = {r[0] for r in store.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert "outbox" not in tables and "inbox_seen" not in tables
+
+
+def test_a_pass_that_posted_prices_is_logged(cfg, monkeypatch, caplog):
+    calls = []
+
+    def ingest(store, c):
+        calls.append(1)
+        if len(calls) == 2:
+            raise KeyboardInterrupt
+        return {"tip_files": 0, "events": 0, "price_files": 2, "price_rows": 6, "price_dropped": 0, "price_waiting": 0}
+    monkeypatch.setattr(inbox, "ingest", ingest)
+    caplog.set_level(logging.INFO, logger="puntmore.daemon")
+    daemon.run(cfg, sleep=lambda s: None)
+    assert "price_files" in caplog.text
