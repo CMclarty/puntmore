@@ -56,8 +56,8 @@ One program on Callum's box, in five parts:
   tipster mailbox), driven from the Console; rows go from the Scraper service to Scraper control
   and on to a board or to HubAI. Built today: the targets file and its library
   (`scraper/targets.py`), the Hub's inbox of the Scraper's drop files and the mailbox poll
-  (`hub/`). Paddy's prices still post straight to Render; moving them behind Scraper control is
-  the next Scraper work.
+  (`hub/`). Paddy's prices go through it too: the inbox posts the Scraper's price drops to
+  Render.
 - **HubAI**: the Hub's AI, the whole Hermes layer (a chief of staff on Telegram and its
   specialist profiles, one Qwen model under llama-server). It takes every escalation and judges
   tips for Finder, including a tip Callum asks for on Telegram; that Finder skill is the next

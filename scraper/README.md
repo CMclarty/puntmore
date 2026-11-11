@@ -12,9 +12,9 @@ the Hub. Docker is the fallback for a box with no screen.
 **What it reads is `data/targets.toml` on the Hub**, changed only through
 `scraper/targets.py` (the Console, the CLI, HubAI); an edit applies without a
 restart. Its state goes to `data/status.json`, which the Hub reads. Its rows go
-to Scraper control as drop files (`hub/PROTOCOL.md`); Paddy's prices are, for
-now, POSTed straight to Render, and move behind Scraper control next. Nothing
-on Render configures it.
+to Scraper control as drop files (`hub/PROTOCOL.md`), Paddy's prices too: a
+price target's rows are `scraper_prices` files that the Hub's inbox posts to
+Render. The Scraper sends Render nothing, and nothing on Render configures it.
 
 The parsers (`parsers/`, one module each) are written only from what the real
 pages were seen to do. `bb_saves` DRIVES Bookie Bashing's Bet Builder (select
@@ -222,8 +222,8 @@ docker exec puntmore-scraper python -m scraper selfcheck        # what a site se
 ## Credentials (none in the repo)
 
 In `/opt/puntmore-scraper/.env`: `SCRAPER_ALERT_WEBHOOK` (Discord), `SCRAPER_HEALTHCHECK_URL`
-(optional), `SAVES_INGEST_KEY`, which must match the value set on Render, and `VNC_PASSWORD` on
-a box with no screen. The Bookie Bashing login lives in the Chrome profile in the data
+(optional), and `VNC_PASSWORD` on a box with no screen. It holds no Render key: the Hub posts
+its prices (`PUNTMORE_RENDER_API_KEY` in the Hub's `.env`). The Bookie Bashing login lives in the Chrome profile in the data
 directory; never share `data/profile/`: it holds the login cookies.
 
 ## Each tab's state

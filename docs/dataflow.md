@@ -11,8 +11,8 @@ change, not a bug fix, and needs a line in the register.
 |---|---|---|---|---|---|
 | 1 | A page is loaded | nothing durable: a page load, counted against the site's budget | Scraper service, `guard.sqlite3` | — | per target: `running`, `paused`, `blocked`, `retired` (`status.json`) |
 | 2 | A parser reads rows | **prices** (raw rows the Paddy board turns into value bets: Paddy Power's lines off a Paddy page, and the fair saves prices read from Bookie Bashing, `bb-saves`) or **tips** (an external source's bets): event, market, selection, optional advised price, stake units, tip time, expiry, origin. A tipster's email is parsed the same way on the Hub (`hub/puntmore_hub/mail.py`, one parser per tipster in `tipsters/`) | Scraper service, `latest/<target>.json`; an email: the Hub, in memory (the message recorded in `mail_seen`) | **`tip_id`**, minted here: sha1 of source, normalised event, market, selection, day (`scraper/ids.py` = `hub/puntmore_hub/ids.py`) | — |
-| 3 | Rows leave the Scraper service | a **drop file** per run under `<data>/hub/tips/` (`scraper_tips`), problems as **event** files under `<data>/hub/events/` (`scraper_event`): `hub/PROTOCOL.md`. Paddy's prices are the exception for now: POSTed straight to Render (`/api/paddy/*`, ingest key) | Scraper service writes; the Hub reads and moves each file to `done/` | `tip_id` on every row; `msg_id` per file | event kinds: `unhealthy_source`, `blocked_source` |
-| 4 | Scraper control takes them in | a **tip** row in the Hub store, deduplicated on `tip_id` (`inbox.ingest_rows`, the one storage path, also for an email's rows); an event becomes an **escalation** for HubAI | the Hub daemon (`hub/puntmore_hub/inbox.py`, `mail.py`), `hub.sqlite` (`tips`, `escalations`) | `tip_id` | escalation: open, resolved |
+| 3 | Rows leave the Scraper service | a **drop file** per run under `<data>/hub/tips/` (`scraper_tips`), problems as **event** files under `<data>/hub/events/` (`scraper_event`), and Paddy's **prices** as `scraper_prices` files under `<data>/hub/prices/`, one per parse of a price target's tab: `hub/PROTOCOL.md`. The Scraper service sends nothing to Render | Scraper service writes; the Hub reads and moves each file to `done/` (prices: `done/prices/`) | `tip_id` on every row; `msg_id` per file | event kinds: `unhealthy_source`, `blocked_source` |
+| 4 | Scraper control takes them in | a **tip** row in the Hub store, deduplicated on `tip_id` (`inbox.ingest_rows`, the one storage path, also for an email's rows); an event becomes an **escalation** for HubAI; prices: posted to Render as `{"prices": rows}` on the file's route (`inbox.post_prices`), oldest first, within about 10 s of the drop; a file older than 15 min is moved aside unsent; each handled file goes to `done/prices/` | the Hub daemon (`hub/puntmore_hub/inbox.py`, `mail.py`), `hub.sqlite` (`tips`, `escalations`); prices: Render's Paddy store (`/api/paddy/*`) | `tip_id` | escalation: open, resolved |
 | 5 | HubAI judges the tip | a **tip on Finder**: the tip's event, market, selection, the price and fair price it quotes, origin, advised stake, a one-line reason and a verdict, posted by `puntmore finder post` to `POST /api/finder/rows`; the tip is marked in `finder_posted` with the status Render stored. `puntmore finder skip` marks a tip HubAI cannot post | HubAI (`hub/puntmore_hub/finder.py`); Callum asked on Telegram when HubAI is unsure | `tip_id` | `asked`, `offered`, `rejected` |
 | 6 | The board keeps it | Finder: one row in `finder_rows`, upserted on `tip_id`; a second row for a bet already `asked`, `offered` or `placed` is stored `rejected` (`duplicate of <tip_id>`), matched on the canonical `event_id`; `expired` at the earlier of kick-off and the tip's expiry; kept 30 days. Paddy and 2-Up build their rows on Render from OddsPapi (2-Up: `twoup_refresh` swaps the board in whole every `twoup_feed_ttl`; on a failed pass the last good board stays with `status.stale: true`) | Render: `finder_rows` (`app/finder/rows.py`); `twoup/feed.py:TwoUpFeed.served`; `cards/feed.py` | Finder: `tip_id`; 2-Up: `event_id` + `side` | Finder: `asked → offered \| rejected \| expired`; `offered → placed \| gone \| rejected \| expired`; 2-Up `status`: `stale`, `not_yet_refreshed`, `killed`, `degraded` |
 | 7 | The Bet Placer reads the feeds | `GET /api/paddy/feed`, `/api/2up/feed`, `/api/finder/feed`; sizing and placing are inside the Bet Placer, through DeviceFarmer to the phones; its book is its own | the Bet Placer (`docs/placer-spec.md`) | the feed's own id | its own |
@@ -36,9 +36,9 @@ The Hub's side of it is not built yet: until it is, a photo stays `waiting`.
 
 1. **Everything that moves between parts is one record shape per hop.** The Scraper service's
    drop files are envelopes of `hub/schemas/protocol.schema.json` (`type`, `client_id`,
-   `msg_id`, `ts`, `body`; types `scraper_tips` and `scraper_event`), checked by the Scraper's
-   tests (what the sinks write) and the Hub's (what the inbox reads); a file on disk is only a
-   transport. Rows to and from Render are the shapes in `docs/api.md`.
+   `msg_id`, `ts`, `body`; types `scraper_tips`, `scraper_event` and `scraper_prices`), checked
+   by the Scraper's tests (what the sinks write) and the Hub's (what the inbox reads); a file on
+   disk is only a transport. Rows to and from Render are the shapes in `docs/api.md`.
 2. **One id, minted at first sight, never re-minted.** `tip_id` is made by the Scraper service
    when the row is parsed (by the Hub's `mail.py` for an email, with the same function) and
    travels unchanged to the Hub store, to HubAI and on to the **tip on Finder** on Render
@@ -61,6 +61,14 @@ The Hub's side of it is not built yet: until it is, a photo stays `waiting`.
   the last poll); then the Hub's `tips` table; then `puntmore finder new` (not yet posted by
   HubAI) or its `finder_posted` row (posted, with the status Render stored); then
   `GET /api/finder/board` on Render (its status, and `reason` for a rejected or duplicate row).
+- **A Paddy price that never reached the board:**
+  1. the Scraper's journal (`journalctl --user -u puntmore-scraper`, "price row(s) handed to
+     the Hub");
+  2. `<scraper data>/hub/prices/` (waiting) and `done/prices/` (handled);
+  3. the daemon's journal (`journalctl --user -u puntmore-link`, `prices …` lines: sent, wait
+     for the next pass, refused, past the cut-off);
+  4. the Console's Daemon card (price drops waiting to go to Render);
+  5. on Render, the match's most-corners or most-cards row on `GET /api/paddy/feed`.
 - **A photo that never became a slip:** `GET /api/aw26/photos` (its state, tries and reason).
 - **A drop file that is not being read:** the Console's Daemon card (the last inbox pass, the
   drop files waiting) and `systemctl --user status puntmore-link`.

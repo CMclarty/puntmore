@@ -2,9 +2,9 @@
 
 `docs/decisions.md` is read first and wins; the repo's `CLAUDE.md` applies everywhere and wins on any other conflict. Setup and
 day-to-day commands are in `README.md`. The Scraper service is the ONLY thing on the Hub that loads a page:
-every page any tool needs, filling what OddsPapi lacks. Its rows go to Scraper control (the Hub's
-inbox, as drop files: `hub/PROTOCOL.md`) and from there to a board or to HubAI; Paddy's prices still
-post straight to Render and move behind Scraper control as the next Scraper work.
+every page any tool needs, filling what OddsPapi lacks. All its rows go to Scraper control (the
+Hub's inbox, as drop files: `hub/PROTOCOL.md`) and from there to a board or to HubAI; Paddy's
+prices are `scraper_prices` files that the Hub posts to Render.
 
 ## Boundaries (agreed; keep them)
 - It detects challenges and logouts and **stops**. It never answers a check, never types a
@@ -25,9 +25,10 @@ post straight to Render and move behind Scraper control as the next Scraper work
   drawn once per load, the per-site load gaps, `window`, `priority`, and the
   kick-off sweep (`near_min` within `near_hours` of a kick-off the rows
   report; nearest kick-off first when a budget is short).
-- `sinks.py` - where rows go, by `post`: `/api/...` to Render with the
-  ingest key, `hub:<chan>` drop files for the Hub (each row with its
-  `tip_id`); events for the Hub.
+- `sinks.py` - where rows go, by `post`: `/api/...` targets:
+  `scraper_prices` drop files the Hub posts to that route; `hub:<chan>`:
+  tips (each row with its `tip_id`); events. All are drop files for the
+  Hub; the Scraper sends Render nothing.
 - `status.py` - the heartbeat, `data/status.json`, the per-site budget summary.
 - `ids.py` - the one tip id, minted here when rows reach the Hub sink (a copy
   of `hub/puntmore_hub/ids.py`; a test in each suite pins the same vector).
@@ -75,7 +76,7 @@ post straight to Render and move behind Scraper control as the next Scraper work
   ingest path). The Scraper checks the file once a minute and applies an edit
   without a restart; a file that will not load is reported and the running
   targets are kept. It writes its state to `data/status.json` once a minute,
-  which the Hub reads; the only thing it sends Render is the prices it posts.
+  which the Hub reads; it sends Render nothing; its prices go through the Hub.
   Timings are clamped to the scraper's own floors (`config._target`).
   HOW each site is treated is code
   (`sites.py`: budgets, Paddy quiet hours 01-07, a Paddy block = every Paddy

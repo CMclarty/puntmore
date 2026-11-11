@@ -28,7 +28,7 @@ The three boards (Paddy, 2-Up, Finder) are the sources of bet value and feed one
 
 - Callum's only: served on `me` and behind its own grant (`finder`, **call**); the board and the feed are invisible to every other account and key.
 - Render never loads a page and never places a bet. Email, pages and chat are read on the Hub.
-- Secrets in `.env` only; the Hub posts with the ingest key (`SAVES_INGEST_KEY`, the `ingest` grant), as the Scraper does for Paddy. **(call)**
+- Secrets in `.env` only; the Hub posts with the ingest key (`SAVES_INGEST_KEY`, the `ingest` grant), as Scraper control does for Paddy's prices. **(call)**
 - Nothing in this tool retries or re-routes a bet. A failed placement is the Bet Placer's to escalate.
 - Idempotent on `tip_id`: minted once at first sight on the Hub (`scraper/ids.py` = `hub/puntmore_hub/ids.py`: sha1 of source, normalised event, market, selection, day) and never re-minted; a re-posted row with the same `tip_id` updates, never duplicates.
 

@@ -23,6 +23,8 @@ Each one is built on the recommendation as given. None is written into `docs/dec
 
 ## Design
 
+11 Nov 2026 (Callum): the daemon checks the prices folder every 10 s, so a price reaches Render within about 10 s of the parse. The 30 s figures below predate that.
+
 ### What moves
 
 | | Today | After |
