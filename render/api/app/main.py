@@ -128,13 +128,17 @@ async def lifespan(app: FastAPI):
         logger.info("Cards: Paddy Power side from OddsPapi, fair side from %s",
                     f"OddsPapi {settings.oddspapi_fair_book}"
                     if settings.oddspapi_fair_book else "none (set ODDSPAPI_FAIR_BOOK)")
-        # Hills: the same pipeline against William Hill, on the SAME client
-        # (one budget, one rate limit, Pinnacle's chunks cached once). It sweeps
-        # only when its page asks, so an unused grant costs no requests.
-        from .cards.oddspapi import WILLIAM_HILL
-        from .hills.target import EXTRA_TOURNAMENTS
-        app.state.hills_client = OddsPapiPaddySource(oddspapi_client, book=WILLIAM_HILL,
-                                                     extra_tournaments=EXTRA_TOURNAMENTS)
+
+    # Hills: on odds-api.net when ODDSAPINET_API_KEY is set, else the same
+    # pipeline against William Hill on the SAME OddsPapi client (one budget,
+    # one rate limit, Pinnacle's chunks cached once) — hills/vendor.py. Either
+    # way it fetches only when its page asks, so an unused grant costs nothing.
+    from .hills.vendor import build_hills_source
+    app.state.hills_client = build_hills_source(settings.oddsapinet_api_key, oddspapi_client)
+    if app.state.hills_client is None:
+        logger.warning("Hills: no odds source (set ODDSAPINET_API_KEY or ODDSPAPI_API_KEY)")
+    else:
+        logger.info("Hills: William Hill and Pinnacle from %s", app.state.hills_client.vendor)
 
     # The 2-Up engine's feed: bet365 + Pinnacle 1X2 on the SAME OddsPapi
     # client (one budget, one rate limit; Pinnacle's chunks shared with the
@@ -527,6 +531,17 @@ def ready():
     }
     if twoup is not None:
         providers["twoup_detail"] = twoup
+    # Hills' vendor (hills/vendor.py), the same way: named, and `degraded`
+    # with no source or when the last sweep failed and carried no board.
+    hills = getattr(app.state, "hills_client", None)
+    sweep = getattr(hills, "last_sweep", None) or {}
+    providers["hills_detail"] = {
+        "provider": getattr(hills, "vendor", None) or None,
+        "degraded": hills is None or bool(sweep.get("failed")
+                                          and not sweep.get("carried_paddy_prices")),
+        "requests_today": getattr(getattr(hills, "_client", None), "requests_today", None)
+                          or None,
+    }
     # The process's resident size, object and thread counts ride along: the
     # instance was restarting at its memory cap (Oct 2026) and this is the one
     # unauthenticated place the climb can be watched from outside.

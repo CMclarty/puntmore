@@ -887,6 +887,8 @@ class OddsPapiPaddySource:
     `oddspapi_fair_book` set (default "pinnacle"), its fair side too. Same interface as
     the sweep expects: `get_events()` and `last_sweep`."""
 
+    vendor = "oddspapi"
+
     def __init__(self, client: OddsPapiClient, book: str = PADDY_POWER,
                  extra_tournaments: tuple[int, ...] = ()):
         self._sweep_lock = threading.Lock()
