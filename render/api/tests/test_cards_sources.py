@@ -605,6 +605,17 @@ def test_a_line_paddy_shops_do_not_carry_is_never_listed(monkeypatch):
     assert 11.5 in {r.line for r in compute_laddered_value(events, -0.5)}
 
 
+def test_william_hill_prices_the_11_5_corners_line():
+    """Paddy's excluded lines are Paddy's shop rule; Hills prices every half line."""
+    from app.cards.laddered import compute_laddered_value
+    from app.cards.oddspapi import WILLIAM_HILL
+    events = _joined(PIN, {11.5: (9.0, 9.0), 9.5: (9.0, 9.0)})
+    assert 11.5 not in {r.line for r in compute_laddered_value(events, -0.5, PADDY_POWER)}
+    events[0]["bookmakers"][1]["key"] = WILLIAM_HILL
+    rows = compute_laddered_value(events, -0.5, WILLIAM_HILL)
+    assert [r for r in rows if r.market_key == "alternate_totals_corners" and r.line == 11.5]
+
+
 def test_each_board_item_says_when_its_prices_were_fetched():
     from datetime import datetime, timezone
     from app.routers.cards import build_feed

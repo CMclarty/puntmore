@@ -56,6 +56,9 @@ services:
       # /api/paddy/diagnostics says so. Budget: Settings.oddspapi_* in config.
       - key: ODDSPAPI_API_KEY
         sync: false
+      # Hills' William Hill and Pinnacle prices (odds-api.net); blank keeps Hills on OddsPapi.
+      - key: ODDSAPINET_API_KEY
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: STATE_API_KEY

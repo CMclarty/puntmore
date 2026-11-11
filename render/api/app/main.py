@@ -58,6 +58,14 @@ logger = logging.getLogger("uvicorn.error")
 SLOW_REQUEST_MS = 8000
 
 
+def _warmable(hills_source):
+    """The Hills source the scheduler pre-loads: odds-api.net's only (its slow
+    `hills_warm` job). On OddsPapi Hills shares Paddy's budget and is not
+    warmed."""
+    from .cards.oddsapinet import OddsApiNetHillsSource
+    return hills_source if isinstance(hills_source, OddsApiNetHillsSource) else None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
@@ -107,8 +115,8 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
-    # Goalscorers is PARKED (5 Nov 2026): its odds vendor is gone and OddsPapi
-    # is the only source. The pipeline stays in the tree behind
+    # Goalscorers is PARKED (5 Nov 2026): its odds vendor is gone and it
+    # returns on OddsPapi only. The pipeline stays in the tree behind
     # ENABLE_GOALSCORERS=false and gets no client until it is rebuilt on
     # OddsPapi (PLAN.md, Parked).
     odds_client = None
@@ -128,13 +136,22 @@ async def lifespan(app: FastAPI):
         logger.info("Cards: Paddy Power side from OddsPapi, fair side from %s",
                     f"OddsPapi {settings.oddspapi_fair_book}"
                     if settings.oddspapi_fair_book else "none (set ODDSPAPI_FAIR_BOOK)")
-        # Hills: the same pipeline against William Hill, on the SAME client
-        # (one budget, one rate limit, Pinnacle's chunks cached once). It sweeps
-        # only when its page asks, so an unused grant costs no requests.
-        from .cards.oddspapi import WILLIAM_HILL
-        from .hills.target import EXTRA_TOURNAMENTS
-        app.state.hills_client = OddsPapiPaddySource(oddspapi_client, book=WILLIAM_HILL,
-                                                     extra_tournaments=EXTRA_TOURNAMENTS)
+
+    # Hills: on odds-api.net when ODDSAPINET_API_KEY is set, else the same
+    # pipeline against William Hill on the SAME OddsPapi client (one budget,
+    # one rate limit, Pinnacle's chunks cached once) — hills/vendor.py. On
+    # OddsPapi it fetches only when its page asks; on odds-api.net the
+    # `hills_warm` job also pre-loads it slowly (scheduler.warm_hills).
+    # odds-api.net's daily count is stored (table `oddsapinet_usage`), so a
+    # deploy does not zero the cap.
+    from .hills.vendor import build_hills_source
+    from .cards.oddsapinet_usage import SqlUsageStore
+    app.state.hills_client = build_hills_source(settings.oddsapinet_api_key, oddspapi_client,
+                                                usage_store=SqlUsageStore())
+    if app.state.hills_client is None:
+        logger.warning("Hills: no odds source (set ODDSAPINET_API_KEY or ODDSPAPI_API_KEY)")
+    else:
+        logger.info("Hills: William Hill and Pinnacle from %s", app.state.hills_client.vendor)
 
     # The 2-Up engine's feed: bet365 + Pinnacle 1X2 on the SAME OddsPapi
     # client (one budget, one rate limit; Pinnacle's chunks shared with the
@@ -222,6 +239,7 @@ async def lifespan(app: FastAPI):
         odds_client=odds_client,
         cards_client=app.state.cards_client,
         twoup_feed=app.state.twoup_feed,
+        hills_source=_warmable(app.state.hills_client),
     )
     app.state.scheduler = scheduler
 
@@ -527,6 +545,16 @@ def ready():
     }
     if twoup is not None:
         providers["twoup_detail"] = twoup
+    # Hills' vendor (hills/vendor.py), the same way: named, and `degraded`
+    # with no source or when the last sweep failed and carried no board.
+    hills = getattr(app.state, "hills_client", None)
+    sweep = getattr(hills, "last_sweep", None) or {}
+    providers["hills_detail"] = {
+        "provider": getattr(hills, "vendor", None) or None,
+        "degraded": hills is None or bool(sweep.get("failed")
+                                          and not sweep.get("carried_paddy_prices")),
+        "requests_today": getattr(getattr(hills, "_client", None), "requests_today", None),
+    }
     # The process's resident size, object and thread counts ride along: the
     # instance was restarting at its memory cap (Oct 2026) and this is the one
     # unauthenticated place the climb can be watched from outside.

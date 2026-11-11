@@ -26,8 +26,10 @@ flowchart TB
     end
   end
 
-  ODDS["OddsPapi<br/>the only odds source"] -- "prices (HTTPS)" --> PADDY
+  ODDS["OddsPapi<br/>Paddy, 2-Up, coupons"] -- "prices (HTTPS)" --> PADDY
   ODDS -- "prices (HTTPS)" --> T365
+  ODDS -- "prices (HTTPS): coupons; Hills only without ODDSAPINET_API_KEY" --> PUB
+  OAN["odds-api.net<br/>Hills' prices"] -- "prices (HTTPS)" --> PUB
 
   subgraph HUB["HUB — Callum's box, one program"]
     direction TB
@@ -70,7 +72,7 @@ flowchart TB
 | Render service | FastAPI + React, one origin, SQLite on the disk; the main domain and `me` (`app/site.py`; `me` only once `ME_HOST` is set) | Render | live |
 | Paddy | Corners, cards, goals and saves against Paddy Power (`app/cards/`); OddsPapi plus the Scraper's posts | Render · main | live |
 | 365 tool, 2-Up | bet365's offers; 2-Up (`app/twoup/`) is a served board refreshed by `twoup_refresh`, read at `GET /api/2up/feed` and on the 2-Up tab; acca boost returns on OddsPapi; goalscorers parked | Render · main | live |
-| Coupon tracker, Hills | photographed coupons priced off the score grid; William Hill boosts | Render · main | live |
+| Coupon tracker, Hills | photographed coupons priced off the score grid (OddsPapi); William Hill boosted bet builders, priced from odds-api.net (`app/cards/oddsapinet.py`, `app/hills/`; OddsPapi without `ODDSAPINET_API_KEY`) | Render · main | live |
 | Finder | `finder_rows`, its status machine, `/api/finder/*` (`app/finder/`, `docs/finder-spec.md`) | Render · me | live, Callum only; on the main domain until `ME_HOST` is set |
 | Personal tools | dogs, Virtuals, P&L, Kelly, shop | Render · me | live on the main domain until `ME_HOST` is set |
 | Scraper service | `scraper/`, user service `puntmore-scraper`: one real Chrome on the desktop session, budgets in code (Docker is the fallback for a box with no screen) | Hub | live |
@@ -100,7 +102,7 @@ command.
 3. **No retry, no re-route** of a failed bet; it goes to HubAI.
 4. **Real Chrome, no stealth.** Budgets in code, 24 h cool-off on a block.
 5. **Tips on Finder are Callum's only**, behind the `finder` grant and on `me` (the main domain until `ME_HOST` is set); never in the combined value feed, never offered to a third party.
-6. **OddsPapi is the only odds source.** Render keeps no record of anyone's bets.
+6. **OddsPapi prices Paddy, 2-Up and the coupon tracker; odds-api.net prices Hills.** Render keeps no record of anyone's bets.
 7. **One deploy**, not designed to scale.
 
 ## Open
