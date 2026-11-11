@@ -137,3 +137,23 @@ def test_a_crashed_page_is_replaced_on_the_next_tick(tmp_path):
         r.tick(t0 + 15 * i)
     assert r.tabs["bb"].page is not first
     assert not r.tabs["bb"].crashed
+
+
+def test_a_parse_of_a_price_target_drops_one_prices_file_for_the_hub(tmp_path, monkeypatch):
+    """Runner._parse, driven with a stand-in page and a stub parser, hands a price target's rows to
+    the price sink: one `scraper_prices` file in hub/prices/, nothing sent anywhere else."""
+    import json
+    rows = [{"home": "Chelsea", "away": "Man Utd", "kickoff": "2026-11-08T16:30:00Z", "market": "most_corners",
+             "home_price": 1.5333, "tie_price": 9.0, "away_price": 2.375}]
+    monkeypatch.setattr(runner, "PARSERS", {"pp_most": lambda page, capture: rows})
+    t = config._target({"name": "pp-epl-most", "site": "paddypower", "parser": "pp_most",
+                        "url": "https://www.paddypower.com/football/english-premier-league",
+                        "post": "/api/paddy/most-prices"})
+    r = _runner(tmp_path, [t])
+    now = time.time()
+    r._parse(runner.Tab(t, t.url, _Page([]), None), now, force=True)
+    (f,) = (tmp_path / "hub" / "prices").glob("*.json")
+    body = json.loads(f.read_text())["body"]
+    assert body["route"] == "/api/paddy/most-prices" and body["rows"] == rows and body["at"] == now
+    assert r.rows_posted["pp-epl-most"] == 1
+    assert not list((tmp_path / "hub" / "tips").glob("*.json"))
