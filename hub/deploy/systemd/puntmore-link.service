@@ -1,5 +1,5 @@
 [Unit]
-Description=Puntmore Hub daemon: the Scraper's drop files and the tipster mailbox (puntmore daemon)
+Description=Puntmore Hub daemon: the Scraper's drop files, the tipster mailbox and the AW 26 slip photos (puntmore daemon)
 After=network-online.target
 Wants=network-online.target
 

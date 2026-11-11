@@ -105,7 +105,24 @@ names and no other; older names appear only in `docs/retired.md`.
   HubAI values a slip off the board as it stood at the slip's printed time
   (`GET /api/paddy/board-at?at=`), not the live board; a leg not on it then
   is still neutral, its fair its odds. This is Paddy's sweep writing rows,
-  the one background write AW 26 relies on; no message, no page.
+  the one background write AW 26 relies on; no message, no page. **The
+  slips HubAI reads (Callum, 11 Nov 2026):** "you should ignore doubles
+  they're not in the project scope": AW 26 records Paddy Power accumulators
+  only; a slip not printed as an accumulator (a double, a multiway) or from
+  another bookmaker is failed with a reason, not recorded. "paddy make
+  mistakes on payout calcs. always calc your own": the total odds, max
+  return and bonus printed on a slip are never sent to Render, which does
+  its own sums. "free bets will always say BONUS at the top of the slip":
+  such a slip is a free bet, offer `free`. The slip photos "can't be made
+  public": no photo goes into git, and nothing in the repo carries a
+  slip's receipt number, barcode or QR code. **The Hub's AW 26 loop (9 Nov
+  2026, the spec):** the Hub daemon gains an AW 26 loop that talks to
+  Render. While the Hub has Render's address and key, once a minute it
+  takes the oldest waiting photo and starts HubAI on it, one at a time
+  (`hub/puntmore_hub/aw26_loop.py`, the runbook
+  `hub/deploy/hermes-skills/puntmore-aw26/`). The loop is off until the
+  reading has been proved on real slips (the spec, "Prove first"):
+  `PUNTMORE_AW26_READ=1` in the Hub's `.env` turns it on.
 - **The vocabulary.** A **bet** is a selection and a price. A **value bet** is
   a bet an internal tool found (Paddy or 2-Up pricing a market against a fair
   line). A **tip** is a bet from an external source (a tipster's email, a

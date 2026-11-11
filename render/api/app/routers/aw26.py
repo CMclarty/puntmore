@@ -233,7 +233,8 @@ async def upload_photos(files: list[UploadFile] = File(...), source: str = Form(
     stored. Then one file at a time: its bytes are read, stored off the event
     loop and dropped, so one file's bytes are held at most. All or nothing: a
     file refused while stored (too large, empty) or a store that fails
-    removes every file already written and keeps no row."""
+    removes every file already written and keeps no row. Once committed the
+    batch is kept: an answer that then fails removes nothing."""
     if source not in photos.SOURCES:
         raise HTTPException(status_code=400, detail=f"source must be one of {', '.join(photos.SOURCES)}")
     if len(files) > photos.MAX_BATCH:
@@ -248,15 +249,15 @@ async def upload_photos(files: list[UploadFile] = File(...), source: str = Form(
             stored.append(await run_in_threadpool(
                 photos.store, db, data, f.content_type, user=user, source=source))
             del data
-        return await run_in_threadpool(_keep, db, stored)
+        await run_in_threadpool(db.commit)
     except Exception:
         await run_in_threadpool(_undo, db, stored)
         raise
+    return await run_in_threadpool(_answer, stored)
 
 
-def _keep(db: Session, stored: list[AwPhoto]) -> list[dict]:
-    """Commit the batch and answer with its rows."""
-    db.commit()
+def _answer(stored: list[AwPhoto]) -> list[dict]:
+    """The committed batch's rows (reloaded after the commit, so off the loop)."""
     return [AwPhotoOut.model_validate(p).model_dump(mode="json") for p in stored]
 
 

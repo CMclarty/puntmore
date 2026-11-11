@@ -1,19 +1,23 @@
 """The Hub daemon (`puntmore daemon`; `puntmore link` is the same command under the name the
 installed unit `puntmore-link.service` uses).
 
-Two loops, no socket. The inbox loop wakes every PRICES_EVERY_S (10 s). When INBOX_EVERY_S
+Three loops, no socket. The inbox loop wakes every PRICES_EVERY_S (10 s). When INBOX_EVERY_S
 (30 s) has passed since the last full pass it runs one (`inbox.ingest`: tips stored for HubAI,
 events raised as escalations, then the Scraper's Paddy price drops posted to Render); on the
 other wakes it runs the price pass alone (`inbox.post_prices`), so a price reaches Render
 within about 10 s of the Scraper dropping it. The mail loop polls the tipster mailbox every
 PUNTMORE_IMAP_EVERY_MIN on its own thread when a mailbox is configured (`mail.poll`, which
-writes `mail-status.json`).
+writes `mail-status.json`). The AW 26 loop, on its own thread when switched on
+(PUNTMORE_AW26_READ) and Render and its key are configured, passes over AW 26's photo queue on
+Render every PUNTMORE_AW26_EVERY_S (`aw26_loop.read_once`: the oldest waiting slip photo taken
+and read by HubAI, one at a time).
+A failed pass of one loop is logged and never stops another.
 
 Each pass is recorded in `daemon-status.json` in the data directory, which the Console's Daemon
 card reads: a full pass writes its time, counts and error; a price pass writes only its price
 counts, and an error, over the last full pass's record (`record_inbox`). A pass that finds no
 price file keeps the last files moved aside, and why, on the record, so the card's warning
-lasts until a pass handles another file.
+lasts until a pass handles another file. The last AW 26 pass is written beside it, under `aw26`.
 """
 from __future__ import annotations
 
@@ -25,7 +29,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from . import alerts, inbox, mail
+from . import alerts, aw26, aw26_loop, inbox, mail
 from .config import Settings, settings as default_settings
 from .store import Store, iso, utcnow
 
@@ -69,10 +73,23 @@ def record_inbox(cfg: Settings, counts: dict | None, error: str | None = None, *
             out["inbox"] = {"at": prev.get("at"), "counts": merged or None, "error": error or prev.get("error")}
         else:
             out["inbox"] = {"at": iso(utcnow()), "counts": counts, "error": error}
-        cfg.data_dir.mkdir(parents=True, exist_ok=True)
-        tmp = status_file(cfg).with_suffix(".tmp")
-        tmp.write_text(json.dumps(out))
-        os.replace(tmp, status_file(cfg))
+        _write(cfg, out)
+
+
+def _record_aw26(cfg: Settings, counts: dict | None, error: str | None) -> None:
+    """Write the last AW 26 pass (time, counts or error) under `aw26`, atomically."""
+    with _lock:
+        out = last_status(cfg)
+        out["aw26"] = {"at": iso(utcnow()), "counts": counts, "error": error}
+        _write(cfg, out)
+
+
+def _write(cfg: Settings, out: dict) -> None:
+    """Replace the status file with `out`. The caller holds `_lock`."""
+    cfg.data_dir.mkdir(parents=True, exist_ok=True)
+    tmp = status_file(cfg).with_suffix(".tmp")
+    tmp.write_text(json.dumps(out))
+    os.replace(tmp, status_file(cfg))
 
 
 def _mail_loop(cfg: Settings, stop: threading.Event, sleep: Callable[[float], None]) -> None:
@@ -83,6 +100,22 @@ def _mail_loop(cfg: Settings, stop: threading.Event, sleep: Callable[[float], No
         except Exception as exc:  # noqa: BLE001 - one bad poll never stops the loop
             log.exception("mail poll failed: %s", exc)
         sleep(max(1, cfg.imap_every_min) * 60)
+
+
+def _aw26_loop(cfg: Settings, stop: threading.Event) -> None:
+    """Pass after pass until `stop` is set, waiting on it between passes. A failed pass, or a
+    failed write of its record, is logged and never stops the loop."""
+    while not stop.is_set():
+        try:
+            counts, error = aw26_loop.read_once(cfg), None
+        except Exception as exc:  # noqa: BLE001 - one bad pass (Render down, a 409) never stops the loop
+            log.exception("aw26 pass failed: %s", exc)
+            counts, error = None, f"{exc.__class__.__name__}: {exc}"[:300]
+        try:
+            _record_aw26(cfg, counts, error)
+        except Exception as exc:  # noqa: BLE001 - a status file that cannot be written is not a pass
+            log.exception("aw26: could not write the pass to %s: %s", STATUS_FILE, exc)
+        stop.wait(max(1, cfg.aw26_every_s))
 
 
 def _inbox_pass(cfg: Settings, full: bool) -> None:
@@ -116,6 +149,12 @@ def run(cfg: Settings = default_settings, *, sleep: Callable[[float], None] = ti
     stop = threading.Event()
     if cfg.mail_configured:
         threading.Thread(target=_mail_loop, args=(cfg, stop, sleep), name="mail", daemon=True).start()
+    if not cfg.aw26_read:
+        log.info("AW 26 photo loop not started: switched off (PUNTMORE_AW26_READ is not 1)")
+    elif not aw26.configured(cfg):
+        log.info("AW 26 photo loop not started: PUNTMORE_RENDER_HTTP or PUNTMORE_RENDER_API_KEY is unset")
+    else:
+        threading.Thread(target=_aw26_loop, args=(cfg, stop), name="aw26", daemon=True).start()
     last_full: float | None = None
     try:
         while True:

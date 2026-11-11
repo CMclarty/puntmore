@@ -9,10 +9,12 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from datetime import timedelta
+from pathlib import Path
 
-from . import __version__, alerts, escalation, finder, inbox, killswitch, mail
+from . import __version__, alerts, aw26, escalation, finder, inbox, killswitch, mail
 from .config import settings
 from .store import Store, utcnow
 
@@ -166,6 +168,52 @@ def cmd_finder(a):
         print(json.dumps(finder.post_status(settings, a.tip_id, a.status, at, store=_store())))
 
 
+def _reading_photo(slip: dict, reading: str) -> dict:
+    """The slip of the photo this run is reading (PUNTMORE_AW26_PHOTO_ID): its `photo_id` filled
+    in when it has none; another photo's id is a ValueError naming both."""
+    photo_id = int(reading)
+    if slip.get("photo_id") is None:
+        return {**slip, "photo_id": photo_id}
+    if str(slip["photo_id"]).strip() != str(photo_id):
+        raise ValueError(f"this run is reading photo {photo_id}, not photo {slip['photo_id']}")
+    return slip
+
+
+def cmd_aw26(a):
+    """AW 26 (aw26.py): the slip-photo queue on Render, Paddy's board at a moment, and the slips
+    HubAI reads. JSON to stdout. An unreadable time or a slip with no receipt exits 2 before
+    anything is sent; any other refusal exits 1; a slip already in (or a photo already a slip)
+    is success. In a reading run (PUNTMORE_AW26_PHOTO_ID set, aw26_loop.py) `upload` exits 2,
+    and `record` fills in that `photo_id` or exits 2 on another one, `--dry-run` alike."""
+    reading = os.environ.get(aw26.PHOTO_ID_ENV, "").strip()
+    try:
+        if a.which == "upload" and reading:
+            raise ValueError(f"this run is reading photo {reading} and must not upload")
+        if a.which == "photos":
+            out = aw26.photos(settings)
+        elif a.which == "take":
+            out = {"id": a.id, "path": str(aw26.take(settings, a.id, settings.data_dir / "aw26"))}
+        elif a.which == "fail":
+            out = aw26.fail(settings, a.id, a.reason)
+        elif a.which == "upload":
+            out = aw26.upload(settings, Path(a.file), source=a.source)
+        elif a.which == "board":
+            out = aw26.board(settings, a.at, match=a.match)
+        else:
+            slip = json.loads(sys.stdin.read() if a.file == "-" else open(a.file).read())
+            if not isinstance(slip, dict):
+                sys.exit("aw26 record: the file must hold one JSON slip")
+            if reading:
+                slip = _reading_photo(slip, reading)
+            out = aw26.record(settings, slip, dry_run=a.dry_run)
+    except ValueError as exc:
+        print(f"aw26 {a.which}: {exc}", file=sys.stderr)
+        sys.exit(2)
+    except RuntimeError as exc:          # a RenderError, or no Render configured
+        sys.exit(f"aw26 {a.which}: {exc}")
+    print(json.dumps(out))
+
+
 def cmd_web(a):
     """Run the Hub Console: what every Hub component is doing, live, and the kill switch."""
     from .web.app import serve
@@ -208,6 +256,18 @@ def build_parser() -> argparse.ArgumentParser:
     fk.add_argument("tip_id"); fk.add_argument("--reason"); fk.set_defaults(fn=cmd_finder)
     fs = fd.add_parser("status", help="the Bet Placer's report on an offered row")
     fs.add_argument("tip_id"); fs.add_argument("status", choices=["placed", "gone"]); fs.set_defaults(fn=cmd_finder)
+    aw = sub.add_parser("aw26", help="AW 26: slip photos for HubAI to read, Paddy's board at a moment, slips to record").add_subparsers(dest="which", required=True)
+    aw.add_parser("photos", help="the photos on Render's queue not done yet").set_defaults(fn=cmd_aw26)
+    at = aw.add_parser("take", help="take a waiting photo and save its image under data/aw26/")
+    at.add_argument("id", type=int); at.set_defaults(fn=cmd_aw26)
+    af = aw.add_parser("fail", help="a photo HubAI cannot make a slip of")
+    af.add_argument("id", type=int); af.add_argument("--reason", required=True); af.set_defaults(fn=cmd_aw26)
+    au = aw.add_parser("upload", help="put a photo on the queue")
+    au.add_argument("file"); au.add_argument("--source", choices=["page", "telegram"], default="telegram"); au.set_defaults(fn=cmd_aw26)
+    ab = aw.add_parser("board", help="Paddy's board as it stood at a moment (printed or ISO)")
+    ab.add_argument("--at", required=True); ab.add_argument("--match"); ab.set_defaults(fn=cmd_aw26)
+    ar = aw.add_parser("record", help="record a slip (a JSON file, or - for stdin)")
+    ar.add_argument("file"); ar.add_argument("--dry-run", action="store_true", help="print the body; send nothing"); ar.set_defaults(fn=cmd_aw26)
     sub.add_parser("heartbeat", help="send the daily summary").set_defaults(fn=cmd_heartbeat)
     sub.add_parser("daemon", help="run the daemon: inbox every 30 s, prices every 10 s, tipster mailbox on its own thread").set_defaults(fn=cmd_daemon)
     sub.add_parser("link", help="the same as `daemon` (the name puntmore-link.service runs)").set_defaults(fn=cmd_daemon)

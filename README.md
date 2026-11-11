@@ -36,8 +36,8 @@ It serves **boards**: tool pages, each with a one-way HTTP **feed** of value row
 
 Beside the boards: the coupon tracker, Hills, and Callum's personal tools (dogs, Virtuals, P&L,
 Kelly, the shop, AW 26). No ledger, no account and no Hub endpoint on Render: the Hub calls
-tools' own routes with a key, as HubAI's key collects AW 26's photos from the tool's queue
-(`/api/aw26/photos`).
+tools' own routes with a key, as the Hub daemon takes AW 26's slip photos from the tool's queue
+(`/api/aw26/photos`) and HubAI records the slips it reads.
 
 Two hosts from the one deploy: the **main domain** (`puntmore.com`) serves every public tool
 (the coupon tracker, Paddy, Hills, 365 with 2-Up), the login and the API; **`me`**
@@ -64,7 +64,9 @@ One program on Callum's box, in five parts:
 - **HubAI**: the Hub's AI, the whole Hermes layer (a chief of staff on Telegram and its
   specialist profiles, one Qwen model under llama-server). It takes every escalation and judges
   tips for Finder, including a tip Callum asks for on Telegram; that Finder skill is the next
-  HubAI work.
+  HubAI work. It reads AW 26's slip photos, which the Hub daemon takes from Render's queue one
+  at a time (a slip photo Callum sends it on Telegram joins that queue), by the runbook
+  `hub/deploy/hermes-skills/puntmore-aw26/`.
 - **Bet Placer**: reads the three feeds, sizes, places on the phones through DeviceFarmer,
   keeps the only book, and posts `placed` / `gone` to Finder. A black box for now
   (`docs/placer-spec.md`); the placement engine in `hub/puntmore_hub/placement/` is its start.
