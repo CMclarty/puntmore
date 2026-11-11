@@ -14,7 +14,7 @@ files.
 - **`hub/` never loads a page.** Every page load is the Scraper service's; Finder's sources are
   Scraper targets (`site = "generic"`) and reach `hub/` as drop files under `<scraper data>/hub/`.
   `hub/` has no browser and no budget. Bookie Bashing is not a Finder source; the Scraper's one
-  BB target (`bb-saves`) is an OPEN item for Callum in the register.
+  BB target (`bb-saves`) is the register's single named exception.
 - **Email tipsters are polled here** (`mail.py`: one IMAP mailbox, `PUNTMORE_IMAP_*`; senders and
   parsers in `data/tipsters.toml`), never by Render and never by the Scraper. A parser never
   guesses: one that cannot read an email returns nothing and the tipster is escalated.

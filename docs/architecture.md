@@ -43,7 +43,7 @@ flowchart TB
     CONSOLE["Console<br/>every part, live; the control page<br/><i>built</i>"]
   end
 
-  SITES["Sites<br/>Paddy Power, tip sources; one Bookie Bashing page (open item)"] -- "pages" --> SVC
+  SITES["Sites<br/>Paddy Power, tip sources; one Bookie Bashing page (the named exception)"] -- "pages" --> SVC
   MAILBOX["Tipster mailbox"] -- "IMAP" --> CTRL
   SVC -- "tips and prices: drop files (scraper_tips, scraper_prices, scraper_event)" --> CTRL
   CTRL -- "prices: POST /api/paddy/saves-fair, /most-prices" --> PADDY

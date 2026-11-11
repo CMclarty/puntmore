@@ -212,10 +212,10 @@ names and no other; older names appear only in `docs/retired.md`.
   means a 24 h cool-off and a human `resume`; nothing retries. (Oct 2026)
 - **Bookie Bashing is not a Finder source and the 2-Up rescue model is tuned
   against BB's 2-up tracker by hand.** BB's terms ban automated access.
-  **OPEN, Callum to decide:** the Scraper's one existing BB target (`bb-saves`,
-  Paddy's saves fair odds, a kept-open page reloaded every 10 minutes after a
-  person logs in) predates this rule and contradicts it; keep it as the single
-  named exception, or disable it. (raised 5 Nov 2026)
+  **The single named exception is `bb-saves`:** the Scraper's one BB target
+  (Paddy's saves fair odds, a kept-open page reloaded every 10 minutes after a
+  person logs in) predates this rule; it stays, and it runs. (Callum, 11 Nov
+  2026: "reenable the bb scraper"; raised 5 Nov 2026)
 - **Never guess a tip.** Parsers are written from real pages only; a parser
   that cannot read the page returns nothing and `min_rows` raises the alarm.
 

@@ -39,9 +39,9 @@
 #              Outside it the target is not loaded and its tabs are closed;
 #              they reopen when the window starts
 
-# OPEN, Callum to decide (docs/decisions.md, "Scraping conduct"): this one BB
-# target predates the rule that BB is never automated; keep it as the named
-# exception, or disable it. Left enabled until he decides.
+# The single named exception (docs/decisions.md, "Scraping conduct"): this one
+# BB target predates the rule that BB is never automated, and stays
+# (Callum, 11 Nov 2026).
 [[target]]
 name = "bb-saves"
 site = "bookiebashing"
