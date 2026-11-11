@@ -142,8 +142,12 @@ async def lifespan(app: FastAPI):
     # one rate limit, Pinnacle's chunks cached once) — hills/vendor.py. On
     # OddsPapi it fetches only when its page asks; on odds-api.net the
     # `hills_warm` job also pre-loads it slowly (scheduler.warm_hills).
+    # odds-api.net's daily count is stored (table `oddsapinet_usage`), so a
+    # deploy does not zero the cap.
     from .hills.vendor import build_hills_source
-    app.state.hills_client = build_hills_source(settings.oddsapinet_api_key, oddspapi_client)
+    from .cards.oddsapinet_usage import SqlUsageStore
+    app.state.hills_client = build_hills_source(settings.oddsapinet_api_key, oddspapi_client,
+                                                usage_store=SqlUsageStore())
     if app.state.hills_client is None:
         logger.warning("Hills: no odds source (set ODDSAPINET_API_KEY or ODDSPAPI_API_KEY)")
     else:

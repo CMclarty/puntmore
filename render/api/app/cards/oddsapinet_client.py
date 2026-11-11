@@ -8,6 +8,12 @@ cap (`oddsapinet_daily_credit_budget`), and a spent cap sends nothing.
 THE KEY rides in the `X-API-Key` header, never in the URL, so it is in no
 logged URL and no error message. Only the path and the params are logged.
 
+THE COUNT SURVIVES A RESTART when the client is given a `store`
+(`oddsapinet_usage.SqlUsageStore` in the app): `load()` once when built, so
+a count stored today carries on, and `save(utc_day, count)` after every
+counted request. A store that fails is logged and ignored: the count carries
+on in memory and the fetch goes ahead. No store: the count is per process.
+
 SPACING. One request in flight at a time, at least MIN_REQUEST_GAP apart
 (the sweep and a page load can fetch at the same moment). A 429 raises
 `RateLimited` with the Retry-After it named and is NOT retried here: the
@@ -71,6 +77,7 @@ class OddsApiNetClient:
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         today: Callable[[], date] = _utc_today,
+        store=None,
     ):
         self._http = httpx.Client(
             base_url=BASE_URL,
@@ -86,6 +93,31 @@ class OddsApiNetClient:
         self._day: date | None = None
         self._last_request: float | None = None
         self._lock = threading.Lock()
+        self._store = store
+        if store is not None:
+            self._resume()
+
+    def _resume(self) -> None:
+        """Carry on from the count stored today, if any."""
+        try:
+            saved = self._store.load()
+        except Exception as exc:
+            logger.warning("odds-api.net: stored credit count not read: %s", exc)
+            return
+        today = self._today()
+        if saved is None:
+            return
+        day, count = saved
+        if day == today.isoformat() and isinstance(count, int) and count >= 0:
+            self._day, self.requests_today = today, count
+
+    def _save(self) -> None:
+        if self._store is None:
+            return
+        try:
+            self._store.save(self._day.isoformat(), self.requests_today)
+        except Exception as exc:
+            logger.warning("odds-api.net: credit count not stored: %s", exc)
 
     def _roll_day(self) -> None:
         today = self._today()
@@ -107,6 +139,7 @@ class OddsApiNetClient:
                 if gap > 0:
                     self._sleep(gap)
             self.requests_today += 1
+            self._save()                 # before sending: a request cut off still counts
             logger.debug("odds-api.net GET %s %s", path, params)
             try:
                 resp = self._http.get(path, params=params)

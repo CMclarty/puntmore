@@ -522,3 +522,14 @@ class PaddyLine(Base):
     fair = Column(Float, nullable=False)               # the board's fair, to the penny
     basis = Column(String, nullable=False, default="ladder")
     seen_at = Column(DateTime, nullable=False, index=True)
+
+
+class OddsApiNetUsage(Base):
+    """odds-api.net's credits used on one UTC day (cards/oddsapinet_usage.py),
+    so the daily cap holds across a deploy. A single row (id 1), rewritten on
+    every counted request."""
+    __tablename__ = "oddsapinet_usage"
+
+    id = Column(Integer, primary_key=True)
+    utc_day = Column(String, nullable=False)              # "2026-11-11"
+    count = Column(Integer, nullable=False)

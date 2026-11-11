@@ -101,3 +101,89 @@ def test_the_default_daily_cap_is_250k_a_month_over_31_days():
     from app.config import Settings
     assert Settings.model_fields["oddsapinet_daily_credit_budget"].default == 8000
     assert OddsApiNetClient("k-test").daily_budget == 8000
+
+
+# --- the day's count survives a restart (final review, C) ----------------------
+
+class MemStore:
+    """The store's two calls, in memory."""
+
+    def __init__(self, saved=None):
+        self.saved = saved
+        self.saves = 0
+
+    def load(self):
+        return self.saved
+
+    def save(self, utc_day, count):
+        self.saved = (utc_day, count)
+        self.saves += 1
+
+
+def _today():
+    return date(2026, 11, 11)
+
+
+def test_a_second_client_on_the_same_store_starts_from_the_first_ones_count():
+    store = MemStore()
+    _, first = _client(_ok, store=store, today=_today)
+    first.get("/a"); first.get("/b"); first.get("/c")
+    assert store.saved == ("2026-11-11", 3) and store.saves == 3
+    _, second = _client(_ok, store=store, today=_today)
+    assert second.requests_today == 3 and second.budget_left() == 7997
+    second.get("/d")
+    assert store.saved == ("2026-11-11", 4)
+
+
+def test_a_count_stored_yesterday_starts_at_zero():
+    _, c = _client(_ok, store=MemStore(("2026-11-10", 7000)), today=_today)
+    assert c.requests_today == 0
+    c.get("/a")
+    assert c.requests_today == 1
+
+
+def test_the_cap_holds_across_a_restart():
+    store = MemStore()
+    _, first = _client(_ok, store=store, today=_today, daily_budget=2)
+    first.get("/a"); first.get("/b")
+    seen, second = _client(_ok, store=store, today=_today, daily_budget=2)
+    with pytest.raises(BudgetSpent):
+        second.get("/c")
+    assert seen == []
+
+
+def test_a_store_that_fails_never_stops_a_fetch(caplog):
+    class Broken:
+        def load(self):
+            raise OSError("disk gone")
+
+        def save(self, utc_day, count):
+            raise OSError("disk gone")
+
+    seen, c = _client(_ok, store=Broken(), today=_today)
+    assert c.get("/a") == {"items": []} and c.get("/b") == {"items": []}
+    assert c.requests_today == 2 and len(seen) == 2
+    assert "disk gone" in caplog.text
+
+
+def test_the_sql_store_round_trips_one_row():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.cards.oddsapinet_usage import SqlUsageStore
+    from app.database import Base
+    from app.models import OddsApiNetUsage
+
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False},
+                           poolclass=StaticPool)
+    Base.metadata.create_all(bind=engine)
+    store = SqlUsageStore(sessionmaker(bind=engine))
+    assert store.load() is None
+    store.save("2026-11-11", 5)
+    store.save("2026-11-11", 6)
+    assert store.load() == ("2026-11-11", 6)
+    with sessionmaker(bind=engine)() as db:
+        assert db.query(OddsApiNetUsage).count() == 1
+    _, c = _client(_ok, store=store, today=_today)
+    assert c.requests_today == 6

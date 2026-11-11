@@ -82,3 +82,24 @@ def test_the_oddspapi_check_without_oddspapi_still_says_so():
     app.state.hills_client = None
     assert TestClient(app).get("/hills/oddspapi-check").json() == {
         "error": "OddsPapi is not configured — set ODDSPAPI_API_KEY."}
+
+
+def test_ready_shows_the_count_kept_across_a_restart():
+    """The count is stored (final review, C): a rebuilt source starts from it."""
+    from datetime import datetime, timezone
+
+    class MemStore:
+        saved = None
+
+        def load(self):
+            return self.saved
+
+        def save(self, utc_day, count):
+            self.saved = (utc_day, count)
+
+    store = MemStore()
+    src = build_hills_source("k-test", None, usage_store=store)
+    app.state.hills_client = src
+    store.saved = (datetime.now(timezone.utc).date().isoformat(), 412)
+    app.state.hills_client = build_hills_source("k-test", None, usage_store=store)
+    assert _hills_detail()["requests_today"] == 412

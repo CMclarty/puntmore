@@ -11,12 +11,17 @@ from __future__ import annotations
 from ..config import settings
 
 
-def build_hills_source(oddsapinet_key: str, oddspapi_client) -> object | None:
+def build_hills_source(oddsapinet_key: str, oddspapi_client,
+                       usage_store=None) -> object | None:
+    """`usage_store` keeps odds-api.net's daily count across a restart
+    (`cards/oddsapinet_usage.SqlUsageStore`, which main.py passes); None
+    keeps it in memory only."""
     if oddsapinet_key:
         from ..cards.oddsapinet import OddsApiNetHillsSource
         from ..cards.oddsapinet_client import OddsApiNetClient
         client = OddsApiNetClient(oddsapinet_key,
-                                  daily_budget=settings.oddsapinet_daily_credit_budget)
+                                  daily_budget=settings.oddsapinet_daily_credit_budget,
+                                  store=usage_store)
         return OddsApiNetHillsSource(client)
     if oddspapi_client is not None:
         from ..cards.oddspapi import WILLIAM_HILL, OddsPapiPaddySource
