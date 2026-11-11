@@ -22,7 +22,11 @@ The parsers (`parsers/`, one module each) are written only from what the real
 pages were seen to do. `bb_saves` DRIVES Bookie Bashing's Bet Builder (select
 the game, type each line, read "Total Odds" — see its docstring; needs the
 box's Chrome logged in, which the Scraper does itself with the login in
-`.env`, below).
+`.env`, below). It reads only games kicking off within 48 hours (Callum,
+11 Nov 2026); with none that near it rests: its page is closed and nothing
+loads until 48 hours before the next game it saw, or a day, whichever is
+sooner. `status` shows it `paused` with the reason; `wake bb-saves` ends the
+rest by hand.
 `pp_most` reads Paddy's most-corners / most-cards three-ways (written from
 the 29 Oct 2026 capture; see its docstring).
 
@@ -244,6 +248,7 @@ export SCRAPER_DATA_DIR=/opt/puntmore-scraper/data
 ~/.venvs/puntmore/bin/python -m scraper status
 ~/.venvs/puntmore/bin/python -m scraper selfcheck   # what a site sees, WebGL renderer included
 ~/.venvs/puntmore/bin/python -m scraper dump bb-saves
+~/.venvs/puntmore/bin/python -m scraper wake bb-saves   # end a job's rest (rest.py)
 ~/.venvs/puntmore/bin/python -m scraper resume paddypower
 ```
 
@@ -294,6 +299,7 @@ next read finds it logged in, and you get a "clear again" alert.
 docker logs -f puntmore-scraper
 docker exec puntmore-scraper python -m scraper status          # budget, cool-offs, each target, heartbeat
 docker exec puntmore-scraper python -m scraper dump bb-saves    # save the open page(s) to data/dumps/
+docker exec puntmore-scraper python -m scraper wake bb-saves    # end a job's rest (rest.py)
 docker exec puntmore-scraper python -m scraper resume paddypower
 docker exec puntmore-scraper python -m scraper check            # load targets.toml and list the targets
 docker exec puntmore-scraper python -m scraper selfcheck        # what a site sees of the browser (no network)
@@ -350,6 +356,9 @@ Targets are of these kinds:
   then retired.
 - **page**: one URL kept open, e.g. the Bookie Bashing bet builder. It is
   reloaded every `every_min`, or only when it goes quiet for `stale_min`.
+  Its parser may rest it (`rest.py`): the page closes and nothing loads
+  until the time the parser gave, as outside a `window`; `bb_saves` does so
+  when no game kicks off within 48 hours.
 - **fetch**: a `generic` Finder source, loaded, parsed once and closed
   (above).
 

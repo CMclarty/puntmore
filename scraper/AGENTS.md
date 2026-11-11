@@ -40,6 +40,11 @@ prices are `scraper_prices` files that the Hub posts to Render.
   tips (each row with its `tip_id`); events. All are drop files for the
   Hub; the Scraper sends Render nothing.
 - `status.py` - the heartbeat, `data/status.json`, the per-site budget summary.
+- `rest.py` - a job's rest: a parser raises `Rest(until, why)` when its page
+  has nothing to read for a while; the runner closes the job's tabs and loads
+  nothing for it until then (clamped to a minute..a week), shows it `paused`
+  with the reason, and keeps it in `data/resting.json` across restarts; a
+  changed or removed target loses it, `python -m scraper wake <target>` ends it.
 - `joblog.py` - one log per job, `data/logs/<name>.log` (JSON lines; past
   512 KB cut to its newest lines in 256 KB, 1000 at most); the runner
   writes it through `Runner._say`, `targets log` reads it. A write never
@@ -118,5 +123,6 @@ prices are `scraper_prices` files that the Hub posts to Render.
   (`scraper/parsers/`, one module each) are written only from what the real
   pages were seen to do: `bb_saves` drives the Bookie Bashing bet builder
   (above; this one BB target is the single named exception to "BB is never
-  automated", `docs/decisions.md`); `pp_most` reads Paddy's most-corners / most-cards three-ways
+  automated", `docs/decisions.md`), and only for games kicking off within 48
+  hours: with none that near it rests (`rest.py`; Callum, 11 Nov 2026); `pp_most` reads Paddy's most-corners / most-cards three-ways
   (written from the 29 Oct 2026 capture).
