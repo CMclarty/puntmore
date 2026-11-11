@@ -121,8 +121,10 @@ def _clock(monkeypatch):
     no page's state is left over from another test."""
     monkeypatch.setattr(mod, "_now", lambda: NOW)
     mod._STATE.clear()
+    mod._XSAVES.update(pulls=0, last=0.0)
     yield
     mod._STATE.clear()
+    mod._XSAVES.update(pulls=0, last=0.0)
 
 
 @pytest.fixture
@@ -265,7 +267,7 @@ def test_xsaves_that_comes_with_the_second_pull_is_read(page, monkeypatch):
     rows = mod.bb_saves(page, _Capture())
     assert [(r["home"], r["line"]) for r in rows] == [("Bradford", 3.5)]
     assert page.evaluate("SUB_SET") == "BB xSaves"
-    assert mod._STATE[id(page)]["xsaves_pulls"] == 0      # found: the count starts again
+    assert mod._XSAVES["pulls"] == 0                      # found: the count starts again
 
 
 def test_after_three_extra_pulls_it_waits_for_the_next_data_update(page, monkeypatch):
@@ -278,3 +280,99 @@ def test_after_three_extra_pulls_it_waits_for_the_next_data_update(page, monkeyp
         said.append(str(e.value).rsplit(" - ", 1)[1])
     assert said == ["updating the data again"] * 3 + ["waiting for the next data update"] * 3
     assert page.evaluate("UPDATES") == 1 + mod.XSAVES_RETRIES
+
+
+def _fresh_page(page):
+    """Another page in the same browser with the fake builder, as the runner's
+    timed reload gives the job."""
+    other = page.context.browser.new_page()
+    other.set_content(FAKE)
+    return other
+
+
+def test_the_extra_pull_count_survives_a_new_page(page, monkeypatch):
+    """The runner gives the job a new page on every timed reload; the extra
+    pulls spent on the old one still count (11 Nov 2026 review)."""
+    _only_epl(monkeypatch)
+    _games(page, _SOON, _SOON_PLAYERS, xsaves_after=99)
+    for _ in range(mod.XSAVES_RETRIES):
+        with pytest.raises(mod.BuilderNotReady) as e:
+            mod.bb_saves(page, _Capture())
+        assert str(e.value).endswith("updating the data again")
+    page.close()
+    fresh = _fresh_page(page)
+    _games(fresh, _SOON, _SOON_PLAYERS, xsaves_after=99)
+    for _ in range(2):
+        with pytest.raises(mod.BuilderNotReady) as e:
+            mod.bb_saves(fresh, _Capture())
+        assert str(e.value).endswith("waiting for the next data update")
+    assert fresh.evaluate("UPDATES") == 1                 # its own first pull, no fourth extra
+
+
+def test_extra_pulls_are_allowed_again_once_an_update_interval_has_passed(page, monkeypatch):
+    _only_epl(monkeypatch)
+    _games(page, _SOON, _SOON_PLAYERS, xsaves_after=99)
+    for _ in range(mod.XSAVES_RETRIES + 1):
+        with pytest.raises(mod.BuilderNotReady):
+            mod.bb_saves(page, _Capture())
+    mod._XSAVES["last"] -= mod.UPDATE_EVERY_S            # the last extra pull, 30 min ago
+    with pytest.raises(mod.BuilderNotReady) as e:
+        mod.bb_saves(page, _Capture())
+    assert str(e.value).endswith("updating the data again")
+
+
+def test_a_closed_pages_state_is_dropped(page, monkeypatch):
+    _only_epl(monkeypatch)
+    _games(page, _SOON, _SOON_PLAYERS)
+    other = _fresh_page(page)
+    _games(other, _SOON, _SOON_PLAYERS)
+    mod.bb_saves(other, _Capture())
+    assert id(other) in mod._STATE
+    other.close()
+    mod.bb_saves(page, _Capture())
+    assert id(other) not in mod._STATE                    # a later page cannot inherit it
+
+
+# --- the 48-hour window is absolute time (11 Nov 2026 review) -----------------
+CLOCKS_GO_FORWARD = datetime(2026, 3, 28, 12, 0, tzinfo=LONDON)   # Sat; BST from 01:00 Sun 29 Mar
+
+
+def test_across_a_clock_change_a_game_47_and_a_half_hours_ahead_is_read(page, monkeypatch):
+    monkeypatch.setattr(mod, "_now", lambda: CLOCKS_GO_FORWARD)
+    _only_epl(monkeypatch)
+    games = ["all (1) - 12:30 30th", "Leeds v Hull - 12:30 30th"]    # 11:30 UTC Mon: 47.5 h
+    _games(page, {"English Premier League (1/1)": games}, {games[1]: ["Leeds", "Hull"]})
+    rows = mod.bb_saves(page, _Capture())
+    assert [r["home"] for r in rows] == ["Leeds"]
+
+
+def test_across_a_clock_change_a_game_48_and_a_half_hours_ahead_rests_half_an_hour(page, monkeypatch):
+    monkeypatch.setattr(mod, "_now", lambda: CLOCKS_GO_FORWARD)
+    _only_epl(monkeypatch)
+    games = ["all (1) - 13:30 30th", "Bath v Wells - 13:30 30th"]    # 12:30 UTC Mon: 48.5 h
+    _games(page, {"English Premier League (1/1)": games}, {games[1]: ["Bath", "Wells"]})
+    with pytest.raises(mod.Rest) as e:
+        mod.bb_saves(page, _Capture())
+    assert e.value.until == CLOCKS_GO_FORWARD.timestamp() + 30 * 60
+    assert e.value.why == "no games within 48 hours - next is Bath v Wells, Mon 30 Mar 13:30"
+
+
+def test_a_game_at_now_is_out_and_one_exactly_48_hours_ahead_is_in(page, monkeypatch):
+    _only_epl(monkeypatch)
+    games = ["all (2) - 17:00",
+             "Spurs v Wolves - 17:00",                  # kicks off now
+             "Leeds v Hull - 17:00 28th"]               # exactly now + 48 h
+    _games(page, {"English Premier League (2/2)": games}, {g: ["H", "A"] for g in games[1:]})
+    rows = mod.bb_saves(page, _Capture())
+    assert [r["home"] for r in rows] == ["Leeds"]
+    assert not [g for g in page.evaluate("VISITED") if g.startswith("Spurs")]
+
+
+def test_an_ordinal_that_rolls_into_next_month_is_within_the_window(page, monkeypatch):
+    now = datetime(2026, 11, 30, 12, 0, tzinfo=LONDON)
+    monkeypatch.setattr(mod, "_now", lambda: now)
+    _only_epl(monkeypatch)
+    games = ["all (1) - 12:30 1st", "Leeds v Hull - 12:30 1st"]      # 1 Dec: 24.5 h
+    _games(page, {"English Premier League (1/1)": games}, {games[1]: ["Leeds", "Hull"]})
+    rows = mod.bb_saves(page, _Capture())
+    assert [(r["home"], r["kickoff"]) for r in rows] == [("Leeds", "2026-12-01T12:30:00Z")]
