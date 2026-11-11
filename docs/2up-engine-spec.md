@@ -70,5 +70,5 @@ results source.
 BB's terms (s.7) ban any automated access without written permission, and its bet-tracker API
 returns 401 without a token. BB is never scraped for this module: the tracker comparison is
 manual and user-triggered. Either Barbitrage Ltd gives written permission, or BB interaction
-stays manual. (The Scraper's one existing BB target, `bb-saves`, is an open item in the
-register.)
+stays manual. (The Scraper's one existing BB target, `bb-saves`, is the register's single
+named exception.)

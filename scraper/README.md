@@ -3,7 +3,8 @@
 The Scraper service: the one real Chrome on the Hub's desktop. It reads every
 page any tool needs and fills what OddsPapi lacks: Paddy Power pages kept
 **open** (it listens to what they receive), Finder's sources loaded and
-closed, and one Bookie Bashing page (an open item in the register). After
+closed, and one Bookie Bashing page (`bb-saves`, the register's one named
+exception). After
 the first load the site's own scripts keep each page fresh, so most targets
 cost no further requests. Runs as the user service `puntmore-scraper` on the
 logged-in desktop session, updated by `puntmore-update.timer` with the rest of
@@ -24,8 +25,8 @@ box's Chrome logged in by a person; over VNC in the Docker fallback).
 the 29 Oct 2026 capture; see its docstring).
 
 ## What it will and won't do
-- Opens pages on `paddypower.com`, `bookiebashing.net` (one target, an open
-  item in `docs/decisions.md`) and Finder's `generic` sources, within
+- Opens pages on `paddypower.com`, `bookiebashing.net` (one target, the named
+  exception in `docs/decisions.md`) and Finder's `generic` sources, within
   fixed budgets (`sites.py`): Paddy 15 loads/h and 120/day, Bookie Bashing 8/h
   and 120/day, generic 60/h and 400/day. Nothing in config can raise them.
 - No Paddy traffic between 01:00 and 07:00 (Europe/London). Its pages are
