@@ -413,6 +413,18 @@ def test_the_aw26_runbook_is_the_skill_the_daemon_names():
     assert aw26_loop.SKILL == "puntmore-aw26"
 
 
+def test_the_aw26_runbook_reads_first_and_keeps_the_upload_for_the_chief_of_staff():
+    text = AW26_RUNBOOK.read_text()
+    headings = re.findall(r"^## (.+)$", text, re.M)
+    reading = next(i for i, h in enumerate(headings) if h.startswith("Reading"))
+    telegram = next(i for i, h in enumerate(headings) if "Telegram" in h)
+    assert reading < telegram == len(headings) - 1 and "chief of staff" in headings[telegram]
+    guard = ("If you were given a photo id, you are the reader: go to Reading and never run "
+             "`puntmore aw26 upload`.")
+    assert guard in text and text.index(guard) < text.index("## ")
+    assert text.count("puntmore aw26 upload") == 2          # the guard, and the chief of staff's step
+
+
 def test_the_aw26_runbook_names_only_real_commands():
     named = set(re.findall(r"puntmore aw26 (\w+)", AW26_RUNBOOK.read_text()))
     assert named == {"fail", "board", "record", "upload"}

@@ -2,6 +2,8 @@
 from Render and handed to HubAI with the photo attached; a run that ends without recording or
 failing the photo fails it "Qwen did not finish"."""
 import json
+import logging
+import os
 import subprocess
 import threading
 import time
@@ -58,6 +60,12 @@ class _Render:
 
     def posted(self, suffix):
         return [(p, body) for m, p, body in self.calls if m == "POST" and p.endswith(suffix)]
+
+
+@pytest.fixture(autouse=True)
+def _hermes_seen(monkeypatch):
+    """Each test starts with hermes not yet reported missing."""
+    monkeypatch.setattr(aw26_loop, "_hermes_missing", False, raising=False)
 
 
 @pytest.fixture
@@ -154,10 +162,33 @@ def test_a_missing_hermes_takes_nothing(cfg, caplog):
     assert "hermes" in caplog.text
 
 
+def test_a_missing_hermes_is_logged_once_then_on_each_change(cfg, caplog):
+    gone = cfg.with_overrides(hermes_bin=str(cfg.data_dir / "no-hermes"))
+    caplog.set_level(logging.INFO, logger="puntmore.aw26")
+
+    def lines():
+        return [r.getMessage() for r in caplog.records if "hermes binary" in r.getMessage()]
+    for _ in range(3):
+        aw26_loop.read_once(gone, opener=_Render([]), run=_Run())
+    assert len(lines()) == 1 and "not found" in lines()[0]
+    aw26_loop.read_once(cfg, opener=_Render([]), run=_Run())
+    aw26_loop.read_once(cfg, opener=_Render([]), run=_Run())
+    assert len(lines()) == 2 and "found again" in lines()[1]
+    aw26_loop.read_once(gone, opener=_Render([]), run=_Run())
+    assert len(lines()) == 3 and "not found" in lines()[2]
+
+
 def test_the_default_run_writes_hermes_output_under_data_aw26(cfg):
     # a shell stands in for hermes: hermes itself is never launched by a test
     aw26_loop.default_run(cfg, 5)(["sh", "-c", "echo read it; echo oops >&2"], 10)
     assert (cfg.data_dir / "aw26" / "5.txt").read_bytes() == b"read it\noops\n"
+
+
+def test_hermes_is_told_the_photo_id_in_its_environment(cfg, monkeypatch):
+    monkeypatch.setenv("PUNTMORE_TEST_KEPT", "yes")
+    aw26_loop.default_run(cfg, 5)(["sh", "-c", 'echo "$PUNTMORE_AW26_PHOTO_ID $PUNTMORE_TEST_KEPT"'], 10)
+    assert (cfg.data_dir / "aw26" / "5.txt").read_bytes() == b"5 yes\n"
+    assert "PUNTMORE_AW26_PHOTO_ID" not in os.environ          # the daemon's own environment is untouched
 
 
 def _gone(pid):
@@ -221,9 +252,21 @@ def test_render_unreachable_after_the_run_is_unchecked(cfg, after, caplog):
     assert "15 min" in caplog.text
 
 
+class _Stop(threading.Event):
+    """The loop's stop event, with a wait that keeps the seconds asked and returns at once."""
+
+    def __init__(self):
+        super().__init__()
+        self.waits = []
+
+    def wait(self, timeout=None):
+        self.waits.append(timeout)
+        return self.is_set()
+
+
 def test_a_bad_pass_never_stops_the_loop(cfg, monkeypatch):
     from puntmore_hub import daemon
-    stop, passes = threading.Event(), []
+    stop, passes = _Stop(), []
 
     def read_once(c):
         passes.append(c)
@@ -232,7 +275,29 @@ def test_a_bad_pass_never_stops_the_loop(cfg, monkeypatch):
         stop.set()
         return {"photo": None, "outcome": "idle"}
     monkeypatch.setattr(aw26_loop, "read_once", read_once)
-    daemon._aw26_loop(cfg, stop, lambda s: None)
-    assert len(passes) == 2
+    daemon._aw26_loop(cfg.with_overrides(aw26_every_s=60), stop)
+    assert len(passes) == 2 and stop.waits == [60, 60]      # waits on its stop event, not a shared sleep
     status = daemon.last_status(cfg)["aw26"]
     assert status["counts"] == {"photo": None, "outcome": "idle"} and status["error"] is None
+
+
+def test_a_status_write_that_fails_never_stops_the_loop_or_hides_the_error(cfg, monkeypatch, caplog):
+    from puntmore_hub import daemon
+    stop, passes = _Stop(), []
+
+    def read_once(c):
+        passes.append(c)
+        if len(passes) == 1:
+            raise OSError("Render down")
+        stop.set()
+        return {"photo": None, "outcome": "idle"}
+
+    def record(c, counts, error):
+        raise OSError("disk full")
+    monkeypatch.setattr(aw26_loop, "read_once", read_once)
+    monkeypatch.setattr(daemon, "_record_aw26", record)
+    daemon._aw26_loop(cfg, stop)
+    assert len(passes) == 2
+    logged = [r.getMessage() for r in caplog.records if r.name == "puntmore.daemon"]
+    assert "Render down" in logged[0] and "disk full" in logged[1]      # the pass's error first
+    assert sum("disk full" in m for m in logged) == 2                   # each write failure logged

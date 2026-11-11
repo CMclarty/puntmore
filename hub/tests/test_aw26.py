@@ -23,6 +23,12 @@ def cfg(cfg):
     return cfg.with_overrides(render_http="https://puntmore.example/", render_api_key="k")
 
 
+@pytest.fixture(autouse=True)
+def _not_reading(monkeypatch):
+    """No test runs as a reader unless it sets PUNTMORE_AW26_PHOTO_ID itself."""
+    monkeypatch.delenv("PUNTMORE_AW26_PHOTO_ID", raising=False)
+
+
 # ---- printed times ----------------------------------------------------------------------------
 
 @pytest.mark.parametrize("printed, iso", [
@@ -43,6 +49,12 @@ def test_a_printed_time_is_london_turned_to_utc(printed, iso):
 def test_an_unreadable_time_is_refused(bad):
     with pytest.raises(ValueError, match="unreadable time"):
         aw26.parse_printed(bad)
+
+
+@pytest.mark.parametrize("bare", ["2026-10-17T11:06:07", "2026-10-17 11:06"])
+def test_an_iso_time_with_no_offset_is_refused_not_read_as_utc(bare):
+    with pytest.raises(ValueError, match="no offset"):
+        aw26.parse_printed(bare)
 
 
 # ---- the request helper -----------------------------------------------------------------------
@@ -149,6 +161,23 @@ def test_record_dry_run_posts_nothing(cfg):
     assert out["dry_run"]["placed_at"] == "2026-10-16T15:17:52Z" and "max_return" not in out["dry_run"]
 
 
+@pytest.mark.parametrize("receipt", [None, "", "   "])
+def test_record_refuses_a_slip_with_no_receipt_before_any_request(cfg, receipt):
+    slip = {k: v for k, v in SLIP.items() if k != "receipt"}
+    if receipt is not None:
+        slip["receipt"] = receipt
+    never = lambda req, timeout: pytest.fail("sent")
+    for dry_run in (False, True):
+        with pytest.raises(ValueError, match="no receipt: fail the photo"):
+            aw26.record(cfg, slip, dry_run=dry_run, opener=never)
+
+
+def test_a_slip_with_no_offer_is_other(cfg):
+    bare = {k: v for k, v in SLIP.items() if k != "offer"}
+    assert aw26.record(cfg, bare, dry_run=True)["dry_run"]["offer"] == "other"   # never Render's refund
+    assert aw26.record(cfg, {**bare, "offer": "boost"}, dry_run=True)["dry_run"]["offer"] == "boost"
+
+
 def test_record_a_duplicate_is_success_and_any_other_refusal_raises(cfg):
     dup = _Resp(409, {"detail": "Slip B0000000000000-000000-0 is already in"})
     assert aw26.record(cfg, SLIP, opener=_Recorder(dup)) == \
@@ -163,8 +192,8 @@ def test_board_asks_for_the_utc_moment_and_keeps_the_named_game(cfg):
     out = aw26.board(cfg, "10/17/2026, 12:06:07 PM", match="Everton v Chelsea", opener=op)
     assert op.reqs[0].full_url == "https://puntmore.example/api/paddy/board-at?at=2026-10-17T11%3A06%3A07Z"
     assert out == [{"event_id": "e1", "match": "Everton v Chelsea", "commence_time": "2026-10-17T11:30:00Z",
-                    "bets": [{"market": "corners", "line": 9.5, "side": "Over", "pick": "Over 9.5 corners",
-                              "odds": 1.9, "fair": 1.8}]}]
+                    "bets": [{"market": "corners", "line": 9.5, "side": "over", "pick": "Over 9.5 corners",
+                              "odds": 1.9, "fair": 1.8}]}]      # side lower case, as a leg's
     assert [g["event_id"] for g in aw26.board(cfg, "2026-10-17T11:06:07Z", opener=_Recorder(_Resp(200, GAMES)))] \
         == ["e1", "e2"]
     assert aw26.board(cfg, "2026-10-17T11:06:07Z", match="v FC", opener=_Recorder(_Resp(200, GAMES))) == []
@@ -197,6 +226,22 @@ def test_photos_fail_and_upload(cfg, tmp_path):
     assert req.full_url.endswith("/api/aw26/photos") and req.get_header("Content-type").startswith("multipart/form-data")
     assert b'name="source"\r\n\r\ntelegram\r\n' in req.data
     assert b'filename="slip.png"\r\nContent-Type: image/png\r\n\r\n\x89PNG' in req.data
+
+
+@pytest.mark.parametrize("name, data, ctype", [
+    ("slip", b"\xff\xd8\xff\xe0jpeg", "image/jpeg"),                  # no extension
+    ("slip.bin", b"\x89PNG\r\n\x1a\n", "image/png"),                  # a name that is no image type
+    ("file_17", b"RIFF\x10\x00\x00\x00WEBPVP8 ", "image/webp"),
+    ("slip", b"hello", "application/octet-stream"),                  # unknown stays as it is
+    ("slip.bin", b"hello", "application/octet-stream"),
+    ("slip.png", b"\xff\xd8\xff\xe0jpeg", "image/png"),                # the name's image type wins
+])
+def test_upload_sniffs_the_image_type_when_the_name_gives_none(cfg, tmp_path, name, data, ctype):
+    photo = tmp_path / name
+    photo.write_bytes(data)
+    op = _Recorder(_Resp(200, [{"id": 8, "state": "waiting"}]))
+    aw26.upload(cfg, photo, opener=op)
+    assert f'filename="{name}"\r\nContent-Type: {ctype}\r\n\r\n'.encode() in op.reqs[0].data
 
 
 # ---- the CLI ----------------------------------------------------------------------------------
@@ -259,3 +304,77 @@ def test_the_cli_lists_takes_fails_uploads_and_reads_the_board(cfg, monkeypatch,
     answers["/api/aw26/photos"] = _Resp(200, [{"id": 9, "source": "page"}])
     cli.main(["aw26", "upload", str(photo), "--source", "page"])
     assert json.loads(capsys.readouterr().out) == {"id": 9, "source": "page"}
+
+
+def test_the_cli_refuses_a_slip_with_no_receipt(cfg, monkeypatch, tmp_path, capsys):
+    from puntmore_hub import cli
+    monkeypatch.setattr(cli, "settings", cfg)
+    monkeypatch.setattr(aw26, "_open", lambda req, timeout: pytest.fail("sent"))
+    slip = tmp_path / "slip.json"
+    slip.write_text(json.dumps({k: v for k, v in SLIP.items() if k != "receipt"}))
+    for extra in ([], ["--dry-run"]):
+        with pytest.raises(SystemExit) as out:
+            cli.main(["aw26", "record", str(slip), *extra])
+        assert out.value.code == 2 and "no receipt" in capsys.readouterr().err
+
+
+def test_a_reading_run_may_not_upload(cfg, monkeypatch, tmp_path, capsys):
+    from puntmore_hub import cli
+    monkeypatch.setattr(cli, "settings", cfg)
+    monkeypatch.setattr(aw26, "_open", lambda req, timeout: pytest.fail("sent"))
+    monkeypatch.setenv("PUNTMORE_AW26_PHOTO_ID", "42")
+    photo = tmp_path / "slip.jpg"
+    photo.write_bytes(b"\xff\xd8\xff")
+    with pytest.raises(SystemExit) as out:
+        cli.main(["aw26", "upload", str(photo)])
+    err = capsys.readouterr().err
+    assert out.value.code == 2 and "reading photo 42" in err and "must not upload" in err
+
+
+def test_a_reading_run_records_its_own_photo(cfg, monkeypatch, tmp_path, capsys):
+    from puntmore_hub import cli
+    monkeypatch.setattr(cli, "settings", cfg)
+    sent = []
+
+    def urlopen(req, timeout):
+        sent.append(json.loads(req.data))
+        return _Resp(200, {"id": 1})
+    monkeypatch.setattr(aw26, "_open", urlopen)
+    monkeypatch.setenv("PUNTMORE_AW26_PHOTO_ID", "42")
+    slip = tmp_path / "slip.json"
+    slip.write_text(json.dumps({k: v for k, v in SLIP.items() if k != "photo_id"}))
+    cli.main(["aw26", "record", str(slip), "--dry-run"])             # no photo_id: filled in
+    assert json.loads(capsys.readouterr().out)["dry_run"]["photo_id"] == 42 and sent == []
+    cli.main(["aw26", "record", str(slip)])
+    assert sent[0]["photo_id"] == 42
+    slip.write_text(json.dumps({**SLIP, "photo_id": 42}))            # its own id: sent as it is
+    cli.main(["aw26", "record", str(slip)])
+    assert sent[1]["photo_id"] == 42 and len(sent) == 2
+
+
+def test_a_reading_run_refuses_another_photos_slip(cfg, monkeypatch, tmp_path, capsys):
+    from puntmore_hub import cli
+    monkeypatch.setattr(cli, "settings", cfg)
+    monkeypatch.setattr(aw26, "_open", lambda req, timeout: pytest.fail("sent"))
+    monkeypatch.setenv("PUNTMORE_AW26_PHOTO_ID", "42")
+    slip = tmp_path / "slip.json"
+    slip.write_text(json.dumps(SLIP))                                 # photo_id 7
+    for extra in ([], ["--dry-run"]):
+        with pytest.raises(SystemExit) as out:
+            cli.main(["aw26", "record", str(slip), *extra])
+        err = capsys.readouterr().err
+        assert out.value.code == 2 and "7" in err and "42" in err
+
+
+def test_without_a_photo_id_record_and_upload_are_as_before(cfg, monkeypatch, tmp_path, capsys):
+    from puntmore_hub import cli
+    monkeypatch.setattr(cli, "settings", cfg)
+    slip = tmp_path / "slip.json"
+    slip.write_text(json.dumps({k: v for k, v in SLIP.items() if k != "photo_id"}))
+    cli.main(["aw26", "record", str(slip), "--dry-run"])
+    assert "photo_id" not in json.loads(capsys.readouterr().out)["dry_run"]
+    monkeypatch.setattr(aw26, "_open", lambda req, timeout: _Resp(200, [{"id": 9}]))
+    photo = tmp_path / "slip.jpg"
+    photo.write_bytes(b"\xff\xd8\xff")
+    cli.main(["aw26", "upload", str(photo)])
+    assert json.loads(capsys.readouterr().out) == {"id": 9}

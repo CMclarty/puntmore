@@ -24,7 +24,8 @@ change, not a bug fix, and needs a line in the register.
 A slip photo goes its own short way, not through the chain. The page uploads a photo
 (`POST /api/aw26/photos`; a photo sent to HubAI on Telegram comes in the same way, through
 `puntmore aw26 upload --source telegram`) → Render keeps it in `aw_photos`, `waiting` → the
-Hub daemon's AW 26 loop takes the oldest once a minute (`reading`), downloads it and starts
+Hub daemon's AW 26 loop, when switched on (`PUNTMORE_AW26_READ=1`) and Render's address and
+key are set, takes the oldest once a minute (`reading`), downloads it and starts
 HubAI on it, one at a time (`hub/puntmore_hub/aw26_loop.py`) → HubAI reads it by its runbook
 and records the slip with `photo_id` (`done`; a receipt already in: `duplicate`), or fails it
 with a reason (back to `waiting`, `failed` after 3 tries, resent from the page). A run that

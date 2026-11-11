@@ -28,7 +28,7 @@ AW 26 slips ◄── /aw26/slips/record ────── HubAI (`puntmore aw2
 ```
 puntmore_hub/
   config.py        settings from .env; nothing hard-coded
-  daemon.py        `puntmore daemon`: the inbox pass every 30 s, the price drops every 10 s, the mailbox poll and the AW 26 photo loop on their own threads
+  daemon.py        `puntmore daemon`: the inbox pass every 30 s, the price drops every 10 s, the mailbox poll and the AW 26 photo loop (when `PUNTMORE_AW26_READ=1`) on their own threads
   aw26.py          AW 26: Render's photo queue, Paddy's board at a moment, a slip recorded (`puntmore aw26`); printed times to UTC
   aw26_loop.py     the daemon's AW 26 loop: the oldest waiting photo taken, read by HubAI, checked on Render after
   inbox.py         the Scraper's drop files: tips, events -> stored tips for HubAI, escalations; prices -> Render
@@ -98,7 +98,7 @@ HubAI's contract (the spec's step 2, which Callum tightens in use): **offer** wh
 
 Examples: `football:2026-11-07:manchester-united-v-tottenham-hotspur`, `horse:2026-11-07:cheltenham:13:30`. A key spelt two ways makes a duplicate look like a new bet, so this is the part of the contract to get right; leave `event_id` out of an asked row that has no day and time.
 
-Env: `PUNTMORE_RENDER_HTTP` (the https base of Render) and `PUNTMORE_RENDER_API_KEY`, a Render API client key carrying `ingest` (in Render's shell: `python -m app.apikeys create <name> --tools ingest`), sent as a Bearer key. The inbox posts the Scraper's Paddy prices with the same two settings, and AW 26 uses them too, with the key also granted `aw26` and `cards` (`python -m app.apikeys grant <name> --tools aw26,cards`; `hub/AGENTS.md` has the AW 26 loop and its runbook).
+Env: `PUNTMORE_RENDER_HTTP` (the https base of Render) and `PUNTMORE_RENDER_API_KEY`, a Render API client key carrying `ingest` (in Render's shell: `python -m app.apikeys create <name> --tools ingest`), sent as a Bearer key. The inbox posts the Scraper's Paddy prices with the same two settings, and AW 26 uses them too, with the key also granted `aw26` and `cards` (`python -m app.apikeys grant <name> --tools aw26,cards`; the AW 26 loop runs only when `PUNTMORE_AW26_READ=1` as well; `hub/AGENTS.md` has the loop and its runbook).
 
 ## Setup (from `hub/`)
 ```bash
@@ -130,10 +130,10 @@ puntmore aw26 photos                 AW 26's photo queue on Render: the photos n
 puntmore aw26 take ID                take a waiting photo and save its image under data/aw26/
 puntmore aw26 fail ID --reason T     a photo HubAI cannot make a slip of
 puntmore aw26 upload FILE [--source page|telegram]  put a photo on the queue (the chief of staff, for one sent on Telegram)
-puntmore aw26 board --at T [--match "Home v Away"]  Paddy's board as it stood at T (printed or ISO)
+puntmore aw26 board --at T [--match "Home v Away"]  Paddy's board as it stood at T (printed, or ISO with its offset)
 puntmore aw26 record FILE|- [--dry-run]  record a slip HubAI read (--dry-run: print the body, send nothing)
 puntmore heartbeat                   the daily summary, on demand
-puntmore daemon                      the daemon: the inbox every 30 s, the price drops every 10 s, the mailbox poll, and the AW 26 photo loop (`puntmore link` is the same command)
+puntmore daemon                      the daemon: the inbox every 30 s, the price drops every 10 s, the mailbox poll, and the AW 26 photo loop when switched on (`puntmore link` is the same command)
 puntmore web                         the Console on PUNTMORE_WEB_BIND (default http://127.0.0.1:8090)
 puntmore update [--dry-run|--check]  fast-forward to origin/main, reinstall, restart (deploy/update.sh)
 python -m scraper status|dump|resume the Scraper's own commands, from scraper/

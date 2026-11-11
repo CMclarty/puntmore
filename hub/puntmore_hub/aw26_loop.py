@@ -11,7 +11,11 @@ fail a photo the Hub took, the pass says so ("unchecked") and Render's release o
 15 min ago is the backstop. Hermes runs in its own session, its output to `<data>/aw26/<id>.txt`;
 a run past its budget is killed with every tool it started. The photo is deleted after the run.
 
-With no hermes binary nothing is taken: a photo is never taken that nobody will read.
+With no hermes binary nothing is taken: a photo is never taken that nobody will read (said once,
+and again only when the binary comes back or goes missing again).
+
+Hermes is started with PUNTMORE_AW26_PHOTO_ID=<id> in its environment: `puntmore aw26` then
+refuses an upload and any other photo's slip, and fills in `photo_id` when the slip has none.
 """
 from __future__ import annotations
 
@@ -52,15 +56,16 @@ def command(cfg: Settings, photo_id: int, image: Path) -> list[str]:
 
 
 def default_run(cfg: Settings, photo_id: int) -> Run:
-    """Run Hermes to the end in its own session, its output appended to `<data>/aw26/<id>.txt`.
-    Past `timeout` the whole process group is killed (Hermes and every tool it started) and
-    TimeoutExpired raised."""
+    """Run Hermes to the end in its own session, its output appended to `<data>/aw26/<id>.txt`,
+    with PUNTMORE_AW26_PHOTO_ID=<id> added to its environment. Past `timeout` the whole process
+    group is killed (Hermes and every tool it started) and TimeoutExpired raised."""
     def run(cmd: list[str], timeout: float) -> None:
         out_dir = cfg.data_dir / "aw26"
         out_dir.mkdir(parents=True, exist_ok=True)
         with open(out_dir / f"{int(photo_id)}.txt", "ab") as fh:
             proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=fh,
-                                    stderr=subprocess.STDOUT, start_new_session=True)
+                                    stderr=subprocess.STDOUT, start_new_session=True,
+                                    env={**os.environ, aw26.PHOTO_ID_ENV: str(int(photo_id))})
             try:
                 proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
@@ -73,8 +78,19 @@ def default_run(cfg: Settings, photo_id: int) -> Run:
     return run
 
 
+_hermes_missing = False      # the last pass found no hermes binary: said once, until it changes
+
+
 def _hermes(cfg: Settings) -> bool:
-    return bool(cfg.hermes_bin) and Path(cfg.hermes_bin).is_file()
+    """The hermes binary is there. Its going missing, and its coming back, are logged once each."""
+    global _hermes_missing
+    present = bool(cfg.hermes_bin) and Path(cfg.hermes_bin).is_file()
+    if not present and not _hermes_missing:
+        log.warning("aw26: hermes binary not found at %r; no photo taken until it is", cfg.hermes_bin)
+    elif present and _hermes_missing:
+        log.info("aw26: hermes binary found again at %r", cfg.hermes_bin)
+    _hermes_missing = not present
+    return present
 
 
 def _fail(cfg: Settings, photo_id: int, reason: str, opener: aw26.Opener | None) -> bool:
@@ -97,7 +113,6 @@ def read_once(cfg: Settings, *, opener: aw26.Opener | None = None, run: Run | No
     could not be reached to check or fail it: Render's 15-min release is the backstop).
     An error before the take (listing, or the take refused) is raised; the daemon logs it."""
     if not _hermes(cfg):
-        log.warning("aw26: hermes binary not found at %r; no photo taken", cfg.hermes_bin)
         return {"photo": None, "outcome": "idle"}
     waiting = [p for p in aw26.photos(cfg, opener=opener) if p.get("state") == "waiting"]
     if not waiting:

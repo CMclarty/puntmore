@@ -50,7 +50,8 @@ the main domain.
   terminal, a page over the stored rows with two screens: a Summary (the all-time profit, the
   day against the targets, the selections in aggregate with win or lose) and a Slips sub
   screen. A photo uploaded on the page, or sent to HubAI on Telegram, waits in a queue on
-  Render (`aw_photos`); once a minute the Hub daemon takes the oldest and starts HubAI on it,
+  Render (`aw_photos`); once a minute, when switched on (`PUNTMORE_AW26_READ`), the Hub
+  daemon takes the oldest and starts HubAI on it,
   which reads it by the runbook `hub/deploy/hermes-skills/puntmore-aw26/` and records the slip
   or fails the photo with a reason (`hub/AGENTS.md`). It records Paddy Power accumulators
   only, never sends the total odds, max return or bonus Paddy prints, and takes a slip with

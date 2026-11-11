@@ -26,6 +26,9 @@ from zoneinfo import ZoneInfo
 from .config import Settings
 
 TIMEOUT = 60          # seconds; the largest call is one photo up or down
+# Set by the daemon on the HubAI run reading one photo (aw26_loop.py): `puntmore aw26` then
+# refuses an upload and records that photo's slip only (cli.py `cmd_aw26`).
+PHOTO_ID_ENV = "PUNTMORE_AW26_PHOTO_ID"
 LONDON = ZoneInfo("Europe/London")
 Opener = Callable[..., Any]
 
@@ -45,8 +48,9 @@ class RenderError(RuntimeError):
 
 def parse_printed(text: str) -> str:
     """A time as the terminal prints it, month first in London time ("10/17/2026, 12:06:07 PM";
-    the comma and the seconds may be missing), or already ISO 8601 (UTC when it names no
-    offset), as ISO UTC "2026-10-17T11:06:07Z". Anything else raises ValueError."""
+    the comma and the seconds may be missing), or already ISO 8601 with its offset (`Z` or
+    `+01:00`), as ISO UTC "2026-10-17T11:06:07Z". An ISO time with no offset is refused, never
+    taken as UTC; anything else raises ValueError."""
     s = (text or "").strip()
     m = _PRINTED.fullmatch(s)
     try:
@@ -60,12 +64,12 @@ def parse_printed(text: str) -> str:
                             tzinfo=LONDON)
         elif _ISO.match(s):
             when = datetime.fromisoformat(s)
-            if when.tzinfo is None:
-                when = when.replace(tzinfo=timezone.utc)
         else:
             raise ValueError
     except ValueError:
         raise ValueError(f"unreadable time: {text!r}") from None
+    if when.tzinfo is None:
+        raise ValueError(f"ISO time with no offset: {text!r} (add Z for UTC, or send it as printed)")
     return when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -189,17 +193,33 @@ def fail(cfg: Settings, photo_id: int, reason: str, opener: Opener | None = None
     return _json(cfg, "POST", f"/api/aw26/photos/{int(photo_id)}/fail", opener, body={"reason": reason})
 
 
+def _sniff(data: bytes) -> str | None:
+    """The image type the first bytes name (JPEG, PNG or WEBP), or None."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:4] == b"\x89PNG":
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
 def upload(cfg: Settings, path: Path, source: str = "telegram", opener: Opener | None = None) -> dict:
-    """Put one photo on the queue; Render's row for it."""
+    """Put one photo on the queue; Render's row for it. Its type is the file name's, or, when the
+    name gives no image type, the one its first bytes name."""
+    data = path.read_bytes()
     ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    if not ctype.startswith("image/"):
+        ctype = _sniff(data) or ctype
     rows = _json(cfg, "POST", "/api/aw26/photos", opener,
-                 files=[(path.name, path.read_bytes(), ctype)], form={"source": source})
+                 files=[(path.name, data, ctype)], form={"source": source})
     return rows[0]
 
 
 def board(cfg: Settings, at: str, match: str | None = None, opener: Opener | None = None) -> list[dict]:
-    """Paddy's board as it stood at `at` (printed or ISO), each game compact. With `match`, only
-    the games whose home, away or match name holds a word of four letters or more from it."""
+    """Paddy's board as it stood at `at` (printed, or ISO with its offset), each game compact, a
+    bet's `side` lower case like a leg's. With `match`, only the games whose home, away or match
+    name holds a word of four letters or more from it."""
     query = urllib.parse.urlencode({"at": parse_printed(at)})
     games = _json(cfg, "GET", f"/api/paddy/board-at?{query}", opener)
     if match is not None:
@@ -207,12 +227,26 @@ def board(cfg: Settings, at: str, match: str | None = None, opener: Opener | Non
         games = [g for g in games
                  if any(w in (g.get(k) or "").lower() for w in words for k in ("home", "away", "match"))]
     return [{"event_id": g["event_id"], "match": g["match"], "commence_time": g["commence_time"],
-             "bets": [{k: b.get(k) for k in BET_KEYS} for b in g.get("bets") or []]} for g in games]
+             "bets": [_bet(b) for b in g.get("bets") or []]} for g in games]
+
+
+def _bet(b: dict) -> dict:
+    """One board bet, compact; its `side` lower case."""
+    out = {k: b.get(k) for k in BET_KEYS}
+    if isinstance(out["side"], str):
+        out["side"] = out["side"].lower()
+    return out
 
 
 def _normalise(slip: dict) -> dict:
-    """The body Render takes: its keys only, every time in ISO UTC. ValueError names the field."""
+    """The body Render takes: its keys only, every time in ISO UTC, `offer` "other" when the slip
+    names none (never Render's default, refund). A slip with no receipt is refused. ValueError
+    names the field."""
+    if not str(slip.get("receipt") or "").strip():
+        raise ValueError('no receipt: fail the photo with --reason "no receipt number"')
     body = {k: slip[k] for k in SLIP_KEYS if k in slip}
+    if not body.get("offer"):
+        body["offer"] = "other"
     try:
         body["placed_at"] = parse_printed(slip.get("placed_at") or "")
     except ValueError as exc:
@@ -232,9 +266,9 @@ def _normalise(slip: dict) -> dict:
 
 def record(cfg: Settings, slip: dict, *, dry_run: bool = False, opener: Opener | None = None) -> dict:
     """Record the slip HubAI read: {"recorded": <Render's slip>}, or {"duplicate": <detail>} when
-    the receipt is already in or the photo is already a slip (both success). An unreadable time
-    is a ValueError before anything is sent; any other refusal a RenderError. `dry_run` answers
-    {"dry_run": <the body>} and sends nothing."""
+    the receipt is already in or the photo is already a slip (both success). An unreadable time,
+    or no receipt, is a ValueError before anything is sent; any other refusal a RenderError.
+    `dry_run` answers {"dry_run": <the body>} and sends nothing."""
     body = _normalise(slip)
     if dry_run:
         return {"dry_run": body}

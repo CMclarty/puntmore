@@ -93,7 +93,11 @@ class Settings:
     # the runbook hub/deploy/hermes-skills/puntmore-scraper-ops; everything else goes to hermes_profile.
     hermes_scraper_profile: str = os.environ.get("PUNTMORE_HERMES_SCRAPER_PROFILE", "scraper-manager")
     hermes_home: Path = Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
-    # AW 26 (aw26_loop.py): the profile that reads a slip photo (with the puntmore-aw26 skill),
+    # AW 26 (aw26_loop.py): the daemon reads slip photos only when switched on (off until the
+    # reading has been proved on real slips) and Render is configured; the `puntmore aw26`
+    # commands work either way.
+    aw26_read: bool = _env_bool("PUNTMORE_AW26_READ", False)
+    # The profile that reads a slip photo (with the puntmore-aw26 skill),
     # how often the daemon looks for a waiting photo, and the seconds one reading may take. The
     # Hub kills a reading at budget + 60 s, which must stay under Render's STALE_AFTER (15 min,
     # render/api/app/aw26/photos.py), or Render releases the photo while HubAI is still on it.

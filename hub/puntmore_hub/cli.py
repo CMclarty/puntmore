@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -167,11 +168,27 @@ def cmd_finder(a):
         print(json.dumps(finder.post_status(settings, a.tip_id, a.status, at, store=_store())))
 
 
+def _reading_photo(slip: dict, reading: str) -> dict:
+    """The slip of the photo this run is reading (PUNTMORE_AW26_PHOTO_ID): its `photo_id` filled
+    in when it has none; another photo's id is a ValueError naming both."""
+    photo_id = int(reading)
+    if slip.get("photo_id") is None:
+        return {**slip, "photo_id": photo_id}
+    if str(slip["photo_id"]).strip() != str(photo_id):
+        raise ValueError(f"this run is reading photo {photo_id}, not photo {slip['photo_id']}")
+    return slip
+
+
 def cmd_aw26(a):
     """AW 26 (aw26.py): the slip-photo queue on Render, Paddy's board at a moment, and the slips
-    HubAI reads. JSON to stdout. An unreadable time exits 2 before anything is sent; any other
-    refusal exits 1; a slip already in (or a photo already a slip) is success."""
+    HubAI reads. JSON to stdout. An unreadable time or a slip with no receipt exits 2 before
+    anything is sent; any other refusal exits 1; a slip already in (or a photo already a slip)
+    is success. In a reading run (PUNTMORE_AW26_PHOTO_ID set, aw26_loop.py) `upload` exits 2,
+    and `record` fills in that `photo_id` or exits 2 on another one, `--dry-run` alike."""
+    reading = os.environ.get(aw26.PHOTO_ID_ENV, "").strip()
     try:
+        if a.which == "upload" and reading:
+            raise ValueError(f"this run is reading photo {reading} and must not upload")
         if a.which == "photos":
             out = aw26.photos(settings)
         elif a.which == "take":
@@ -186,6 +203,8 @@ def cmd_aw26(a):
             slip = json.loads(sys.stdin.read() if a.file == "-" else open(a.file).read())
             if not isinstance(slip, dict):
                 sys.exit("aw26 record: the file must hold one JSON slip")
+            if reading:
+                slip = _reading_photo(slip, reading)
             out = aw26.record(settings, slip, dry_run=a.dry_run)
     except ValueError as exc:
         print(f"aw26 {a.which}: {exc}", file=sys.stderr)

@@ -1,17 +1,13 @@
 ---
 name: puntmore-aw26
-description: Read a Paddy Power accumulator slip photo and record it on AW 26 with `puntmore aw26`. Use when you are handed an AW 26 slip photo to read, or when a slip photo arrives on Telegram.
+description: Read a queued AW 26 slip photo (a Paddy Power accumulator) and record the slip with `puntmore aw26`. Use when you are handed an AW 26 photo id and its photo to read. For the chief of staff only, queueing a slip photo sent on Telegram.
 ---
 
 # AW 26 slips
 
 AW 26 records Callum's **Paddy Power accumulators**, one slip per photo. The command is `puntmore` (`~/.venvs/puntmore/bin/puntmore` if it is not on your PATH). Every command prints JSON.
 
-## A slip photo on Telegram (chief of staff)
-
-1. Run `puntmore aw26 upload <the image file> --source telegram`.
-2. Reply "Queued for AW 26".
-3. Do not read the slip yourself. The AW 26 reader does that.
+If you were given a photo id, you are the reader: go to Reading and never run `puntmore aw26 upload`.
 
 ## Reading a slip photo
 
@@ -37,6 +33,7 @@ Run `puntmore aw26 fail <id> --reason "<reason>"` and stop when:
   - "qualified for money back acca": `refund`
   - "qualified for Acca Boost": `boost`
   - none of these, or unsure: `other`
+  - `offer` is always sent.
 - `stake`: the number on the "Total Stake" line (`GBP 100.00` is `100.00`).
 - Never read Total Odds, Max return, Bonus or "incl. bonus". They are not sent: Paddy's sums are sometimes wrong and Render works its own.
 
@@ -63,21 +60,21 @@ Run `puntmore aw26 board --at "<placed_at as printed>" --match "<Home v Away>"`.
 
 Find the leg's game. A team name on the slip can differ from the board's (the slip printed "Cardiff Metropolitan"): when one name differs, match on the other team and the kickoff.
 
-In that game, find the bet with the leg's kind as `market`, the same `line` and the same `side`. For a team leg the board's `market` is `team_corners` or `team_cards` and its `pick` names the team. The board's `saves` is the match total, so a goalkeeper leg is never found.
+In that game, find the bet with the leg's kind as `market`, the same `line` and the same `side` (the board's `side` is lower case, like the leg's). For a team leg the board's `market` is `team_corners` or `team_cards` and its `pick` names the team. The board's `saves` is the match total, so a goalkeeper leg is never found.
 
 - Found: add `fair_odds` = its `fair`, `fixture_id` = the game's `event_id`, and `kickoff` = the game's `commence_time`. Never use the board's `odds`.
 - Not found, unsure, `[]`, or the command errors: add `"fair_assumed": true` and no `fair_odds` or `fixture_id`.
 
 ### 5. Record
 
-Never guess. A field you did not read is left out.
+Never guess. `receipt`, `placed_at`, `offer` and each leg's `event` are always sent: with no full receipt the photo is failed `no receipt number` (step 1), and an offer you could not read is `other`. Any other field you did not read (`stake`, or a leg's `kickoff`, `market`, `selection`, `odds`, `kind`, `line`, `side`) is left out.
 
 1. Write the slip as JSON to `/tmp/aw26-<id>.json`, with `"photo_id": <id>`.
 2. Check it: `puntmore aw26 record /tmp/aw26-<id>.json --dry-run`. It sends nothing.
 3. Record it: `puntmore aw26 record /tmp/aw26-<id>.json`.
    - `{"recorded": ...}`: done. Stop.
    - `{"duplicate": ...}`: the slip is already in. That is a finished job. Stop.
-   - An error naming a field (e.g. `legs[2].kickoff: unreadable time`): look at that field on the photo again, fix it or leave it out, and record once more. If it fails again, run `puntmore aw26 fail <id> --reason "<the error>"`.
+4. An error from the check (step 2) or from the record (step 3), e.g. `legs[2].kickoff: unreadable time`: look at that field on the photo again, fix it or leave it out (never `receipt`, `placed_at` or `offer`), and go back to step 2 once. If it errors again, run `puntmore aw26 fail <id> --reason "<the error>"`.
 
 ### Worked example
 
@@ -105,7 +102,7 @@ Total Odds 5.79 / Total Stake: GBP 100.00 / Max return ...  (Total Odds and Max 
 
 ```text
 [{"event_id": "id1000001234567", "match": "Frosinone vs Sassuolo", "commence_time": "2026-10-16T18:45:00Z",
-  "bets": [{"market": "corners", "line": 9.5, "side": "Under", "pick": "Under 9.5 corners", "odds": 2.25, "fair": 2.1}]}]
+  "bets": [{"market": "corners", "line": 9.5, "side": "under", "pick": "Under 9.5 corners", "odds": 2.25, "fair": 2.1}]}]
 ```
 
 The corners leg is found. The four goalkeeper legs are never on the board, so they are fair assumed. The file for photo 42:
@@ -137,3 +134,11 @@ The corners leg is found. The four goalkeeper legs are never on the board, so th
   ]
 }
 ```
+
+## A slip photo on Telegram (chief of staff only)
+
+Only the chief of staff does this, for a slip photo Callum sends on Telegram. The reader never does.
+
+1. Run `puntmore aw26 upload <the image file> --source telegram`.
+2. Reply "Queued for AW 26".
+3. Do not read the slip yourself. The AW 26 reader does that.

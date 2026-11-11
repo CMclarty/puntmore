@@ -2,8 +2,12 @@
 files and the tipster mailbox poll, with no socket anywhere, and what it leaves for the Console."""
 import json
 import logging
+import os
+import subprocess
+import sys
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -60,21 +64,48 @@ def _stop_after(n):
     return ingest
 
 
-def test_without_render_the_daemon_starts_no_aw26_thread(cfg, monkeypatch, caplog):
+def test_the_photo_reader_is_off_unless_switched_on(tmp_path):
+    """PUNTMORE_AW26_READ: off by default, on at 1 (a fresh interpreter reads the environment)."""
+    env = {k: v for k, v in os.environ.items() if k != "PUNTMORE_AW26_READ"}
+    env["PUNTMORE_HUB_ROOT"] = str(tmp_path)          # no .env read
+    hub = Path(__file__).resolve().parents[1]          # this checkout's package, not an installed one
+    read = [sys.executable, "-c", "from puntmore_hub.config import Settings; print(Settings().aw26_read)"]
+    assert subprocess.run(read, env=env, cwd=hub, capture_output=True, text=True, check=True).stdout == "False\n"
+    on = {**env, "PUNTMORE_AW26_READ": "1"}
+    assert subprocess.run(read, env=on, cwd=hub, capture_output=True, text=True, check=True).stdout == "True\n"
+
+
+def _no_aw26_thread(cfg, monkeypatch, caplog):
+    """Run the daemon for two passes; the names of the threads it started."""
     started = []
     monkeypatch.setattr(inbox, "ingest", _stop_after(2))
     monkeypatch.setattr(aw26_loop, "read_once", lambda c, **kw: started.append(c))
     monkeypatch.setattr(threading.Thread, "start", lambda t: started.append(t.name))
     caplog.set_level(logging.INFO, logger="puntmore.daemon")
-    daemon.run(cfg, sleep=lambda s: None)
-    assert started == []
-    assert "aw26" not in daemon.last_status(cfg)
+    t = _Time()
+    daemon.run(cfg, sleep=t.sleep, clock=t.clock)
+    return started
+
+
+def test_switched_off_the_daemon_starts_no_aw26_thread(cfg, monkeypatch, caplog):
+    live = cfg.with_overrides(render_http="https://puntmore.example", render_api_key="k")
+    assert live.aw26_read is False
+    assert _no_aw26_thread(live, monkeypatch, caplog) == []
+    assert "aw26" not in daemon.last_status(live)
     assert caplog.text.count("AW 26 photo loop not started") == 1
-    assert "PUNTMORE_RENDER_HTTP" in caplog.text
+    assert "PUNTMORE_AW26_READ is not 1" in caplog.text and "PUNTMORE_RENDER_HTTP" not in caplog.text
+
+
+def test_without_render_the_daemon_starts_no_aw26_thread(cfg, monkeypatch, caplog):
+    on = cfg.with_overrides(aw26_read=True)
+    assert _no_aw26_thread(on, monkeypatch, caplog) == []
+    assert "aw26" not in daemon.last_status(on)
+    assert caplog.text.count("AW 26 photo loop not started") == 1
+    assert "PUNTMORE_RENDER_HTTP" in caplog.text and "PUNTMORE_AW26_READ" not in caplog.text
 
 
 def test_with_render_the_daemon_reads_photos_on_its_own_thread(cfg, monkeypatch, caplog):
-    live = cfg.with_overrides(render_http="https://puntmore.example", render_api_key="k")
+    live = cfg.with_overrides(render_http="https://puntmore.example", render_api_key="k", aw26_read=True)
     passed, names = threading.Event(), []
 
     def read_once(c):
@@ -189,7 +220,6 @@ def test_a_price_drop_is_posted_at_the_next_ten_second_wake(cfg, monkeypatch):
         sent.append((t.now, req.full_url, json.loads(req.data)))
         return _Resp()
     monkeypatch.setattr(finder, "_open", render)
-    monkeypatch.setattr(daemon, "_aw26_loop", lambda *a: None)   # Render is set: keep the photo loop off this clock
     row = {"home": "A", "away": "B", "kickoff": "2026-11-08T16:30:00Z", "market": "most_corners",
            "home_price": 1.5, "tie_price": 9.0, "away_price": 2.4}
 
@@ -228,7 +258,8 @@ def test_a_price_pass_over_an_empty_folder_logs_nothing(cfg, monkeypatch, caplog
     daemon.run(cfg, sleep=_stop_at(t, 30), clock=t.clock)
     assert len(passes) == 2
     logged = [r.getMessage() for r in caplog.records if r.name in ("puntmore.daemon", "puntmore.inbox")]
-    assert [m for m in logged if not m.startswith("AW 26 photo loop not started")] == []   # the start-up line only
+    assert [m for m in logged if not m.startswith("AW 26 photo loop not started")] == []   # the start-up line only:
+    # the reader is off by default and says so once at start-up, whatever the passes do
 
 
 def test_a_price_pass_that_only_left_files_waiting_writes_no_prices_line(cfg, monkeypatch, caplog):

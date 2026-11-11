@@ -29,28 +29,32 @@ files.
   `PUNTMORE_RENDER_API_KEY`); no retry loop: a file waits for the next pass, and is dropped once
   15 min old.
 - **The daemon talks to Render for AW 26** (`aw26_loop.py`; the register's AW 26 entry). Its
-  third loop, beside the inbox and the mailbox poll, starts only while `PUNTMORE_RENDER_HTTP`
-  and `PUNTMORE_RENDER_API_KEY` are set (the key granted `aw26` and `cards` as well as
-  `ingest`). Every `PUNTMORE_AW26_EVERY_S` (60 s) it takes the oldest waiting slip photo on
-  Render's queue (`POST /api/aw26/photos/{id}/take`), downloads it to `data/aw26/` and starts
-  HubAI on it (`PUNTMORE_HERMES_AW26_PROFILE`, default `betting-client-manager`, skill
-  `puntmore-aw26`), one photo at a time; with no hermes binary it takes nothing. A run
-  has `PUNTMORE_AW26_RUN_BUDGET_S` (600 s); 60 s past that its whole process group is killed.
-  A photo HubAI neither recorded nor failed is failed "Qwen did not finish", and one the Hub
-  could not download "the Hub could not fetch the photo". The photo is deleted after the run;
-  HubAI's output stays in `data/aw26/<id>.txt` and the last pass is under `aw26` in
+  third loop, beside the inbox and the mailbox poll, starts only when switched on
+  (`PUNTMORE_AW26_READ=1`, off until the reading has been proved) and `PUNTMORE_RENDER_HTTP` and
+  `PUNTMORE_RENDER_API_KEY` are set (the key granted `aw26` and `cards` as well as `ingest`);
+  the `puntmore aw26` commands work either way. Every `PUNTMORE_AW26_EVERY_S` (60 s) it takes
+  the oldest waiting slip photo on Render's queue (`POST /api/aw26/photos/{id}/take`), downloads
+  it to `data/aw26/` and starts HubAI on it (`PUNTMORE_HERMES_AW26_PROFILE`, default
+  `betting-client-manager`, skill `puntmore-aw26`) with `PUNTMORE_AW26_PHOTO_ID=<id>` in its
+  environment, one photo at a time; with no hermes binary it takes nothing. A run has
+  `PUNTMORE_AW26_RUN_BUDGET_S` (600 s); 60 s past that its whole process group is killed. A
+  photo HubAI neither recorded nor failed is failed "Qwen did not finish", and one the Hub could
+  not download "the Hub could not fetch the photo". The photo is deleted after the run; HubAI's
+  output stays in `data/aw26/<id>.txt` and the last pass is under `aw26` in
   `daemon-status.json`.
 - **HubAI reads a slip by its runbook**, `deploy/hermes-skills/puntmore-aw26/SKILL.md`, which
   `puntmore update` installs in the reader's profile and in the chief of staff's skills
   (`<hermes home>/skills`; `update.py`, `skill_targets`). It works through `puntmore aw26`:
   `photos`, `take <id>`, `fail <id> --reason "..."`, `upload <file> --source page|telegram`,
-  `board --at "<printed or ISO>" [--match "<Home v Away>"]` (Paddy's board as it stood then)
-  and `record <file or -> [--dry-run]`. The chief of staff puts a slip photo sent on Telegram
-  on the queue with `puntmore aw26 upload <file> --source telegram` and does not read it. The
-  rules are the register's: Paddy Power accumulators only; the total odds, max return and
-  bonus Paddy prints are never sent, Render does the sums; BONUS at the top of a slip is a free
-  bet (offer `free`); a printed time (month first, London) becomes UTC on the Hub
-  (`aw26.parse_printed`) and is never sent as printed.
+  `board --at "<printed, or ISO with its offset>" [--match "<Home v Away>"]` (Paddy's board as
+  it stood then) and `record <file or -> [--dry-run]`. With `PUNTMORE_AW26_PHOTO_ID` set,
+  `upload` is refused and `record` fills in that `photo_id` or refuses another; `record` always
+  refuses a slip with no receipt, and sends offer `other` when the slip names none. The chief of
+  staff puts a slip photo sent on Telegram on the queue with `puntmore aw26 upload <file>
+  --source telegram` and does not read it. The rules are the register's: Paddy Power
+  accumulators only; the total odds, max return and bonus Paddy prints are never sent, Render
+  does the sums; BONUS at the top of a slip is a free bet (offer `free`); a printed time (month
+  first, London) becomes UTC on the Hub (`aw26.parse_printed`) and is never sent as printed.
 - **Slip photos are private.** Never commit one; nothing in the repo carries a real receipt
   number, barcode or QR code, and an example uses the invented receipt
   `B0000000000000-000000-0`.

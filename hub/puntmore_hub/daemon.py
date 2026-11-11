@@ -7,9 +7,10 @@ events raised as escalations, then the Scraper's Paddy price drops posted to Ren
 other wakes it runs the price pass alone (`inbox.post_prices`), so a price reaches Render
 within about 10 s of the Scraper dropping it. The mail loop polls the tipster mailbox every
 PUNTMORE_IMAP_EVERY_MIN on its own thread when a mailbox is configured (`mail.poll`, which
-writes `mail-status.json`). The AW 26 loop, on its own thread when Render and its key are
-configured, passes over AW 26's photo queue on Render every PUNTMORE_AW26_EVERY_S
-(`aw26_loop.read_once`: the oldest waiting slip photo taken and read by HubAI, one at a time).
+writes `mail-status.json`). The AW 26 loop, on its own thread when switched on
+(PUNTMORE_AW26_READ) and Render and its key are configured, passes over AW 26's photo queue on
+Render every PUNTMORE_AW26_EVERY_S (`aw26_loop.read_once`: the oldest waiting slip photo taken
+and read by HubAI, one at a time).
 A failed pass of one loop is logged and never stops another.
 
 Each pass is recorded in `daemon-status.json` in the data directory, which the Console's Daemon
@@ -101,14 +102,20 @@ def _mail_loop(cfg: Settings, stop: threading.Event, sleep: Callable[[float], No
         sleep(max(1, cfg.imap_every_min) * 60)
 
 
-def _aw26_loop(cfg: Settings, stop: threading.Event, sleep: Callable[[float], None]) -> None:
+def _aw26_loop(cfg: Settings, stop: threading.Event) -> None:
+    """Pass after pass until `stop` is set, waiting on it between passes. A failed pass, or a
+    failed write of its record, is logged and never stops the loop."""
     while not stop.is_set():
         try:
-            _record_aw26(cfg, aw26_loop.read_once(cfg), None)
+            counts, error = aw26_loop.read_once(cfg), None
         except Exception as exc:  # noqa: BLE001 - one bad pass (Render down, a 409) never stops the loop
-            _record_aw26(cfg, None, f"{exc.__class__.__name__}: {exc}"[:300])
             log.exception("aw26 pass failed: %s", exc)
-        sleep(max(1, cfg.aw26_every_s))
+            counts, error = None, f"{exc.__class__.__name__}: {exc}"[:300]
+        try:
+            _record_aw26(cfg, counts, error)
+        except Exception as exc:  # noqa: BLE001 - a status file that cannot be written is not a pass
+            log.exception("aw26: could not write the pass to %s: %s", STATUS_FILE, exc)
+        stop.wait(max(1, cfg.aw26_every_s))
 
 
 def _inbox_pass(cfg: Settings, full: bool) -> None:
@@ -142,10 +149,12 @@ def run(cfg: Settings = default_settings, *, sleep: Callable[[float], None] = ti
     stop = threading.Event()
     if cfg.mail_configured:
         threading.Thread(target=_mail_loop, args=(cfg, stop, sleep), name="mail", daemon=True).start()
-    if aw26.configured(cfg):
-        threading.Thread(target=_aw26_loop, args=(cfg, stop, sleep), name="aw26", daemon=True).start()
-    else:
+    if not cfg.aw26_read:
+        log.info("AW 26 photo loop not started: switched off (PUNTMORE_AW26_READ is not 1)")
+    elif not aw26.configured(cfg):
         log.info("AW 26 photo loop not started: PUNTMORE_RENDER_HTTP or PUNTMORE_RENDER_API_KEY is unset")
+    else:
+        threading.Thread(target=_aw26_loop, args=(cfg, stop), name="aw26", daemon=True).start()
     last_full: float | None = None
     try:
         while True:
