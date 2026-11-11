@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.aw26 import photos, record
 from app.main import app
 from app.models import AwPhoto
-from app.schemas import AwSlipRecordIn
+from app.schemas import AwPhotoOut, AwSlipRecordIn
 
 from tests.aw26_kit import _db, _png, clock, leg, setup, slip_body  # noqa: F401  (setup is autouse here)
 
@@ -166,13 +166,27 @@ def test_a_record_racing_another_for_the_same_photo_is_refused():
     pid = _upload(client).json()[0]["id"]
     client.post(f"/aw26/photos/{pid}/take")
     late = next(_db())
-    assert late.get(AwPhoto, pid).state == "reading"            # this request saw it still reading
+    seen = late.get(AwPhoto, pid)        # held, so `late` still has it reading after the first records it
+    assert seen.state == "reading"
     assert client.post("/aw26/slips/record", json=slip_body("P1", _legs(), photo_id=pid)).status_code == 200
     with pytest.raises(record.Refused) as refused:
         record.record_slip(late, AwSlipRecordIn(**slip_body("P2", _legs(), photo_id=pid)), "api:hub")
     assert (refused.value.status, str(refused.value)) == (409, f"Photo {pid} is already a slip")
     assert [s["receipt"] for s in client.get("/aw26/slips").json()["slips"]] == ["P1"]
 
+
+def test_a_done_photo_is_never_made_a_duplicate():
+    client = TestClient(app)
+    pid = _upload(client).json()[0]["id"]
+    client.post(f"/aw26/photos/{pid}/take")
+    slip_id = client.post("/aw26/slips/record", json=slip_body("P1", _legs(), photo_id=pid)).json()["id"]
+    db = next(_db())
+    with pytest.raises(record.Refused) as refused:              # past the router's early `done` check
+        record._duplicate(db, pid, "P1")
+    assert (refused.value.status, str(refused.value)) == (409, "Slip P1 is already in")
+    db.rollback()
+    p = db.get(AwPhoto, pid)
+    assert (p.state, p.slip_id) == ("done", slip_id)
 
 def test_a_store_that_fails_partway_keeps_no_row_and_no_file(tmp_path, monkeypatch):
     real = photos.prepare_for_ocr
@@ -199,3 +213,15 @@ def test_a_file_too_large_partway_keeps_no_row_and_no_file(tmp_path, monkeypatch
     large = ("files", ("b.png", b"\x89PNG" + b"0" * 4096, "image/png"))
     assert client.post("/aw26/photos", files=[small, large]).status_code == 413
     assert os.listdir(tmp_path) == [] and next(_db()).query(AwPhoto).count() == 0
+
+
+def test_an_answer_that_fails_after_commit_keeps_the_photos(tmp_path, monkeypatch):
+    def answer_fails(*a, **kw):
+        raise RuntimeError("the answer could not be built")
+
+    monkeypatch.setattr(AwPhotoOut, "model_validate", answer_fails)
+    client = TestClient(app, raise_server_exceptions=False)
+    assert _upload(client, 2).status_code == 500
+    rows = next(_db()).query(AwPhoto).all()
+    assert len(rows) == 2                                        # committed before the answer failed
+    assert sorted(os.listdir(tmp_path)) == sorted(os.path.basename(p.image_path) for p in rows)

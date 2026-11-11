@@ -75,10 +75,15 @@ def record_slip(db: Session, body, user: str) -> AwSlip:
 
 def _duplicate(db: Session, photo_id: int | None, receipt: str):
     """Refuse a receipt already in (409); a photo it was read from is marked a
-    duplicate, with the refusal's words as its reason."""
+    duplicate, with the refusal's words as its reason, unless it is done (or
+    gone) by now: then it is left as it is, and the 409 is still the answer."""
     refusal = Refused(409, f"Slip {receipt} is already in")
-    photo = db.get(AwPhoto, photo_id) if photo_id is not None else None
-    if photo is not None:
-        photo.state, photo.reason = "duplicate", str(refusal)
-        db.commit()
+    if photo_id is not None:
+        try:
+            photos._move(db, photo_id, ("waiting", "reading", "failed"),
+                         lambda state: f"Photo {photo_id} is {state}",
+                         state="duplicate", reason=str(refusal))
+            db.commit()
+        except Refused:
+            pass
     raise refusal
