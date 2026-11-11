@@ -223,8 +223,10 @@ docker exec puntmore-scraper python -m scraper selfcheck        # what a site se
 
 In `/opt/puntmore-scraper/.env`: `SCRAPER_ALERT_WEBHOOK` (Discord), `SCRAPER_HEALTHCHECK_URL`
 (optional), and `VNC_PASSWORD` on a box with no screen. It holds no Render key: the Hub posts
-its prices (`PUNTMORE_RENDER_API_KEY` in the Hub's `.env`). The Bookie Bashing login lives in the Chrome profile in the data
-directory; never share `data/profile/`: it holds the login cookies.
+its prices (`PUNTMORE_RENDER_API_KEY` in the Hub's `.env`). The Scraper no longer reads
+`SAVES_INGEST_KEY` or `PUNTMORE_URL`, so both can be deleted from `/opt/puntmore-scraper/.env`.
+The Bookie Bashing login lives in the Chrome profile in the data directory; never share
+`data/profile/`: it holds the login cookies.
 
 ## Each tab's state
 Each match tab's status says what its market-tab clicks did (`loaded`,

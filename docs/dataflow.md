@@ -67,8 +67,18 @@ The Hub's side of it is not built yet: until it is, a photo stays `waiting`.
   2. `<scraper data>/hub/prices/` (waiting) and `done/prices/` (handled);
   3. the daemon's journal (`journalctl --user -u puntmore-link`, `prices …` lines: sent, wait
      for the next pass, refused, past the cut-off);
-  4. the Console's Daemon card (price drops waiting to go to Render);
-  5. on Render, the match's most-corners or most-cards row on `GET /api/paddy/feed`.
+  4. the Console's Daemon card (price drops waiting to go to Render, or moved aside, with the
+     reason);
+  5. on Render, by route. `/api/paddy/most-prices`: a bet in the match's `bets` on
+     `GET /api/paddy/feed` with `market` `most_corners` or `most_cards` (its `odds` is Paddy's
+     price) proves the price arrived. A fair-only entry in the match's `fairs` does not: it shows
+     whenever no outcome clears the minimum edge, whether or not the price arrived
+     (`cards/most.py::most_value`, `cards/feed.py::build_feed`). `/api/paddy/saves-fair`: the
+     feed cannot prove it. These rows are Bookie Bashing's fairs; they never make a most-corners
+     or most-cards row, and a saves Over/Under bet shows only when Paddy quotes that line and
+     its edge clears the minimum (`cards/saves.py::saves_value`). The proof is the 2xx in the
+     daemon's journal ("sent N row(s), Render answered …"); a file in `done/prices/` was handled,
+     and the journal says how.
 - **A photo that never became a slip:** `GET /api/aw26/photos` (its state, tries and reason).
 - **A drop file that is not being read:** the Console's Daemon card (the last inbox pass, the
   drop files waiting) and `systemctl --user status puntmore-link`.

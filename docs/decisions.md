@@ -43,8 +43,9 @@ names and no other; older names appear only in `docs/retired.md`.
   layer above it: rules, routing and switches for every source's rows (pages
   and the tipster mailbox), driven from the Console's control page; rows go
   from the Scraper service to Scraper control and from there to a board or to
-  HubAI, never from the service straight to a board (the Paddy price posts
-  go direct today and move behind Scraper control as the next Scraper work).
+  HubAI, never from the service straight to a board (Paddy's prices go through
+  Scraper control since 11 Nov 2026: the Scraper service writes them as drop
+  files and the Hub posts them to Render).
   **HubAI**: the Hub's AI, the whole Hermes layer (the chief of staff on
   Telegram and its specialist profiles, one Qwen model under llama-server);
   it judges tips for Finder and may drive Scraper control. **Bet Placer**:
@@ -248,8 +249,12 @@ names and no other; older names appear only in `docs/retired.md`.
   price (that is the spec, not a retry). Every placement is idempotent on its
   bet id. (spec)
 - **The Scraper's drop files are `hub/PROTOCOL.md` + `hub/schemas/`**: the
-  `scraper_tips` and `scraper_event` envelopes; a change touches the Scraper and
-  the Hub in one pull request. (6 Nov 2026)
+  `scraper_tips`, `scraper_event` and `scraper_prices` envelopes; a change
+  touches the Scraper and the Hub in one pull request. (6 Nov 2026; prices
+  11 Nov 2026)
+- **The Hub checks the Scraper's prices folder every 10 seconds** and posts
+  what it finds to Render on the ingest key. Callum, 11 Nov 2026: "Ten
+  seconds". (11 Nov 2026, Callum)
 
 ## Operating the Hub
 

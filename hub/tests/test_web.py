@@ -135,6 +135,40 @@ def test_the_daemon_card_warns_while_prices_wait_for_render(wcfg):
     assert out["state"] == "warn" and "3 price drop(s) waiting to go to Render" in out["detail"]
 
 
+def test_the_daemon_card_says_why_prices_wait(wcfg):
+    from puntmore_hub import daemon
+    st = Store(wcfg.db_path)
+    daemon.record_inbox(wcfg, {"tip_files": 0, "events": 0, "price_files": 0, "price_rows": 0,
+                               "price_dropped": 0, "price_waiting": 2, "price_dropped_reason": None,
+                               "price_waiting_reason": "PUNTMORE_RENDER_API_KEY is not set"})
+    out = collect.daemon(wcfg, st, run=lambda c, timeout=5: (0, "active\n"))
+    assert out["state"] == "warn"
+    assert "2 price drop(s) waiting to go to Render (PUNTMORE_RENDER_API_KEY is not set)" in out["detail"]
+
+
+def test_the_daemon_card_warns_when_render_refuses_the_prices(wcfg):
+    """A wrong key (401/403) moves every price aside; the card must not stay green."""
+    from puntmore_hub import daemon
+    st = Store(wcfg.db_path)
+    daemon.record_inbox(wcfg, {"tip_files": 0, "events": 0, "price_files": 0, "price_rows": 0,
+                               "price_dropped": 1, "price_waiting": 0,
+                               "price_dropped_reason": "Render refused HTTP 403", "price_waiting_reason": None})
+    out = collect.daemon(wcfg, st, run=lambda c, timeout=5: (0, "active\n"))
+    assert out["state"] == "warn" and out["detail"].startswith("last inbox pass ")
+    assert out["detail"].endswith("; 1 price drop(s) moved aside (Render refused HTTP 403)")
+
+
+def test_the_daemon_card_names_both_when_prices_were_moved_aside_and_others_wait(wcfg):
+    from puntmore_hub import daemon
+    st = Store(wcfg.db_path)
+    daemon.record_inbox(wcfg, {"tip_files": 0, "events": 0, "price_files": 0, "price_rows": 0,
+                               "price_dropped": 1, "price_waiting": 4,
+                               "price_dropped_reason": "past the 15 min cut-off", "price_waiting_reason": "HTTP 503"})
+    out = collect.daemon(wcfg, st, run=lambda c, timeout=5: (0, "active\n"))
+    assert out["detail"].endswith("; 4 price drop(s) waiting to go to Render (HTTP 503)"
+                                  "; 1 price drop(s) moved aside (past the 15 min cut-off)")
+
+
 def test_placement_and_escalation_collectors(cfg):
     st = Store(cfg.db_path)
     st.upsert_bet("b1", "acc1", {"stake": 5.0, "expected_price": 2.0}, "placed")

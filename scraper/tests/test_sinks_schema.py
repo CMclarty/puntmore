@@ -123,6 +123,26 @@ def test_no_rows_or_no_route_drops_nothing(tmp_path):
     assert not list((tmp_path / "hub" / "prices").glob("*"))      # no file, whether or not the folder exists
 
 
+@pytest.mark.parametrize("fails", ["write", "rename"])
+def test_a_failed_price_drop_returns_false_and_leaves_no_tmp_file(tmp_path, monkeypatch, fails):
+    """A full disk or a rename that fails costs one parse's prices: the Scraper keeps running, and
+    the half-written `*.json.tmp` is removed, not left in prices/ for good."""
+    real_write = Path.write_text
+
+    def write_half(self, text, *a, **k):
+        real_write(self, text[:10], *a, **k)
+        raise OSError(28, "No space left on device")
+
+    def no_rename(self, target):
+        raise OSError(1, "Operation not permitted")
+    if fails == "write":
+        monkeypatch.setattr(Path, "write_text", write_half)
+    else:
+        monkeypatch.setattr(Path, "rename", no_rename)
+    assert deliver_prices(tmp_path, _price_target(), MOST, time.time()) is False
+    assert list((tmp_path / "hub" / "prices").iterdir()) == []
+
+
 def test_the_scrapers_routes_are_the_schemas():
     assert set(PRICE_ROUTES) == set(SCHEMA.schema["$defs"]["scraper_prices"]["properties"]["route"]["enum"])
 

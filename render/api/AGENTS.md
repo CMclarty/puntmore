@@ -662,8 +662,9 @@ Pinnacle's fair reference, joined on the same fixture id.
 - **Goalkeeper SAVES are priced off Bookie Bashing, not Pinnacle**
   (`cards/saves.py`, Oct 2026). Pinnacle posts no saves ladder; Bookie Bashing
   publishes fair saves prices behind Callum's login, so they are read by
-  the Scraper service (`scraper/`, below) and POSTed to
-  `/api/paddy/saves-fair` (`SAVES_INGEST_KEY`, key-guarded like `/state`).
+  the Scraper service (`scraper/`, below), which writes them as price drop
+  files; Scraper control on the Hub POSTs them to `/api/paddy/saves-fair`
+  (`SAVES_INGEST_KEY`, key-guarded like `/state`).
   The login stays in the Scraper's browser profile, never on Render. Fair
   prices sit in a bounded TTLCache and are joined to Paddy's saves line by
   team similarity and day. MATCH totals only. The reader
