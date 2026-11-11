@@ -132,7 +132,7 @@ def test_the_daemon_card_warns_while_prices_wait_for_render(wcfg):
     daemon.record_inbox(wcfg, {"tip_files": 0, "events": 0, "price_files": 0, "price_rows": 0,
                                "price_dropped": 0, "price_waiting": 3})
     out = collect.daemon(wcfg, st, run=lambda c, timeout=5: (0, "active\n"))
-    assert out["state"] == "warn" and "3 price drop(s) waiting for Render" in out["detail"]
+    assert out["state"] == "warn" and "3 price drop(s) waiting to go to Render" in out["detail"]
 
 
 def test_placement_and_escalation_collectors(cfg):

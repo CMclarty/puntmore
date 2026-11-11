@@ -21,9 +21,10 @@ per parse) to Render, the one thing in the inbox that crosses a network (`post_p
 pass runs after the tips and events, so a slow Render never delays them, and holds a
 non-blocking lock on `prices/.lock` so two passes never post the same file. Files go oldest
 first, each as `{"prices": rows}` to its `route` through `finder.post_json` (the Hub's Render
-key). A 2xx, a refusal (any other 4xx), a file older than `PRICE_MAX_AGE_S` or an unreadable
-one is moved to `done/prices/`. When Render is down (408, 429, 5xx, a network error or
-timeout) or not configured, the pass stops and that file and every later one wait for the
+key). A 2xx, a refusal (a 4xx other than 408 and 429), a file older than `PRICE_MAX_AGE_S` or
+an unreadable one is moved to `done/prices/`. When Render is down (408, 429, 5xx, a network
+error or timeout), answers 1xx or 3xx (a setup fault, such as a redirect from a wrong
+PUNTMORE_RENDER_HTTP) or is not configured, the pass stops and that file and every later one wait for the
 next pass, so an older price is never posted after a newer one. Nothing retries in place.
 """
 from __future__ import annotations
@@ -32,6 +33,7 @@ import fcntl
 import http.client
 import json
 import logging
+import math
 import re
 import time
 from datetime import datetime, timezone
@@ -161,8 +163,8 @@ def _read_price_drop(path: Path) -> dict:
         raise ValueError("not a JSON object")
     body = _body(d)
     at, route, rows = body.get("at"), body.get("route"), body.get("rows")
-    if isinstance(at, bool) or not isinstance(at, (int, float)):
-        raise ValueError("`at` is not a number")
+    if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
+        raise ValueError("`at` is not a finite number")
     if not isinstance(route, str):
         raise ValueError("`route` is not a string")
     if not isinstance(rows, list) or not rows or not all(isinstance(r, dict) for r in rows):
@@ -171,8 +173,10 @@ def _read_price_drop(path: Path) -> dict:
 
 
 def _render_down(code: int) -> bool:
-    """Render's answer says try later (timeout, too many requests, a server error)."""
-    return code in (408, 429) or code >= 500
+    """Render's answer is no verdict on the file, so it waits: try later (408, 429, a server
+    error), or a 1xx/3xx, which means the setup is wrong (a redirect from a bad
+    PUNTMORE_RENDER_HTTP). Only a 2xx is posted and only another 4xx is a refusal."""
+    return not (200 <= code < 300) and not (400 <= code < 500 and code not in (408, 429))
 
 
 def post_prices(cfg: Settings = default_settings, *, opener: finder.Opener | None = None) -> dict[str, int]:

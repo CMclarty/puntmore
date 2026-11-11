@@ -6,6 +6,7 @@ so a drop the Hub's tests ingest is one the Scraper's sinks would write."""
 import fcntl
 import http.client
 import json
+import logging
 import time
 import urllib.error
 import uuid
@@ -210,6 +211,18 @@ def test_render_down_leaves_the_files_and_stops_the_pass_so_order_is_kept(pcfg, 
     assert [s[2]["prices"][0]["home"] for s in render.sent] == ["older", "newer"] and _left(pcfg) == []
 
 
+@pytest.mark.parametrize("code", [301, 302, 100])
+def test_a_redirect_or_informational_answer_is_a_setup_fault_so_the_files_wait(pcfg, store, code, caplog):
+    now = time.time()
+    _price_drop(pcfg, now - 60, rows=[{**MOST_ROW, "home": "older"}])
+    _price_drop(pcfg, now, rows=[{**MOST_ROW, "home": "newer"}])
+    render = _Render(code)
+    counts = inbox.ingest(store, pcfg, notify=False, opener=render)
+    assert len(render.sent) == 1 and counts["price_waiting"] == 2 and counts["price_dropped"] == 0
+    assert len(_left(pcfg)) == 2 and _done(pcfg) == []
+    assert f"HTTP {code}; 2 file(s) wait for the next pass" in caplog.text
+
+
 @pytest.mark.parametrize("code", [400, 401, 403, 404, 422])
 def test_a_refused_body_is_moved_aside_not_sent_again(pcfg, store, code):
     _price_drop(pcfg, time.time())
@@ -284,3 +297,63 @@ def test_a_second_pass_while_one_holds_the_lock_posts_nothing(pcfg, store):
 
 def test_the_hubs_routes_are_the_schemas():
     assert set(inbox.PRICE_ROUTES) == set(SCHEMA.schema["$defs"]["scraper_prices"]["properties"]["route"]["enum"])
+
+
+@pytest.mark.parametrize("at", ["NaN", "Infinity", "-Infinity", "true", '"1731000000"'])
+def test_at_must_be_a_finite_number_and_a_bad_one_does_not_stop_the_pass(pcfg, store, at):
+    d = pcfg.inbox_dir / "prices"
+    d.mkdir(parents=True)
+    (d / "0-bad.json").write_text('{"source": "pp-epl-most", "at": %s, "url": "u", '
+                                  '"route": "/api/paddy/most-prices", "rows": [{"home": "A"}]}' % at)
+    _price_drop(pcfg, time.time())
+    render = _Render()
+    counts = inbox.ingest(store, pcfg, notify=False, opener=render)
+    assert counts["price_dropped"] == 1 and counts["price_files"] == 1 and len(render.sent) == 1
+    assert _left(pcfg) == [] and "0-bad.json" in [p.name for p in _done(pcfg)]
+
+
+def test_an_unexpected_error_propagates_and_leaves_the_lock_free(pcfg, store):
+    """Only OSError, http.client.HTTPException and RuntimeError mean "Render down"; anything
+    else is a bug and propagates (the daemon records it as a failed pass). The lock is released
+    with the file, so the next pass posts."""
+    _price_drop(pcfg, time.time())
+
+    def broken(req, timeout):
+        raise ValueError("unexpected")
+    with pytest.raises(ValueError, match="unexpected"):
+        inbox.post_prices(pcfg, opener=broken)
+    assert len(_left(pcfg)) == 1
+    render = _Render()
+    counts = inbox.post_prices(pcfg, opener=render)
+    assert len(render.sent) == 1 and counts["price_files"] == 1 and _left(pcfg) == []
+
+
+def test_no_render_key_says_the_hub_needs_one(cfg, store, caplog):
+    c = cfg.with_overrides(render_http="https://puntmore.example/", render_api_key="")
+    _price_drop(c, time.time())
+    counts = inbox.ingest(store, c, notify=False, opener=lambda req, timeout: pytest.fail("sent"))
+    assert counts["price_waiting"] == 1
+    assert "PUNTMORE_RENDER_API_KEY is not set: the Hub needs a key with the ingest grant" in caplog.text
+
+
+def test_the_render_key_is_never_logged_or_written(cfg, store, caplog):
+    key = "fake-render-key-7c1e"
+    c = cfg.with_overrides(render_http="https://puntmore.example/", render_api_key=key)
+    now = time.time()
+    for i, home in enumerate(["ok", "refused", "network"]):
+        _price_drop(c, now - 60 + 10 * i, rows=[{**MOST_ROW, "home": home}])
+    answers = [_Resp(200, {"stored": 1}), _Resp(403, "forbidden")]
+    seen = []
+
+    def render(req, timeout):
+        seen.append(req.get_header("Authorization"))
+        if answers:
+            return answers.pop(0)
+        raise urllib.error.URLError("refused")
+    caplog.set_level(logging.DEBUG)
+    counts = inbox.ingest(store, c, notify=False, opener=render)
+    assert seen == [f"Bearer {key}"] * 3                                  # it was sent, so it was there to leak
+    assert (counts["price_files"], counts["price_dropped"], counts["price_waiting"]) == (1, 1, 1)
+    assert caplog.records and not any(key in r.getMessage() for r in caplog.records) and key not in caplog.text
+    files = [p for p in c.inbox_dir.rglob("*") if p.is_file()]
+    assert len(files) >= 3 and not any(key in p.read_text(errors="replace") for p in files)

@@ -64,7 +64,7 @@ def post_json(cfg: Settings, path: str, body: dict, opener: Opener | None = None
     if not base:
         raise RuntimeError("PUNTMORE_RENDER_HTTP is not set: no Render to post to")
     if not cfg.render_api_key:
-        raise RuntimeError("PUNTMORE_RENDER_API_KEY is not set: Finder needs a key with the ingest grant")
+        raise RuntimeError("PUNTMORE_RENDER_API_KEY is not set: the Hub needs a key with the ingest grant")
     req = urllib.request.Request(
         base + path, data=json.dumps(body).encode(), method="POST",
         headers={"Authorization": f"Bearer {cfg.render_api_key}", "Content-Type": "application/json"})

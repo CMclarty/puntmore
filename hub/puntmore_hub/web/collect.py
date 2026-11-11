@@ -213,7 +213,7 @@ def daemon(cfg: Settings, store: Store, run=None) -> dict[str, Any]:
         elif age is None or age > INBOX_STALE_S:
             state, detail = "warn", seen
         elif prices_waiting > 0:
-            state, detail = "warn", f"{seen}; {prices_waiting} price drop(s) waiting for Render"
+            state, detail = "warn", f"{seen}; {prices_waiting} price drop(s) waiting to go to Render"
         elif last_mail.get("problems"):
             state, detail = "warn", f"{seen}; mail: {last_mail['detail']}"
         else:
