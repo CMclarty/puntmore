@@ -102,6 +102,10 @@ def _drop(data_dir, sub, name, type_, body, *, unique: bool = False) -> bool:
         tmp.rename(final)
         return True
     except OSError as exc:
+        try:                            # each name is new, so a leftover would stay for good
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
         print(f"hub drop failed: {exc}", flush=True)
         return False
 
