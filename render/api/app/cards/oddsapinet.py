@@ -454,6 +454,7 @@ def leg_result(counts: dict, market_id: str, outcome_id: str) -> str | None:
 # --- the source ---------------------------------------------------------------
 
 LISTING_TTL = 600        # s the /events listing is reused (a failed one is held as long)
+FIRST_LISTING_HOLD = 60  # s a failed listing is held while none has ever succeeded
 FAILURE_HOLD = 600       # s an event whose snapshot failed is not asked again
 LISTING_PAGES = 3        # /events pages followed at most
 RATE_HOLD = 60           # s every fetch waits after a 429 naming no usable Retry-After
@@ -545,7 +546,8 @@ class OddsApiNetHillsSource:
         self._passes_done = 0
         self._pass_done = threading.Event()
         self._listings: list[Listing] = []
-        self._listed_at: float | None = None     # mono of the last listing ATTEMPT
+        self._listing_next: float | None = None  # mono the next listing may be sent (_listing_lock)
+        self._listed_ok = False                  # a listing has ever succeeded (_listing_lock)
         self._listing_error: str | None = None
         self._fetched: dict[str, float] = {}     # board key -> mono it was fetched
         self._held: dict[str, float] = {}        # board key -> mono its hold ends
@@ -683,14 +685,17 @@ class OddsApiNetHillsSource:
     def _refresh_listing(self) -> None:
         with self._listing_lock:
             mono = self._mono()
-            if self._listed_at is not None and mono - self._listed_at < LISTING_TTL:
+            if self._listing_next is not None and mono < self._listing_next:
                 return
             if not self._page_may_spend():
                 return                   # the last credits are for legs and settling
             with self._lock:
                 if self._rate_held():
                     return               # asked again once the 429's hold ends
-            self._listed_at = mono
+            # Held from the attempt, failed or not (a failed call is billed
+            # too); held only FIRST_LISTING_HOLD while the board has no
+            # listing at all, so a blip at boot does not blank it for 10 min.
+            self._listing_next = mono + (LISTING_TTL if self._listed_ok else FIRST_LISTING_HOLD)
             now = self._now()
             params = {"sport": "soccer", "start_from": int(now.timestamp()),
                       "start_to": int(now.timestamp()) + int(self.window_hours * 3600),
@@ -720,6 +725,8 @@ class OddsApiNetHillsSource:
             with self._lock:
                 self._listings = listings
                 self._listing_error = None
+            self._listed_ok = True
+            self._listing_next = mono + LISTING_TTL
 
     def _listed(self) -> list[Listing]:
         """The listing, less the games that have kicked off since it was read."""

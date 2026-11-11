@@ -641,3 +641,29 @@ def test_a_429_on_the_listing_holds_the_snapshots_too():
     assert paths(fake) == ["/events"]
     assert src.hills_legs("oan:1417142635", "England", "Croatia") == []
     assert paths(fake) == ["/events"]
+
+
+# --- the first listing (final review, I) ---------------------------------------
+
+def test_a_failed_first_listing_is_asked_again_after_60_s():
+    r = routes()
+    r["/events"] = RuntimeError("503 listing")
+    src, fake, clock = make(FakeOan(r))
+    assert src.get_events() == []
+    clock.advance(59); src.get_events()
+    assert paths(fake) == ["/events"]
+    fake.routes["/events"] = routes()["/events"]
+    clock.advance(2)
+    assert [e["id"] for e in src.get_events()] == ["oan:1417142635"]
+    assert paths(fake)[:2] == ["/events", "/events"]
+
+
+def test_after_one_good_listing_a_failed_one_is_held_600_s():
+    src, fake, clock = make()
+    src.get_events()
+    fake.routes["/events"] = RuntimeError("503 listing")
+    clock.advance(601); src.get_events()           # fails
+    clock.advance(599); src.get_events()
+    assert paths(fake).count("/events") == 2
+    clock.advance(2); src.get_events()
+    assert paths(fake).count("/events") == 3
