@@ -1,11 +1,13 @@
 #!/bin/sh
-# Install (or reinstall) the Scraper as the user service puntmore-scraper on the
-# Hub's desktop. Idempotent: run it again after a change to the unit file.
+# Install (or reinstall) the Scraper as the user service puntmore-scraper, on
+# its own virtual screen, the user service puntmore-screen (a headless sway;
+# README, "Its own screen"). Idempotent: run it again after a change to either
+# unit file.
 #
 #   scraper/deploy/native/install.sh              the checkout this script is in
 #   scraper/deploy/native/install.sh --repo PATH  another checkout
 #
-# Run it as the desktop user (not root). It asks sudo once, to give that user
+# Run it as the Hub's user (not root). It asks sudo once, to give that user
 # /opt/puntmore-scraper (the Docker Scraper's files belong to the container's
 # uid). It refuses to start the service while the Docker Scraper runs.
 set -eu
@@ -15,14 +17,20 @@ if [ "${1:-}" = "--repo" ]; then REPO=$(cd "$2" && pwd); fi
 DIR=${SCRAPER_DIR:-/opt/puntmore-scraper}
 VENV=${PUNTMORE_VENV:-$HOME/.venvs/puntmore}
 UNIT=puntmore-scraper.service
+SCREEN=puntmore-screen.service
 DEST=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user
 
-[ "$(id -u)" -ne 0 ] || { echo "run as the desktop user, not root" >&2; exit 1; }
+[ "$(id -u)" -ne 0 ] || { echo "run as the Hub's user, not root" >&2; exit 1; }
 [ -f "$REPO/scraper/__main__.py" ] || { echo "no scraper/ in $REPO" >&2; exit 1; }
 [ -x "$VENV/bin/python" ] || { echo "no venv at $VENV" >&2; exit 1; }
 "$VENV/bin/python" -c "import playwright" 2>/dev/null \
   || { echo "playwright is not in $VENV: uv pip install -r $REPO/scraper/requirements.txt --python $VENV/bin/python" >&2; exit 1; }
 [ -x /usr/bin/google-chrome ] || { echo "no /usr/bin/google-chrome" >&2; exit 1; }
+# The Scraper's screen (puntmore-screen.service names /usr/bin/sway).
+command -v sway >/dev/null 2>&1 && [ -x /usr/bin/sway ] \
+  || { echo "no sway (/usr/bin/sway): sudo apt install sway wayvnc" >&2; exit 1; }
+command -v wayvnc >/dev/null 2>&1 \
+  || { echo "no wayvnc on PATH: sudo apt install sway wayvnc" >&2; exit 1; }
 [ -f "$DIR/.env" ] || { echo "no $DIR/.env (see scraper/.env.example)" >&2; exit 1; }
 [ -f "$DIR/data/targets.toml" ] || { echo "no $DIR/data/targets.toml (see scraper/targets.example.toml)" >&2; exit 1; }
 
@@ -36,34 +44,42 @@ if [ -n "$(find "$DIR" ! -user "$(id -un)" -print -quit)" ]; then
   sudo chown -R "$(id -un):$(id -gn)" "$DIR"
 fi
 
-# The window's name on the desktop (README, "Its own workspace").
+# The window name of the own-workspace setup (11 Nov 2026), replaced by the screen.
 APPS=${XDG_DATA_HOME:-$HOME/.local/share}/applications
-mkdir -p "$APPS"
-cp "$HERE/puntmore-scraper.desktop" "$APPS/puntmore-scraper.desktop"
+rm -f "$APPS/puntmore-scraper.desktop"
+
+# An install from before the screen is wanted by graphical-session.target; disable
+# drops every link to the unit, then enable makes default.target's. Neither stops it.
+systemctl --user disable "$UNIT" 2>/dev/null || true
 
 mkdir -p "$DEST"
-# The unit names the box's checkout, ~/Projects/puntmore; point it at $REPO.
-sed "s|%h/Projects/puntmore|$REPO|g" "$HERE/$UNIT" > "$DEST/$UNIT.new"
-mv "$DEST/$UNIT.new" "$DEST/$UNIT"
+# The units name the box's checkout, ~/Projects/puntmore; point them at $REPO.
+for unit in "$SCREEN" "$UNIT"; do
+  sed "s|%h/Projects/puntmore|$REPO|g" "$HERE/$unit" > "$DEST/$unit.new"
+  mv "$DEST/$unit.new" "$DEST/$unit"
+done
 systemctl --user daemon-reload
-systemctl --user enable "$UNIT"
-if systemctl --user is-active --quiet "$UNIT"; then
-  systemctl --user restart "$UNIT"
-else
-  systemctl --user start "$UNIT"
-fi
-echo "installed $DEST/$UNIT (code: $REPO) and $APPS/puntmore-scraper.desktop"
-systemctl --user --no-pager status "$UNIT" | head -5 || true
+systemctl --user enable "$SCREEN" "$UNIT"
+# The screen first, then the Scraper on it: one transaction, ordered by the
+# Scraper's After=; a unit not running is started.
+systemctl --user restart "$SCREEN" "$UNIT"
+echo "installed $DEST/$SCREEN and $DEST/$UNIT (code: $REPO)"
+systemctl --user --no-pager status "$SCREEN" "$UNIT" | head -12 || true
 
 cat <<EOF
 
 Next:
   journalctl --user -u puntmore-scraper -f            watch the first heartbeat and loads
+  remmina -c vnc://127.0.0.1:5910                     the Scraper's screen: sign in by hand,
+                                                      or look at a page (this machine only)
   cd $REPO && SCRAPER_DATA_DIR=$DIR/data $VENV/bin/python -m scraper selfcheck
                                                       what a site sees (asks the running service)
   The Docker Scraper is the fallback now. Leave it stopped, and take its cron
   updater out so it cannot recreate the container:
     crontab -l | grep -v puntmore-scraper/update.sh | crontab -
+  Once per box, undo the own-workspace setting the screen replaces:
+    dconf reset /org/gnome/shell/extensions/auto-move-windows/application-list
   Updates: puntmore-update.timer restarts puntmore-scraper when a pull to main
-  changes scraper/. A changed unit file needs this script run again.
+  changes scraper/. A changed unit file needs this script run again; a changed
+  screen.conf needs systemctl --user restart puntmore-screen.
 EOF

@@ -1,14 +1,15 @@
 # scraper/ — the Scraper service
 
-The Scraper service: the one real Chrome on the Hub's desktop. It reads every
+The Scraper service: the one real Chrome on the Hub, on its own virtual screen. It reads every
 page any tool needs and fills what OddsPapi lacks: Paddy Power pages kept
 **open** (it listens to what they receive), Finder's sources loaded and
 closed, and one Bookie Bashing page (`bb-saves`, the register's one named
 exception). After
 the first load the site's own scripts keep each page fresh, so most targets
-cost no further requests. Runs as the user service `puntmore-scraper` on the
-logged-in desktop session, updated by `puntmore-update.timer` with the rest of
-the Hub. Docker is the fallback for a box with no screen.
+cost no further requests. Runs as the user service `puntmore-scraper` on its
+own virtual screen, the user service `puntmore-screen` (below), updated by
+`puntmore-update.timer` with the rest of the Hub. Docker is the fallback for a
+box with no screen.
 
 **What it reads is `data/targets.toml` on the Hub**, changed only through
 `scraper/targets.py` (the Console, the CLI, HubAI); an edit applies without a
@@ -41,7 +42,8 @@ the 29 Oct 2026 capture; see its docstring).
   sign-in (refused, no form, still logged out after it, a form the site's
   script did not send, or the 3-in-6-hours limit), a logout with no login in
   `.env`, or a check → one alert and a back-off, with the tab left open so
-  you can sort it on the Hub's screen (over VNC in Docker). After a failed
+  you can sort it on the Scraper's screen (over VNC, "Its own screen" below;
+  in Docker, the container's VNC). After a failed
   sign-in it does not try again until it sees the site logged in or you run
   `resume bookiebashing`, restarts included. Each sign-in is written to
   `data/login.json` before the form is sent; if that file cannot be written
@@ -58,9 +60,9 @@ the 29 Oct 2026 capture; see its docstring).
   load. Market tabs are clicked through the mouse, then read down.
 - It never answers a challenge and never fakes a fingerprint. It types one
   login only, Bookie Bashing's, from `.env`; a person is needed there only
-  after a failed sign-in or for a challenge. On the Hub's desktop Chrome
-  keeps its own defaults on the real display: en-GB from the session's
-  locale, London time, the box's own GPU, fonts and screen. In Docker, with
+  after a failed sign-in or for a challenge. On the Hub Chrome keeps its
+  own defaults: en-GB from the box's locale, London time, the box's own GPU
+  and fonts, on its own virtual 1920x1080 screen. In Docker, with
   no screen, Chrome gets a 1600x1000 window on Xvfb's 1920x1080 screen and
   the en-GB language list by flag. Either way it is started as a person's
   Chrome, not a test run (Playwright's `--enable-automation` is not passed);
@@ -153,21 +155,20 @@ python -m scraper targets log racing-tips -n 50   # the job's own log, newest la
   `targets log <name> [-n 50]` prints it (`--json`: `{"name": name, "lines": [{"ts", "msg"}, ...]}`);
   `targets remove` removes it.
 
-## Running on the Hub's desktop (the default)
-Since 5 Nov 2026 the Scraper runs on the Hub's real desktop session, so the
-sites see a person's Chrome: real GPU, real fonts, real screen. Measured that
-day, Chrome 157 in the container reported no WebGL at all (Xvfb, no GPU) and
-the container's fonts; the same binary on the Hub's
-Wayland session reports `ANGLE (AMD, AMD Radeon 8060S Graphics (radeonsi
-strix_halo ACO), OpenGL ES 3.2)`.
+## Running on the Hub (the default)
+Since 5 Nov 2026 the Scraper runs on the Hub itself, not in a container, so the
+sites see a person's Chrome: real GPU, real fonts. Measured that day, Chrome
+157 in the container reported no WebGL at all (Xvfb, no GPU) and the
+container's fonts; the same binary on the Hub reports `ANGLE (AMD, AMD Radeon
+8060S Graphics (radeonsi strix_halo ACO), OpenGL ES 3.2)`. Since 11 Nov 2026
+its screen is its own virtual one, not Callum's desktop (below).
 
-What it needs: a desktop session logged in as the Hub's user (the unit is
-tied to `graphical-session.target`: it starts with the session and stops
-with it, so the Hub should log in automatically), `/usr/bin/google-chrome`,
-the venv `~/.venvs/puntmore` with `requirements.txt` installed, and
-`/opt/puntmore-scraper/.env` and `/opt/puntmore-scraper/data/targets.toml`
-as below. GNOME hands the session's `WAYLAND_DISPLAY`, `DISPLAY` and
-`XAUTHORITY` to the user manager, so the unit sets nothing about the display.
+What it needs: `sway` and `wayvnc` (`sudo apt install sway wayvnc`),
+`/usr/bin/google-chrome`, the venv `~/.venvs/puntmore` with
+`requirements.txt` installed, the Hub's user lingering (`loginctl
+enable-linger`, so the user services run with nobody logged in) and in the
+`render` and `video` groups (the GPU), and `/opt/puntmore-scraper/.env` and
+`/opt/puntmore-scraper/data/targets.toml` as below.
 
 ```sh
 docker stop puntmore-scraper                       # if the Docker Scraper runs: never both
@@ -175,14 +176,16 @@ scraper/deploy/native/install.sh                   # from the box's checkout, ~/
 crontab -l | grep -v puntmore-scraper/update.sh | crontab -   # the container's updater
 ```
 
-`install.sh` is idempotent: it gives your user `/opt/puntmore-scraper` (sudo,
-once; the container's files belong to its uid), copies
+`install.sh` is idempotent: it checks `sway` and `wayvnc` are there, gives
+your user `/opt/puntmore-scraper` (sudo, once; the container's files belong to
+its uid), copies `deploy/native/puntmore-screen.service` and
 `deploy/native/puntmore-scraper.service` into `~/.config/systemd/user/` with
-the checkout it was run from as its working directory, copies
-`deploy/native/puntmore-scraper.desktop` into `~/.local/share/applications/`
-(below), and enables and starts it. It refuses while the container `puntmore-scraper` runs, and so does the
-unit (`deploy/native/preflight.sh`, which also clears the profile lock the
-container's Chrome left behind); `deploy/run.sh` refuses the other way round.
+the checkout it was run from in their paths, enables both (`default.target`;
+an older install's `graphical-session.target` link is dropped first), and
+restarts the screen, then the Scraper. It refuses while the container
+`puntmore-scraper` runs, and so does the unit (`deploy/native/preflight.sh`,
+which also clears the profile lock the container's Chrome left behind);
+`deploy/run.sh` refuses the other way round.
 
 The unit runs `~/.venvs/puntmore/bin/python -m scraper run` with the data in
 `/opt/puntmore-scraper/data` (heartbeat, `status.json`, budget, profile,
@@ -193,33 +196,48 @@ driver), gives Chrome 90 s to close cleanly, and is capped at 4 GB.
 **Updates:** a merge to `main` that touches `scraper/` reaches the box through
 `puntmore-update.timer`, which pulls the checkout and restarts
 `puntmore-scraper` (and installs `requirements.txt` when it changed). A change
-to the unit file itself needs `install.sh` run again.
+to either unit file needs `install.sh` run again; a change to `screen.conf`
+needs `systemctl --user restart puntmore-screen` (which restarts the Scraper
+too).
 
-**Its own workspace** (Callum, 11 Nov 2026). The Scraper's Chrome opens its
-window with its own name, `--class=puntmore-scraper` (`browser.py`; desktop
-only, and a page cannot read it), and `puntmore-scraper.desktop` tells GNOME
-that name is its own app, not Google Chrome. GNOME's Auto Move Windows
-extension then keeps it on workspace 2, so a load never opens over the work
-on workspace 1. Once per box:
+**Its own screen** (Callum, 11 Nov 2026). The Scraper's Chrome runs on a
+virtual 1920x1080 screen, not on Callum's desktop, so nothing it does (start,
+open a tab, take a screenshot) can take his screen, and it runs whether or not
+he is logged in. Two user units:
+
+- `puntmore-screen.service`: a headless `sway` (`WLR_BACKENDS=headless`) on
+  the box's real GPU with its own Xwayland, configured by
+  `deploy/native/screen.conf`: one output, no borders, and `wayvnc` on
+  `127.0.0.1:5910` (this machine only: it has no password). It writes its
+  Xwayland `DISPLAY` to `$XDG_RUNTIME_DIR/puntmore-screen.env` and counts as
+  started only once it has. It never sees the desktop's display variables.
+- `puntmore-scraper.service`: requires the screen and starts after it, reads
+  `DISPLAY` from that file, and is restarted with it. `browser.py` starts
+  Chrome on X11 as before; nothing about the browser changes, and a page
+  sees the screen it is really on (measured: screen 1920x1080, dpr 1, the
+  Radeon's WebGL, `navigator.webdriver` false).
+
+To look at it, or to sign in by hand (Bookie Bashing after a failed sign-in,
+a check), open the screen in a VNC viewer on the Hub:
 
 ```sh
-sudo apt install gnome-shell-extension-auto-move-windows
-# log out and in if `gnome-extensions list` does not show it yet, then:
-gnome-extensions enable auto-move-windows@gnome-shell-extensions.gcampax.github.com
-dconf write /org/gnome/shell/extensions/auto-move-windows/application-list "['puntmore-scraper.desktop:2']"
+remmina -c vnc://127.0.0.1:5910
 ```
 
-The setting is a list: keep any entries already in it. The window moves the
-next time the Scraper starts Chrome. With `workspaces-only-on-primary` on
-(GNOME's default), a window on a second monitor shows on every workspace:
-keep the Scraper's on the main one. Without the extension nothing changes:
-the window opens where GNOME puts it.
+and use the Chrome window there with the mouse and keyboard; close the viewer
+when done (the Scraper carries on either way). Once per box, undo the
+own-workspace setting this replaces (it named the window for GNOME's Auto Move
+Windows extension, which made Chrome drag the desktop to workspace 2):
 
-Logging in to Bookie Bashing after a failed sign-in, or looking at a check:
-the Chrome window is on the Hub's screen, on workspace 2. No VNC.
+```sh
+dconf reset /org/gnome/shell/extensions/auto-move-windows/application-list
+```
+
+The Docker fallback is unchanged (below).
 
 ```sh
 journalctl --user -u puntmore-scraper -f
+journalctl --user -u puntmore-screen -f
 systemctl --user status|restart|stop puntmore-scraper
 # from ~/Projects/puntmore; the commands find the service through its data dir:
 export SCRAPER_DATA_DIR=/opt/puntmore-scraper/data
@@ -234,13 +252,13 @@ The fallback: one real Chrome on Xvfb inside a container, for a box with no
 desktop. The image sets `SCRAPER_IN_CONTAINER=1`, which is what gives Chrome
 its fixed window and language flags (`browser.py`). Expect no WebGL there.
 The container will not start while `data/heartbeat` is under 90 s old
-(`deploy/entrypoint.sh`): another Scraper, the desktop one, runs on that data
+(`deploy/entrypoint.sh`): another Scraper, the native one, runs on that data
 dir. So a cron `update.sh` left behind on the Hub cannot put a second Chrome
 on the profile.
 
 ## Setting up a box with no screen (once)
 Any Linux host with Docker, amd64, about 3 GB RAM free. (On the Hub itself the
-Scraper service runs on the desktop, above; this is the fallback only.)
+Scraper service runs natively on its own screen, above; this is the fallback only.)
 
 ```sh
 sudo mkdir -p /opt/puntmore-scraper/data && cd /opt/puntmore-scraper
@@ -308,7 +326,7 @@ first-party hosts only, repeats of the same URL+size skipped, plus the page's
 HTML once. The sign-in's own response (it may repeat what was typed) is never
 kept. `index.jsonl` marks each market-tab click and labels what followed it.
 
-Health: on the desktop the Console's Scraper card goes down when the
+Health: on the Hub the Console's Scraper card goes down when the
 heartbeat is 10 minutes stale (`PUNTMORE_SCRAPER_STALE_MINUTES`); in Docker the
 healthcheck fails at 5.
 Set `SCRAPER_HEALTHCHECK_URL` (e.g. healthchecks.io) for an alert when the

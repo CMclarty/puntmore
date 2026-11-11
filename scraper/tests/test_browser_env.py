@@ -75,9 +75,3 @@ def test_selfcheck_lines_show_the_webgl_renderer():
     del seen["webgl"], seen["deviceMemory"]        # a selfcheck.json from before this line
     assert any("WebGL renderer" in l for l in browser.selfcheck_lines(seen, "test"))
 
-
-def test_the_desktop_file_names_the_same_window():
-    """GNOME ties the window to deploy/native/puntmore-scraper.desktop by this name."""
-    from pathlib import Path
-    text = (Path(browser.__file__).parent / "deploy/native/puntmore-scraper.desktop").read_text()
-    assert f"StartupWMClass={browser.WINDOW_CLASS}" in text.splitlines()

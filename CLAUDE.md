@@ -12,7 +12,7 @@ whole repo; each directory's `AGENTS.md` holds the rules for its code.
 | Directory | Runs on | Deployed by | Updated when |
 |---|---|---|---|
 | `render/api/` + `render/frontend/` | Render, ONE Docker web service | `render.yaml`; `render/api/Dockerfile` builds the frontend into the API image, `app/asgi.py` serves both | **every push to `main`** |
-| `scraper/` | Hub: the Scraper service, user service `puntmore-scraper` on the desktop session (Docker is the fallback for a box with no screen) | `scraper/deploy/native/`; fallback `scraper-image.yml` | `puntmore-update.timer`, every 10 min |
+| `scraper/` | Hub: the Scraper service, user service `puntmore-scraper` on its own virtual screen, `puntmore-screen` (Docker is the fallback for a box with no screen) | `scraper/deploy/native/`; fallback `scraper-image.yml` | `puntmore-update.timer`, every 10 min |
 | `hub/` | Hub: the daemon, the Console, the Finder CLI, escalations to HubAI, the placement engine | `hub/deploy/systemd/` on a checkout | `puntmore-update.timer` pulls `main` every 10 min and restarts the services |
 
 Nothing goes to `main` directly: branch, pull request, path-scoped workflows.

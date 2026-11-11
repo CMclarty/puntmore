@@ -50,7 +50,7 @@ domain, check the host resolves to the service, then set `ME_HOST=me.puntmore.co
 
 One program on Callum's box, in five parts:
 
-- **Scraper service** (`scraper/`): the one real Chrome on the desktop; reads every page any
+- **Scraper service** (`scraper/`): the one real Chrome, on its own virtual screen; reads every page any
   tool needs and fills what OddsPapi lacks. It hands up two kinds of row: **prices** (raw rows
   for the Paddy board, which turns them into value bets: Paddy Power's lines off a Paddy page,
   and the fair prices for Paddy's saves read from Bookie Bashing) and **tips** (bets from an
@@ -78,7 +78,7 @@ One program on Callum's box, in five parts:
 | Directory | Runs on | Deployed by | Updated when |
 |---|---|---|---|
 | `render/api/` + `render/frontend/` | Render, one Docker web service | `render.yaml`; `render/api/Dockerfile` builds the frontend into the API image | every push to `main` |
-| `scraper/` | Hub: the Scraper service, user service `puntmore-scraper` on the desktop session (Docker is the fallback for a box with no screen) | `scraper/deploy/native/`; fallback `.github/workflows/scraper-image.yml` | `puntmore-update.timer`, every 10 min |
+| `scraper/` | Hub: the Scraper service, user service `puntmore-scraper` on its own virtual screen, `puntmore-screen` (Docker is the fallback for a box with no screen) | `scraper/deploy/native/`; fallback `.github/workflows/scraper-image.yml` | `puntmore-update.timer`, every 10 min |
 | `hub/` | Hub: the daemon, the Console, HubAI's CLI, the placement engine; systemd user services | `hub/deploy/systemd/` on the box's checkout | `puntmore-update.timer`, every 10 min |
 | `clients/python/` | any machine client of the API | from the repo | on demand |
 | `local/` | one-off scripts on the Hub | by hand | — |
