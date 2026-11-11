@@ -87,6 +87,8 @@ def run(cfg: Settings = default_settings, *, sleep: Callable[[float], None] = ti
         threading.Thread(target=_mail_loop, args=(cfg, stop, sleep), name="mail", daemon=True).start()
     if aw26.configured(cfg):
         threading.Thread(target=_aw26_loop, args=(cfg, stop, sleep), name="aw26", daemon=True).start()
+    else:
+        log.info("AW 26 photo loop not started: PUNTMORE_RENDER_HTTP or PUNTMORE_RENDER_API_KEY is unset")
     try:
         while True:
             try:

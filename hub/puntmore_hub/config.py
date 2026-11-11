@@ -94,10 +94,12 @@ class Settings:
     hermes_scraper_profile: str = os.environ.get("PUNTMORE_HERMES_SCRAPER_PROFILE", "scraper-manager")
     hermes_home: Path = Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
     # AW 26 (aw26_loop.py): the profile that reads a slip photo (with the puntmore-aw26 skill),
-    # how often the daemon looks for a waiting photo, and the seconds one reading may take.
+    # how often the daemon looks for a waiting photo, and the seconds one reading may take. The
+    # Hub kills a reading at budget + 60 s, which must stay under Render's STALE_AFTER (15 min,
+    # render/api/app/aw26/photos.py), or Render releases the photo while HubAI is still on it.
     hermes_aw26_profile: str = os.environ.get("PUNTMORE_HERMES_AW26_PROFILE", "betting-client-manager")
     aw26_every_s: int = int(os.environ.get("PUNTMORE_AW26_EVERY_S", "60"))
-    aw26_run_budget_s: int = int(os.environ.get("PUNTMORE_AW26_RUN_BUDGET_S", "900"))
+    aw26_run_budget_s: int = int(os.environ.get("PUNTMORE_AW26_RUN_BUDGET_S", "600"))
     # PUNTMORE_ESCALATE_TO_LOCAL_AI is the old name, still read when the new one is unset.
     escalate_to_hubai: bool = _env_bool_first("PUNTMORE_ESCALATE_TO_HUBAI", "PUNTMORE_ESCALATE_TO_LOCAL_AI",
                                               default=True)

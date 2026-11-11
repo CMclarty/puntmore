@@ -164,7 +164,17 @@ def photos(cfg: Settings, opener: Opener | None = None) -> list[dict]:
 def take(cfg: Settings, photo_id: int, dest_dir: Path, opener: Opener | None = None) -> Path:
     """Take a waiting photo (once; Render refuses a second take with 409), then save its image
     to `dest_dir/<id><ext>`."""
-    _json(cfg, "POST", f"/api/aw26/photos/{int(photo_id)}/take", opener)
+    claim(cfg, photo_id, opener=opener)
+    return download(cfg, photo_id, dest_dir, opener=opener)
+
+
+def claim(cfg: Settings, photo_id: int, opener: Opener | None = None) -> dict:
+    """Take a waiting photo on Render (it is `reading` from now), without downloading it."""
+    return _json(cfg, "POST", f"/api/aw26/photos/{int(photo_id)}/take", opener)
+
+
+def download(cfg: Settings, photo_id: int, dest_dir: Path, opener: Opener | None = None) -> Path:
+    """Save a photo's image to `dest_dir/<id><ext>`."""
     code, raw, ctype = request(cfg, "GET", f"/api/aw26/photos/{int(photo_id)}/image", opener=opener)
     if code != 200:
         raise RenderError(code, _detail(raw))

@@ -43,17 +43,20 @@ def _stop_after(n):
     return ingest
 
 
-def test_without_render_the_daemon_starts_no_aw26_thread(cfg, monkeypatch):
+def test_without_render_the_daemon_starts_no_aw26_thread(cfg, monkeypatch, caplog):
     started = []
     monkeypatch.setattr(inbox, "ingest", _stop_after(2))
     monkeypatch.setattr(aw26_loop, "read_once", lambda c, **kw: started.append(c))
     monkeypatch.setattr(threading.Thread, "start", lambda t: started.append(t.name))
+    caplog.set_level(logging.INFO, logger="puntmore.daemon")
     daemon.run(cfg, sleep=lambda s: None)
     assert started == []
     assert "aw26" not in daemon.last_status(cfg)
+    assert caplog.text.count("AW 26 photo loop not started") == 1
+    assert "PUNTMORE_RENDER_HTTP" in caplog.text
 
 
-def test_with_render_the_daemon_reads_photos_on_its_own_thread(cfg, monkeypatch):
+def test_with_render_the_daemon_reads_photos_on_its_own_thread(cfg, monkeypatch, caplog):
     live = cfg.with_overrides(render_http="https://puntmore.example", render_api_key="k")
     passed, names = threading.Event(), []
 
@@ -67,8 +70,10 @@ def test_with_render_the_daemon_reads_photos_on_its_own_thread(cfg, monkeypatch)
         raise KeyboardInterrupt
     monkeypatch.setattr(inbox, "ingest", ingest)
     monkeypatch.setattr(aw26_loop, "read_once", read_once)
+    caplog.set_level(logging.INFO, logger="puntmore.daemon")
     daemon.run(live, sleep=lambda s: None)
     assert names[0] == "aw26"
+    assert "AW 26 photo loop not started" not in caplog.text
     status = daemon.last_status(live)["aw26"]
     assert status["counts"] == {"photo": 5, "outcome": "recorded"} and status["at"] and status["error"] is None
 
