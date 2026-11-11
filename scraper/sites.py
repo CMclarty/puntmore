@@ -7,11 +7,14 @@ paddypower     Logged out. Budget 15 loads/h, 120/day across ALL its targets.
                No traffic 01:00-07:00 (pages are closed, not just left idle).
                A block (403/429/Cloudflare) closes every Paddy page and starts
                a 24 h cool-off that also needs a manual `resume`.
-bookiebashing  Your subscription, logged in by a person (over VNC only in the
-               Docker fallback). Budget 8/h, 120/day. No quiet hours. A block
-               or logout alerts once and backs off (15 min doubling to 2 h)
-               until a person has sorted it. Its one target (bb-saves) is the
-               single named exception in docs/decisions.md.
+bookiebashing  Your subscription. The Scraper signs in itself with the login in
+               its .env (BB_USERNAME, BB_PASSWORD; login.py), once per logout,
+               on the page already open. Budget 8/h, 120/day. No quiet hours.
+               A block, a failed sign-in, or a logout with no login in .env
+               alerts once and backs off (15 min doubling to 2 h) until a
+               person has sorted it (over VNC only in the Docker fallback).
+               Its one target (bb-saves) is the single named exception in
+               docs/decisions.md.
 generic        Any other site: Finder's sources (tipster pages, listings) and any
                other page a tool needs.
                Never Paddy or Bookie Bashing. Budget 60/h, 400/day across ALL

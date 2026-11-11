@@ -675,7 +675,7 @@ Pinnacle's fair reference, joined on the same fixture id.
   means fewer than N, not the standard line. The builder lists a game only
   when some bookmaker has posted a saves line for it (the Premier League is
   often empty until a day or two before kickoff). Its docstring has the rest.
-  This BB target (`bb-saves`, driven after a person logs in) predates the rule
+  This BB target (`bb-saves`, driven after the Scraper signs in) predates the rule
   that BB is never automated and is its single named exception
   (`docs/decisions.md`, "Scraping conduct").
 - `cards/oddspapi.py` returns **RAW** prices. De-vigging lives in

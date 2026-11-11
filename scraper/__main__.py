@@ -5,6 +5,7 @@
                    restart. This is what the service runs.
   status           Budget spent, cool-offs, each target's state, heartbeat age.
   resume <site>    End a cool-off early-ish: it still needs its hours to pass.
+                   It also forgets a failed sign-in (login.py).
   dump <target>    Ask the RUNNING service to save that target's open page(s)
                    (HTML + screenshot) to data/dumps/ - no extra page load.
   check            Load targets.toml and print the targets.
@@ -31,6 +32,7 @@ import time
 from datetime import datetime
 
 from . import config
+from . import login
 from .alerts import Alerts
 from .guard import Guard
 from .sites import SITES
@@ -356,7 +358,10 @@ def main(argv=None):
         if not rest or rest[0] not in SITES:
             sys.exit(f"resume which site? {', '.join(SITES)}")
         _guard(s).resume(rest[0])
-        print(f"{rest[0]}: resume recorded - it restarts once the cool-off hours have passed.")
+        login.clear(s.data_dir, rest[0], times=True)
+        print(f"{rest[0]}: resume recorded - it restarts once the cool-off hours have passed."
+              + (" A failed sign-in is forgotten: it will try once more the next time it "
+                 "finds the site logged out." if rest[0] in login.FORMS else ""))
     elif cmd == "dump":
         if not rest or rest[0] not in {t.name for t in s.targets}:
             sys.exit(f"dump which target? {', '.join(t.name for t in s.targets)}")
