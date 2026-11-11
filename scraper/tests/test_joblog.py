@@ -1,6 +1,6 @@
 import json
 
-from scraper import joblog
+from scraper import joblog, runner
 from scraper.tests.test_pacing import _runner
 from scraper.tests.test_schedule import _at, _bb
 
@@ -65,14 +65,51 @@ def test_a_tick_survives_a_log_it_cannot_write(tmp_path):
     assert "bb" in r.tabs
 
 
-def test_a_delivery_that_went_is_noted_in_the_log(tmp_path):
+def _tips_job(tmp_path):
     from scraper import config
     t = config.Target(name="tips", site="generic", url="https://tips.example.org/today",
                       mode="fetch", post="hub:tips")
-    r = _runner(tmp_path, [t])
-    assert r._deliver(t, [{"event": "A v B", "market": "Match Odds", "selection": "A"}], 100.0)
-    assert not r._deliver(t, [{"event": "no market"}], 101.0)
-    assert [x["msg"] for x in joblog.read(tmp_path, "tips")] == ["1 row(s) handed to the Hub (hub:tips)"]
+    return t, _runner(tmp_path, [t])
+
+
+def _tip(i):
+    return {"event": f"A{i} v B{i}", "market": "Match Odds", "selection": f"A{i}"}
+
+
+def _msgs(tmp_path, name):
+    return [x["msg"] for x in joblog.read(tmp_path, name, n=100)]
+
+
+def test_a_delivery_logs_what_was_handed_and_what_was_left_out(tmp_path):
+    t, r = _tips_job(tmp_path)
+    rows = [_tip(0), _tip(1), {"event": "no market"}, _tip(2), {"selection": "x"}]
+    assert r._deliver(t, rows, 100.0)
+    assert not r._deliver(t, [{"event": "no market"}], 101.0)      # nothing handed: no line
+    assert _msgs(tmp_path, "tips") == ["3 row(s) handed to the Hub (hub:tips), 2 left out"]
+
+
+def test_a_repeated_delivery_is_logged_on_a_change_or_every_10_min(tmp_path):
+    t, r = _tips_job(tmp_path)
+    t0 = 1_000.0
+    r._deliver(t, [_tip(0), _tip(1)], t0)
+    r._deliver(t, [_tip(0), _tip(1)], t0 + 60)                      # same count inside 10 min
+    assert _msgs(tmp_path, "tips") == ["2 row(s) handed to the Hub (hub:tips)"]
+    r._deliver(t, [_tip(0), _tip(1), _tip(2)], t0 + 120)            # a new count: at once
+    r._deliver(t, [_tip(0), _tip(1), _tip(2), {"event": "bad"}], t0 + 180)   # one left out: a change
+    r._deliver(t, [_tip(0), _tip(1), _tip(2), {"event": "bad"}], t0 + 180 + 599)
+    r._deliver(t, [_tip(0), _tip(1), _tip(2), {"event": "bad"}], t0 + 180 + runner.DELIVERY_SAID_S)
+    assert _msgs(tmp_path, "tips")[1:] == ["3 row(s) handed to the Hub (hub:tips)",
+                                           "3 row(s) handed to the Hub (hub:tips), 1 left out",
+                                           "3 row(s) handed to the Hub (hub:tips), 1 left out"]
+    assert runner.DELIVERY_SAID_S == 600
+
+
+def test_a_changed_job_forgets_its_last_delivery_line(tmp_path):
+    import dataclasses
+    t, r = _tips_job(tmp_path)
+    r._deliver(t, [_tip(0)], 1_000.0)
+    r.apply_targets([dataclasses.replace(t, url="https://tips.example.org/other")])
+    assert "tips" not in r.delivery_said
 
 
 def test_dump_lines_go_to_the_jobs_log_and_never_make_one_for_a_stranger(tmp_path, capsys):
@@ -87,3 +124,39 @@ def test_dump_lines_go_to_the_jobs_log_and_never_make_one_for_a_stranger(tmp_pat
     (tmp_path / "requests" / "dump-bb").touch()
     r._requests()
     assert joblog.read(tmp_path, "bb", n=1)[0]["msg"].startswith("dump: saved ")
+
+
+def test_a_long_message_is_cut_to_its_cap(tmp_path):
+    joblog.write(tmp_path, "j", "x" * 5000, now=1.0)
+    msg = joblog.read(tmp_path, "j")[0]["msg"]
+    assert len(msg) == joblog.MSG_MAX == 2000 and msg.endswith("…") and msg.startswith("xxx")
+    joblog.write(tmp_path, "j", "y" * 2000, now=2.0)
+    assert joblog.read(tmp_path, "j", n=1)[0]["msg"] == "y" * 2000
+
+
+def test_a_trimmed_log_keeps_its_permissions(tmp_path):
+    joblog.write(tmp_path, "j", "first", now=0.0)
+    p = joblog.path(tmp_path, "j")
+    p.chmod(0o640)
+    for i in range(2000):
+        joblog.write(tmp_path, "j", "x" * 300, now=float(i))
+    assert len(joblog.read(tmp_path, "j", n=10_000)) < 2000          # it was trimmed
+    assert p.stat().st_mode & 0o777 == 0o640
+    assert [q.name for q in p.parent.iterdir()] == ["j.log"]       # no temp file left
+
+
+def test_dot_and_empty_names_stay_in_logs(tmp_path):
+    for name in ("..", ""):
+        joblog.write(tmp_path, name, f"hello {name}", now=1.0)
+        p = joblog.path(tmp_path, name)
+        assert p.parent == tmp_path / "logs" and p.resolve().parent == (tmp_path / "logs").resolve()
+        assert joblog.read(tmp_path, name) == [{"ts": 1.0, "msg": f"hello {name}"}]
+    assert sorted(q.parent for q in tmp_path.rglob("*.log")) == [tmp_path / "logs"] * 2
+
+
+def test_removing_a_log_never_raises(tmp_path):
+    joblog.remove(tmp_path, "nobody")                                # no file
+    stuck = joblog.path(tmp_path, "stuck")
+    (stuck / "inside").mkdir(parents=True)                           # a directory can't be unlinked
+    joblog.remove(tmp_path, "stuck")
+    assert stuck.exists()

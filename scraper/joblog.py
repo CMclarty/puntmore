@@ -14,6 +14,7 @@ write starts on a fresh line, so a torn line never hides another.
 import json
 import os
 import pathlib
+import stat
 import tempfile
 import time
 
@@ -21,6 +22,7 @@ from .sinks import _safe
 
 MAX_BYTES = 512 * 1024
 KEEP_LINES = 1000
+MSG_MAX = 2000          # characters; a longer message (an exception's text) is cut and ends "…"
 
 
 def path(data_dir: pathlib.Path, name: str) -> pathlib.Path:
@@ -30,6 +32,8 @@ def path(data_dir: pathlib.Path, name: str) -> pathlib.Path:
 def write(data_dir, name: str, msg: str, now: float | None = None) -> None:
     """Append one line; past MAX_BYTES keep the newest KEEP_LINES. Never raises."""
     p = path(data_dir, name)
+    if len(msg) > MSG_MAX:
+        msg = msg[:MSG_MAX - 1] + "…"
     line = json.dumps({"ts": float(time.time() if now is None else now), "msg": msg}).encode() + b"\n"
     try:
         try:
@@ -50,8 +54,10 @@ def write(data_dir, name: str, msg: str, now: float | None = None) -> None:
 
 def _trim(p: pathlib.Path) -> None:
     keep = p.read_bytes().splitlines(keepends=True)[-KEEP_LINES:]
+    mode = stat.S_IMODE(p.stat().st_mode)
     fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=f".{p.name}.", suffix=".tmp")
     try:
+        os.fchmod(fd, mode)                     # mkstemp makes 0600; keep the log's own bits
         with os.fdopen(fd, "wb") as f:
             f.writelines(keep)
         os.replace(tmp, p)

@@ -47,8 +47,8 @@ class PriceSink:
     def __init__(self, data_dir):
         self.data_dir = data_dir
 
-    def deliver(self, t, rows, now) -> bool:
-        return deliver_prices(self.data_dir, t, rows, now)
+    def deliver(self, t, rows, now) -> int:
+        return len(rows) if deliver_prices(self.data_dir, t, rows, now) else 0
 
 
 class HubSink:
@@ -57,12 +57,13 @@ class HubSink:
     def __init__(self, data_dir):
         self.data_dir = data_dir
 
-    def deliver(self, t, rows, now) -> bool:
+    def deliver(self, t, rows, now) -> int:
         return deliver_to_hub(self.data_dir, t, rows, now)
 
 
 class Sinks:
-    """The one interface the runner calls: deliver(target, rows, now)."""
+    """The one interface the runner calls: deliver(target, rows, now) -> how
+    many rows were handed to the Hub (0: none; a tip sink leaves out bad rows)."""
 
     def __init__(self, settings):
         self.prices = PriceSink(settings.data_dir)
@@ -75,9 +76,9 @@ class Sinks:
             return None
         return self.hub if t.post.startswith("hub:") else self.prices
 
-    def deliver(self, t, rows, now) -> bool:
+    def deliver(self, t, rows, now) -> int:
         sink = self.for_target(t)
-        return bool(sink) and sink.deliver(t, rows, now)
+        return sink.deliver(t, rows, now) if sink else 0
 
 
 def envelope(type_, body, at) -> dict:
@@ -124,26 +125,28 @@ def tip_rows(rows) -> tuple[list, list]:
     return good, bad
 
 
-def deliver_to_hub(data_dir, target, rows, now) -> bool:
+def deliver_to_hub(data_dir, target, rows, now) -> int:
     """Hand a fetch target's rows to the Hub: one drop file per run, read by the
     Hub daemon's inbox pass and stored as tips for HubAI to judge. The channel
     after `hub:` in the target's post (e.g. `hub:tips`) is passed through.
 
     Every row is written with its `tip_id` (ids.py): the tip's one id, minted
-    here, where it is first seen. The Hub stores and forwards it unchanged."""
+    here, where it is first seen. The Hub stores and forwards it unchanged.
+    Returns how many rows were dropped: 0 when none were (no good row, or the
+    drop failed)."""
     rows, bad = tip_rows(rows)
     if bad:
         print(f"{target.name}: {len(bad)} row(s) left out of the drop (no event/market/selection, "
               f"or price outside {PRICE_MIN}-{PRICE_MAX}): {bad[0]}", flush=True)
     if not rows:
-        return False
+        return 0
     body = {"source": target.name, "at": float(now), "url": target.url,
             "channel": target.post.split(":", 1)[1] or "tips",
             "trust_weight": target.trust_weight, "rows": with_tip_ids(target.name, rows, now)}
     ok = _drop(data_dir, "tips", target.name, "scraper_tips", body)
     if ok:
         print(f"{target.name}: {len(rows)} row(s) handed to the Hub", flush=True)
-    return ok
+    return len(rows) if ok else 0
 
 
 def deliver_prices(data_dir, target, rows, now) -> bool:

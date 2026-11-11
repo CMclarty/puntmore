@@ -61,6 +61,9 @@ PARSE_EVERY_S = 60
 RESCHEDULE_FIELDS = ("every_min", "stale_min", "priority", "window", "min_rows", "trust_weight",
                      "near_min", "near_hours", "days", "until")
 TARGETS_CHECK_S = 60             # a stat of targets.toml; read only when it changed
+# A job that delivers every parse logs the same delivery line again only
+# after this long (a change in what was handed or left out is logged at once).
+DELIVERY_SAID_S = 600
 
 
 class Tab:
@@ -108,6 +111,8 @@ class Runner:
         self.pacer = schedule.Pacer(SITES)            # spacing between page loads
         self.retired: dict[str, collections.deque] = {}
         self.parser_said: dict[str, str] = {}
+        # job -> ((handed, left out), when) of its last delivery line in its log
+        self.delivery_said: dict[str, tuple[tuple[int, int], float]] = {}
         self.targets = list(settings.targets)
         self.targets_file = settings.targets_file
         self.targets_mtime = self._mtime()            # load() has just read it
@@ -481,6 +486,7 @@ class Runner:
                 self.retired.pop(name, None)
                 self.next_open.pop(name, None)
                 self.parser_said.pop(name, None)
+                self.delivery_said.pop(name, None)
             if name not in new:
                 self.retired_targets[name] = t
         for name in new:
@@ -560,12 +566,21 @@ class Runner:
             self.alerts.send(f"{t.name}: healthy again ({len(rows)} rows)")
 
     def _deliver(self, t, rows, now) -> bool:
-        """Hand the rows to the sink; a delivery that went is noted in the job's
-        log (the sink prints its own line)."""
-        ok = self.sinks.deliver(t, rows, now)
-        if ok:
-            joblog.write(self.s.data_dir, t.name, f"{len(rows)} row(s) handed to the Hub ({t.post})")
-        return ok
+        """Hand the rows to the sink. A delivery that went is noted in the job's
+        log (the sink prints its own line): what was handed and what the sink
+        left out, logged when that differs from the job's last delivery line
+        or DELIVERY_SAID_S after it, so a job delivering every parse does not
+        fill its log with the same line."""
+        handed = self.sinks.deliver(t, rows, now)
+        if not handed:
+            return False
+        counts = (handed, len(rows) - handed)
+        last = self.delivery_said.get(t.name)
+        if last is None or last[0] != counts or now - last[1] >= DELIVERY_SAID_S:
+            self.delivery_said[t.name] = (counts, now)
+            joblog.write(self.s.data_dir, t.name, f"{handed} row(s) handed to the Hub ({t.post})"
+                         + (f", {counts[1]} left out" if counts[1] else ""))
+        return True
 
     def _tick_matches(self, t, now):
         m = t.matches
