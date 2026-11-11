@@ -3,8 +3,8 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Hills (the William Hill board, BB Boost's target, legs and bet log) prices and
-settles from odds-api.net instead of OddsPapi, so it keeps working after OddsPapi's plan ends
-on 15 Nov 2026 14:16 UTC.
+settles from odds-api.net, Puntmore's second odds provider beside OddsPapi; Hills shows
+William Hill's 11.5 corners line and no saves (Callum, 11 Nov 2026).
 
 **Architecture:** A new source class, `OddsApiNetHillsSource`, sits at
 `app.state.hills_client`. It turns odds-api.net's per-event snapshots (William Hill and
@@ -316,6 +316,28 @@ git add render/api/app/cards/oddsapinet.py render/api/tests/oan_fixtures.py \
   render/api/tests/test_oddsapinet_parse.py
 git commit -m "Hills: map odds-api.net's William Hill and Pinnacle lines into the counts pipeline"
 ```
+
+### Task 2b: Paddy's excluded lines apply to Paddy Power only
+
+Callum, 11 Nov 2026: "add the 11.5 corner lines". `settings.paddy_excluded_lines`
+(`corners:11.5`) is Paddy's shop rule; Hills (William Hill, on either vendor) prices every
+half line its book quotes.
+
+**Files:**
+- Modify: `render/api/app/cards/laddered.py` (`_price_paddy_lines` and its callers: pass the
+  `book` down; skip the exclusion unless `book == PADDY_POWER`)
+- Test: `render/api/tests/` (the existing laddered/feed test module that covers exclusions;
+  add there)
+
+**Interfaces:** `_price_paddy_lines(..., book: str)` — the book `compute_laddered_value`
+already receives. No public signature changes.
+
+- [ ] **Step 1: Failing test** `test_william_hill_prices_the_11_5_corners_line`: the same
+  event and outcomes priced with `book=PADDY_POWER` give no 11.5 corners row; with
+  `book=WILLIAM_HILL` an 11.5 corners row is present (the row's line is 11.5).
+- [ ] **Step 2:** Run it; FAIL. **Step 3:** Implement. **Step 4:** Full Render suite PASS
+  (the existing Paddy exclusion tests still pass unchanged).
+- [ ] **Step 5:** Commit `Hills: Paddy's excluded 11.5 corners line is Paddy's only`.
 
 ### Task 3: The source: board, background pass, freshness, diagnostics
 
@@ -731,7 +753,11 @@ git commit -m "Hills: ODDSAPINET_API_KEY puts Hills on odds-api.net; /api/ready 
   and its filters, freshness (60 s target inside 6 h, observed 1.5 min; 1 h+ further out),
   the background pass and its limits, the market mapping table, Pinnacle-only fairs and no
   fallback, `oan:` ids and leg ids, settling from `results` (no saves, cards by the vendor's
-  count), and "no saves on Hills". Every line is a fact the tests pin or the spec records.
+  count), "no saves on Hills" and "the 11.5 corners line shows on Hills". The register bullet
+  "OddsPapi is the only odds source" is replaced, dated 11 Nov 2026, with Callum's words: "update
+  the planning documents with the 2nd providor" and "Oddspapi is a subscription" — OddsPapi
+  prices Paddy, 2-Up and the coupon tracker; odds-api.net prices Hills. `PLAN.md` records the
+  second provider where it lists the odds sources or open work. Every line is a fact the tests pin or the spec records.
 - [ ] **Step 3: `docs/architecture.md`, `docs/dataflow.md`, `CLAUDE.md`.** Architecture: a
   node `OAN["odds-api.net<br/>Hills' prices"] -- "prices (HTTPS)" --> PUB`; the OddsPapi
   node's label becomes "Paddy, 2-Up, coupons"; Fixed 6 reads "OddsPapi prices Paddy, 2-Up

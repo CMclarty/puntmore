@@ -6,10 +6,14 @@ marked **(my call)**. What only he can decide is listed at the end.
 
 ## Intent
 
-OddsPapi's plan expires **15 Nov 2026 14:16 UTC**. Hills (William Hill's corners, cards and
-goals board, BB Boost's target, legs and bet log) must keep working after that. odds-api.net
-carries William Hill and Pinnacle on the games Hills cares about, so Hills moves to it. Paddy,
-2-Up and the coupon tracker stay on OddsPapi for now.
+odds-api.net becomes Puntmore's **second odds provider**, beside OddsPapi (Callum, 11 Nov
+2026: "update the planning documents with the 2nd providor"). It carries William Hill's full
+stats markets and Pinnacle on the games Hills cares about, so Hills (William Hill's corners,
+cards and goals board, BB Boost's target, legs and bet log) moves to it. OddsPapi is a running
+subscription (Callum: "Oddspapi is a subscription"); Paddy, 2-Up and the coupon tracker stay
+on it. A third vendor, UK Odds API (ukoddsapi.com), was tested the same day and is not used:
+no saves, Paddy's corners on few games, no sharp book, and its data looks collected from
+Oddschecker.
 
 **Goals**
 - `/hills/feed`, `/hills/diagnostics`, `/hills/fixtures`, `/hills/target`, `/hills/legs` and
@@ -141,8 +145,14 @@ Checked: the recorded England v Croatia snapshot, mapped this way and run throug
 `price_events` at min_edge −0.5, fits three ladders, gives 80 William Hill rows and reports
 no split disagreements, with the handicap read on both team splits.
 
-**Saves (my call):** Hills on odds-api.net has no saves rows and no saves legs. Adding up two
-keepers' props into a match total would be a guess.
+**Saves (Callum, 11 Nov 2026: "Remove saves on hills"):** Hills has no saves rows and no saves
+legs. odds-api.net has no William Hill match saves total, and adding two keepers' props into
+one would be a guess.
+
+**The 11.5 corners line (Callum, 11 Nov 2026: "add the 11.5 corner lines"):** Hills shows
+William Hill's 11.5 corners line. `paddy_excluded_lines` (`corners:11.5`) is Paddy's shop
+rule and applies to the Paddy Power book only (`laddered.py::_price_paddy_lines`, keyed on
+the `book` the pipeline already carries); Hills prices every half line William Hill quotes.
 
 ## Fairs
 
@@ -220,9 +230,9 @@ window before this ships.
 - `main.py` chooses Hills' source through `hills/vendor.py::build_hills_source`. With
   `ODDSAPINET_API_KEY` set, Hills uses odds-api.net. Otherwise, with an OddsPapi client,
   Hills stays on OddsPapi as today. With neither, there is no source.
-- **Fallback while OddsPapi has days left (my call):** no switch setting. Until Callum sets
-  the key, Hills runs on OddsPapi. Once it is set, Hills runs on odds-api.net. If odds-api.net
-  misbehaves before 15 Nov, removing the env var puts Hills back on OddsPapi until it expires.
+- **Fallback (my call):** no switch setting. Until Callum sets the key, Hills runs on
+  OddsPapi. Once it is set, Hills runs on odds-api.net. If odds-api.net misbehaves, removing
+  the env var puts Hills back on OddsPapi.
 - A target picked on OddsPapi before the switch keeps its OddsPapi id, so its legs come back
   empty. Re-pick it after the deploy.
 - `/api/ready` gains `providers.hills_detail: {provider, degraded, requests_today}`. `degraded`
@@ -253,7 +263,8 @@ replacing that bullet:
 
 > - **OddsPapi prices Paddy, 2-Up and the coupon tracker; odds-api.net prices Hills.**
 >   Callum, 11 Nov 2026: "now we have a provider for william hill odds lets build that out".
->   OddsPapi's plan ends 15 Nov 2026; Hills moves first, the rest is decided separately.
+>   Callum, 11 Nov 2026: "update the planning documents with the 2nd providor";
+>   "Oddspapi is a subscription".
 >   TheOddsApi stays removed. Goalscorers is parked; if it returns it uses OddsPapi.
 >   (5 Nov 2026, Callum; Hills 11 Nov 2026, Callum)
 
@@ -276,18 +287,14 @@ follow the register.
 
 ## Callum's jobs
 
-1. Approve (or reword) the register line above. The pull request does not merge without it.
+1. Read the register line above; it records his 11 Nov words.
 2. Set `ODDSAPINET_API_KEY` in Render's dashboard (Environment), then redeploy. The key is in
    the vendor-keys file he gave the controller; it never goes in the repo.
 3. After the deploy, re-pick the Hills target if one was set.
 
-## Open decisions for Callum
+## Decided by Callum, 11 Nov 2026
 
-1. The register edit (wording above).
-2. OddsPapi ends 15 Nov 14:16 UTC: Paddy, 2-Up and the coupon tracker lose their prices
-   then unless OddsPapi is renewed or they move. That is a separate piece of work, and it
-   starts now.
-3. Saves: odds-api.net has no William Hill match-saves total, so Hills loses its saves rows
-   and saves legs. Accept, or ask for keeper-prop legs later.
-4. Hills inherits Paddy's shop rule `paddy_excluded_lines` (`corners:11.5`), so William Hill's
-   11.5 corners line never shows on Hills. Keep it, or exempt Hills.
+- odds-api.net is the second odds provider; OddsPapi stays (a subscription) for Paddy, 2-Up
+  and the coupon tracker.
+- "Remove saves on hills."
+- "add the 11.5 corner lines": Paddy's excluded-lines rule applies to Paddy Power only.
