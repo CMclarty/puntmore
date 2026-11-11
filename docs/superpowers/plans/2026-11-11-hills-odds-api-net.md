@@ -732,6 +732,55 @@ git add render/api/app/hills/vendor.py render/api/app/main.py render/api/app/car
 git commit -m "Hills: ODDSAPINET_API_KEY puts Hills on odds-api.net; /api/ready names it"
 ```
 
+### Task 5b: A warmish board — slow background pre-loads
+
+Callum, 11 Nov 2026: "could we get a warmish board, with slow pre-loads". Credits: 250,000 a
+month; the daily cap is 8,000.
+
+**Files:**
+- Modify: `render/api/app/cards/oddsapinet.py` (`OddsApiNetHillsSource`)
+- Modify: `render/api/app/config.py` (settings below), `.env.example`
+- Modify: `render/api/app/scheduler.py` (`start_scheduler`: one interval job) and
+  `render/api/app/main.py` (pass the Hills source in, only when it is an `OddsApiNetHillsSource`)
+- Test: `render/api/tests/test_oddsapinet_source.py`, the scheduler test module
+
+**Interfaces — Produces:**
+- `OddsApiNetHillsSource.warm() -> dict` — one slow pass, run on the scheduler's thread
+  (synchronous; never starts the page's background thread). Returns
+  `{"due": n, "fetched": n, "skipped": reason | None}`.
+  - Refreshes the listing as `get_events` does (its own 600 s reuse).
+  - A William Hill game is warm-due when it has no board, or its board's age (monotonic since
+    fetched) is over `oddsapinet_warm_far_s` (default 7200) for a kick-off more than
+    `oddsapinet_warm_near_hours` (default 6) away, else over `oddsapinet_warm_near_s` (default
+    900). Holds still apply. Nearest kick-off first, at most `max_per_pass`.
+  - Skips with `skipped="reserve"` and fetches nothing when
+    `client.budget_left() < oddsapinet_warm_reserve` (default 2000); `skipped="busy"` when a
+    page pass is running (`_refreshing`); never runs alongside a page pass (same lock / flag).
+  - Fetched boards, holds, `last_sweep` and `priced_at` update exactly as a page pass does
+    (reuse the pass's per-event fetch; no second code path for storing a board).
+  - `BudgetSpent` / `RateLimited` end it, named in `last_sweep.errors`, as in a page pass.
+- Settings: `oddsapinet_warm_every_min: int = 10`, `oddsapinet_warm_far_s: int = 7200`,
+  `oddsapinet_warm_near_s: int = 900`, `oddsapinet_warm_near_hours: float = 6.0`,
+  `oddsapinet_warm_reserve: int = 2000`; `oddsapinet_warm_every_min = 0` turns the job off.
+- `start_scheduler` adds job id `hills_warm` (interval, minutes=`oddsapinet_warm_every_min`)
+  calling `source.warm()` inside a try/except that logs and never raises, only when a Hills
+  source with `warm` is passed and the interval is > 0. Paddy's and every other job unchanged.
+
+- [ ] **Step 1: Failing tests** (FakeOan + Clock, no network):
+  - `test_warm_fetches_a_missing_board_and_a_stale_far_one_but_not_a_fresh_one`: far game
+    board 3 h old → fetched; far game 1 h old → not; near game (2 h to kick-off) 20 min old →
+    fetched; near game 10 min old → not.
+  - `test_warm_stops_at_the_reserve`: `budget_left()` 1999 → `skipped == "reserve"`, no request.
+  - `test_warm_skips_while_a_page_pass_runs`: `_refreshing` set → `skipped == "busy"`, no request.
+  - `test_a_warmed_board_is_served_without_a_page_fetch`: after `warm()`, `get_events()` returns
+    the game's event and makes no snapshot request (board fresh by the page's TTL).
+  - `test_the_scheduler_adds_hills_warm_only_for_an_odds_api_net_source`: with an
+    OddsApiNetHillsSource → job `hills_warm` every 10 min; with None or an OddsPapi source → no
+    such job; `oddsapinet_warm_every_min=0` → no job.
+  - `test_a_warm_that_raises_is_logged_not_raised` (the job wrapper).
+- [ ] **Step 2:** FAIL. **Step 3:** Implement. **Step 4:** Full Render suite PASS.
+- [ ] **Step 5:** Commit `Hills: a warmish board — slow background pre-loads`.
+
 ### Task 6: Docs and the register edit
 
 **Files:**

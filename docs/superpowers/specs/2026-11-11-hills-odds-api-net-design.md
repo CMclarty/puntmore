@@ -21,7 +21,7 @@ Oddschecker.
 - Pinnacle stays the fair side. Fairs are de-vigged in-house, as the register requires.
 - BB Boost bets settle themselves from odds-api.net's results.
 - The board's age is honest: it never claims fresher prices than it has.
-- Hills spends credits only while someone has the page open, as it does now.
+- Hills keeps a warmish board: slow background pre-loads, the page's own pace when open.
 
 **Non-goals:** moving Paddy, 2-Up or the coupon tracker; streams or websockets; odds history;
 a board-at history for Hills (Paddy's alone is kept); any change to the pricing model.
@@ -187,6 +187,12 @@ window before this ships.
 
 ## Budget, caching and freshness
 
+- **A warmish board (Callum, 11 Nov 2026: "could we get a warmish board, with slow
+  pre-loads").** A scheduler job every 10 minutes refreshes boards with nobody on the page,
+  slowly: a game more than 6 hours from kick-off when its board is over 2 hours old, a game
+  inside 6 hours when over 15 minutes old. It stops for the day once fewer than 2,000 credits
+  are left. A page request still refreshes at the page pace below. About 1,000–2,500 credits a
+  day, 45,000–60,000 a month, of the 250,000. Replaces the earlier "only when the page asks".
 - **Sweep only when the page asks.** No scheduler job. A request reads the board as it
   stands; the work happens on requests.
 - **Listing:** one `/events` call, cached 600 s; follow `next_cursor`, at most 3 pages.
