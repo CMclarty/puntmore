@@ -144,7 +144,10 @@ def test_the_recorded_game_prices_through_the_unchanged_pipeline():
     rows = feed.price_events([to_event(eng, parse_snapshot(load("snapshot_1417142635.json")))],
                              -0.5, "williamhill")
     run = laddered.LAST_RUNS["williamhill"]
-    assert len(rows) == 80 and run["ladders_fitted"] == 3
+    # 82: William Hill's 11.5 corners Over and Under are priced (Paddy's
+    # excluded line is Paddy's only, Task 2b).
+    assert len(rows) == 82 and run["ladders_fitted"] == 3
+    assert {r.side for r in rows if r.market_key == CORNERS and r.line == 11.5} == {"Over", "Under"}
     assert run["by_market"]["team_corners"]["split_disagreement"] == 0
     assert run["by_market"]["team_corners"]["split_sources"]["handicap"] == 2
     over95 = next(r for r in rows if r.market_key == CORNERS and r.line == 9.5 and r.side == "Over")
