@@ -1,6 +1,7 @@
 """The Hub's self-update (puntmore_hub/update.py) against a real git repo with a bare "origin"."""
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from datetime import timedelta
@@ -8,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from puntmore_hub import update
+from puntmore_hub import aw26, aw26_loop, update
 from puntmore_hub.store import Store, iso, utcnow
 
 
@@ -343,7 +344,7 @@ def test_update_copies_the_runbook_into_its_profile(repos, cfg):
     f = Fakes()
     res = update.run(cfg, box, **f.kw())
     assert res.outcome == "updated", res.detail
-    assert "runbooks: puntmore-scraper-ops -> scraper-manager" in res.detail
+    assert f"runbooks: puntmore-scraper-ops -> {profile / 'skills'}" in res.detail
     assert (stale / "SKILL.md").read_text() == "# v2\n" and not (stale / "old-note.md").exists()
     # a second sync with nothing changed copies nothing
     assert update.sync_hermes_skills(box, cfg) == []
@@ -354,3 +355,74 @@ def test_a_profile_that_is_not_on_the_box_is_skipped(repos, cfg):
     push(dev, "hub/deploy/hermes-skills/puntmore-scraper-ops/SKILL.md", "# v2\n")
     assert update.sync_hermes_skills(box, cfg) == []
     assert not (cfg.hermes_home / "profiles").exists()
+
+
+def test_skill_targets(cfg):
+    home = cfg.hermes_home
+    assert update.skill_targets(cfg) == {
+        "puntmore-scraper-ops": [home / "profiles" / "scraper-manager" / "skills"],
+        "puntmore-aw26": [home / "profiles" / "betting-client-manager" / "skills", home / "skills"],
+    }
+
+
+def test_the_aw26_runbook_goes_to_the_reader_and_the_chief_of_staff(repos, cfg):
+    box, dev, _ = repos
+    push(dev, "hub/deploy/hermes-skills/puntmore-aw26/SKILL.md", "# aw26\n")
+    reader = cfg.hermes_home / "profiles" / "betting-client-manager"
+    reader.mkdir(parents=True)
+    f = Fakes()
+    res = update.run(cfg, box, **f.kw())
+    assert res.outcome == "updated", res.detail
+    assert update.sync_hermes_skills(box, cfg) == []          # already in: a second sync changes nothing
+    for skills in (reader / "skills", cfg.hermes_home / "skills"):
+        assert (skills / "puntmore-aw26" / "SKILL.md").read_text() == "# aw26\n"
+        assert f"puntmore-aw26 -> {skills}" in res.detail
+
+
+def test_a_missing_reader_profile_still_installs_for_the_chief_of_staff(repos, cfg):
+    box, dev, _ = repos
+    push(dev, "hub/deploy/hermes-skills/puntmore-aw26/SKILL.md", "# aw26\n")
+    cfg.hermes_home.mkdir()
+    sh(box, "pull", "-q")
+    assert update.sync_hermes_skills(box, cfg) == [f"puntmore-aw26 -> {cfg.hermes_home / 'skills'}"]
+    assert not (cfg.hermes_home / "profiles").exists()
+
+
+def test_the_scraper_runbook_goes_only_to_its_profile(repos, cfg):
+    box, dev, _ = repos
+    push(dev, "hub/deploy/hermes-skills/puntmore-scraper-ops/SKILL.md", "# ops\n")
+    push(dev, "hub/deploy/hermes-skills/puntmore-aw26/SKILL.md", "# aw26\n")
+    sh(box, "pull", "-q")
+    for p in ("scraper-manager", "betting-client-manager"):
+        (cfg.hermes_home / "profiles" / p).mkdir(parents=True)
+    update.sync_hermes_skills(box, cfg)
+    installed = sorted(str(p.relative_to(cfg.hermes_home)) for p in cfg.hermes_home.rglob("SKILL.md"))
+    assert installed == ["profiles/betting-client-manager/skills/puntmore-aw26/SKILL.md",
+                         "profiles/scraper-manager/skills/puntmore-scraper-ops/SKILL.md",
+                         "skills/puntmore-aw26/SKILL.md"]
+
+
+# ---- the AW 26 runbook itself ---------------------------------------------------------------------
+
+AW26_RUNBOOK = Path(__file__).resolve().parents[1] / "deploy" / "hermes-skills" / "puntmore-aw26" / "SKILL.md"
+
+
+def test_the_aw26_runbook_is_the_skill_the_daemon_names():
+    text = AW26_RUNBOOK.read_text()
+    assert text.startswith("---\nname: puntmore-aw26\n")
+    assert aw26_loop.SKILL == "puntmore-aw26"
+
+
+def test_the_aw26_runbook_names_only_real_commands():
+    named = set(re.findall(r"puntmore aw26 (\w+)", AW26_RUNBOOK.read_text()))
+    assert named == {"fail", "board", "record", "upload"}
+
+
+def test_the_aw26_worked_example_is_a_body_record_takes(cfg):
+    blocks = re.findall(r"```json\n(.*?)```", AW26_RUNBOOK.read_text(), re.S)
+    slip = json.loads(blocks[-1])
+    assert set(slip) <= set(aw26.SLIP_KEYS) and "photo_id" in slip
+    assert all(set(leg) <= set(aw26.LEG_KEYS) for leg in slip["legs"])
+    body = aw26.record(cfg, slip, dry_run=True)["dry_run"]        # every printed time reads
+    assert body["receipt"] == "B0000000000000-000000-0"
+    assert body["offer"] == "boost" and len(body["legs"]) == 5

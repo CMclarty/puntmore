@@ -116,36 +116,45 @@ def in_flight_bets(db_path: Path) -> list[dict]:
 
 
 # ---- the Hermes runbooks ----------------------------------------------------------------------------
-# hub/deploy/hermes-skills/<skill>/ is the runbook an agent follows; a profile's copy lives at
-# <hermes home>/profiles/<profile>/skills/<skill>/. An update copies each one over, so the agent
-# follows the runbook of the commit on the box, not the one from the day it was installed.
+# hub/deploy/hermes-skills/<skill>/ is the runbook an agent follows; an agent's copy lives in its
+# skills directory, <hermes home>/profiles/<profile>/skills/<skill>/ for a profile and
+# <hermes home>/skills/<skill>/ for the chief of staff (whose home is the Hermes home itself). An
+# update copies each one over, so the agent follows the runbook of the commit on the box, not the
+# one from the day it was installed.
 SKILLS_DIR = "hub/deploy/hermes-skills"
 
 
-def skill_profiles(cfg: Settings) -> dict[str, str]:
-    """skill name -> the profile that follows it."""
-    return {"puntmore-scraper-ops": cfg.hermes_scraper_profile}
+def skill_targets(cfg: Settings) -> dict[str, list[Path]]:
+    """skill name -> the skills directories of the agents that follow it."""
+    home = cfg.hermes_home
+    return {
+        "puntmore-scraper-ops": [home / "profiles" / cfg.hermes_scraper_profile / "skills"],
+        # read by the AW 26 reader, and by the chief of staff, who queues a slip photo sent on Telegram
+        "puntmore-aw26": [home / "profiles" / cfg.hermes_aw26_profile / "skills", home / "skills"],
+    }
 
 
 def sync_hermes_skills(repo: Path, cfg: Settings = default_settings) -> list[str]:
-    """Copy each runbook into its profile's skills directory. Returns what changed, as
-    ``<skill> -> <profile>``; a profile that does not exist on the box is skipped, and a copy
-    that already matches is left alone."""
+    """Copy each runbook into each of its skills directories. Returns what changed, as
+    ``<skill> -> <skills dir>``; a target whose agent is not on the box (no profile directory, or
+    no Hermes home) is skipped, and a copy that already matches is left alone."""
     changed = []
-    for skill, profile in skill_profiles(cfg).items():
+    for skill, targets in skill_targets(cfg).items():
         src = repo / SKILLS_DIR / skill
-        profile_dir = cfg.hermes_home / "profiles" / profile
-        if not src.is_dir() or not profile_dir.is_dir():
+        if not src.is_dir():
             continue
-        dst = profile_dir / "skills" / skill
-        if dst.is_dir() and _same_tree(src, dst):
-            continue
-        tmp = dst.with_name(dst.name + ".new")
-        shutil.rmtree(tmp, ignore_errors=True)
-        shutil.copytree(src, tmp)
-        shutil.rmtree(dst, ignore_errors=True)
-        tmp.rename(dst)
-        changed.append(f"{skill} -> {profile}")
+        for skills_dir in targets:
+            if not skills_dir.parent.is_dir():
+                continue
+            dst = skills_dir / skill
+            if dst.is_dir() and _same_tree(src, dst):
+                continue
+            tmp = dst.with_name(dst.name + ".new")
+            shutil.rmtree(tmp, ignore_errors=True)
+            shutil.copytree(src, tmp)
+            shutil.rmtree(dst, ignore_errors=True)
+            tmp.rename(dst)
+            changed.append(f"{skill} -> {skills_dir}")
     return changed
 
 

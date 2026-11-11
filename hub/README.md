@@ -42,7 +42,8 @@ puntmore_hub/
 PROTOCOL.md        the Scraper's drop files; schemas/ holds their JSON Schema and three examples
 deploy/update.sh   thin wrapper around `puntmore update`, run by the update timer
 deploy/systemd/    the daemon (puntmore-link.service), 09:00 heartbeat timer, 10-minute update timer, the Console
-deploy/hermes-skills/  the Scraper-ops runbook HubAI's scraper-manager follows (`puntmore update` copies it into that profile)
+deploy/hermes-skills/  HubAI's runbooks, which `puntmore update` copies in: Scraper ops (scraper-manager), AW 26 slip reading
+                   (the AW 26 reader's profile and the chief of staff)
 data/              runtime state (git-ignored): hub.sqlite, KILL, tipsters.toml, mail-status.json, daemon-status.json
 ```
 
