@@ -280,3 +280,103 @@ def test_an_odds_api_net_error_is_not_read_as_pinnacles():
         "errors": ["4229698994: boom"]})
     v = feed.diagnose(stub)["verdict"]
     assert "boom" not in v and "no corners/cards/goals lines" in v
+
+
+# --- the warmish board: slow background pre-loads (Task 5b) -----------------
+
+def _warm_routes():
+    """Four William Hill games: two far out (24 h, 30 h), two near (2 h, 3 h)."""
+    from datetime import timedelta
+    from tests.oan_fixtures import ARMENIA_EMPTY, NOW
+    games = {"901": 24, "902": 30, "903": 2, "904": 3}
+    items = [{"event_id": eid, "league": "UEFA Nations League", "home_team": f"Home {eid}",
+              "away_team": f"Away {eid}", "sport": "soccer", "event_state": "scheduled",
+              "start_time": int((NOW + timedelta(hours=h)).timestamp()),
+              "bookmakers": ["williamhill", "pinnacle"]} for eid, h in games.items()]
+    r = {"/events": {"items": items, "next_cursor": None}}
+    for eid in games:
+        r[f"/events/{eid}/odds/snapshot"] = dict(ARMENIA_EMPTY, event_id=eid)
+    return r
+
+
+def snapshots(fake):
+    return [p for p in paths(fake) if p.endswith("/odds/snapshot")]
+
+
+def test_warm_fetches_a_missing_board_and_a_stale_far_one_but_not_a_fresh_one():
+    src, fake, clock = make(FakeOan(_warm_routes()))
+    assert src.warm() == {"due": 4, "fetched": 4, "skipped": None}   # no boards yet
+    ages = {"901": 3 * 3600, "902": 3600, "903": 20 * 60, "904": 10 * 60}
+    for eid, age in ages.items():
+        src._fetched["oan:" + eid] = clock.mono() - age
+    fake.calls.clear()
+    assert src.warm() == {"due": 2, "fetched": 2, "skipped": None}
+    # Near (2 h to kick-off, 20 min old) first, then far (3 h old).
+    assert snapshots(fake) == ["/events/903/odds/snapshot", "/events/901/odds/snapshot"]
+    assert src.last_sweep["errors"] == [] and src.last_sweep["called"] == 4
+
+
+def test_warm_is_capped_at_max_per_pass_and_holds_still_apply():
+    src, fake, clock = make(FakeOan(_warm_routes()), max_per_pass=2)
+    src._held["oan:903"] = clock.mono() + 600
+    assert src.warm() == {"due": 3, "fetched": 2, "skipped": None}
+    assert snapshots(fake) == ["/events/904/odds/snapshot", "/events/901/odds/snapshot"]
+
+
+def test_warm_stops_at_the_reserve():
+    fake = FakeOan(_warm_routes())
+    fake.requests_today = fake.daily_budget - 1999
+    src, fake, _ = make(fake)
+    assert src.warm() == {"due": 0, "fetched": 0, "skipped": "reserve"}
+    assert fake.calls == []
+
+
+def test_warm_never_spends_into_the_reserve():
+    fake = FakeOan(_warm_routes())
+    fake.requests_today = fake.daily_budget - 2003      # 2,003 left; the listing costs 1
+    src, fake, _ = make(fake)
+    assert src.warm() == {"due": 4, "fetched": 2, "skipped": None}
+    assert fake.budget_left() == 2000
+    assert src.warm()["skipped"] == "reserve"
+
+
+def test_warm_skips_while_a_page_pass_runs():
+    src, fake, _ = make(FakeOan(_warm_routes()))
+    src._refreshing = True
+    assert src.warm() == {"due": 0, "fetched": 0, "skipped": "busy"}
+    assert fake.calls == []
+
+
+def test_a_page_request_during_a_warm_starts_no_second_pass():
+    started = []
+    src, fake, _ = make(FakeOan(_warm_routes()), runner=started.append, first_wait=0)
+    real_get = fake.get
+
+    def get(path, **params):
+        if path.endswith("/odds/snapshot") and not started:
+            src.get_events()                       # a page load mid-warm
+        return real_get(path, **params)
+
+    fake.get = get
+    assert src.warm()["fetched"] == 4
+    assert started == [] and not src._refreshing
+
+
+def test_a_spent_budget_ends_the_warm_and_is_named():
+    r = _warm_routes()
+    r["/events/903/odds/snapshot"] = BudgetSpent("daily credit budget spent")
+    src, fake, _ = make(FakeOan(r))
+    assert src.warm() == {"due": 4, "fetched": 0, "skipped": None}
+    assert snapshots(fake) == ["/events/903/odds/snapshot"]
+    assert src.last_sweep["errors"] == ["daily credit budget spent"]
+    assert not src._refreshing
+
+
+def test_a_warmed_board_is_served_without_a_page_fetch():
+    src, fake, _ = make()
+    src.warm()
+    assert {"oan:1417142635", "oan:4229698994"} <= set(src.boards)
+    assert src.priced_at is not None
+    fake.calls.clear()
+    assert [e["id"] for e in src.get_events()] == ["oan:1417142635"]
+    assert snapshots(fake) == []

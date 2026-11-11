@@ -103,6 +103,18 @@ class Settings(BaseSettings):
     # A ceiling, not a target: the plan's 250,000 a month over 31 days
     # (Callum, 11 Nov 2026), so no month can overspend. Every request counts.
     oddsapinet_daily_credit_budget: int = 8000
+    # A warmish board (Callum, 11 Nov 2026: "could we get a warmish board, with
+    # slow pre-loads"): the `hills_warm` job refreshes boards with nobody on
+    # the page, every `_every_min` minutes (0 turns it off). A board is warmed
+    # when it is over `_far_s` old on a game more than `_near_hours` from
+    # kick-off, over `_near_s` old inside that, or missing. It fetches nothing
+    # once fewer than `_reserve` credits are left today, so the page always
+    # has them. About 1,000-2,500 credits a day of the 8,000.
+    oddsapinet_warm_every_min: int = 10
+    oddsapinet_warm_far_s: int = 7200
+    oddsapinet_warm_near_s: int = 900
+    oddsapinet_warm_near_hours: float = 6.0
+    oddsapinet_warm_reserve: int = 2000
 
     # Discord alerts for the cards sweep. OFF while the feed is being proven —
     # a value tool that alerts before anyone has checked its prices trains you

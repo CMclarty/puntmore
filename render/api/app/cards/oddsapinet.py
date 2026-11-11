@@ -444,13 +444,19 @@ class OddsApiNetHillsSource:
     """Hills' William Hill board and Pinnacle fair side from odds-api.net, at
     `app.state.hills_client` (spec "The seam", "Budget, caching and freshness").
 
-    WORK HAPPENS ON REQUESTS, never on a job. `get_events()` refreshes the
-    listing (one /events call, reused LISTING_TTL), serves the boards it holds
-    and, when any listed William Hill game is due, hands ONE pass to `runner`
-    (a daemon thread by default; never two at once). A cold board is 40-60
-    snapshots at ~1.4 s each, too slow for a page request, so only the first
-    request after a boot waits for the pass (up to `first_wait`); later ones
-    serve what is held and the pass catches up behind them.
+    `get_events()` refreshes the listing (one /events call, reused
+    LISTING_TTL), serves the boards it holds and, when any listed William Hill
+    game is due, hands ONE pass to `runner` (a daemon thread by default; never
+    two at once). A cold board is 40-60 snapshots at ~1.4 s each, too slow for
+    a page request, so only the first request after a boot waits for the pass
+    (up to `first_wait`); later ones serve what is held and the pass catches up
+    behind them.
+
+    A WARMISH BOARD (Callum, 11 Nov 2026): `warm()`, the scheduler's
+    `hills_warm` job, runs the same pass on the job's thread at a slower pace
+    (`oddsapinet_warm_*`), so the page opens on boards that are hours old at
+    worst rather than none. It and a page pass share `_refreshing`, so they
+    never run together, and it fetches nothing below the credit reserve.
 
     Due: listed, naming williamhill, not kicked off, with no board or a board
     older than the vendor's own refresh interval (`snapshot_ttl`), and not
@@ -656,14 +662,78 @@ class OddsApiNetHillsSource:
                 if not self._fresh(OAN_PREFIX + l.event_id)
                 and not self._held_now(OAN_PREFIX + l.event_id)]
 
+    # -- the warmish board ------------------------------------------------------
+
+    def warm(self) -> dict:
+        """One slow pre-load pass, on the caller's (the scheduler's) thread.
+        Refreshes the listing as `get_events` does, then fetches the games
+        `_warm_due` names, nearest kick-off first, at most `max_per_pass` and
+        never into the last `oddsapinet_warm_reserve` credits of the day.
+        Skipped (no request at all) below the reserve, or while a page pass
+        runs. {"due", "fetched", "skipped": None | "reserve" | "busy"}."""
+        from app.config import settings
+        reserve = settings.oddsapinet_warm_reserve
+
+        def skipped(reason: str) -> dict:
+            return {"due": 0, "fetched": 0, "skipped": reason}
+
+        with self._lock:
+            if self._refreshing:
+                return skipped("busy")
+        if self._client.budget_left() < reserve:
+            return skipped("reserve")
+        self._refresh_listing()
+        room = self._client.budget_left() - reserve      # the listing may have spent some
+        with self._lock:
+            self._prune()
+            if self._refreshing:                         # a page pass started meanwhile
+                self._summarise()
+                return skipped("busy")
+            if room <= 0:
+                self._summarise()
+                return skipped("reserve")
+            due = self._warm_due()
+            if not due:
+                self._summarise()
+                return {"due": len(due), "fetched": 0, "skipped": None}
+            self._refreshing = True
+            self._pass_done.clear()
+        fetched = self._pass(due[:min(self.max_per_pass, room)], kind="warm")
+        return {"due": len(due), "fetched": fetched, "skipped": None}
+
+    def _warm_due(self) -> list[Listing]:
+        """William Hill games the warm job fetches, nearest first: no board, or
+        a board over `oddsapinet_warm_far_s` old on a game more than
+        `oddsapinet_warm_near_hours` away, over `oddsapinet_warm_near_s`
+        inside that. Held games are skipped. Called under `_lock`."""
+        from app.config import settings
+        now, mono = self._now(), self._mono()
+        near = timedelta(hours=settings.oddsapinet_warm_near_hours)
+        out = []
+        for listing in self._wh():
+            key = OAN_PREFIX + listing.event_id
+            if self._held_now(key):
+                continue
+            if key in self.boards:
+                limit = (settings.oddsapinet_warm_far_s if listing.start - now > near
+                         else settings.oddsapinet_warm_near_s)
+                if mono - self._fetched[key] <= limit:
+                    continue
+            out.append(listing)
+        return out
+
     # -- the pass --------------------------------------------------------------
 
-    def _pass(self) -> None:
+    def _pass(self, due: list[Listing] | None = None, kind: str = "sweep") -> int:
+        """Fetch `due` (default: the page's `_due`, capped) and store each
+        board; the page's background pass and `warm` alike. The caller has
+        set `_refreshing`; this clears it. Returns the snapshots fetched."""
         errors: list[str] = []
         failed = fetched = 0
         try:
-            with self._lock:
-                due = self._due()[:self.max_per_pass]
+            if due is None:
+                with self._lock:
+                    due = self._due()[:self.max_per_pass]
             for listing in due:
                 key = OAN_PREFIX + listing.event_id
                 try:
@@ -703,11 +773,12 @@ class OddsApiNetHillsSource:
                 sweep = dict(self.last_sweep)
             self._pass_done.set()
         log = logger.info if not errors else logger.warning
-        log("hills sweep (odds-api.net): %d snapshot(s), %d William Hill game(s) listed, "
+        log("hills %s (odds-api.net): %d snapshot(s), %d William Hill game(s) listed, "
             "%d carried, %d with Pinnacle, %d pending, %d error(s), %d request(s) today",
-            fetched, sweep.get("fixtures_in_window", 0), sweep.get("carried_paddy_prices", 0),
+            kind, fetched, sweep.get("fixtures_in_window", 0), sweep.get("carried_paddy_prices", 0),
             sweep.get("carried_pinnacle_prices", 0), sweep.get("pending", 0), len(errors),
             sweep.get("requests_today", 0))
+        return fetched
 
     def _prune(self) -> None:
         """Drop boards and holds for games no longer listed (or kicked off)."""

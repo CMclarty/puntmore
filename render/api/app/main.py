@@ -58,6 +58,14 @@ logger = logging.getLogger("uvicorn.error")
 SLOW_REQUEST_MS = 8000
 
 
+def _warmable(hills_source):
+    """The Hills source the scheduler pre-loads: odds-api.net's only (its slow
+    `hills_warm` job). On OddsPapi Hills shares Paddy's budget and is not
+    warmed."""
+    from .cards.oddsapinet import OddsApiNetHillsSource
+    return hills_source if isinstance(hills_source, OddsApiNetHillsSource) else None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
@@ -226,6 +234,7 @@ async def lifespan(app: FastAPI):
         odds_client=odds_client,
         cards_client=app.state.cards_client,
         twoup_feed=app.state.twoup_feed,
+        hills_source=_warmable(app.state.hills_client),
     )
     app.state.scheduler = scheduler
 
