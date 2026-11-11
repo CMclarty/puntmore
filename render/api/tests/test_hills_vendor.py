@@ -34,7 +34,7 @@ def _hills_detail():
 def test_the_odds_api_net_key_chooses_odds_api_net():
     src = build_hills_source("k-test", None)
     assert isinstance(src, OddsApiNetHillsSource)
-    assert src._client.vendor == "odds-api.net" and src._client.daily_budget == 5000
+    assert src._client.vendor == "odds-api.net" and src._client.daily_budget == 8000
 
 
 def test_the_key_wins_over_an_oddspapi_client():

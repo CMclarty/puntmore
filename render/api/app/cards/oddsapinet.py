@@ -38,8 +38,11 @@ BB BOOST'S LEGS (hills/legs.py, hills/settle.py): a leg is one of William
 Hill's half lines in the snapshot, id'd `<market key>:<line>` with the side
 ("Over" / "Under") as its outcome id, so it settles by reading the results'
 full-time, final counts: a team key off its side's record, a match key off
-both sides' (and not before both are final). No saves leg is offered, so
-none settles itself.
+both sides' (and not before both are final). Only a result whose
+`status_detail` is "FT" settles: the lines are 90 minutes and the vendor
+does not say whether "full time" includes extra time, so "AET", "Pen" or no
+detail leaves the legs for a hand result. No saves leg is offered, so none
+settles itself.
 
 THE MAPPING (spec "Market mapping"): full time, available, odds > 1.0, William
 Hill and Pinnacle only. Totals read "<over|under> <n>"; odd/even and quarter
@@ -376,11 +379,18 @@ def _count(raw) -> int | None:
 def results_counts(body: dict) -> dict[tuple[str, str], int] | None:
     """{(metric, side): score} from a /results body: full-time, final, team
     records only. None until the vendor has the result (`status: available`)
-    and the match is finished."""
+    and the match is finished in 90 minutes (`status_detail` "FT")."""
     if not isinstance(body, dict) or body.get("status") != "available":
         return None
     result = body.get("result")
     if not isinstance(result, dict) or result.get("event_status") != "finished":
+        return None
+    # William Hill's lines are 90 minutes, and the vendor does not say whether
+    # "full time" counts extra time: only a plain "FT" is settled. "AET",
+    # "Pen", a blank or a missing detail waits for a hand result, so a wrong
+    # result is never written.
+    detail = result.get("status_detail")
+    if not isinstance(detail, str) or detail.strip().upper() != "FT":
         return None
     out: dict[tuple[str, str], int] = {}
     for rec in result.get("score_records") or []:

@@ -1,12 +1,17 @@
 """Settling BB Boost bets, from whichever vendor the bet's legs came from.
 
-odds-api.net (`oan:` fixtures, the source's `leg_results`): one
-/events/{id}/results call reads the match's full-time, final counts, and each
-leg is won or lost off its line (cards/oddsapinet.py). Settled by
-"odds-api.net".
+Each vendor settles only its own bets, and only while Hills is on it
+(hills/vendor.py). A bet logged on the other vendor waits for a hand result.
 
-OddsPapi (bets logged before Hills moved, or with no ODDSAPINET_API_KEY):
-/settlements?fixtureId= answers per market id and outcome id, the ids each
+odds-api.net (`oan:` fixtures, the source's `leg_results`), while
+ODDSAPINET_API_KEY is set: one /events/{id}/results call reads the match's
+full-time, final counts, and each leg is won or lost off its line
+(cards/oddsapinet.py). Only a 90-minute result ("FT") settles: extra time or
+penalties leave the legs open. Settled by "odds-api.net". Bets with OddsPapi
+ids are not touched: the source has no OddsPapi client.
+
+OddsPapi (OddsPapi-id fixtures), while Hills is on OddsPapi (no
+ODDSAPINET_API_KEY): /settlements?fixtureId= answers per market id and outcome id, the ids each
 logged leg carries (hills/legs.py): markets.<mid>.outcomes.<oid>.players."0"
 .result, one of WIN, LOSE, HALFWIN, HALFLOSS, PUSH, CANCELLED, UNDECIDED (the
 documented shape, oddspapi.io/en/docs/get-settlements; read off a live
@@ -19,8 +24,7 @@ undecided, pushed or cancelled, or a note — stays open for someone to set.
 Cost (either vendor): one billable request per fixture per check. Checks
 run only when the page is opened, only once the match should be over
 (kick-off + 2 h), at most every 30 minutes per fixture, and stop once its bets
-are all settled. An `oan:` fixture is never sent to OddsPapi (Hills back on
-OddsPapi with odds-api.net bets still open): those wait for a hand result.
+are all settled. An `oan:` fixture is never sent to OddsPapi.
 """
 import json
 import logging

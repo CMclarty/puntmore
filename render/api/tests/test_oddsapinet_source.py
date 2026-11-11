@@ -55,7 +55,7 @@ def test_the_first_sweep_lists_fetches_and_builds_the_board():
         "fixtures_in_window": 2, "called": 2, "carried_paddy_prices": 1,
         "carried_pinnacle_prices": 1, "pending": 0, "stale_williamhill": 0, "failed": 0,
         "errors": [], "next_kickoff": "2026-11-12T17:00:00Z"}
-    assert (s["window_hours"], s["requests_today"], s["request_budget"]) == (168, 3, 5000)
+    assert (s["window_hours"], s["requests_today"], s["request_budget"]) == (168, 3, 8000)
     assert (src.vendor, src.book, src.label) == ("odds-api.net", "williamhill", "William Hill")
 
 

@@ -100,9 +100,9 @@ class Settings(BaseSettings):
     oddsapinet_api_key: str = ""
     # How far ahead fixtures are priced, as `oddspapi_window_hours`.
     oddsapinet_window_hours: float = 168.0
-    # A ceiling, not a target: 250,000 / 30 = ~8,333/day, so one runaway day
-    # cannot spend the month. Every request counts against it.
-    oddsapinet_daily_credit_budget: int = 5000
+    # A ceiling, not a target: the plan's 250,000 a month over 31 days
+    # (Callum, 11 Nov 2026), so no month can overspend. Every request counts.
+    oddsapinet_daily_credit_budget: int = 8000
 
     # Discord alerts for the cards sweep. OFF while the feed is being proven —
     # a value tool that alerts before anyone has checked its prices trains you

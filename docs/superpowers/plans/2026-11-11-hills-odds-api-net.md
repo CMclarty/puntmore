@@ -34,7 +34,7 @@ React + Vitest for one frontend line.
   committed with the design: `events.json`, `snapshot_1417142635.json`,
   `results_1595650036_final.json`, `results_2161612418_pending.json`), no network.
 - Hard values: base URL `https://api.odds-api.net/v1`; request spacing 0.5 s; daily credit
-  cap 5000 (`oddsapinet_daily_credit_budget`); window 168 h (`oddsapinet_window_hours`);
+  cap 8000 (`oddsapinet_daily_credit_budget`); window 168 h (`oddsapinet_window_hours`);
   listing cache 600 s; snapshot reuse `clamp(target_refresh_interval_seconds, 120, 3600)`;
   failed-event hold 600 s; at most 60 snapshots a pass; first-request wait 15 s; listing at
   most 3 pages.
@@ -75,12 +75,12 @@ React + Vitest for one frontend line.
 - Consumes: nothing new.
 - Produces:
   - `settings.oddsapinet_api_key: str = ""`, `settings.oddsapinet_window_hours: float = 168.0`,
-    `settings.oddsapinet_daily_credit_budget: int = 5000`
+    `settings.oddsapinet_daily_credit_budget: int = 8000`
   - `BASE_URL = "https://api.odds-api.net/v1"`, `MIN_REQUEST_GAP = 0.5`
   - `class BudgetSpent(RuntimeError)`; `class RateLimited(RuntimeError)` with
     `retry_after: float | None`
   - `class OddsApiNetClient` with `vendor = "odds-api.net"`,
-    `__init__(self, api_key: str, *, daily_budget: int = 5000, transport: httpx.BaseTransport | None = None, sleep: Callable[[float], None] = time.sleep, monotonic: Callable[[], float] = time.monotonic, today: Callable[[], date] = <UTC today>)`,
+    `__init__(self, api_key: str, *, daily_budget: int = 8000, transport: httpx.BaseTransport | None = None, sleep: Callable[[float], None] = time.sleep, monotonic: Callable[[], float] = time.monotonic, today: Callable[[], date] = <UTC today>)`,
     attributes `requests_today: int`, `daily_budget: int`, methods `budget_left() -> int` and
     `get(path: str, **params) -> dict`.
 
@@ -185,7 +185,7 @@ git commit -m "Hills: an odds-api.net client (header key, credit count, daily ca
   - `snapshot_ttl(lines: SnapshotLines) -> float`
 - Produces (in `tests/oan_fixtures.py`): `NOW = datetime(2026, 11, 11, 12, 40, tzinfo=timezone.utc)`,
   `load(name: str) -> dict`, `ARMENIA_EMPTY: dict`, `routes() -> dict[str, dict | Exception]`,
-  `class FakeOan` (`vendor`, `requests_today`, `daily_budget = 5000`, `calls: list[tuple[str, dict]]`,
+  `class FakeOan` (`vendor`, `requests_today`, `daily_budget = 8000`, `calls: list[tuple[str, dict]]`,
   `get(path, **params)` returning the route's dict, raising it when it is an exception,
   `RuntimeError(f"404 {path}")` when absent), `class Clock` (`now() -> datetime`,
   `mono() -> float`, `advance(seconds: float)`).
@@ -640,7 +640,8 @@ Expected: FAIL (`ImportError: leg_id`; `Failed to resolve import "./hills"`).
 - [ ] **Step 3: Implement** the functions and methods above, the dispatch in `legs.py` and
   `settle.py`, the router line, `hills.js`, and in `HillsBuilder.jsx` replace
   `b.settled_by === 'oddspapi'` with `isAutoSettled(b.settled_by)`. The header comment says
-  the legs settle themselves from odds-api.net (OddsPapi for bets logged before the switch).
+  the legs settle themselves from the vendor Hills is on (odds-api.net; OddsPapi without its
+  key), for bets logged on that vendor and 90-minute results only; anything else is set by hand.
   Update `settle.py`'s docstring to name both vendors.
 
 - [ ] **Step 4: Run the tests to see them pass**
@@ -686,7 +687,7 @@ git commit -m "Hills: BB Boost legs and settling from odds-api.net"
 def test_the_odds_api_net_key_chooses_odds_api_net():
     src = build_hills_source("k-test", None)
     assert isinstance(src, OddsApiNetHillsSource)
-    assert src._client.vendor == "odds-api.net" and src._client.daily_budget == 5000
+    assert src._client.vendor == "odds-api.net" and src._client.daily_budget == 8000
 
 def test_without_it_hills_stays_on_oddspapi():
     src = build_hills_source("", OddsPapiClient("x"))
@@ -749,7 +750,7 @@ git commit -m "Hills: ODDSAPINET_API_KEY puts Hills on odds-api.net; /api/ready 
 - [ ] **Step 2: `render/api/AGENTS.md`.** In "Odds sources": OddsPapi prices Paddy, 2-Up and
   the coupon tracker; odds-api.net prices Hills (`cards/oddsapinet.py`, `ODDSAPINET_API_KEY`).
   New section "Hills (`cards/oddsapinet.py`) — odds-api.net" covering: billing (1 credit
-  per call, failures too; 250,000/month; 120/min; daily cap 5000), the per-event snapshot
+  per call, failures too; 250,000/month; 120/min; daily cap 8000), the per-event snapshot
   and its filters, freshness (60 s target inside 6 h, observed 1.5 min; 1 h+ further out),
   the background pass and its limits, the market mapping table, Pinnacle-only fairs and no
   fallback, `oan:` ids and leg ids, settling from `results` (no saves, cards by the vendor's

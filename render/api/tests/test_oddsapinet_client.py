@@ -94,3 +94,10 @@ def test_the_key_is_never_in_an_error_or_a_log(caplog):
     with pytest.raises(httpx.HTTPStatusError) as e:
         c.get("/events/1/odds/snapshot", bookmakers="williamhill")
     assert "k-test" not in str(e.value) and "k-test" not in caplog.text
+
+
+def test_the_default_daily_cap_is_250k_a_month_over_31_days():
+    from app.cards.oddsapinet_client import OddsApiNetClient
+    from app.config import Settings
+    assert Settings.model_fields["oddsapinet_daily_credit_budget"].default == 8000
+    assert OddsApiNetClient("k-test").daily_budget == 8000

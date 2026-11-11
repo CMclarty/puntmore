@@ -242,3 +242,41 @@ def test_an_odds_api_net_bet_is_never_sent_to_oddspapi():
     _bet("oan:1595650036", [(CORNERS, 9.5, "Under")])
     client.get("/hills/bets?fixture_id=oan:1595650036")
     assert OddsPapiSource._client.calls == []
+
+
+# --- extra time: William Hill's lines are 90 minutes ----------------------------
+
+def test_the_recorded_ft_result_settles():
+    body = load("results_1595650036_final.json")
+    assert body["result"]["status_detail"] == "FT"
+    body["result"]["status_detail"] = " ft "
+    assert results_counts(body)[("corners", "home")] == 3
+
+
+@pytest.mark.parametrize("detail", ["AET", "AP", "Pen", "PEN", "", "  ", None, "missing"])
+def test_a_result_not_plainly_full_time_is_left_for_a_hand_result(detail):
+    body = load("results_1595650036_final.json")
+    if detail == "missing":
+        del body["result"]["status_detail"]
+    else:
+        body["result"]["status_detail"] = detail
+    assert results_counts(body) is None
+
+
+def test_an_extra_time_result_leaves_the_bet_open_with_no_leg_written():
+    fake = FakeOan(routes())
+    fake.routes["/events/1595650036/results"]["result"]["status_detail"] = "AET"
+    src, fake, _ = make(fake)
+    app.state.hills_client = src
+    _bet("oan:1595650036", [(CORNERS, 9.5, "Under")])
+    bet = client.get("/hills/bets?fixture_id=oan:1595650036").json()["bets"][0]
+    assert (bet["result"], bet["legs"][0]["result"], bet["settled_by"]) == ("open", None, None)
+    assert ("/events/1595650036/results", {}) in fake.calls
+
+
+def test_an_oddspapi_id_bet_waits_for_a_hand_result_on_odds_api_net():
+    src, fake, _ = make()
+    app.state.hills_client = src
+    _bet("a", [(CORNERS, 9.5, "Over")])
+    bet = client.get("/hills/bets?fixture_id=a").json()["bets"][0]
+    assert (bet["result"], bet["settled_by"]) == ("open", None) and fake.calls == []

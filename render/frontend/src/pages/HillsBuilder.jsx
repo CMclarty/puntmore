@@ -24,10 +24,12 @@ import s from './HillsBuilder.module.css'
  *   Log       the builders the team has placed on the target: legs picked off
  *             William Hill's lines on the match (plus a note for anything not
  *             listed), who and when. Anyone opening the page sees what has been
- *             backed already. Picked legs settle themselves from odds-api.net
- *             after the match (OddsPapi for bets logged before the switch;
- *             api/app/hills/settle.py); a result can also be set by hand. No
- *             prices or fairs are kept.
+ *             backed already. Picked legs settle themselves after the match
+ *             from the vendor Hills is on (odds-api.net; OddsPapi without its
+ *             key), for bets logged on that vendor and 90-minute results only
+ *             (api/app/hills/settle.py). Anything else — a bet logged on the
+ *             other vendor, extra time, a note — is set by hand. No prices or
+ *             fairs are kept.
  *             Anyone can remove a bet: the first tap arms a warning, the
  *             second removes it.
  *

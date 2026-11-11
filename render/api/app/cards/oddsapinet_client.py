@@ -66,7 +66,7 @@ class OddsApiNetClient:
         self,
         api_key: str,
         *,
-        daily_budget: int = 5000,
+        daily_budget: int = 8000,
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,

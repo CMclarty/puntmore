@@ -205,8 +205,9 @@ window before this ships.
 - **Failures:** an event whose snapshot fails is not asked again for 600 s. A 429 or a spent
   budget ends the pass; the error is named in `last_sweep.errors`. Nothing retries.
 - **Spacing and cap:** requests at least 0.5 s apart (the plan's 120 a minute). A daily cap,
-  `oddsapinet_daily_credit_budget = 5000` (my call), counted on every request sent; 5,000 ×
-  30 = 150,000, which leaves room in the 250,000 for Paddy, 2-Up or coupons later.
+  `oddsapinet_daily_credit_budget = 8000` (Callum, 11 Nov 2026: "there is 250k credits per
+  month"), counted on every request sent; 8,000 × 31 = 248,000, inside the 250,000 in any
+  month.
 - **Expected spend:** about 1 credit per far-out game per hour plus 30 per game per hour
   inside six hours, while the page is open, plus 6 an hour for the listing. A Saturday with
   40 far-out games, 15 near ones and four hours on the page is about 2,000. A light weekday
@@ -235,6 +236,11 @@ window before this ships.
   the env var puts Hills back on OddsPapi.
 - A target picked on OddsPapi before the switch keeps its OddsPapi id, so its legs come back
   empty. Re-pick it after the deploy.
+- Each vendor settles only its own bets, and only while Hills is on it: on odds-api.net, bets
+  logged with OddsPapi ids wait for a hand result (and the other way round). On odds-api.net
+  only a result whose `status_detail` is "FT" settles: William Hill's lines are 90 minutes
+  and the vendor does not say whether "full time" counts extra time, so "AET", "Pen" or no
+  detail leaves the legs for a hand result (controller ruling, 11 Nov 2026).
 - `/api/ready` gains `providers.hills_detail: {provider, degraded, requests_today}`. `degraded`
   is true when there is no source, or when the last sweep failed and carried nothing.
   `/hills/oddspapi-check` on an odds-api.net source answers that Hills is not on OddsPapi.

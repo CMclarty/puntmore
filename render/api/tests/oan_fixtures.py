@@ -43,7 +43,7 @@ class FakeOan:
     route raises RuntimeError("404 <path>")."""
 
     vendor = "odds-api.net"
-    daily_budget = 5000
+    daily_budget = 8000
 
     def __init__(self, routes_: dict[str, dict | Exception] | None = None):
         self.routes = routes() if routes_ is None else routes_
