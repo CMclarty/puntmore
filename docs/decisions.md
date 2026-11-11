@@ -207,6 +207,11 @@ names and no other; older names appear only in `docs/retired.md`.
   no user-agent or navigator overrides.** The one deliberate departure from
   Playwright's defaults is that Chrome's `--enable-automation` flag is not
   passed and AutomationControlled is off. (26 Oct 2026, Callum)
+- **The Scraper's Chrome keeps to its own workspace.** Its window carries its
+  own name (`--class=puntmore-scraper`), and GNOME's Auto Move Windows
+  extension sends that name to workspace 2, so a load never opens over
+  Callum's work. The name is a label for the window manager; no page can
+  read it. (11 Nov 2026, Callum)
 - **Budgets are code** (`scraper/sites.py`): Paddy Power 15 loads/h with quiet
   hours 01–07; Bookie Bashing 8/h; generic sources 60/h and 400/day. A block
   means a 24 h cool-off and a human `resume`; nothing retries. (Oct 2026)

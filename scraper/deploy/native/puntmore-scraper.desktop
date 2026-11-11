@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Puntmore Scraper
+Comment=The Scraper service's Chrome. Started by puntmore-scraper.service; this file only names its window.
+Exec=systemctl --user start puntmore-scraper.service
+Icon=google-chrome
+StartupWMClass=puntmore-scraper
+NoDisplay=true

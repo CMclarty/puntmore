@@ -36,6 +36,11 @@ if [ -n "$(find "$DIR" ! -user "$(id -un)" -print -quit)" ]; then
   sudo chown -R "$(id -un):$(id -gn)" "$DIR"
 fi
 
+# The window's name on the desktop (README, "Its own workspace").
+APPS=${XDG_DATA_HOME:-$HOME/.local/share}/applications
+mkdir -p "$APPS"
+cp "$HERE/puntmore-scraper.desktop" "$APPS/puntmore-scraper.desktop"
+
 mkdir -p "$DEST"
 # The unit names the box's checkout, ~/Projects/puntmore; point it at $REPO.
 sed "s|%h/Projects/puntmore|$REPO|g" "$HERE/$UNIT" > "$DEST/$UNIT.new"
@@ -47,7 +52,7 @@ if systemctl --user is-active --quiet "$UNIT"; then
 else
   systemctl --user start "$UNIT"
 fi
-echo "installed $DEST/$UNIT (code: $REPO)"
+echo "installed $DEST/$UNIT (code: $REPO) and $APPS/puntmore-scraper.desktop"
 systemctl --user --no-pager status "$UNIT" | head -5 || true
 
 cat <<EOF

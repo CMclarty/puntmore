@@ -178,8 +178,9 @@ crontab -l | grep -v puntmore-scraper/update.sh | crontab -   # the container's 
 `install.sh` is idempotent: it gives your user `/opt/puntmore-scraper` (sudo,
 once; the container's files belong to its uid), copies
 `deploy/native/puntmore-scraper.service` into `~/.config/systemd/user/` with
-the checkout it was run from as its working directory, and enables and starts
-it. It refuses while the container `puntmore-scraper` runs, and so does the
+the checkout it was run from as its working directory, copies
+`deploy/native/puntmore-scraper.desktop` into `~/.local/share/applications/`
+(below), and enables and starts it. It refuses while the container `puntmore-scraper` runs, and so does the
 unit (`deploy/native/preflight.sh`, which also clears the profile lock the
 container's Chrome left behind); `deploy/run.sh` refuses the other way round.
 
@@ -194,8 +195,28 @@ driver), gives Chrome 90 s to close cleanly, and is capped at 4 GB.
 `puntmore-scraper` (and installs `requirements.txt` when it changed). A change
 to the unit file itself needs `install.sh` run again.
 
+**Its own workspace** (Callum, 11 Nov 2026). The Scraper's Chrome opens its
+window with its own name, `--class=puntmore-scraper` (`browser.py`; desktop
+only, and a page cannot read it), and `puntmore-scraper.desktop` tells GNOME
+that name is its own app, not Google Chrome. GNOME's Auto Move Windows
+extension then keeps it on workspace 2, so a load never opens over the work
+on workspace 1. Once per box:
+
+```sh
+sudo apt install gnome-shell-extension-auto-move-windows
+# log out and in if `gnome-extensions list` does not show it yet, then:
+gnome-extensions enable auto-move-windows@gnome-shell-extensions.gcampax.github.com
+dconf write /org/gnome/shell/extensions/auto-move-windows/application-list "['puntmore-scraper.desktop:2']"
+```
+
+The setting is a list: keep any entries already in it. The window moves the
+next time the Scraper starts Chrome. With `workspaces-only-on-primary` on
+(GNOME's default), a window on a second monitor shows on every workspace:
+keep the Scraper's on the main one. Without the extension nothing changes:
+the window opens where GNOME puts it.
+
 Logging in to Bookie Bashing after a failed sign-in, or looking at a check:
-the Chrome window is on the Hub's screen. No VNC.
+the Chrome window is on the Hub's screen, on workspace 2. No VNC.
 
 ```sh
 journalctl --user -u puntmore-scraper -f
