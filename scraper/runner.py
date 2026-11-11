@@ -558,17 +558,21 @@ class Runner:
 
     def _check_rows(self, t, rows, now):
         """Row-count health for fetch targets: fewer than min_rows is a suspected
-        layout change. Alert and tell the Hub once per change, not per run."""
+        layout change. Alert, tell the Hub and note it in the job's log once per
+        change, not per run."""
         if t.min_rows and len(rows) < t.min_rows:
             msg = f"only {len(rows)} row(s), expected at least {t.min_rows} - layout change?"
             if self.health_said.get(t.name) != msg:
                 self.health_said[t.name] = msg
-                self.alerts.send(f"{t.name}: {msg}")
+                self.alerts.send(f"{t.name}: {msg}")          # prints it; the job's log gets it here
+                joblog.write(self.s.data_dir, t.name, msg)
                 emit_event(self.s.data_dir, "unhealthy_source", t.name, msg, now)
             self.parser_said[t.name] = msg
         elif t.name in self.health_said:
             del self.health_said[t.name]
-            self.alerts.send(f"{t.name}: healthy again ({len(rows)} rows)")
+            msg = f"healthy again ({len(rows)} rows)"
+            self.alerts.send(f"{t.name}: {msg}")
+            joblog.write(self.s.data_dir, t.name, msg)
 
     def _deliver(self, t, rows, now) -> bool:
         """Hand the rows to the sink. A delivery that went is noted in the job's

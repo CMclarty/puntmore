@@ -160,3 +160,18 @@ def test_removing_a_log_never_raises(tmp_path):
     (stuck / "inside").mkdir(parents=True)                           # a directory can't be unlinked
     joblog.remove(tmp_path, "stuck")
     assert stuck.exists()
+
+
+def test_min_rows_breach_and_recovery_reach_the_job_log(tmp_path, capsys):
+    from scraper import config
+    from scraper.tests.test_generic_target import _runner as _generic_runner
+    r = _generic_runner(tmp_path)
+    t = config._target({"name": "tips-a", "site": "generic", "url": "https://a.example.com",
+                        "parser": "example_tipster", "post": "hub:tips", "min_rows": 2})
+    r._check_rows(t, [{"event": "x"}], 1_000.0)
+    r._check_rows(t, [{"event": "x"}], 1_060.0)                     # said once per change
+    r._check_rows(t, [{"event": "x"}, {"event": "y"}], 1_120.0)
+    assert _msgs(tmp_path, "tips-a") == ["only 1 row(s), expected at least 2 - layout change?",
+                                         "healthy again (2 rows)"]
+    out = capsys.readouterr().out
+    assert out.count("layout change?") == 1 and out.count("healthy again") == 1   # printed once, by the alert
