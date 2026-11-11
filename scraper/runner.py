@@ -351,11 +351,16 @@ class Runner:
         days, past its until, outside its window) is treated like quiet
         hours: its tabs close and nothing loads. A fetch target forgets its
         next run, so it runs when it is active again. Said once per change of
-        reason."""
+        reason. A reason new to this process that the job's log already ends
+        with (the line before a restart) is printed but not logged again."""
         if self.outside.get(t.name) != why:
             self.outside[t.name] = why
-            self._say(t.name, f"outside window {t.window} - paused" if why == "outside window"
-                      else f"{why} - paused")
+            msg = f"outside window {t.window} - paused" if why == "outside window" else f"{why} - paused"
+            last = joblog.read(self.s.data_dir, t.name, 1)
+            if last and last[0]["msg"] == msg:
+                print(f"{t.name}: {msg}", flush=True)
+            else:
+                self._say(t.name, msg)
         for key in [k for k, tab in self.tabs.items() if tab.target.name == t.name]:
             self._close(key)
         self.next_fetch.pop(t.name, None)
