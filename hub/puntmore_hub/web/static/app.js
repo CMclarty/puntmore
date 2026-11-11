@@ -10,7 +10,7 @@ const COMPONENTS = [
 const POLL_MS = 5000;
 const STALE_MS = 20000;
 // A Scraper target's own state (scraper/runner.py `status`) -> the colour it gets.
-const TARGET_STATE = { running: "up", paused: "warn", blocked: "down", retired: "off" };
+const TARGET_STATE = { running: "up", paused: "warn", blocked: "down", retired: "off", finished: "off" };
 
 const feeds = {};          // name -> {lastOk: ms, data, skew: server now - client now (ms)}
 let active = null;
@@ -286,60 +286,85 @@ const RENDER = {
   },
 };
 
-// ---- the Scraper's targets (targets.toml through scraper/targets.py) -------------------------------
-const EDIT_FIELDS = ["every_min", "stale_min", "near_min", "near_hours", "priority", "window", "min_rows", "trust_weight", "wait_for", "url"];
+// ---- the Scraper's jobs (targets.toml through scraper/targets.py) ----------------------------------
+const EDIT_FIELDS = ["every_min", "stale_min", "near_min", "near_hours", "priority", "window", "days", "until", "min_rows", "trust_weight", "wait_for", "url"];
 const NUMERIC = new Set(["every_min", "stale_min", "near_min", "near_hours", "priority", "min_rows", "trust_weight"]);
+const LOG_ALL = 200;         // lines "all lines" asks for
 let editing = null;          // {name, original: {field: value}}
 let removing = null;         // name
+const fullLogs = new Map();  // job name -> the lines "all lines" fetched; kept across re-renders like an open edit form
 
 function canAct() { return !!(overview && overview.actions_enabled); }
+
+// A log line as "HH:MM:SS msg", local time; a line with no time (damaged) is just its message.
+function logText(lines) {
+  if (!lines || !lines.length) return "no log lines";
+  return lines.map((l) => {
+    const t = new Date(l && l.at);
+    if (!l || !l.at || Number.isNaN(t.getTime())) return show(l && l.msg);
+    const hms = [t.getHours(), t.getMinutes(), t.getSeconds()].map((x) => String(x).padStart(2, "0")).join(":");
+    return `${hms} ${show(l.msg)}`;
+  }).join("\n");
+}
+
+function jobTile(r, skew, off) {
+  const v = r.view || {};
+  const tag = v.state ? el("span", { class: "st st-" + (TARGET_STATE[v.state] || "warn"), text: v.state })
+    : (r.enabled ? el("span", { class: "st st-unknown", text: "not reported" }) : el("span", { class: "st st-off", text: "disabled" }));
+  const said = [v.state, v.detail].filter((x) => x).join(" · ");
+  return el("article", { class: "job" + (r.enabled ? "" : " muted") },
+    el("header", {},
+      el("button", { class: "link", type: "button", text: show(r.name), onclick: () => showLatest(r.name) }), tag),
+    el("p", { text: `${show(r.site)} · ${show(r.url)}` }),
+    el("p", { text: show(v.schedule) }),
+    said ? el("p", { text: said }) : null,
+    el("p", {}, "last load ", when(v.last_load, skew), " · last read ", when(v.last_ok, skew), " · rows sent ", show(v.rows_posted)),
+    el("pre", { class: "log", "data-job": r.name, text: logText(fullLogs.has(r.name) ? fullLogs.get(r.name) : v.log) }),
+    el("span", { class: "row-actions" },
+      el("button", { type: "button", class: "small", text: "all lines", onclick: () => showLog(r.name) }),
+      el("button", { type: "button", class: "small", disabled: off, text: r.enabled ? "disable" : "enable",
+        onclick: () => targetAct(`${encodeURIComponent(r.name)}/${r.enabled ? "disable" : "enable"}`, {},
+          `${r.enabled ? "Disable" : "Enable"} ${r.name}`) }),
+      el("button", { type: "button", class: "small", disabled: off, text: "edit", onclick: () => openEdit(r) }),
+      el("button", { type: "button", class: "small", disabled: off, text: "remove", onclick: () => openRemove(r.name) })));
+}
 
 function renderTargets(sec, d, skew) {
   const c = d.config || {};
   fill(sec, "targets-file", c.file || "targets.toml");
   const rows = c.targets || [];
-  let empty = "no targets in " + (c.file || "targets.toml");
+  let empty = "no jobs in " + (c.file || "targets.toml");
   if (c.error) empty = "targets.toml could not be read: " + c.error;
-  else if (c.exists === false) empty = "No targets file at " + (c.file || "targets.toml") + " yet. Add the first target below.";
-  const v = (r) => r.view || {};
-  const off = !canAct();
-  fill(sec, "config", table([
-    ["name", (r) => el("button", { class: "link", type: "button", text: show(r.name), onclick: () => showLatest(r.name) })],
-    ["site", "site"], ["mode", "mode"],
-    ["enabled", (r) => r.enabled ? "yes" : el("span", { class: "st st-off", text: "disabled" })],
-    ["every_min", "every_min", "n"], ["stale_min", "stale_min", "n"],
-    ["near", (r) => r.near_min ? `${show(r.near_min)} min in last ${show(r.near_hours)} h` : "—"],
-    ["kick-off", (r) => v(r).next_kickoff ? el("time", { datetime: v(r).next_kickoff, title: v(r).next_kickoff,
-      text: (v(r).near ? "near · " : "") + until(v(r).next_kickoff, skew) }) : "—"],
-    ["priority", "priority", "n"], ["window", "window"],
-    ["parser", "parser"], ["post", "post", "mono"],
-    ["state", (r) => v(r).state ? el("span", { class: "st st-" + (TARGET_STATE[v(r).state] || "warn"), text: v(r).state })
-      : (r.enabled ? "not reported" : "—")],
-    ["last ok", (r) => when(v(r).last_ok, skew)],
-    ["next due", (r) => !r.enabled ? "—" : (v(r).next_due ? el("time", { datetime: v(r).next_due, title: v(r).next_due, text: until(v(r).next_due, skew) })
-      : (r.every_min ? "after its first load" : `when quiet ${show(r.stale_min)} min`))],
-    ["rows", (r) => `${show(v(r).rows_last_parsed)} parsed / ${show(v(r).rows_posted)} posted`, "n"],
-    ["detail", (r) => show(v(r).detail), "wrap"],
-    ["", (r) => el("span", { class: "row-actions" },
-      el("button", { type: "button", class: "small", disabled: off, text: r.enabled ? "disable" : "enable",
-        onclick: () => targetAct(`${encodeURIComponent(r.name)}/${r.enabled ? "disable" : "enable"}`, {},
-          `${r.enabled ? "Disable" : "Enable"} ${r.name}`) }),
-      el("button", { type: "button", class: "small", disabled: off, text: "edit", onclick: () => openEdit(r) }),
-      el("button", { type: "button", class: "small", disabled: off, text: "remove", onclick: () => openRemove(r.name) }))],
-  ], rows, empty, { cls: "cards targets", rowClass: (r) => r.enabled ? null : "muted" }));
-  // A target the Scraper still reports but the file no longer has (removed; "retired" until a restart).
+  else if (c.exists === false) empty = "No targets file at " + (c.file || "targets.toml") + " yet. Add the first job below.";
   const named = new Set(rows.map((r) => r.name));
+  for (const name of fullLogs.keys()) if (!named.has(name)) fullLogs.delete(name);
+  // Re-rendering replaces each log pre: keep where each one was scrolled to.
+  const scrolled = new Map([...sec.querySelectorAll('[data-slot="config"] pre[data-job]')].map((p) => [p.dataset.job, p.scrollTop]));
+  fill(sec, "config", rows.length ? el("div", { class: "jobs" }, rows.map((r) => jobTile(r, skew, !canAct())))
+    : el("p", { class: "empty", text: empty }));
+  for (const p of sec.querySelectorAll('[data-slot="config"] pre[data-job]')) {
+    if (scrolled.has(p.dataset.job)) p.scrollTop = scrolled.get(p.dataset.job);
+  }
+  // A target the Scraper still reports but the file no longer has (removed; "retired" until a restart).
   const orphans = c.error ? [] : (d.targets || []).filter((t) => !named.has(t.name));
   fill(sec, "orphans", orphans.length ? el("p", { class: "hint",
     text: "Reported by the Scraper but not in the file (it drops them within 60 s): " + orphans.map((t) => `${t.name} (${show(t.state)})`).join(", ") }) : "");
 }
 
-function until(isoStr, skew) {
-  const t = Date.parse(isoStr);
-  if (Number.isNaN(t)) return show(isoStr);
-  const s = Math.round((t - Date.now() - (skew || 0)) / 1000);
-  if (s <= 0) return "due now";
-  return "≈ in " + (s < 90 ? s + "s" : Math.round(s / 60) + "m");
+// "all lines": the newest LOG_ALL lines into that job's pre. A failed fetch leaves the pre as it was.
+async function showLog(name) {
+  try {
+    const d = await getJSON("/api/scraper/log/" + encodeURIComponent(name) + "?n=" + LOG_ALL);
+    fullLogs.set(name, d.lines || []);
+    for (const p of document.querySelectorAll('#tab-scraper pre[data-job]')) {
+      if (p.dataset.job === name) { p.textContent = logText(fullLogs.get(name)); p.scrollTop = p.scrollHeight; }
+    }
+  } catch (e) {
+    const out = document.getElementById("targets-result");
+    out.hidden = false;
+    out.className = "action-result bad";
+    out.textContent = `All lines for ${name}: ${e.message}`;
+  }
 }
 
 function clearErrors(form) { for (const e of form.querySelectorAll(".field-error")) e.textContent = ""; }
@@ -350,7 +375,13 @@ function showError(form, d, status) {
   if (box) box.textContent = msg + (d && d.retry ? " Try again in a few seconds." : "");
 }
 
+// One field's value to send. The days checkboxes come as a group (form.elements.days): the ticked
+// ones in week order (the form's order), or null when none is ticked.
 function fieldValue(input) {
+  if (typeof RadioNodeList !== "undefined" && input instanceof RadioNodeList) {
+    const on = [...input].filter((i) => i.checked).map((i) => i.value);
+    return on.length ? on : null;
+  }
   if (input.type === "checkbox") return input.checked;
   const raw = input.value.trim();
   if (raw === "") return null;
@@ -363,9 +394,14 @@ function openEdit(r) {
   editing = { name: r.name, original: {} };
   document.getElementById("target-edit-name").textContent = r.name;
   for (const f of EDIT_FIELDS) {
-    const v = r[f];
+    let v = r[f];
+    if (f === "days") {
+      v = Array.isArray(v) && v.length ? v : null;          // [] is every day: nothing ticked
+      for (const box of form.elements.days) box.checked = !!v && v.includes(box.value);
+    } else {
+      form.elements[f].value = v === null || v === undefined ? "" : String(v);
+    }
     editing.original[f] = v === undefined ? null : v;
-    form.elements[f].value = v === null || v === undefined ? "" : String(v);
   }
   document.getElementById("target-remove-form").hidden = true;
   form.hidden = false;
@@ -408,9 +444,11 @@ function wireTargets() {
     ev.preventDefault();
     const body = {};
     for (const input of add.querySelectorAll("input, select")) {
+      if (input.name === "days") continue;
       const v = fieldValue(input);
       if (v !== null && v !== "") body[input.name] = v;
     }
+    body.days = fieldValue(add.elements.days);
     if (await targetAct("add", body, "Add " + (body.name || "?"), add)) {
       add.reset();
     }

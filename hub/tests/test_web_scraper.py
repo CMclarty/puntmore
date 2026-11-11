@@ -276,6 +276,12 @@ def test_the_page_has_the_tab_and_no_inline_script(scfg):
     assert page.count("<script") == 1 and "onclick=" not in page and "Worker" not in page
     css = client(scfg).get("/static/style.css").text
     assert "@media (max-width: 700px)" in css and "table.cards" in css
+    assert page.count('name="until" type="date"') == 2
+    for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun"):
+        assert page.count(f'name="days" value="{day}"') == 2
+    js = client(scfg).get("/static/app.js").text
+    assert "/api/scraper/log/" in js and 'finished: "off"' in js
+    assert ".job" in client(scfg).get("/static/style.css").text
 
 
 def test_days_and_until_through_the_console(scfg):
