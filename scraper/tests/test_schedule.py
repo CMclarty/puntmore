@@ -275,3 +275,164 @@ def test_run_day_starts_with_running_again(tmp_path, capsys):
     r.tick(_on(FRI, 9))
     assert [x["msg"] for x in joblog.read(w, "bb")] == ["outside window 09:00-10:00 - paused",
                                                         "window open - running"]
+
+
+# --- a job's rest (rest.py) ----------------------------------------------------
+from scraper import joblog, rest  # noqa: E402
+
+REST_WHY = "no games within 48 hours - next is Man City v Fulham, Sat 21 Nov 12:30"
+
+
+def _msgs(tmp_path, name):
+    return [x["msg"] for x in joblog.read(tmp_path, name, n=200)]
+
+
+def _resting_job(tmp_path, monkeypatch, until, calls=None, mode=None):
+    """A bb-saves job whose parser rests until `until` (a float, or a
+    callable of no arguments giving one)."""
+    from scraper import runner as runner_mod
+    calls = [] if calls is None else calls
+
+    def parser(page, capture):
+        calls.append(time.time())
+        raise rest.Rest(until() if callable(until) else until, REST_WHY)
+    monkeypatch.setitem(runner_mod.PARSERS, "bb_saves", parser)
+    t = _bb("bb-saves", parser="bb_saves")
+    return t, _runner(tmp_path, [t]), calls
+
+
+def test_a_parser_that_rests_closes_its_page_and_loads_nothing_until_then(tmp_path, monkeypatch):
+    t0 = time.time()
+    until = t0 + 3 * 3600
+    t, r, calls = _resting_job(tmp_path, monkeypatch, until)
+    r.tick(t0)
+    assert len(_loads(r)) == 1 and len(calls) == 1          # loaded and parsed in that tick
+    assert "bb-saves" not in r.tabs                           # then closed
+    said = f"{REST_WHY} - resting until {rest.when(until)}"
+    assert _msgs(tmp_path, "bb-saves")[-1] == said
+    assert rest.load(tmp_path) == {"bb-saves": {"until": until, "why": REST_WHY}}
+    st = {x["name"]: x for x in r.status(t0 + 60)["targets"]}["bb-saves"]
+    assert (st["state"], st["detail"]) == ("paused", said)
+    for i in range(1, 3 * 60):                                # 3 hours of minute ticks
+        r.tick(t0 + 60 * i)
+    assert len(_loads(r)) == 1 and len(calls) == 1 and "bb-saves" not in r.tabs
+    assert _msgs(tmp_path, "bb-saves").count(said) == 1       # said once
+    r.tick(until + 1)
+    assert len(_loads(r)) == 2 and len(calls) == 2            # runs in the tick the rest ends
+    assert "rest over - running" in _msgs(tmp_path, "bb-saves")
+    assert r.status(until + 1)["targets"][0]["state"] == "paused"   # the parser rested again
+
+
+def test_a_rest_is_clamped_between_a_minute_and_a_week(tmp_path, monkeypatch):
+    t0 = time.time()
+    t, r, _ = _resting_job(tmp_path, monkeypatch, t0 + 30 * 86400)
+    r.tick(t0)
+    assert r.resting["bb-saves"]["until"] == t0 + rest.MAX_REST_S
+    t, r, _ = _resting_job(tmp_path, monkeypatch, t0 - 3600)
+    r.resting.clear()
+    r.tick(t0 + 10_000)
+    assert r.resting["bb-saves"]["until"] == t0 + 10_000 + rest.MIN_REST_S
+
+
+def test_a_rest_survives_a_restart_and_is_not_logged_again(tmp_path, monkeypatch, capsys):
+    t0 = time.time()
+    until = t0 + 3600
+    t, r, calls = _resting_job(tmp_path, monkeypatch, until)
+    r.tick(t0)
+    n = len(_msgs(tmp_path, "bb-saves"))
+    r2 = _runner(tmp_path, [t])
+    capsys.readouterr()
+    r2.tick(t0 + 120)
+    assert _loads(r2) == [_loads(r)[0]] and "bb-saves" not in r2.tabs   # no new load
+    assert len(_msgs(tmp_path, "bb-saves")) == n                        # nothing new in its log
+    assert f"bb-saves: {REST_WHY} - resting until {rest.when(until)}" in capsys.readouterr().out
+    r2.tick(t0 + 180)
+    assert capsys.readouterr().out.count("resting until") == 0          # printed once
+    assert r2.status(t0 + 180)["targets"][0]["state"] == "paused"
+    # A Runner whose targets no longer hold the job forgets the rest.
+    r3 = _runner(tmp_path, [_bb("other")])
+    assert r3.resting == {}
+
+
+def test_wake_ends_a_rest(tmp_path, monkeypatch):
+    t0 = time.time()
+    t, r, calls = _resting_job(tmp_path, monkeypatch, t0 + 3600)
+    r.tick(t0)
+    (tmp_path / "requests" / "wake-bb-saves").touch()
+    r.tick(t0 + 60)
+    assert not (tmp_path / "requests" / "wake-bb-saves").exists()
+    assert "woken by hand - running" in _msgs(tmp_path, "bb-saves")
+    assert "bb-saves" not in r.resting and rest.load(tmp_path) == {}
+    r.tick(t0 + 120)
+    assert len(_loads(r)) == 2 and len(calls) == 2
+    # Not resting (the parser now always raises Rest, so take its rest away)
+    r.resting.clear()
+    (tmp_path / "requests" / "wake-bb-saves").touch()
+    r.tick(t0 + 180)
+    assert _msgs(tmp_path, "bb-saves")[-1] == "wake: not resting"
+
+
+def test_a_changed_target_loses_its_rest_and_an_in_place_change_keeps_it(tmp_path, monkeypatch):
+    import dataclasses
+    t0 = time.time()
+    t, r, _ = _resting_job(tmp_path, monkeypatch, t0 + 3600)
+    r.tick(t0)
+    r.apply_targets([dataclasses.replace(t, every_min=30)])           # in place
+    assert "bb-saves" in r.resting
+    r.apply_targets([dataclasses.replace(t, url=t.url + "/other")])   # a different page
+    assert r.resting == {} and rest.load(tmp_path) == {}
+    r.tick(t0 + 60)
+    r.apply_targets([])                                                # removed
+    assert r.resting == {} and rest.load(tmp_path) == {}
+
+
+def test_a_fetch_target_whose_parser_rests_does_not_crash(tmp_path, monkeypatch):
+    from scraper import runner as runner_mod
+    t0 = time.time()
+
+    def parser(page, capture):
+        raise rest.Rest(t0 + 7200, "nothing today")
+    monkeypatch.setitem(runner_mod.PARSERS, "example_tipster", parser)
+    t = _gen("tips", mode="fetch")
+    r = _runner(tmp_path, [t])
+    r.tick(t0)                                                        # must not raise
+    assert r.tabs == {} and r.resting["tips"]["until"] == t0 + 7200
+    assert len(_loads(r)) == 1
+    for i in range(1, 100):
+        r.tick(t0 + 60 * i)
+    assert len(_loads(r)) == 1                                        # not fetched while resting
+    assert "tips" not in r.next_fetch
+
+
+def test_a_repeated_parser_failure_is_logged_once(tmp_path, monkeypatch):
+    from scraper import runner as runner_mod
+    errors = iter([ValueError("boom\nat line 1"), ValueError("boom\nat line 2"),
+                   ValueError("bang"), ValueError("bang")])
+
+    def parser(page, capture):
+        raise next(errors)
+    monkeypatch.setitem(runner_mod.PARSERS, "bb_saves", parser)
+    t = _bb("bb-saves", parser="bb_saves")
+    r = _runner(tmp_path, [t])
+    t0 = time.time()
+    for i in range(4):
+        r.tick(t0 + 60 * i)
+        assert r.parser_said["bb-saves"].startswith("parser failed: ")
+    failed = [m for m in _msgs(tmp_path, "bb-saves") if m.startswith("parser failed")]
+    assert failed == ["parser failed: boom\nat line 1", "parser failed: bang"]
+    assert r.parser_said["bb-saves"] == "parser failed: bang"
+
+
+def test_the_wake_command_asks_the_running_service(tmp_path, monkeypatch, capsys):
+    import pytest
+    from scraper.__main__ import main
+    (tmp_path / "targets.toml").write_text('[[target]]\nname = "bb-saves"\nsite = "bookiebashing"\n'
+                                           'url = "https://www.bookiebashing.net/tools/betbuilder/"\n')
+    monkeypatch.setenv("SCRAPER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SCRAPER_TARGETS", str(tmp_path / "targets.toml"))
+    main(["wake", "bb-saves"])
+    assert (tmp_path / "requests" / "wake-bb-saves").exists()
+    with pytest.raises(SystemExit) as e:
+        main(["wake", "nope"])
+    assert "bb-saves" in str(e.value)
+    assert "wake <target>" in main.__globals__["__doc__"]

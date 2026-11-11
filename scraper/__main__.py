@@ -8,6 +8,9 @@
                    It also forgets a failed sign-in (login.py).
   dump <target>    Ask the RUNNING service to save that target's open page(s)
                    (HTML + screenshot) to data/dumps/ - no extra page load.
+  wake <target>    Ask the RUNNING service to end that job's rest (a parser
+                   that found nothing to do rested it: rest.py) - it runs on
+                   its next tick.
   check            Load targets.toml and print the targets.
   targets ...      The only way targets.toml is changed: list, show <name>,
                    add --name --site --url [...], set <name> --every-min 15
@@ -369,6 +372,13 @@ def main(argv=None):
         req.mkdir(parents=True, exist_ok=True)
         (req / f"dump-{rest[0]}").touch()
         print(f"asked the service to dump {rest[0]} - see data/dumps/ within ~15 s")
+    elif cmd == "wake":
+        if not rest or rest[0] not in {t.name for t in s.targets}:
+            sys.exit(f"wake which target? {', '.join(t.name for t in s.targets)}")
+        req = s.data_dir / "requests"
+        req.mkdir(parents=True, exist_ok=True)
+        (req / f"wake-{rest[0]}").touch()
+        print(f"asked the service to wake {rest[0]} - its log says how within ~15 s")
     elif cmd == "selfcheck":
         selfcheck(s)
     elif cmd == "check":

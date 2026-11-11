@@ -17,7 +17,10 @@ import json
 import os
 import pathlib
 import tempfile
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
+LONDON = ZoneInfo("Europe/London")
 FILE = "resting.json"
 MAX_REST_S = 7 * 86400
 MIN_REST_S = 60
@@ -28,6 +31,12 @@ class Rest(Exception):
         super().__init__(why)
         self.until = float(until)
         self.why = why
+
+
+def when(ts: float) -> str:
+    """An epoch time as London time, as the jobs say it: "Thu 19 Nov 12:30"."""
+    d = datetime.fromtimestamp(ts, LONDON)
+    return f"{d:%a} {d.day} {d:%b %H:%M}"
 
 
 def _path(data_dir) -> pathlib.Path:

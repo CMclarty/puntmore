@@ -41,3 +41,12 @@ def test_rest_carries_until_and_why():
     assert (r.until, r.why) == (123.0, "no games listed under the configured competitions")
     assert isinstance(r, Exception)
     assert rest.MAX_REST_S == 7 * 86400 and rest.MIN_REST_S == 60
+
+
+def test_when_is_london_time():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    ts = datetime(2026, 11, 19, 12, 30, tzinfo=ZoneInfo("Europe/London")).timestamp()
+    assert rest.when(ts) == "Thu 19 Nov 12:30"
+    ts = datetime(2026, 7, 4, 9, 5, tzinfo=ZoneInfo("UTC")).timestamp()
+    assert rest.when(ts) == "Sat 4 Jul 10:05"                       # BST

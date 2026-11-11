@@ -44,6 +44,7 @@ from . import browser
 from . import config
 from . import joblog
 from . import login
+from . import rest
 from . import schedule
 from .capture import Capture, DiskBudget
 from .config import host_allowed
@@ -143,6 +144,14 @@ class Runner:
         # site -> {"why", "written"}: a failed sign-in, kept here too so a note
         # that could not be written still stops the next attempt
         self.login_failed: dict[str, dict] = {}
+        # A job's rest (rest.py): name -> {"until", "why"}, kept in
+        # data/resting.json; only the current targets' rests are kept.
+        names = {t.name for t in self.targets}
+        on_disk = rest.load(settings.data_dir)
+        self.resting: dict[str, dict] = {n: v for n, v in on_disk.items() if n in names}
+        if self.resting != on_disk:
+            rest.save(settings.data_dir, self.resting)
+        self.rest_said: set[str] = set()               # rests said (or printed) by this process
 
     # --- site-wide state ----------------------------------------------------
     def _paused(self, site, now) -> str | None:
@@ -419,6 +428,8 @@ class Runner:
                 was = self.outside.pop(t.name)
                 self._say(t.name, "window open - running" if was.startswith("outside window")
                           else "running again")
+            if self._resting(t, now):
+                continue
             live.append(t)
         self._sweep(live, now)
         for t in schedule.order(live, self._wanting(live, now), lambda site: self._left(site, now),
@@ -430,10 +441,13 @@ class Runner:
             else:
                 self._tick_page(t, t.name, t.url, now)
 
-        for tab in list(self.tabs.values()):
+        for key, tab in list(self.tabs.items()):
             # A paused site's tab stays open (to log in over VNC) but is not
             # driven: parsing a login page every minute is noise, not data.
-            # Nor is a tab whose site is signing in, until the reload.
+            # Nor is a tab whose site is signing in, until the reload, nor
+            # one closed by this loop (its job began a rest).
+            if self.tabs.get(key) is not tab:
+                continue
             if not self._paused(tab.target.site, now) and tab.target.site not in self.login_pending:
                 self._parse(tab, now)
         self._requests()
@@ -460,6 +474,38 @@ class Runner:
             self._close(key)
         self.next_fetch.pop(t.name, None)
         self.wanting_since.pop(t.name, None)
+
+    def _resting(self, t, now) -> bool:
+        """A job resting (its parser raised rest.Rest) is skipped like one
+        outside its window: its tabs close and nothing loads. Once `until` has
+        passed the rest is forgotten and the job runs in this same tick. A
+        rest this process has not said yet (one from before a restart) is
+        printed, not logged again."""
+        r = self.resting.get(t.name)
+        if r is None:
+            return False
+        if now >= r["until"]:
+            del self.resting[t.name]
+            rest.save(self.s.data_dir, self.resting)
+            self.rest_said.discard(t.name)
+            self._say(t.name, "rest over - running")
+            return False
+        if t.name not in self.rest_said:
+            self.rest_said.add(t.name)
+            print(f"{t.name}: {_rest_detail(r)}", flush=True)
+        for key in [k for k, tab in self.tabs.items() if tab.target.name == t.name]:
+            self._close(key)
+        self.next_fetch.pop(t.name, None)
+        self.wanting_since.pop(t.name, None)
+        return True
+
+    def _end_rest(self, name) -> bool:
+        """Forget a job's rest (saved). True when it had one."""
+        self.rest_said.discard(name)
+        if self.resting.pop(name, None) is None:
+            return False
+        rest.save(self.s.data_dir, self.resting)
+        return True
 
     def _sweep(self, targets, now):
         """Enter or leave each target's near window (schedule.near). On a
@@ -587,6 +633,7 @@ class Runner:
                 self.next_open.pop(name, None)
                 self.parser_said.pop(name, None)
                 self.delivery_said.pop(name, None)
+                self._end_rest(name)
             if name not in new:
                 self.retired_targets[name] = t
         for name in new:
@@ -813,11 +860,27 @@ class Runner:
                 self._say(t.name, f"{exc} - capturing only")
                 self.parser_said[t.name] = f"parser not written ({t.parser}) - capturing only"
             return
+        except rest.Rest as exc:
+            # Nothing for this job to do until exc.until: its page closes and
+            # the tick skips it until then (_resting).
+            until = min(max(exc.until, now + rest.MIN_REST_S), now + rest.MAX_REST_S)
+            self.resting[t.name] = {"until": until, "why": exc.why}
+            rest.save(self.s.data_dir, self.resting)
+            for key in [k for k, x in self.tabs.items() if x.target.name == t.name]:
+                self._close(key)
+            self.parser_said.pop(t.name, None)
+            self.rest_said.add(t.name)
+            self._say(t.name, _rest_detail(self.resting[t.name]))
+            return
         except Exception as exc:
             # Shown as the target's detail in status.json until a call succeeds -
             # a driver that cannot bring its page up says so there, not only here.
-            self._say(t.name, f"parser failed: {exc}")
-            self.parser_said[t.name] = f"parser failed: {str(exc).splitlines()[0][:120]}"
+            # Written to the job's log only when its first line is new for the
+            # job: a parser failing the same way every minute says it once.
+            said = f"parser failed: {(str(exc).splitlines() or [''])[0][:120]}"
+            if self.parser_said.get(t.name) != said:
+                self._say(t.name, f"parser failed: {exc}")
+            self.parser_said[t.name] = said
             return
         self.parser_said.pop(t.name, None)
         k = schedule.next_kickoff(rows, now)
@@ -854,6 +917,8 @@ class Runner:
                 state, detail = "paused", why
             elif off:
                 state, detail = "paused", off
+            elif t.name in self.resting and now < self.resting[t.name]["until"]:
+                state, detail = "paused", _rest_detail(self.resting[t.name])
             else:
                 mine = [tab for tab in self.tabs.values() if tab.target.name == t.name]
                 n = len(mine)
@@ -873,6 +938,7 @@ class Runner:
     def _requests(self):
         """`python -m scraper dump <target>` drops a file; the running loop
         answers it from the page it already has open - no extra load.
+        `wake <target>` likewise ends that job's rest (rest.py).
         `selfcheck` likewise, as the running browser holds the profile."""
         req = self.s.data_dir / "requests" / "selfcheck"
         if req.exists():
@@ -902,6 +968,15 @@ class Runner:
                 except Exception as exc:
                     self._say(name, f"dump: {key + ': ' if key != name else ''}{exc}")
             self._say(name, f"dump: saved {out}")
+        for req in (self.s.data_dir / "requests").glob("wake-*"):
+            name = req.name[len("wake-"):]
+            req.unlink(missing_ok=True)
+            if self._end_rest(name):
+                self._say(name, "woken by hand - running")
+            elif any(t.name == name for t in self.targets):
+                self._say(name, "wake: not resting")
+            else:                               # not a job: no log to write to
+                print(f"wake {name}: no such target", flush=True)
 
     def _say(self, name: str, msg: str) -> None:
         """A line about one job: printed as "<name>: <msg>" for the journal, and
@@ -920,6 +995,11 @@ class Runner:
     def close_all(self):
         for key in list(self.tabs):
             self._close(key)
+
+
+def _rest_detail(r: dict) -> str:
+    """How a rest is said, in the job's log and as its status detail."""
+    return f"{r['why']} - resting until {rest.when(r['until'])}"
 
 
 def reschedule_only(old, new) -> bool:
