@@ -379,11 +379,15 @@ def _count(raw) -> int | None:
 def results_counts(body: dict) -> dict[tuple[str, str], int] | None:
     """{(metric, side): score} from a /results body: full-time, final, team
     records only. None until the vendor has the result (`status: available`)
-    and the match is finished in 90 minutes (`status_detail` "FT")."""
+    and the match is finished in 90 minutes (`status_detail` "FT"), and None
+    unless the vendor matched the result to its own event (`identity_match`
+    "matched"): a fuzzy or unmatched identity may be another game's counts."""
     if not isinstance(body, dict) or body.get("status") != "available":
         return None
     result = body.get("result")
     if not isinstance(result, dict) or result.get("event_status") != "finished":
+        return None
+    if result.get("identity_match") != "matched":
         return None
     # William Hill's lines are 90 minutes, and the vendor does not say whether
     # "full time" counts extra time: only a plain "FT" is settled. "AET",
@@ -402,7 +406,12 @@ def results_counts(body: dict) -> dict[tuple[str, str], int] | None:
         score = _count(rec.get("score"))
         if side not in ("home", "away") or score is None:
             continue
-        out[(str(rec.get("metric") or "").lower(), side)] = score
+        key = (str(rec.get("metric") or "").lower(), side)
+        # Two final records that disagree: neither is trusted, so the whole
+        # result waits for a hand one. An identical repeat is harmless.
+        if out.get(key, score) != score:
+            return None
+        out[key] = score
     return out
 
 

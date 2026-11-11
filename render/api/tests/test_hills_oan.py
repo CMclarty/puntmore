@@ -280,3 +280,27 @@ def test_an_oddspapi_id_bet_waits_for_a_hand_result_on_odds_api_net():
     _bet("a", [(CORNERS, 9.5, "Over")])
     bet = client.get("/hills/bets?fixture_id=a").json()["bets"][0]
     assert (bet["result"], bet["settled_by"]) == ("open", None) and fake.calls == []
+
+
+# --- the result must be the vendor's own game (final review, A and K) ----------
+
+@pytest.mark.parametrize("identity", ["fuzzy", "unmatched", "", None, "missing"])
+def test_a_result_whose_identity_is_not_matched_settles_nothing(identity):
+    body = load("results_1595650036_final.json")
+    assert body["result"]["identity_match"] == "matched"
+    if identity == "missing":
+        del body["result"]["identity_match"]
+    else:
+        body["result"]["identity_match"] = identity
+    assert results_counts(body) is None
+
+
+def test_two_final_records_that_disagree_are_left_for_a_hand_result():
+    body = load("results_1595650036_final.json")
+    recs = body["result"]["score_records"]
+    home_corners = next(r for r in recs if (r["metric"], r["side"], r["period"])
+                        == ("corners", "home", "full time"))
+    recs.append(dict(home_corners))                     # an identical duplicate is fine
+    assert results_counts(body)[("corners", "home")] == 3
+    recs.append(dict(home_corners, score=4))            # a second, different count
+    assert results_counts(body) is None
