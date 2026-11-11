@@ -494,3 +494,40 @@ def test_a_budget_spent_mid_pass_gives_the_spent_verdict():
     src, fake, _ = make(Spent(r))
     src.get_events()
     assert feed.diagnose(src)["verdict"].startswith("Today's odds-api.net credits are spent")
+
+
+# --- never busy for ever (final review, E) ------------------------------------
+
+def _raise_once(src, name):
+    real = getattr(src, name)
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError(f"{name} broke")
+        return real()
+
+    setattr(src, name, flaky)
+
+
+@pytest.mark.parametrize("name", ["_summarise", "_prune"])
+def test_a_pass_whose_summary_raises_does_not_leave_the_source_busy(name):
+    src, fake, _ = make()
+    src._refresh_listing()
+    src._refreshing = True
+    _raise_once(src, name)
+    src._pass()                                    # logged, not raised
+    assert not src._refreshing and src._pass_done.is_set()
+    assert [e["id"] for e in src.get_events()] == ["oan:1417142635"]
+
+
+def test_a_page_load_whose_summary_raises_starts_no_stuck_pass():
+    started = []
+    src, fake, _ = make(runner=started.append, first_wait=0)
+    _raise_once(src, "_summarise")
+    with pytest.raises(RuntimeError):
+        src.get_events()
+    assert not src._refreshing
+    src.get_events()
+    assert len(started) == 1

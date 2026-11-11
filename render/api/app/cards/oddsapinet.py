@@ -537,11 +537,13 @@ class OddsApiNetHillsSource:
             # Pruned here too, not only by a pass: a listing that dropped a
             # game needs no pass for its board to go.
             self._prune()
-            if page_may_spend and self._due() and not self._refreshing:
+            start = bool(page_may_spend and self._due() and not self._refreshing)
+            self._summarise()
+            # Set only once nothing here can raise, so a failure above never
+            # leaves the source "busy" with no pass to clear it.
+            if start:
                 self._refreshing = True
                 self._pass_done.clear()
-                start = True
-            self._summarise()
         if start:
             try:
                 self._runner(self._pass)
@@ -778,6 +780,7 @@ class OddsApiNetHillsSource:
         set `_refreshing`; this clears it. Returns the snapshots fetched."""
         errors: list[str] = []
         failed = fetched = 0
+        sweep: dict = {}
         try:
             if due is None:
                 with self._lock:
@@ -815,14 +818,22 @@ class OddsApiNetHillsSource:
             errors.append(f"pass failed: {exc}")
             failed += 1
         finally:
-            with self._lock:
-                self._pass_errors, self._pass_failed = errors, failed
-                self._prune()
-                self._summarise()
-                self._refreshing = False
-                self._passes_done += 1
-                sweep = dict(self.last_sweep)
-            self._pass_done.set()
+            try:
+                with self._lock:
+                    try:
+                        self._pass_errors, self._pass_failed = errors, failed
+                        self._prune()
+                        self._summarise()
+                        sweep = dict(self.last_sweep)
+                    except Exception as exc:
+                        logger.exception("hills (odds-api.net): pass summary failed")
+                        errors.append(f"pass summary failed: {exc}")
+                    finally:
+                        # Whatever failed above, the next pass can start.
+                        self._refreshing = False
+                        self._passes_done += 1
+            finally:
+                self._pass_done.set()
         log = logger.info if not errors else logger.warning
         log("hills %s (odds-api.net): %d snapshot(s), %d William Hill game(s) listed, "
             "%d carried, %d with Pinnacle, %d pending, %d error(s), %d request(s) today",
