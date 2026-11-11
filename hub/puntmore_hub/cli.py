@@ -138,8 +138,8 @@ def cmd_heartbeat(a):
 
 
 def cmd_daemon(a):
-    """Run the Hub daemon: the inbox pass over the Scraper's drop files every 30 s and the
-    tipster mailbox on its own thread (daemon.py). `puntmore link` is the same command."""
+    """Run the Hub daemon: the inbox pass over the Scraper's drop files every 30 s (the price
+    drops every 10 s) and the tipster mailbox on its own thread (daemon.py). `puntmore link` is the same command."""
     from . import daemon
     daemon.run(settings)
 
@@ -185,7 +185,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("init", help="create data dirs and the database").set_defaults(fn=cmd_init)
     sub.add_parser("status", help="one-screen status, including the Scraper").set_defaults(fn=cmd_status)
-    ib = sub.add_parser("inbox", help="one pass over the Scraper's drop folders (the daemon does this every 30 s)")
+    ib = sub.add_parser("inbox", help="one pass over the Scraper's drop folders (the daemon does this every 30 s, the prices every 10 s)")
     ib.add_argument("--no-notify", action="store_true", help="record escalations without waking HubAI"); ib.set_defaults(fn=cmd_inbox)
     ml = sub.add_parser("mail", help="one poll of the tipster mailbox (the daemon does this every PUNTMORE_IMAP_EVERY_MIN)")
     ml.add_argument("--dry-run", action="store_true", help="show what the parsers read; store nothing, mark nothing seen")
@@ -209,7 +209,7 @@ def build_parser() -> argparse.ArgumentParser:
     fs = fd.add_parser("status", help="the Bet Placer's report on an offered row")
     fs.add_argument("tip_id"); fs.add_argument("status", choices=["placed", "gone"]); fs.set_defaults(fn=cmd_finder)
     sub.add_parser("heartbeat", help="send the daily summary").set_defaults(fn=cmd_heartbeat)
-    sub.add_parser("daemon", help="run the daemon: inbox every 30 s, tipster mailbox on its own thread").set_defaults(fn=cmd_daemon)
+    sub.add_parser("daemon", help="run the daemon: inbox every 30 s, prices every 10 s, tipster mailbox on its own thread").set_defaults(fn=cmd_daemon)
     sub.add_parser("link", help="the same as `daemon` (the name puntmore-link.service runs)").set_defaults(fn=cmd_daemon)
     w = sub.add_parser("web", help="the Hub Console web page (PUNTMORE_WEB_BIND, default 127.0.0.1:8090)")
     w.add_argument("--bind", help="host:port, overrides PUNTMORE_WEB_BIND"); w.set_defaults(fn=cmd_web)
