@@ -28,7 +28,7 @@ flowchart TB
 
   ODDS["OddsPapi<br/>Paddy, 2-Up, coupons"] -- "prices (HTTPS)" --> PADDY
   ODDS -- "prices (HTTPS)" --> T365
-  ODDS -- "prices (HTTPS)" --> PUB
+  ODDS -- "prices (HTTPS): coupons; Hills only without ODDSAPINET_API_KEY" --> PUB
   OAN["odds-api.net<br/>Hills' prices"] -- "prices (HTTPS)" --> PUB
 
   subgraph HUB["HUB — Callum's box, one program"]

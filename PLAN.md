@@ -91,7 +91,7 @@ in the tree.
 - **2d.** Prices one row out: the photo is straightened and every price read twice (Sept 2026). A real sheet is still to be checked live.
 - **2e.** Under-21, women's and reserve sides are never priced as the seniors (Sept 2026).
 - **2f.** U19 fixtures: competition and day checks before a fixture is priced (Sept 2026).
-- **11.** One odds source (OddsPapi), one 365 tool with 2-Up as a one-way feed inside it, no `/scraper` page (5–6 Nov 2026). Its grep for the old vendors still matches a legacy alias in `app/main.py` (`COUPON_ODDS_SOURCE=bettingiscool` routes to OddsPapi), test names and `tools/probe_oddspapi.py`; none is a live dependency.
+- **11.** At the time, one odds source (OddsPapi); since 11 Nov 2026 odds-api.net prices Hills beside it (item 13). Also one 365 tool with 2-Up as a one-way feed inside it, no `/scraper` page (5–6 Nov 2026). Its grep for the old vendors still matches a legacy alias in `app/main.py` (`COUPON_ODDS_SOURCE=bettingiscool` routes to OddsPapi), test names and `tools/probe_oddspapi.py`; none is a live dependency.
 - **12.** Finder (6 Nov 2026, `docs/finder-spec.md`).
 - **13.** Hills on odds-api.net, Puntmore's second odds provider (11 Nov 2026,
   `docs/superpowers/specs/2026-11-11-hills-odds-api-net-design.md`): William Hill and Pinnacle in

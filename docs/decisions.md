@@ -177,6 +177,11 @@ names and no other; older names appear only in `docs/retired.md`.
   provider; OddsPapi stays. TheOddsApi stays removed. Goalscorers is parked;
   if it returns it uses OddsPapi. (5 Nov 2026, Callum; Hills 11 Nov 2026,
   Callum)
+- **Hills has no saves.** Callum, 11 Nov 2026: "Remove saves on hills".
+  (11 Nov 2026, Callum)
+- **Hills shows William Hill's 11.5 corners line**; the 11.5 exclusion is
+  Paddy Power's rule only. Callum, 11 Nov 2026: "add the 11.5 corner lines".
+  (11 Nov 2026, Callum)
 - **365 is one tool**: AccaBonus + 2-Up (+ goalscorers when unparked). The
   `accabonus` grant keeps its name because renaming a grant revokes accounts'
   access. (5 Nov 2026, Callum)
