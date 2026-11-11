@@ -1,0 +1,176 @@
+{
+ "event_id": "1595650036",
+ "status": "available",
+ "result": {
+  "game_masterID": "1595650036",
+  "sport": "soccer",
+  "league_name": "Japan J League Cup",
+  "start_time": 1794391200,
+  "away_team": "Kashiwa Reysol",
+  "home_team": "Kawasaki Frontale",
+  "away_team_names": [
+   "Kashiwa Reysol"
+  ],
+  "home_team_names": [
+   "Kawasaki Frontale"
+  ],
+  "score_records": [
+   {
+    "side": "home",
+    "player_name": null,
+    "metric": "cards",
+    "period": "full time",
+    "score": 2,
+    "status": "final",
+    "timestamp": 1794398421
+   },
+   {
+    "side": "away",
+    "player_name": null,
+    "metric": "cards",
+    "period": "full time",
+    "score": 4,
+    "status": "final",
+    "timestamp": 1794398421
+   },
+   {
+    "side": "home",
+    "player_name": null,
+    "metric": "corners",
+    "period": "full time",
+    "score": 3,
+    "status": "final",
+    "timestamp": 1794398421
+   },
+   {
+    "side": "away",
+    "player_name": null,
+    "metric": "corners",
+    "period": "full time",
+    "score": 3,
+    "status": "final",
+    "timestamp": 1794398421
+   },
+   {
+    "side": "home",
+    "player_name": null,
+    "metric": "fouls committed",
+    "period": "full time",
+    "score": 11,
+    "status": "final",
+    "timestamp": 1794398421
+   },
+   {
+    "side": "away",
+    "player_name": null,
+    "metric": "fouls committed",
+    "period": "full time",
+    "score": 3,
+    "status": "final",
+    "timestamp": 1794398421
+   },
+   {
+    "side": "home",
+    "player_name": null,
+    "metric": "offsides",
+    "period": "full time",
+    "score": 1,
+    "status": "final",
+    "timestamp": 1794398421
+   },
+   {
+    "side": "away",
+    "player_name": null,
+    "metric": "offsides",
+    "period": "full time",
+    "score": 1,
+    "status": "final",
+    "timestamp": 1794398421
+   },
+   {
+    "side": "home",
+    "player_name": null,
+    "metric": "shots on target",
+    "period": "full time",
+    "score": 2,
+    "status": "final",
+    "timestamp": 1794398421
+   },
+   {
+    "side": "away",
+    "player_name": null,
+    "metric": "shots on target",
+    "period": "full time",
+    "score": 8,
+    "status": "final",
+    "timestamp": 1794398421
+   },
+   {
+    "side": "home",
+    "player_name": null,
+    "metric": "standard",
+    "period": "1st half",
+    "score": 0,
+    "status": "final",
+    "timestamp": 1794398421
+   },
+   {
+    "side": "away",
+    "player_name": null,
+    "metric": "standard",
+    "period": "1st half",
+    "score": 0,
+    "status": "final",
+    "timestamp": 1794398421
+   },
+   {
+    "side": "home",
+    "player_name": null,
+    "metric": "standard",
+    "period": "2nd half",
+    "score": 1,
+    "status": "final",
+    "timestamp": 1794398421
+   },
+   {
+    "side": "away",
+    "player_name": null,
+    "metric": "standard",
+    "period": "2nd half",
+    "score": 2,
+    "status": "final",
+    "timestamp": 1794398421
+   },
+   {
+    "side": "home",
+    "player_name": null,
+    "metric": "standard",
+    "period": "full time",
+    "score": 1,
+    "status": "final",
+    "timestamp": 1794398421
+   },
+   {
+    "side": "away",
+    "player_name": null,
+    "metric": "standard",
+    "period": "full time",
+    "score": 2,
+    "status": "final",
+    "timestamp": 1794398421
+   }
+  ],
+  "start_time_TIMESTAMP": "2026-11-11T10:00:00+00:00",
+  "result_source": "livescore",
+  "source_event_id": "1913583",
+  "event_status": "finished",
+  "status_detail": "FT",
+  "collected_at": 1794398421,
+  "source_home_team": "Kawasaki Frontale",
+  "source_away_team": "Kashiwa Reysol",
+  "identity_match": "matched",
+  "id": "1595650036",
+  "source": "score-system",
+  "updated_at": "2026-11-11T12:01:01Z"
+ }
+}
