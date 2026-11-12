@@ -30,12 +30,15 @@ by hand on 26 Oct 2026:
 
 ONLY GAMES WITHIN 48 HOURS (Callum, 11 Nov 2026): "It should only be doing
 this for games within the next 48 hours." A pass reads only the games under
-COMPETITIONS kicking off within `bb.within_h` hours; the queue is rebuilt at
-the start of every pass, so the window moves with the clock and a game that
-has kicked off drops out. With none that near the parser raises rest.Rest:
-the runner closes the page and loads nothing until `bb.within_h` hours before
-the next game it saw, or `bb.look_again_s`, whichever is sooner (`python -m
-scraper wake bb-saves` ends a rest by hand).
+COMPETITIONS kicking off within `games.within_h` hours (0: no limit); the
+queue is rebuilt at the start of every pass, so the window moves with the
+clock and a game that has kicked off drops out. With none that near the
+parser raises rest.Rest: the runner closes the page and loads nothing until
+`games.within_h` hours before the next game it saw, or `games.look_again_s`,
+whichever is sooner (`python -m scraper wake bb-saves` ends a rest by hand).
+The pair is the "Games" settings every job that reads games follows (Callum,
+12 Nov 2026); this parser reads the catalogue's values, not a job's own
+`within_h` (a parser is handed its page and capture only).
 
 BB xSAVES IS NOT ALWAYS LISTED. Seen on 11 Nov 2026: at 17:57, after one data
 pull, "BB Player/Team Stats" listed 12 stats (BB xSOT ... BB xScoreOrAssist)
@@ -67,7 +70,7 @@ active after every call so the runner never reloads it as stale; a reload
 only happens if this parser keeps failing, which is the right self-heal.
 
 Every `bb.*` number is a setting in scraper/behaviour.py ("Bookie Bashing bet
-builder"), read when it is used.
+builder"), and the window `games.*` ("Games"), read when it is used.
 """
 import re
 import time
@@ -275,13 +278,14 @@ def _kickoff(game: dict) -> datetime:
 
 def _build_queue(page, now: datetime) -> tuple[list[tuple[str, str]], tuple[datetime, str] | None]:
     """(competition option, game option) for every game under COMPETITIONS
-    kicking off within bb.within_h hours of `now`; and the earliest game after
-    that (its kickoff and "Home v Away"), None when there is none. The window
-    is absolute time (UTC), as the rest is: London wall-clock arithmetic would
-    be an hour out across a clock change."""
+    kicking off within games.within_h hours of `now` (0: every game ahead);
+    and the earliest game after that (its kickoff and "Home v Away"), None
+    when there is none. The window is absolute time (UTC), as the rest is:
+    London wall-clock arithmetic would be an hour out across a clock change."""
     comp = _field_select(page, "Competition")
     now = now.astimezone(UTC)
-    horizon = now + timedelta(hours=behaviour.get("bb.within_h"))
+    within_h = behaviour.get("games.within_h")
+    horizon = now + timedelta(hours=within_h) if within_h else datetime.max.replace(tzinfo=UTC)
     queue, later = [], None
     for prefix in COMPETITIONS:
         label = _select_prefix(comp, prefix)
@@ -301,10 +305,10 @@ def _build_queue(page, now: datetime) -> tuple[list[tuple[str, str]], tuple[date
 
 
 def _rest(now: datetime, later: tuple[datetime, str] | None) -> Rest:
-    """Nothing within bb.within_h hours: rest until bb.within_h hours before
-    the next game seen, or bb.look_again_s, whichever is sooner."""
-    within_h = behaviour.get("bb.within_h")
-    look_again = now.timestamp() + behaviour.get("bb.look_again_s")
+    """Nothing within games.within_h hours: rest until games.within_h hours
+    before the next game seen, or games.look_again_s, whichever is sooner."""
+    within_h = behaviour.get("games.within_h")
+    look_again = now.timestamp() + behaviour.get("games.look_again_s")
     if later is None:
         return Rest(look_again, "no games listed under the configured competitions")
     kickoff, teams = later
@@ -394,7 +398,7 @@ def _state(page) -> dict:
 def bb_saves(page, capture) -> list[dict]:
     """Drive the builder for up to bb.call_budget_s and return the saves fairs read.
     State (the game queue, when the data was last refreshed) lives per page.
-    Raises Rest when no game kicks off within bb.within_h hours."""
+    Raises Rest when no game kicks off within games.within_h hours."""
     state = _state(page)
     started = time.time()
     now = _now()

@@ -202,6 +202,24 @@ def test_only_games_kicking_off_within_48_hours_are_read(page, monkeypatch):
     assert not any(g.startswith(("Spurs", "Bath")) for g in visited)
 
 
+@pytest.mark.parametrize("within_h, read", [(0, ["Bath", "Leeds", "Paris"]),     # no limit
+                                             (24, ["Paris"])])
+def test_the_window_is_the_games_setting(page, monkeypatch, tmp_path, within_h, read):
+    """`games.within_h` (behaviour.py), the one window every job that reads
+    games follows; 0 is no limit."""
+    _only_epl(monkeypatch)
+    games = ["all (4) - 16:00", "Spurs v Wolves - 16:00", "Paris v Lyon - 19:30",
+             "Leeds v Hull - 16:30 28th", "Bath v Wells - 17:30 28th"]
+    _games(page, {"English Premier League (4/4)": games}, {g: ["H", "A"] for g in games if " v " in g})
+    behaviour.set_(tmp_path, "games.within_h", within_h)
+    behaviour.load(tmp_path)
+    try:
+        rows = mod.bb_saves(page, _Capture())
+    finally:
+        behaviour.load(tmp_path / "none")
+    assert sorted({r["home"] for r in rows}) == read
+
+
 def test_no_game_within_48_hours_rests_until_48_hours_before_the_next(page, monkeypatch):
     _only_epl(monkeypatch)
     _games(page, {"English Premier League (1/1)": ["all (1) - 12:30 29th", "Chelsea v Man Utd - 12:30 29th"]},

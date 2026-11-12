@@ -93,6 +93,13 @@ def _site(site, name, per_hour, per_day, load_gap_s, quiet_hours):
 
 SETTINGS: tuple[Setting, ...] = (
     *_group(
+        "Games",
+        ("games.within_h", "int", 48, 0, 720, "h",
+         "Only games kicking off within this many hours are read (0: no limit)"),
+        ("games.look_again_s", "int", 86400, 600, 604800, "s",
+         "With no game that near, a job rests at most this long before looking at the fixtures again"),
+    ),
+    *_group(
         "Limits, per site",
         *_site("paddypower", "Paddy Power", 15, 120, 90.0, True),
         *_site("bookiebashing", "Bookie Bashing", 8, 120, 60.0, False),
@@ -202,10 +209,6 @@ SETTINGS: tuple[Setting, ...] = (
          "The builder's data (Update Data, about 60 MB) is pulled at most this often"),
         ("bb.update_tries", "int", 3, 1, 10, "tries",
          "Update Data clicks in a row before the builder counts as not ready"),
-        ("bb.within_h", "int", 48, 1, 336, "h",
-         "Only games kicking off within this many hours are read (Callum, 11 Nov 2026)"),
-        ("bb.look_again_s", "int", 86400, 60, 604800, "s",
-         "With no game that near, the job rests at most this long"),
         ("bb.xsaves_retries", "int", 3, 0, 20, "pulls",
          "Extra data pulls in a row when BB xSaves is not listed"),
         ("bb.settle_s", "float", 0.25, 0.05, 5, "s",

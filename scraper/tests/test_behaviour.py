@@ -49,9 +49,11 @@ OLD = {
     "read.passes": (2, 4), "read.move_steps": (8, 25), "read.scroll_px": (300, 700),
     "read.pause_ms": (900, 2500), "read.back_up_px": (2500, 4000),
     "read.back_up_pause_ms": (500, 1200),
-    # parsers/bb_saves.py
+    # parsers/bb_saves.py: its 48-hour window and day's rest are now the
+    # "Games" pair, read by every job that reads games (12 Nov 2026)
+    "games.within_h": 48, "games.look_again_s": 86400,
     "bb.call_budget_s": 40.0, "bb.update_every_s": 1800, "bb.update_tries": 3,
-    "bb.within_h": 48, "bb.look_again_s": 86400, "bb.xsaves_retries": 3, "bb.settle_s": 0.25,
+    "bb.xsaves_retries": 3, "bb.settle_s": 0.25,
 }
 
 
@@ -81,7 +83,7 @@ def test_the_catalogue_reads_as_a_description():
     keys = [s.key for s in behaviour.SETTINGS]
     assert len(keys) == len(set(keys))
     groups = list(dict.fromkeys(s.group for s in behaviour.SETTINGS))
-    assert groups == ["Limits, per site", "Limits, all sites", "Spacing of page loads",
+    assert groups == ["Games", "Limits, per site", "Limits, all sites", "Spacing of page loads",
                       "Arriving on a page", "Clicks", "Reading down a page",
                       "Bookie Bashing bet builder"]
     for s in behaviour.SETTINGS:
@@ -191,7 +193,7 @@ def test_set_and_reset_round_trip_through_the_file_keeping_only_changes(tmp_path
 
 
 def test_a_refused_set_writes_nothing(tmp_path):
-    behaviour.set_(tmp_path, "bb.within_h", 24)
+    behaviour.set_(tmp_path, "games.within_h", 24)
     before = (tmp_path / "behaviour.toml").read_text()
     with pytest.raises(behaviour.BehaviourError, match="paddypower.per_hour"):
         behaviour.set_(tmp_path, "paddypower.per_hour", -3)
@@ -234,12 +236,12 @@ def test_an_unknown_key_or_a_bad_value_in_the_file_keeps_that_value_and_is_repor
     behaviour.set_(tmp_path, "read.passes", "3-5")
     behaviour.load(tmp_path)
     (tmp_path / "behaviour.toml").write_text(
-        '"no.such" = 1\n"read.passes" = [9, 2]\n"bb.within_h" = 24\n')
+        '"no.such" = 1\n"read.passes" = [9, 2]\n"games.within_h" = 24\n')
     problems = behaviour.load(tmp_path)
     assert len(problems) == 2
     assert any("no.such" in p for p in problems) and any("read.passes" in p for p in problems)
     assert behaviour.get("read.passes") == (3, 5)               # its running value
-    assert behaviour.get("bb.within_h") == 24                   # the good line applies
+    assert behaviour.get("games.within_h") == 24                # the good line applies
     # reset of a key the catalogue does not know but the file holds: removes it
     behaviour.reset(tmp_path, "no.such")
     assert "no.such" not in (tmp_path / "behaviour.toml").read_text()
@@ -259,15 +261,46 @@ def test_a_busy_lock_is_an_error_not_a_hang(tmp_path):
 
 
 def test_listing_shows_value_default_and_changed(tmp_path):
-    behaviour.set_(tmp_path, "bb.within_h", 24)
+    behaviour.set_(tmp_path, "games.within_h", 24)
     behaviour.load(tmp_path)
     rows = {r["key"]: r for r in behaviour.listing()}
     assert list(rows) == [s.key for s in behaviour.SETTINGS]
-    r = rows["bb.within_h"]
+    r = rows["games.within_h"]
     assert (r["value"], r["default"], r["changed"], r["group"], r["kind"]) == (
-        24, 48, True, "Bookie Bashing bet builder", "int")
+        24, 48, True, "Games", "int")
     assert rows["load.any_gap_s"]["value"] == [20, 45] and not rows["load.any_gap_s"]["changed"]
     json.dumps(list(rows.values()))                             # JSON-ready
+
+
+# --- the "Games" pair: how far ahead a game is read (Callum, 12 Nov 2026) ----------
+def test_games_is_the_first_group_and_holds_the_window_and_the_look_again():
+    first = [s for s in behaviour.SETTINGS if s.group == "Games"]
+    assert behaviour.SETTINGS[:2] == tuple(first)
+    w, a = first
+    assert (w.key, w.kind, w.default, w.lo, w.hi, w.unit) == ("games.within_h", "int", 48, 0, 720, "h")
+    assert w.says == "Only games kicking off within this many hours are read (0: no limit)"
+    assert (a.key, a.kind, a.default, a.lo, a.hi) == ("games.look_again_s", "int", 86400, 600, 604800)
+    assert a.says == ("With no game that near, a job rests at most this long before looking at "
+                      "the fixtures again")
+    assert behaviour.parse("games.within_h", "0") == 0          # no limit
+    with pytest.raises(behaviour.BehaviourError, match="games.within_h"):
+        behaviour.parse("games.within_h", 721)
+    with pytest.raises(behaviour.BehaviourError, match="games.look_again_s"):
+        behaviour.parse("games.look_again_s", 599)
+
+
+def test_the_bb_window_keys_are_gone_and_an_old_file_naming_them_is_reported_and_ignored(tmp_path):
+    keys = {s.key for s in behaviour.SETTINGS}
+    assert "bb.within_h" not in keys and "bb.look_again_s" not in keys
+    (tmp_path / "behaviour.toml").write_text('"bb.within_h" = 24\n"bb.look_again_s" = 600\n'
+                                             '"click.every_s" = 900\n')
+    problems = behaviour.load(tmp_path)
+    assert problems == [f"{tmp_path / 'behaviour.toml'}: bb.within_h: no such setting - ignored",
+                        f"{tmp_path / 'behaviour.toml'}: bb.look_again_s: no such setting - ignored"]
+    assert behaviour.get("games.within_h") == 48 and behaviour.get("games.look_again_s") == 86400
+    assert behaviour.get("click.every_s") == 900                # the rest of the file applies
+    with pytest.raises(behaviour.BehaviourError, match="bb.within_h: no such setting"):
+        behaviour.set_(tmp_path, "bb.within_h", 24)
 
 
 # --- the modules read the catalogue ---------------------------------------------
@@ -351,13 +384,15 @@ def test_reading_down_and_arriving_read_the_catalogue(tmp_path):
 def test_bb_saves_reads_the_catalogue(tmp_path):
     import importlib
     bb_saves = importlib.import_module("scraper.parsers.bb_saves")   # the package exports the function
-    _use(tmp_path, bb__within_h=2, bb__look_again_s=7200)
+    _use(tmp_path, games__within_h=2, games__look_again_s=7200)
     now = datetime(2026, 11, 12, 12, tzinfo=timezone.utc)
     soon = (now + timedelta(hours=3), "A v B")
     r = bb_saves._rest(now, soon)
     assert r.until == (now + timedelta(hours=1)).timestamp() and "within 2 hours" in r.why
     far = (now + timedelta(days=3), "C v D")
     assert bb_saves._rest(now, far).until == now.timestamp() + 7200
+    _use(tmp_path, games__within_h=0)                           # no limit: nothing to wait for
+    assert bb_saves._rest(now, None).why == "no games listed under the configured competitions"
 
 
 def test_login_reads_the_catalogue(tmp_path):
