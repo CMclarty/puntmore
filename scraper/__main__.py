@@ -48,6 +48,7 @@ from datetime import datetime
 from . import behaviour
 from . import config
 from . import login
+from . import standing
 from .alerts import Alerts
 from .guard import Guard
 from .sites import SITES
@@ -66,19 +67,63 @@ WATCHDOG_S = 600
 # Bashing renderer still crashed once (2 h 47 min in).
 
 
-def watchdog(last_tick: list, limit_s: float = WATCHDOG_S, every_s: float = 30,
-             exit=os._exit):
+class Watchdog:
     """Exit the process when last_tick[0] is older than limit_s. os._exit, not
-    sys.exit: the stuck call holds the main thread, so nothing else would run."""
+    sys.exit: the stuck call holds the main thread, so nothing else would run.
+
+    It says so too (standing.py): once when the loop has made no progress for
+    `alerts.stuck_s` (read at each check; 0: off), once if it ticks again
+    before the exit, and before the exit it writes data/stalled.json for the
+    next start to say. The alerts go on a thread of their own and nothing
+    here touches the browser, so a hanging webhook cannot hold up the exit."""
+
+    def __init__(self, last_tick: list, limit_s: float = WATCHDOG_S, exit=os._exit,
+                 alerts=None, data_dir=None, clock=time.monotonic):
+        self.last_tick, self.limit_s, self.exit = last_tick, limit_s, exit
+        self.alerts, self.data_dir, self.clock = alerts, data_dir, clock
+        self.stalled_at: float | None = None    # the tick a stall alert was sent for
+
+    def check(self):
+        tick = self.last_tick[0]
+        stuck = self.clock() - tick
+        if stuck > self.limit_s:
+            try:
+                print(f"watchdog: no tick for {int(stuck)} s - exiting so the "
+                      "service restarts", flush=True)
+                standing.write_stalled(self.data_dir, stuck)
+            finally:
+                self.exit(1)
+            return
+        if self.stalled_at is not None and tick != self.stalled_at:
+            self._say(f"running again after a {standing.span(tick - self.stalled_at)} stall")
+            self.stalled_at = None
+        limit = behaviour.get("alerts.stuck_s")
+        if limit and stuck >= limit and self.stalled_at is None:
+            self.stalled_at = tick
+            self._say(f"stalled: no progress for {standing.span(stuck)} - the watchdog "
+                      f"restarts it at {standing.span(self.limit_s)}")
+
+    def _say(self, message):
+        if self.alerts is None:
+            print(f"watchdog: {message}", flush=True)
+        else:
+            standing.send_aside(self.alerts, message)
+
+
+def watchdog(last_tick: list, limit_s: float = WATCHDOG_S, every_s: float = 30,
+             exit=os._exit, alerts=None, data_dir=None) -> Watchdog:
+    """A Watchdog checked every every_s on a daemon thread of its own."""
+    dog = Watchdog(last_tick, limit_s, exit, alerts, data_dir)
+
     def loop():
         while True:
             time.sleep(every_s)
-            stuck = time.monotonic() - last_tick[0]
-            if stuck > limit_s:
-                print(f"watchdog: no tick for {int(stuck)} s - exiting so the "
-                      "container restarts", flush=True)
-                exit(1)
+            try:
+                dog.check()
+            except Exception as exc:                # the next check still runs
+                print(f"watchdog: {exc.__class__.__name__}: {exc}", flush=True)
     threading.Thread(target=loop, name="watchdog", daemon=True).start()
+    return dog
 
 
 def _guard(s):
@@ -105,6 +150,7 @@ def run(s):
     run_dir = s.data_dir / "samples" / datetime.now().strftime("%Y%m%d-%H%M%S")
     _prune(s.data_dir / "samples", keep=5)
     guard, alerts = _guard(s), Alerts(s.data_dir / "alerts.log", s.alert_webhook)
+    standing.restarted(s.data_dir, alerts)      # the watchdog ended the last run: said once
     with sync_playwright() as p:
         ctx = browser.launch(p, s)
         # A tab that is never closed: the loop waits on it, which is what lets
@@ -114,7 +160,7 @@ def run(s):
         print(f"running {len(s.targets)} target(s) from {s.targets_file}: "
               + ", ".join(f"{t.name} ({t.site})" for t in s.targets), flush=True)
         last_tick = [time.monotonic()]
-        watchdog(last_tick)
+        watchdog(last_tick, alerts=alerts, data_dir=s.data_dir)
         restart_at = time.monotonic() + random.uniform(*behaviour.get("restart.hours")) * 3600
         while not stop:
             last_tick[0] = time.monotonic()
