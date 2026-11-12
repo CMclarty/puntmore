@@ -25,6 +25,13 @@
 #              listings: further listing pages (other competitions) for the
 #              same job, at most 8, each kept open and relisted on its own;
 #              their match links are interleaved with url's under max_tabs
+#   within_h   only games kicking off within this many hours are read (0-720,
+#              0: no limit). Leave out for the main setting, games.within_h
+#              (48; behaviour.py). A listing job reads each match's kick-off
+#              off its listings and opens only those inside the window; with
+#              none inside it rests until the window reaches the next game, or
+#              games.look_again_s (a day), whichever is sooner. bb-saves
+#              follows games.within_h only
 #
 # Finder's sources use site = "generic" (any host except the two bookmakers):
 #   mode       "fetch" (the default for generic): load, parse, close

@@ -60,9 +60,11 @@ def _loads(r):
 
 
 def _league(name):
+    # within_h=0: no window, so the stand-in listing's links open as they
+    # always did (the window is test_within_hours.py's)
     return config.Target(name=name, site="paddypower", stale_min=10_000,
                          url=f"https://www.paddypower.com/football/{name}",
-                         matches=config.Matches(max_tabs=3, open_gap_min=4))
+                         matches=config.Matches(max_tabs=3, open_gap_min=4), within_h=0)
 
 
 def test_startup_is_staggered_and_loads_are_spaced(tmp_path):

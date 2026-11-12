@@ -8,6 +8,8 @@ import json
 import re
 import threading
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -19,20 +21,74 @@ from scraper.guard import Guard  # noqa: E402
 from scraper.runner import Runner  # noqa: E402
 from scraper.sites import SITES  # noqa: E402
 
-LISTING = """<html><title>Football</title><body>
-<a href="/football/arsenal-v-chelsea">Arsenal v Chelsea</a>
-<a href="/football/spurs-v-everton">Spurs v Everton</a>
-<a href="/football/leeds-v-wolves">Leeds v Wolves</a>
-<a href="/football/fulham-v-brentford">Fulham v Brentford</a>
-<a href="/football/arsenal-v-chelsea#stats">dup</a>
-<a href="/promo">promo</a></body></html>"""
+LONDON = ZoneInfo("Europe/London")
+
+
+def listing(title, rows, extra=""):
+    """A competition listing in the shape of Paddy's (tests/fixtures/pp_listing/epl.html,
+    cut from the real page): one card item per day under its "<Weekday> <day>" sub-header
+    (London), each fixture a scoreboard link holding its team names, and a footer whose
+    label is its kick-off time. rows: (path, home, away, hours from now); a row whose
+    hours is a str is put under that header instead (one the reader does not know)."""
+    days: dict = {}
+    for path, home, away, h in rows:
+        if isinstance(h, str):
+            day, at = h, "15:00"
+        else:
+            k = datetime.fromtimestamp(time.time() + h * 3600, LONDON)
+            day, at = f"{k:%A} {k.day}", f"{k:%H:%M}"
+        days.setdefault(day, []).append((path, home, away, at))
+    items = "".join(
+        '<div class="avb-coupon-card-items-item"><ng-switch><div ng-switch-when="SINGLE_CONTENT">'
+        '<abc-sub-header><div class="subheader grid subheader--with-signifier subheader--secondary">'
+        f'<div class="subheader__text--title grid__cell-flex grid__cell-flex--gutter"><span>{day}</span></div>'
+        '</div></abc-sub-header>'
+        + "".join(
+            '<avb-item class="avb-coupon__item"><div class="avb-item grid"><div class="avb-item__event-row">'
+            f'<a class="avb-item__scoreboard grid__cell-flex" href="{path}"><ui-scoreboard-coupon>'
+            f'<ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__home"><span> {home} </span></ui-scoreboard-runner>'
+            f'<ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__away"><span> {away} </span></ui-scoreboard-runner>'
+            '</ui-scoreboard-coupon></a></div>'
+            f'<abc-line-footer><div class="line-footer"><a class="line-footer__container" href="{path}">'
+            f'<div class="line-footer__container-left"><span class="line-footer__left-label">{at}</span></div>'
+            '</a></div></abc-line-footer></div></avb-item>'
+            for path, home, away, at in fixtures)
+        + '</div></ng-switch></div>'
+        for day, fixtures in days.items())
+    return (f"<html><title>{title}</title><body><avb-coupon-card-items>{items}</avb-coupon-card-items>"
+            f"{extra}</body></html>")
+
+
+# Every game within the 48-hour window (games.within_h), in this order.
+def LISTING():
+    return listing("Football", [("/football/arsenal-v-chelsea", "Arsenal", "Chelsea", 20),
+                                ("/football/spurs-v-everton", "Spurs", "Everton", 21),
+                                ("/football/leeds-v-wolves", "Leeds", "Wolves", 22),
+                                ("/football/fulham-v-brentford", "Fulham", "Brentford", 23)],
+                   '<a href="/football/arsenal-v-chelsea#stats">dup</a><a href="/promo">promo</a>')
+
 
 # A second competition's listing, for a job with `listings` (one link repeats
 # the first listing's, so it is opened once).
-LISTING2 = """<html><title>Serie A</title><body>
-<a href="/football/milan-v-roma">Milan v Roma</a>
-<a href="/football/arsenal-v-chelsea">Arsenal v Chelsea</a>
-<a href="/football/inter-v-juventus">Inter v Juventus</a></body></html>"""
+def LISTING2():
+    return listing("Serie A", [("/football/milan-v-roma", "Milan", "Roma", 20),
+                               ("/football/arsenal-v-chelsea", "Arsenal", "Chelsea", 20),
+                               ("/football/inter-v-juventus", "Inter", "Juventus", 21)])
+
+
+# Games in and out of the window: one 10 h off, one 60 h off, one under a header
+# the reader does not know.
+def LATER():
+    return listing("Later", [("/football/near-v-game", "Near", "Game", 10),
+                             ("/football/far-v-game", "Far", "Game", 60),
+                             ("/football/odd-v-game", "Odd", "Game", "Tomorrow")])
+
+
+# Nothing within 48 hours.
+def QUIET():
+    return listing("Quiet", [("/football/next-v-week", "Next", "Week", 70),
+                             ("/football/later-v-still", "Later", "Still", 90)])
+
 
 # Two kinds of tab control, as sites draw them: an ARIA tab, and a plain div in
 # a tab bar. A click fetches that tab's markets, as Paddy's event page does.
@@ -116,9 +172,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if Handler.blocked_path and path.startswith(Handler.blocked_path):
             return self._send(429, "<title>Too many</title>")
         if path == "/football":
-            return self._send(200, LISTING)
+            return self._send(200, LISTING())
         if path == "/serie-a":
-            return self._send(200, LISTING2)
+            return self._send(200, LISTING2())
+        if path == "/later":
+            return self._send(200, LATER())
+        if path == "/quiet":
+            return self._send(200, QUIET())
         if path.startswith("/football/"):
             return self._send(200, MATCH)
         if path.startswith("/smspp/event-page/"):
@@ -258,6 +318,47 @@ def test_a_job_with_two_listings_interleaves_their_matches(tmp_path, site):
         r.apply_targets([pp])                               # listings changed: the job reopens
         assert not r.tabs
         r.close_all()
+        ctx.close()
+
+
+def test_only_games_within_the_window_are_opened_off_a_real_shaped_listing(tmp_path, site):
+    """The kick-offs are read off the listing's day headers and times (pp_listing,
+    in the real browser): the game 10 h off opens, the one 60 h off and the one
+    under a header the reader does not know do not."""
+    from playwright.sync_api import sync_playwright
+    t = config.Target(name="pp", site="paddypower", url=site + "/later", stale_min=120,
+                      matches=config.Matches(max_tabs=3))
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [t], p)
+        t0 = time.time()
+        for off in (0, 1, 400, 800, 1200):
+            r.tick(t0 + off)
+        assert sorted(k for k in r.tabs if ":m:" in k) == [f"pp:m:{site}/football/near-v-game"]
+        assert "pp" not in r.resting and r.guard.spent("paddypower", t0 + 1200)[0] == 2
+        r.close_all()
+        ctx.close()
+
+
+def test_a_listing_with_nothing_near_rests_the_job(tmp_path, site):
+    from playwright.sync_api import sync_playwright
+    from scraper import rest
+    t = config.Target(name="pp", site="paddypower", url=site + "/quiet", stale_min=120,
+                      matches=config.Matches(max_tabs=3))
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [t], p)
+        t0 = time.time()
+        r.tick(t0)
+        r.tick(t0 + 1)
+        assert not r.tabs and "pp" in r.resting                  # every page closed
+        until = r.resting["pp"]["until"]
+        assert t0 + 22 * 3600 - 120 <= until <= t0 + 22 * 3600 + 120    # 48 h before the 70 h game
+        assert r.resting["pp"]["why"].startswith("no games within 48 hours - next is Next v Week, ")
+        assert rest.load(tmp_path)["pp"]["until"] == until
+        st = r.status(t0 + 2)["targets"][0]
+        assert st["state"] == "paused" and "resting until" in st["detail"]
+        for off in (400, 800):
+            r.tick(t0 + off)
+        assert r.guard.spent("paddypower", t0 + 800)[0] == 1     # the one listing load
         ctx.close()
 
 

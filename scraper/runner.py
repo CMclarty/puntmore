@@ -16,14 +16,17 @@ Target kinds:
   matches  a listing page (kept open) whose match links are opened, a few at
            a time, in their own kept-open tabs (e.g. a Paddy competition);
            `listings` adds other competitions' listing pages to the same job,
-           each in its own kept-open tab, their links interleaved
+           each in its own kept-open tab, their links interleaved; only
+           matches kicking off within the job's window are opened
+           (schedule.within_h; kick-offs read off the listing, pp_listing),
+           and with none that near the job rests (_window_links)
 
 Targets are targets.toml on the Hub, changed only through scraper/targets.py
 (an atomic rename, so a half-written file is never read). The file is checked every
 TARGETS_CHECK_S: after an edit a removed or changed target's tabs close, a new
 one opens on the next tick - no restart. A change to its timing, priority,
-window, days, until, min_rows or trust_weight only is applied to the open
-tabs in place (RESCHEDULE_FIELDS). A file that will not parse is reported and
+window, days, until, min_rows, trust_weight or within_h only is applied to
+the open tabs in place (RESCHEDULE_FIELDS). A file that will not parse is reported and
 the running targets are kept. The runner writes its state to
 data/status.json every STATUS_EVERY_S, which the Hub reads.
 
@@ -67,7 +70,7 @@ from . import rest
 from . import schedule
 from .capture import Capture, DiskBudget
 from .config import host_allowed
-from .parsers import PARSERS
+from .parsers import PARSERS, pp_listing
 from .sinks import Sinks, _safe, deliver_to_hub, emit_event  # noqa: F401  (re-exported)
 from .sites import SITES
 from .status import (HEALTH_PING_S, STATUS_EVERY_S, Reporter, market_tabs_said,  # noqa: F401
@@ -80,6 +83,9 @@ PARSE_EVERY_S = 60
 RESCHEDULE_FIELDS = ("every_min", "stale_min", "priority", "window", "min_rows", "trust_weight",
                      "near_min", "near_hours", "days", "until", "within_h")
 TARGETS_CHECK_S = 60             # a stat of targets.toml; read only when it changed
+# A matches job with a window whose listings show match links but no kick-off
+# it can read (Paddy's layout moved?): said once in its log, its status detail.
+UNREAD_KICKOFFS = "kick-off times could not be read from the listing - nothing opened"
 BEHAVIOUR_LOG = "behaviour"      # data/logs/behaviour.log (joblog's file for that name)
 # A job that delivers every parse logs the same delivery line again only
 # after this long (a change in what was handed or left out is logged at once).
@@ -98,6 +104,7 @@ class Tab:
         self.market_tabs: dict[str, str] = {}   # market tab name -> what the click did
         self.next_clicks: float | None = None   # next market-tab round; None = never clicked
         self.tabs_said = ""
+        self.kickoff: float | None = None       # a match tab's kick-off, as its listing last gave it
 
     def fresh_page(self, page, now):
         self.page = page
@@ -187,6 +194,9 @@ class Runner:
         if self.resting != on_disk:
             rest.save(settings.data_dir, self.resting)
         self.rest_said: set[str] = set()               # rests said (or printed) by this process
+        # A matches job's listing read (_window_links): what it last said about
+        # its kick-offs, shown as its status detail (UNREAD_KICKOFFS).
+        self.listing_said: dict[str, str] = {}
 
     # --- site-wide state ----------------------------------------------------
     def _paused(self, site, now) -> str | None:
@@ -534,6 +544,19 @@ class Runner:
         self.wanting_since.pop(t.name, None)
         return True
 
+    def _start_rest(self, t, until, why, now):
+        """A job rests until `until` (clamped to MIN_REST_S..MAX_REST_S from
+        now): kept in data/resting.json, its tabs closed, said once."""
+        until = min(max(until, now + rest.MIN_REST_S), now + rest.MAX_REST_S)
+        self.resting[t.name] = {"until": until, "why": why}
+        rest.save(self.s.data_dir, self.resting)
+        for key in [k for k, x in self.tabs.items() if x.target.name == t.name]:
+            self._close(key)
+        self.parser_said.pop(t.name, None)
+        self.listing_said.pop(t.name, None)
+        self.rest_said.add(t.name)
+        self._say(t.name, _rest_detail(self.resting[t.name]))
+
     def _end_rest(self, name) -> bool:
         """Forget a job's rest (saved). True when it had one."""
         self.rest_said.discard(name)
@@ -704,6 +727,9 @@ class Runner:
                           if old[n] != new[n] and reschedule_only(old[n], new[n]))
         for name in in_place:
             self._reschedule(new[name])
+            # a new window: a job resting for want of a game that near looks again
+            if old[name].within_h != new[name].within_h and self._end_rest(name):
+                self._say(name, "within_h changed - rest ended, running")
         for name, t in old.items():
             if new.get(name) != t and name not in in_place:
                 for key in [k for k, tab in self.tabs.items() if tab.target.name == name]:
@@ -712,6 +738,7 @@ class Runner:
                 self.next_open.pop(name, None)
                 self.parser_said.pop(name, None)
                 self.delivery_said.pop(name, None)
+                self.listing_said.pop(name, None)
                 self._end_rest(name)
             if name not in new:
                 self.retired_targets[name] = t
@@ -816,7 +843,15 @@ class Runner:
         """Every listing (url, then `listings`) has its own kept-open tab,
         loaded when missing and relisted on its own clock; one load per tick
         at most. Match links come from every listing, interleaved, so each
-        competition gets a tab before any gets two; max_tabs is the job's."""
+        competition gets a tab before any gets two; max_tabs is the job's.
+
+        With a window (schedule.within_h, not 0) the listings' kick-offs are
+        read off their pages (pp_listing, no request) and a match is opened
+        only when its kick-off is known and inside the window; an open match
+        tab whose game has kicked off or left the window is retired. Links
+        but no kick-off read: said once (UNREAD_KICKOFFS), nothing opened.
+        Every listing open and no link inside the window: the job rests
+        (_window_links). A window of 0 reads no kick-off at all."""
         m = t.matches
         listings = listing_keys(t)
         for list_key, list_url in listings:
@@ -825,12 +860,19 @@ class Runner:
                 self._load(t, list_key, list_url, now)
                 return
 
+        within_h = schedule.within_h(t)
+        seen = self._listed(listings, now) if within_h else None
+
         retired = self.retired.setdefault(t.name, collections.deque(maxlen=500))
         mine = {k: tab for k, tab in self.tabs.items() if k.startswith(t.name + ":m:")}
         for key, tab in mine.items():
+            f = seen.get(tab.url) if seen else None
+            if f is not None and f.kickoff is not None:
+                tab.kickoff = f.kickoff
             quiet = tab.capture.quiet_for(now) >= t.stale_min * 60
-            if now - tab.opened >= m.tab_max_hours * 3600 or (quiet and tab.reloaded_stale
-                                                              and now - tab.last_load >= t.stale_min * 60):
+            gone = bool(within_h) and tab.kickoff is not None and not _inside(tab.kickoff, now, within_h)
+            if gone or now - tab.opened >= m.tab_max_hours * 3600 or (quiet and tab.reloaded_stale
+                                                                      and now - tab.last_load >= t.stale_min * 60):
                 self._say(t.name, f"{key}: retired")
                 retired.append(tab.url)
                 self._close(key)
@@ -843,21 +885,73 @@ class Runner:
             elif tab.next_clicks is not None and now >= tab.next_clicks:
                 self._open_market_tabs(t, tab, now)
 
+        links = None
+        if seen is not None:
+            links = self._window_links(t, listings, seen, within_h, now)
+            if links is None:                   # resting now, or no kick-off read
+                return
         open_urls = {tab.url for k, tab in self.tabs.items() if k.startswith(t.name + ":m:")}
         if len(open_urls) >= m.max_tabs:
             return
         if now < self.next_open.get(t.name, 0.0) or not self._may_load(t.site, now):
             return
-        links = interleave([match_links(self.tabs[k].page, m.link_re, u)
-                            for k, u in listings if k in self.tabs])
+        if links is None:
+            links = interleave([match_links(self.tabs[k].page, m.link_re, u)
+                                for k, u in listings if k in self.tabs])
         for url in links:
             if url in open_urls or url in retired:
                 continue
             self.next_open[t.name] = schedule.next_open_at(now, m.open_gap_min)
             tab = self._load(t, f"{t.name}:m:{url}", url, now)
             if tab:
+                if seen is not None and url in seen:
+                    tab.kickoff = seen[url].kickoff
                 self._open_market_tabs(t, tab, now)
             break
+
+    def _listed(self, listings, now) -> dict:
+        """The fixtures the job's open listings show, url -> pp_listing.Fixture
+        (the first listing to show a url wins). Reads the DOM: no request."""
+        seen = {}
+        for key, _url in listings:
+            if key in self.tabs:
+                for u, f in pp_listing.fixtures(self.tabs[key].page, now).items():
+                    seen.setdefault(u, f)
+        return seen
+
+    def _window_links(self, t, listings, seen, within_h, now) -> list[str] | None:
+        """The match links (every listing's, interleaved) kicking off inside
+        the window, in that order. None when there is nothing to open: no
+        link at all (a listing not drawn yet looks the same as an empty one,
+        so no rest: it is relisted as before), links whose kick-off none could
+        be read (said once, UNREAD_KICKOFFS, the job not rested: a layout
+        change must show), or none inside the window - then the job rests
+        until within_h hours before the next game the listings show, or
+        games.look_again_s, whichever is sooner."""
+        links = interleave([match_links(self.tabs[k].page, t.matches.link_re, u)
+                            for k, u in listings if k in self.tabs])
+        if not links:
+            return None
+        known = {u: seen[u] for u in links if u in seen and seen[u].kickoff is not None}
+        if not known:
+            if self.listing_said.get(t.name) != UNREAD_KICKOFFS:
+                self._say(t.name, UNREAD_KICKOFFS)
+            self.listing_said[t.name] = UNREAD_KICKOFFS
+            return None
+        self.listing_said.pop(t.name, None)
+        inside = [u for u in links if u in known and _inside(known[u].kickoff, now, within_h)]
+        if inside:
+            return inside
+        look_again = now + behaviour.get("games.look_again_s")
+        later = [f for f in known.values() if f.kickoff > now + within_h * 3600]
+        if not later:
+            self._start_rest(t, look_again, f"no games within {within_h:g} hours on the listing", now)
+        else:
+            nxt = min(later, key=lambda f: f.kickoff)
+            self._start_rest(t, min(nxt.kickoff - within_h * 3600, look_again),
+                             f"no games within {within_h:g} hours - next is {nxt.name}, "
+                             f"{rest.when(nxt.kickoff)}", now)
+        return None
 
     def _open_market_tabs(self, t, tab, now):
         """Click the in-page market tabs, so the page fetches the markets we
@@ -946,14 +1040,7 @@ class Runner:
         except rest.Rest as exc:
             # Nothing for this job to do until exc.until: its page closes and
             # the tick skips it until then (_resting).
-            until = min(max(exc.until, now + rest.MIN_REST_S), now + rest.MAX_REST_S)
-            self.resting[t.name] = {"until": until, "why": exc.why}
-            rest.save(self.s.data_dir, self.resting)
-            for key in [k for k, x in self.tabs.items() if x.target.name == t.name]:
-                self._close(key)
-            self.parser_said.pop(t.name, None)
-            self.rest_said.add(t.name)
-            self._say(t.name, _rest_detail(self.resting[t.name]))
+            self._start_rest(t, exc.until, exc.why, now)
             return
         except Exception as exc:
             # Shown as the target's detail in status.json until a call succeeds -
@@ -1012,6 +1099,7 @@ class Runner:
                 state = "running"
                 detail = "; ".join(x for x in (f"{n} tab{'s' if n != 1 else ''} open",
                                                market_tabs_said(mine),
+                                               self.listing_said.get(t.name),
                                                self.parser_said.get(t.name)) if x)
             targets.append(target_entry(t, state, detail, self.last_load_at.get(t.name),
                                         self.last_parse_at.get(t.name), self.rows_posted.get(t.name, 0),
@@ -1084,6 +1172,11 @@ class Runner:
     def close_all(self):
         for key in list(self.tabs):
             self._close(key)
+
+
+def _inside(kickoff: float, now: float, within_h: float) -> bool:
+    """A kick-off inside the window: after now, at most within_h hours ahead."""
+    return now < kickoff <= now + within_h * 3600
 
 
 def _rest_detail(r: dict) -> str:
