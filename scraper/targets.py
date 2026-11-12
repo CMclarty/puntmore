@@ -272,14 +272,25 @@ def add(path, mapping: dict, timeout=None) -> Target:
 def set(path, name, /, timeout=None, **changes) -> Target:   # noqa: A001 - the API's name
     """Change fields of one target. The whole target is validated after the
     change, so nothing is written if any of it is refused. A value of None
-    clears an optional field (back to its default). The name cannot change:
-    remove and add instead."""
+    clears an optional field (back to its default). `listings` changes a
+    matches job's further listing pages and keeps the rest of its matches
+    table. The name cannot change: remove and add instead."""
     if "name" in changes and changes["name"] != name:
         raise TargetsError("a target cannot be renamed: remove it and add it again")
     with locked(path, timeout):
         targets = load(path)
         i = _find(targets, name)
         mapping = to_mapping(targets[i])
+        if "listings" in changes:
+            # A matches job's further listing pages, changed on their own: the
+            # rest of its [target.matches] table is kept (`matches=` replaces it).
+            changes = dict(changes)
+            listings = changes.pop("listings")
+            if mapping.get("matches") is None or "matches" in changes:
+                raise TargetsError(f"target {name}: listings is a [target.matches] field: this job "
+                                   "has no match listing" if mapping.get("matches") is None else
+                                   f"target {name}: listings and matches cannot both be set")
+            mapping["matches"] = {**mapping["matches"], "listings": list(listings or [])}
         mapping.update(changes)
         if "mode" not in changes and "site" in changes:
             mapping["mode"] = None              # let the new site choose its default mode

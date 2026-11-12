@@ -225,6 +225,11 @@ def _matches_json(v):
     return m
 
 
+def _listings(v):
+    """--listings url,url: a matches job's further listing pages; "none" clears them."""
+    return [] if v.strip().lower() in ("", "none") else [u.strip() for u in v.split(",") if u.strip()]
+
+
 # (option, field, type) for `targets add` and `targets set`
 _TARGET_OPTS = (
     ("--site", "site", str), ("--url", "url", str),
@@ -235,6 +240,7 @@ _TARGET_OPTS = (
     ("--priority", "priority", int), ("--window", "window", _none_or(str)),
     ("--days", "days", _days), ("--until", "until", _none_or(str)),
     ("--matches", "matches", _matches_json),
+    ("--listings", "listings", _listings),
 )
 
 
