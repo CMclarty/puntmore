@@ -290,7 +290,7 @@ const RENDER = {
 };
 
 // ---- the Scraper's jobs (targets.toml through scraper/targets.py) ----------------------------------
-const EDIT_FIELDS = ["every_min", "stale_min", "near_min", "near_hours", "priority", "window", "days", "until", "min_rows", "trust_weight", "wait_for", "url"];
+const EDIT_FIELDS = ["every_min", "stale_min", "near_min", "near_hours", "priority", "window", "days", "until", "min_rows", "trust_weight", "wait_for", "url", "listings"];
 const NUMERIC = new Set(["every_min", "stale_min", "near_min", "near_hours", "priority", "min_rows", "trust_weight"]);
 const LOG_ALL = 200;         // lines "all lines" asks for
 let editing = null;          // {name, original: {field: value}}
@@ -442,6 +442,10 @@ function fieldValue(input) {
     return on.length ? on : null;
   }
   if (input.type === "checkbox") return input.checked;
+  if (input.name === "listings") {             // one address per line; none is "not set"
+    const urls = input.value.split("\n").map((u) => u.trim()).filter((u) => u);
+    return urls.length ? urls : null;
+  }
   const raw = input.value.trim();
   if (raw === "") return null;
   return NUMERIC.has(input.name) ? Number(raw) : raw;
@@ -457,6 +461,12 @@ function openEdit(r) {
     if (f === "days") {
       v = Array.isArray(v) && v.length ? v : null;          // [] is every day: nothing ticked
       for (const box of form.elements.days) box.checked = !!v && v.includes(box.value);
+    } else if (f === "listings") {
+      // Only a job that lists matches has leagues; the box is hidden for the rest.
+      const has = !!r.matches;
+      document.getElementById("target-edit-leagues").hidden = !has;
+      v = has && Array.isArray(r.matches.listings) && r.matches.listings.length ? r.matches.listings : null;
+      form.elements.listings.value = v ? v.join("\n") : "";
     } else {
       form.elements[f].value = v === null || v === undefined ? "" : String(v);
     }

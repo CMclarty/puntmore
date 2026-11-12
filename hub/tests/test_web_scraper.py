@@ -548,3 +548,25 @@ def test_the_fetch_interval_wording_follows_a_changed_default(bcfg):
     assert words().startswith("every 90 min")
     (bcfg.scraper_data_dir / "behaviour.toml").unlink()
     assert words().startswith("every 60 min")
+
+
+def test_leagues_through_the_console(scfg):
+    # A listing job's further league pages are edited on the Console (Callum, 12 Nov 2026).
+    c = client(scfg)
+    r = c.post("/api/actions/scraper/targets/add", headers=H, json={
+        "name": "pp-most", "site": "paddypower", "url": "https://www.paddypower.com/football/english-premier-league",
+        "matches": {"max_tabs": 2, "market_tabs": ["Corners"]}})
+    assert r.status_code == 200, r.text
+    leagues = ["https://www.paddypower.com/football/spanish-la-liga", "https://www.paddypower.com/football/italian-serie-a"]
+    r = c.post("/api/actions/scraper/targets/pp-most/set", headers=H, json={"listings": leagues})
+    assert r.status_code == 200, r.text
+    m = r.json()["target"]["matches"]
+    assert m["listings"] == leagues and m["max_tabs"] == 2 and m["market_tabs"] == ["Corners"]
+    r = c.post("/api/actions/scraper/targets/pp-most/set", headers=H, json={"listings": ["https://example.com/x"]})
+    assert r.status_code == 400 and r.json()["field"] == "listings"
+    r = c.post("/api/actions/scraper/targets/bb-saves/set", headers=H, json={"listings": leagues})
+    assert r.status_code == 400 and r.json()["field"] == "listings"
+    r = c.post("/api/actions/scraper/targets/pp-most/set", headers=H, json={"listings": None})
+    assert r.status_code == 200 and r.json()["target"]["matches"]["listings"] == []
+    page = c.get("/").text
+    assert page.count('name="listings"') == 1          # the edit form only

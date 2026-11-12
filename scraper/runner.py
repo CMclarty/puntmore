@@ -252,7 +252,7 @@ class Runner:
             for old in sorted(out.glob("*.png"))[:-49]:
                 old.unlink(missing_ok=True)
             path = out / f"{datetime.now():%Y%m%d-%H%M%S}-{site}.png"
-            tab.page.screenshot(path=str(path))
+            browser.screenshot(tab.page, path)
             return path
         except Exception as exc:
             print(f"{site}: block screenshot failed: {exc}", flush=True)
@@ -923,7 +923,7 @@ class Runner:
             out.mkdir(parents=True, exist_ok=True)
             (out / "page.url").write_text(login.safe_url(tab.page.url))
             (out / "page.html").write_text(tab.page.content(), encoding="utf-8")
-            tab.page.screenshot(path=str(out / "page.png"))
+            browser.screenshot(tab.page, out / "page.png")
         except Exception as exc:
             self._say(t.name, f"snapshot failed: {exc}")
 
@@ -1053,7 +1053,7 @@ class Runner:
                 try:
                     (out / f"{i}.url").write_text(login.safe_url(tab.page.url))
                     (out / f"{i}.html").write_text(tab.page.content(), encoding="utf-8")
-                    tab.page.screenshot(path=str(out / f"{i}.png"), full_page=True)
+                    browser.screenshot(tab.page, out / f"{i}.png", full_page=True)
                 except Exception as exc:
                     self._say(name, f"dump: {key + ': ' if key != name else ''}{exc}")
             self._say(name, f"dump: saved {out}")

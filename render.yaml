@@ -1,5 +1,5 @@
 # Render blueprint. Connect the repo once in the dashboard (New > Blueprint) and
-# every push to main deploys.
+# every push to main that changes render/ or this file deploys (buildFilter below).
 #
 # ONE service, not a static site plus an API. The frontend calls relative
 # /api/... paths and the session cookie is same_site="lax", so both must come
@@ -27,6 +27,14 @@ services:
     # actually happened, so a broken deploy fails to promote.
     healthCheckPath: /api/ready
     autoDeploy: true
+    # Only Render's own code redeploys Render (Callum, 12 Nov 2026): a deploy
+    # restarts the service and empties the boards it holds in memory, and a
+    # scraper/ or hub/ merge has nothing for it. The image is built from
+    # render/ alone (render/api/Dockerfile).
+    buildFilter:
+      paths:
+        - render/**
+        - render.yaml
 
     disk:
       name: puntmore-data

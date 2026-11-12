@@ -36,7 +36,7 @@ LOCK_WAIT_S = 3.0
 SITES = ("paddypower", "bookiebashing", "generic")
 # What the edit form may change (the rest - name, site, mode, parser, post - is remove + add).
 EDITABLE = ("every_min", "stale_min", "near_min", "near_hours", "priority", "window", "min_rows", "trust_weight",
-            "wait_for", "url", "days", "until")
+            "wait_for", "url", "days", "until", "listings")
 APPLY_NOTE = "the Scraper applies changes within 60 s"
 BUSY = "being changed by something else"
 # A tile shows a job's newest LOG_TAIL log lines; the log route gives at most LOG_MAX (joblog keeps 1000).
@@ -165,6 +165,8 @@ def _is_targets_error(exc: BaseException) -> bool:
 def field_of(message: str) -> str | None:
     """The form field a library refusal is about, so the page can put the message beside it."""
     rest = re.sub(r"^target .*?: ", "", message, count=1)
+    if rest.startswith("listing"):            # "listings ..." and "listing <url> is not on an allowed host"
+        return "listings"
     if "allowed host" in rest:
         return "url"
     if rest.startswith("unknown site"):

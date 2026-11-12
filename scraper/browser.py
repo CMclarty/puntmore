@@ -303,6 +303,32 @@ def click(page, loc):
     page.mouse.click(x, y, delay=_n("click.press_ms"))
 
 
+def screenshot(page, path, full_page=False) -> None:
+    """Save a PNG of the page by asking Chrome for it directly (the devtools
+    Page.captureScreenshot), not through Playwright's page.screenshot: that one
+    first raises the tab, and on the Scraper's own screen it then waited 30 s
+    on any tab that was not already in front and gave up (12 Nov 2026), with
+    the whole loop waiting on it. This takes the picture where the tab is.
+    `full_page` takes the whole document, not just what the window shows.
+    Raises if Chrome will not give one."""
+    import base64
+    cdp = page.context.new_cdp_session(page)
+    try:
+        params = {"format": "png"}
+        if full_page:
+            size = cdp.send("Page.getLayoutMetrics")["cssContentSize"]
+            params.update(captureBeyondViewport=True,
+                          clip={"x": 0, "y": 0, "width": size["width"], "height": size["height"], "scale": 1})
+        data = cdp.send("Page.captureScreenshot", params)["data"]
+    finally:
+        try:
+            cdp.detach()
+        except Exception:
+            pass
+    with open(path, "wb") as f:
+        f.write(base64.b64decode(data))
+
+
 def read_down(page):
     """Look down what a click has just shown, then back up to the top, so
     markets drawn only when they come into view are drawn."""

@@ -159,7 +159,9 @@ names and no other; older names appear only in `docs/retired.md`.
   betting-supervisor, scraper-manager, betting-client-manager and
   software-supervisor, all on one model, Qwen3.5-122B under llama-server
   (alias `qwen`); no second, cheaper model. (4–5 Nov 2026, Callum)
-- **Render is one Docker web service**; every push to `main` deploys it. It
+- **Render is one Docker web service**; a push to `main` that changes `render/` or
+  `render.yaml` deploys it, and no other push does (12 Nov 2026, Callum: a deploy empties the
+  boards held in memory, so a Scraper or Hub merge must not cause one; before that, every push). It
   serves the main domain and `me` from that one deploy, and is **not expected to scale beyond this**; do not design
   for scale. (5 Nov 2026, Callum; hosts 6 Nov 2026)
 - **One repository for both boxes** (`CMclarty/puntmore`); the directory says

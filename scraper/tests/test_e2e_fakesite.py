@@ -503,3 +503,39 @@ def test_selfcheck_reports_what_a_site_sees(tmp_path):
         assert seen["automation_controlled_disabled"] is True
     lines = browser.selfcheck_lines(seen, "test")
     assert any(line.split()[:2] == ["navigator.webdriver", "false"] for line in lines)
+
+
+def test_screenshot_of_a_tab_that_is_not_in_front(tmp_path):
+    """browser.screenshot asks Chrome for the picture directly, so a tab behind
+    another is photographed without being raised (on the Scraper's own screen
+    Playwright's page.screenshot waited 30 s on such a tab and gave up,
+    12 Nov 2026)."""
+    from playwright.sync_api import sync_playwright
+    from scraper import browser
+    s = config.Settings(data_dir=tmp_path, profile_dir=tmp_path / "profile", channel=None,
+                        alert_webhook=None, healthcheck_url=None, capture_mb=20, targets=[])
+    with sync_playwright() as p:
+        ctx = browser.launch(p, s, headless=True)
+        try:
+            behind = ctx.new_page()
+            behind.goto("data:text/html,<body style='margin:0'><div style='height:3000px;background:teal'>x</div>")
+            front = ctx.new_page()
+            front.goto("data:text/html,<p>in front</p>")
+            browser.screenshot(behind, tmp_path / "view.png")
+            browser.screenshot(behind, tmp_path / "full.png", full_page=True)
+            sizes = {}
+            for name in ("view", "full"):
+                raw = (tmp_path / f"{name}.png").read_bytes()
+                assert raw[:8] == b"\x89PNG\r\n\x1a\n"
+                sizes[name] = int.from_bytes(raw[20:24], "big")        # the PNG's height
+            assert sizes["full"] >= 3000 > sizes["view"]
+            assert front.inner_text("p") == "in front"
+        finally:
+            ctx.close()
+
+
+def test_the_runner_takes_no_playwright_screenshot():
+    """Every picture goes through browser.screenshot (above)."""
+    import pathlib
+    src = (pathlib.Path(__file__).parents[1] / "runner.py").read_text()
+    assert ".page.screenshot(" not in src and src.count("browser.screenshot(") == 3

@@ -120,6 +120,8 @@ python -m scraper targets log racing-tips -n 50   # the job's own log, newest la
 - `--matches` replaces the whole `[target.matches]` table: a field it leaves
   out goes back to its default, so give every field the job uses (as the
   `listings` example above does).
+- `--listings url,url` changes only a matches job's further league pages and keeps the rest of
+  its matches table (`none` clears them). The Console's edit form has the same field, "more leagues".
 - Every change is validated as a whole by `config._target` (sites, hosts,
   clamps) before anything is written. A value the clamps would change is
   refused, not quietly raised: `--every-min 2` is an error, not 5. A refusal
