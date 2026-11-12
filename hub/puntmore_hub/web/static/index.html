@@ -32,7 +32,7 @@
     <div class="feedhead"><h2>Scraper</h2><span class="feedstate"></span></div>
     <div class="summary" data-slot="summary"></div>
     <h3>Jobs</h3>
-    <p class="hint">One tile per job in <code data-slot="targets-file">targets.toml</code>, joined to the Scraper's last report and the newest lines of its log. Every change goes through <code>scraper/targets.py</code> (the same rules as <code>python -m scraper targets …</code>); <strong>the Scraper applies changes within 60 s</strong>. Tap a job's name to see the rows in its <code>latest/&lt;target&gt;.json</code>.</p>
+    <p class="hint">One row per job in <code data-slot="targets-file">targets.toml</code>: what it is doing now, when it last read rows, how many it has sent. “details” opens its settings, log and actions; the name opens its latest rows. Every change goes through <code>scraper/targets.py</code> and <strong>the Scraper applies changes within 60 s</strong>.</p>
     <p id="targets-result" class="action-result" role="status" hidden></p>
     <div data-slot="config"></div>
     <div data-slot="orphans"></div>
@@ -75,7 +75,8 @@
       <button type="button" id="target-remove-cancel">Cancel</button>
     </form>
 
-    <form id="target-add-form" class="card form" autocomplete="off">
+    <p><button id="target-add-open" type="button" aria-expanded="false" aria-controls="target-add-form">Add target</button></p>
+    <form id="target-add-form" class="card form" autocomplete="off" hidden>
       <h3>Add target</h3>
       <p class="hint">The fields of <code>targets add</code>. A Finder source is <code>site = generic</code>, <code>post = hub:tips</code>. Add it disabled, check its first parse, then enable it. <code>[target.matches]</code> is set with <code>python -m scraper targets set … --matches</code>.</p>
       <label>name <input name="name" type="text" required autocapitalize="off" spellcheck="false"><span class="field-error" data-err="name"></span></label>
@@ -107,6 +108,7 @@
       <label class="check"><input name="enabled" type="checkbox"> enabled now</label>
       <p class="field-error" data-err="_"></p>
       <button type="submit">Add target</button>
+      <button type="button" id="target-add-cancel">Cancel</button>
     </form>
     <div id="latest" class="latest" hidden>
       <h3 id="latest-title"></h3>

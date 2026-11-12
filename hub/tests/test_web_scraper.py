@@ -283,6 +283,11 @@ def test_the_page_has_the_tab_and_no_inline_script(scfg):
     assert "/api/scraper/log/" in js and 'finished: "off"' in js
     assert '"all lines"' in js and '"fewer lines"' in js        # the full-log toggle
     assert ".job" in client(scfg).get("/static/style.css").text
+    # A job is one row: what it is doing shows at once, the rest opens ("details").
+    assert '"details"' in js and "openJobs" in js and ".job-more" in css
+    # The add form is closed until asked for (Callum, 12 Nov 2026).
+    assert '<form id="target-add-form" class="card form" autocomplete="off" hidden>' in page
+    assert 'id="target-add-open"' in page and 'id="target-add-cancel"' in page
 
 
 def test_days_and_until_through_the_console(scfg):

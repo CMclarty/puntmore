@@ -107,13 +107,16 @@ p.field-error { max-width: none; }
 code.cmd { white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
 .latest { margin-top: 10px; }
 
-/* The Scraper's jobs: one tile each. */
-.jobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 8px; align-items: start; }
-.job { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-width: 0;
-  display: flex; flex-direction: column; gap: 3px; font-size: 0.86rem; }
-.job header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+/* The Scraper's jobs: one row each; "details" opens the rest. */
+.jobs { display: flex; flex-direction: column; gap: 6px; }
+.job { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-width: 0; font-size: 0.86rem; }
+.job header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
 .job header button.link { font-weight: 600; overflow-wrap: anywhere; }
 .job p { margin: 0; overflow-wrap: anywhere; }
+.job .job-doing { flex: 1 1 22em; min-width: 0; font-size: 0.92rem; }
+.job .job-read { color: var(--muted); white-space: nowrap; }
+.job-more { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; padding-top: 6px;
+  border-top: 1px solid var(--line); color: var(--muted); }
 .job pre.log { max-height: 12rem; margin: 4px 0; font-size: 0.8rem; }
 .job.muted p, .job.muted pre { color: var(--muted); }
 .form .days { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0;
