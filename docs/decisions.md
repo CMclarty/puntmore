@@ -257,11 +257,12 @@ names and no other; older names appear only in `docs/retired.md`.
   the thresholds are behaviour settings, 0 turns one off. They go where a block's alert goes:
   `data/alerts.log`, the Console, and the webhook when one is set. (12 Nov 2026, Callum)
 - **Bookie Bashing is not a Finder source and the 2-Up rescue model is tuned
-  against BB's 2-up tracker by hand.** BB's terms ban automated access.
-  **The single named exception is `bb-saves`:** the Scraper's one BB target
-  (Paddy's saves fair odds, a kept-open page reloaded every 10 minutes after
-  the Scraper signs in) predates this rule; it stays, and it runs. (Callum,
-  11 Nov 2026: "reenable the bb scraper"; raised 5 Nov 2026) The Scraper signs
+  against BB's 2-up tracker by hand.** (5 Nov 2026) **The Scraper may run
+  Bookie Bashing jobs**: `bb-saves` (Paddy's saves fair odds) and others as
+  Callum asks for them, each a job on the Console inside Bookie Bashing's
+  load budget. The rule that `bb-saves` was the single named exception to
+  "Bookie Bashing is never automated" is removed. (12 Nov 2026, Callum:
+  "remove that rule"; before that, 11 Nov 2026: "reenable the bb scraper") The Scraper signs
   in to Bookie Bashing itself with Callum's own login, kept in the Scraper's
   `.env` (`BB_USERNAME`, `BB_PASSWORD`): one attempt per logout, a failed
   attempt waits for a person, a challenge is never answered. (Callum, 11 Nov

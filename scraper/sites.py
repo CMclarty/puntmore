@@ -21,8 +21,8 @@ bookiebashing  Your subscription. The Scraper signs in itself with the login in
                .env alerts once and backs off (backoff.min: 15 min doubling to
                2 h by default) until a person has sorted it (over VNC only in
                the Docker fallback).
-               Its one target (bb-saves) is the single named exception in
-               docs/decisions.md.
+               Its jobs are Callum's to add (docs/decisions.md; the rule that
+               bb-saves was the only one was removed on 12 Nov 2026).
 generic        Any other site: Finder's sources (tipster pages, listings) and any
                other page a tool needs.
                Never Paddy or Bookie Bashing. 60/h, 400/day across ALL generic

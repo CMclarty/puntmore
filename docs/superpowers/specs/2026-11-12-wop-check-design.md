@@ -33,9 +33,14 @@ Said as "check wops for weekend" (to Claude Code on the box, or to HubAI):
 - **Every page load is the Scraper's** (the register): the skill starts Scraper jobs and
   reads what they produce; it loads nothing itself. So the work is two Scraper readers and
   one Scraper action, and the skill is thin.
-- **Register**: Bookie Bashing's one automated use today is `bb-saves`. This is a second, and
-  the first that WRITES to his Bookie Bashing account (the tracker). It needs Callum's dated
-  line before the builder's Save is automated.
+- **Register**: the rule that `bb-saves` was the only automated use of Bookie Bashing was
+  removed by Callum on 12 Nov 2026 ("remove that rule"), so this needs no exception.
+- **A general bet-builder job** (Callum, 12 Nov 2026: "I will probably have more requests to
+  add things to bookie bashing, so lets make that simpler"): the Bookie Bashing side is not a
+  WOP-only driver but one job kind driven by presets - a job names the presets to load and the
+  leagues to cover and returns the fair for each game and team; a new request is a preset
+  saved in Bookie Bashing plus a job, not new code. The tracker save is a switch on the job,
+  off by default, Private when on.
 - **Pacing**: the Scraper's budgets and the 48-hour window apply as they stand. Paddy shows a
   WOP tab only near kick-off, so a Friday run will find Friday-night and Saturday games and
   may find Sunday's not yet up; the report says which games had no WOP tab.

@@ -154,8 +154,7 @@ prices are `scraper_prices` files that the Hub posts to Render.
   across sites (`behaviour.py`: `<site>.load_gap_s`, `load.any_gap_s`); jitter is drawn once per load. Parsers
   (`scraper/parsers/`, one module each) are written only from what the real
   pages were seen to do: `bb_saves` drives the Bookie Bashing bet builder
-  (above; this one BB target is the single named exception to "BB is never
-  automated", `docs/decisions.md`); `pp_most` reads Paddy's most-corners /
+  (above; a Bookie Bashing job like any Callum adds, `docs/decisions.md`); `pp_most` reads Paddy's most-corners /
   most-cards three-ways (written from the 29 Oct 2026 capture); `pp_listing`
   reads the kick-off times off a Paddy listing (written from the 12 Nov 2026
   dump). Every job that reads games reads only those kicking off within 48
