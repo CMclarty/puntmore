@@ -36,7 +36,7 @@ LOCK_WAIT_S = 3.0
 SITES = ("paddypower", "bookiebashing", "generic")
 # What the edit form may change (the rest - name, site, mode, parser, post - is remove + add).
 EDITABLE = ("every_min", "stale_min", "near_min", "near_hours", "priority", "window", "min_rows", "trust_weight",
-            "wait_for", "url", "days", "until", "listings")
+            "wait_for", "url", "days", "until", "listings", "within_h")
 APPLY_NOTE = "the Scraper applies changes within 60 s"
 BUSY = "being changed by something else"
 # A tile shows a job's newest LOG_TAIL log lines; the log route gives at most LOG_MAX (joblog keeps 1000).
