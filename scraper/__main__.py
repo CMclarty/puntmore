@@ -252,6 +252,7 @@ _TARGET_OPTS = (
     ("--days", "days", _days), ("--until", "until", _none_or(str)),
     ("--matches", "matches", _matches_json),
     ("--listings", "listings", _listings),
+    ("--within-h", "within_h", _none_or(float)),
 )
 
 
@@ -446,11 +447,19 @@ def behaviour_cmd(argv):
           "Each one's meaning: scraper/behaviour.py.")
 
 
+def _within_words(h) -> str:
+    """A job's own within_h for `targets list`; none (the main setting) says nothing."""
+    if h is None:
+        return ""
+    return "  games: no limit" if h == 0 else f"  games within {h:g} h"
+
+
 def _target_line(d):
     st = d["status"]
     state = "disabled" if not d["enabled"] else (st["state"] if st else "not reported")
     return (f"{d['name']:28} {d['site']:13} {state:12} {d['schedule']}"
             + (f"  priority {d['priority']}" if d["priority"] else "")
+            + (_within_words(d.get("within_h")))
             + (f"  ({st['detail']})" if st and st.get("detail") else ""))
 
 

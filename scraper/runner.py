@@ -78,7 +78,7 @@ PARSE_EVERY_S = 60
 # to any other (url, site, mode, parser, post, wait_for, matches) closes the
 # target's tabs and reopens them.
 RESCHEDULE_FIELDS = ("every_min", "stale_min", "priority", "window", "min_rows", "trust_weight",
-                     "near_min", "near_hours", "days", "until")
+                     "near_min", "near_hours", "days", "until", "within_h")
 TARGETS_CHECK_S = 60             # a stat of targets.toml; read only when it changed
 BEHAVIOUR_LOG = "behaviour"      # data/logs/behaviour.log (joblog's file for that name)
 # A job that delivers every parse logs the same delivery line again only

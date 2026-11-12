@@ -97,6 +97,10 @@ class Target:
     # A window past midnight belongs to the day it started.
     days: tuple[str, ...] = ()
     until: str | None = None
+    # Only games kicking off within this many hours are read (schedule.within_h):
+    # None = the main setting, behaviour.py's games.within_h; 0 = no limit.
+    # Acted on by a matches job (the runner reads kick-offs off its listing).
+    within_h: float | None = None
 
 
 @dataclass(frozen=True)
@@ -162,6 +166,20 @@ def _until(name: str, until) -> str | None:
     except ValueError:
         raise ValueError(f"target {name}: until must be a date \"YYYY-MM-DD\", not {until!r}") from None
     return until
+
+
+MAX_WITHIN_H = 720                      # a job's own within_h, as games.within_h's bounds
+
+
+def _within_h(name: str, h) -> float | None:
+    """A job's own window in hours, 0 (no limit) to MAX_WITHIN_H; none = the
+    main setting (games.within_h)."""
+    if h is None:
+        return None
+    if isinstance(h, bool) or not isinstance(h, (int, float)) or not 0 <= h <= MAX_WITHIN_H:
+        raise ValueError(f"target {name}: within_h must be a number of hours from 0 to "
+                         f"{MAX_WITHIN_H} (0: no limit), not {h!r}")
+    return float(h)
 
 
 MAX_LISTINGS = 8                        # further listing pages one matches job may keep open
@@ -231,6 +249,7 @@ def _target(t: dict) -> Target:
         near_hours=_clamp(float(t.get("near_hours", 3.0)), lo=0.5, hi=48.0),
         days=_days(name, t.get("days")),
         until=_until(name, t.get("until")),
+        within_h=_within_h(name, t.get("within_h")),
     )
 
 
