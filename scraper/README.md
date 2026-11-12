@@ -196,11 +196,19 @@ python -m scraper behaviour --json                 # {"file", "changed", "proble
   bounds, under an `flock` on `behaviour.toml.lock`, saved atomically. A value
   outside the bounds, or an unknown key, is refused with a message naming the
   setting (exit 2; `{"error": "..."}` with `--json`), and nothing is written.
-- The service reads the file once, when it starts (so after a change,
-  `systemctl --user restart puntmore-scraper`); every other command reads it
-  too. A file that does not load keeps the defaults, and an unknown key or a
-  refused value keeps that setting's default; each is printed
-  (`behaviour: ...`, in the journal) and nothing stops.
+- The running service takes a change up within 60 s, without a restart: it
+  checks the file once a minute (with `targets.toml`) and loads it when it
+  has moved; a deleted file is every setting back to its default. The guard
+  takes the new limits at once; each setting that moved is one line,
+  `key: old -> new`, in the journal (`behaviour: ...`) and in
+  `data/logs/behaviour.log`. A value already drawn from a range keeps until
+  its next draw (a page's next timed reload or fresh page, the next round of
+  market-tab clicks, a site's back-off, the next load's spacing, the
+  service's own restart time). A file that does not load keeps the values in
+  use, and an unknown key or a refused value keeps that setting's value; each
+  is said once per edit, and nothing stops. `status.json` carries
+  `"behaviour": {"changed": <settings not at their default>, "problems": [...]}`.
+  Every other command reads the file when it runs.
 - `--json` on `set` and `reset <key>` prints that setting's entry (`key`,
   `group`, `kind`, `value`, `default`, `lo`, `hi`, `unit`, `says`,
   `changed`); `reset --all` prints `{"reset": [the keys that were changed]}`.

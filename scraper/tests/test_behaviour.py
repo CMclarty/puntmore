@@ -453,3 +453,133 @@ def test_start_loads_the_overrides_once_and_prints_a_problem(tmp_path, monkeypat
     m.main(["check"])
     assert "behaviour.toml" in capsys.readouterr().out
     assert behaviour.get("click.every_s") == 1200                # kept
+
+
+# --- live: the running service follows the file -----------------------------------
+def _live(tmp_path):
+    """A runner on a stand-in browser (test_pacing's), with no targets."""
+    from scraper.tests.test_pacing import _runner
+    return _runner(tmp_path, [])
+
+
+def _moved(p):
+    """Move a hand-written file's mtime on, as a later edit would."""
+    import os
+    st = p.stat()
+    os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns + 2_000_000_000))
+
+
+def _log(tmp_path):
+    from scraper import joblog
+    return [x["msg"] for x in joblog.read(tmp_path, "behaviour")]
+
+
+def test_a_change_is_picked_up_without_a_restart_and_logged_once(tmp_path, capsys):
+    from scraper.runner import TARGETS_CHECK_S
+    r = _live(tmp_path)
+    now = datetime(2026, 11, 12, 12).timestamp()
+    r.tick(now)                                                 # nothing changed: nothing said
+    assert _log(tmp_path) == [] and "behaviour" not in capsys.readouterr().out
+    behaviour.set_(tmp_path, "paddypower.per_hour", 4)
+    behaviour.set_(tmp_path, "load.any_gap_s", "1-2")
+    behaviour.set_(tmp_path, "click.press_ms", "10-20")
+    r.tick(now + 1)                                             # not due yet: still the old values
+    assert behaviour.get("paddypower.per_hour") == 15
+    r.tick(now + TARGETS_CHECK_S + 1)
+    assert behaviour.get("paddypower.per_hour") == 4
+    assert behaviour.get("load.any_gap_s") == (1, 2) and behaviour.get("click.press_ms") == (10, 20)
+    assert r.guard.limit("paddypower") == (4, 120)              # the guard follows
+    want = ["paddypower.per_hour: 15 -> 4", "load.any_gap_s: 20-45 -> 1-2", "click.press_ms: 50-140 -> 10-20"]
+    assert _log(tmp_path) == want
+    out = capsys.readouterr().out
+    assert all(f"behaviour: {line}" in out for line in want)
+    r.tick(now + 2 * TARGETS_CHECK_S + 2)                       # the file has not moved: said once
+    r.tick(now + 3 * TARGETS_CHECK_S + 3)
+    assert _log(tmp_path) == want and "behaviour" not in capsys.readouterr().out
+
+
+def test_the_guard_enforces_the_new_budget_and_quiet_hours(tmp_path):
+    r = _live(tmp_path)
+    noon = datetime(2026, 11, 12, 12).timestamp()
+    r.guard.record_load("paddypower", "u", noon - 60)
+    r.guard.record_load("paddypower", "u", noon - 30)
+    assert r.guard.can_load("paddypower", noon) == (True, "")
+    behaviour.set_(tmp_path, "paddypower.per_hour", 2)
+    r._reload_behaviour(noon)
+    assert r.guard.can_load("paddypower", noon) == (False, "hourly budget (2) spent")
+    behaviour.set_(tmp_path, "paddypower.per_hour", 15)
+    behaviour.set_(tmp_path, "quiet.hours", "11-13")
+    behaviour.set_(tmp_path, "cooloff.hours", 6)
+    r._reload_behaviour(noon + 3600)
+    assert r.guard.can_load("paddypower", noon) == (False, "quiet hours")
+    assert r._paused("paddypower", noon) == "quiet hours"
+    assert r._paused("generic", noon) is None                  # its quiet_hours is off
+    assert r.guard.cooloff_hours == 6.0
+
+
+def test_a_broken_file_keeps_the_values_and_is_said_once(tmp_path, capsys):
+    r = _live(tmp_path)
+    now = datetime(2026, 11, 12, 12).timestamp()
+    behaviour.set_(tmp_path, "paddypower.per_hour", 4)
+    r._reload_behaviour(now)
+    capsys.readouterr()
+    p = behaviour.path(tmp_path)
+    p.write_text("oops = [\n")
+    _moved(p)
+    for i in range(1, 4):                                       # three checks, one edit
+        r._reload_behaviour(now + i * 61)
+    assert behaviour.get("paddypower.per_hour") == 4 and r.guard.limit("paddypower") == (4, 120)
+    out = capsys.readouterr().out
+    assert out.count("does not load") == 1 and "keeping the values in use" in out
+    assert sum("does not load" in x for x in _log(tmp_path)) == 1
+    assert r.status(now)["behaviour"]["problems"] and r.status(now)["behaviour"]["changed"] == 1
+    p.write_text('"paddypower.per_hour" = -3\n"click.every_s" = 900\n')       # one line refused
+    _moved(p)
+    for i in range(4, 7):
+        r._reload_behaviour(now + i * 61)
+    assert behaviour.get("paddypower.per_hour") == 4 and behaviour.get("click.every_s") == 900
+    out = capsys.readouterr().out
+    assert out.count("paddypower.per_hour: -3 is not between") == 1
+    assert "behaviour: click.every_s: 600 -> 900" in out
+    assert any("paddypower.per_hour: -3" in x for x in _log(tmp_path))       # both said in the log
+    assert "click.every_s: 600 -> 900" in _log(tmp_path)
+    behaviour.set_(tmp_path, "paddypower.per_hour", 5)          # mended: the problem is gone
+    r._reload_behaviour(now + 8 * 61)
+    assert r.status(now)["behaviour"] == {"changed": 2, "problems": []}
+
+
+def test_deleting_the_file_puts_every_setting_back_to_its_default(tmp_path):
+    r = _live(tmp_path)
+    now = datetime(2026, 11, 12, 12).timestamp()
+    behaviour.set_(tmp_path, "paddypower.per_hour", 4)
+    behaviour.set_(tmp_path, "quiet.hours", "2-5")
+    r._reload_behaviour(now)
+    assert r.guard.quiet == (2, 5)
+    behaviour.path(tmp_path).unlink()
+    r._reload_behaviour(now + 61)
+    assert behaviour.changed() == {}
+    assert r.guard.limit("paddypower") == (15, 120) and r.guard.quiet == (1, 7)
+    assert _log(tmp_path)[-2:] == ["paddypower.per_hour: 4 -> 15", "quiet.hours: 2-5 -> 1-7"]
+
+
+def test_status_carries_the_count_of_changed_settings(tmp_path):
+    r = _live(tmp_path)
+    now = datetime(2026, 11, 12, 12).timestamp()
+    assert r.status(now)["behaviour"] == {"changed": 0, "problems": []}
+    behaviour.set_(tmp_path, "paddypower.per_hour", 4)
+    behaviour.set_(tmp_path, "generic.quiet_hours", True)
+    r._reload_behaviour(now)
+    r._report(now)
+    body = json.loads((tmp_path / "status.json").read_text())
+    assert body["behaviour"] == {"changed": 2, "problems": []}
+    assert {s["site"] for s in body["sites"]} == set(SITES)    # the rest as it was
+
+
+def test_a_runner_started_on_a_changed_file_says_nothing_new(tmp_path, capsys):
+    behaviour.set_(tmp_path, "click.every_s", 900)
+    behaviour.load(tmp_path)                                    # what start does (__main__)
+    capsys.readouterr()
+    r = _live(tmp_path)
+    r.tick(datetime(2026, 11, 12, 12).timestamp())
+    assert behaviour.get("click.every_s") == 900 and _log(tmp_path) == []
+    assert r.status(0)["behaviour"]["changed"] == 1

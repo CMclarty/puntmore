@@ -15,9 +15,14 @@ only the settings that differ from their default, each under a comment saying
 its default. It is written only through set_() and reset() here: a file lock,
 the value checked against its kind and bounds, an atomic save. A value outside
 its bounds is refused with a message naming the setting. The service reads
-the file when it starts (load()); a file that will not load keeps the values
-already in use, and a key it does not know, or a value that is refused, keeps
-that one setting's value - each is reported, none stops the Scraper.
+the file when it starts (load()) and again within 60 s of any change to it,
+without a restart (runner.py; the guard takes the new limits, and each value
+that moved is logged to data/logs/behaviour.log); a file that is deleted is
+every setting back to its default. A file that will not load keeps the
+values already in use, and a key it does not know, or a value that is
+refused, keeps that one setting's value - each is reported once per edit,
+none stops the Scraper. A value already drawn from a range (a page's next
+reload, the next round of clicks) keeps until its next draw.
 
 Kinds:
   int, float  a number (int: a whole one).

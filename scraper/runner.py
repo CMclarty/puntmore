@@ -27,6 +27,16 @@ tabs in place (RESCHEDULE_FIELDS). A file that will not parse is reported and
 the running targets are kept. The runner writes its state to
 data/status.json every STATUS_EVERY_S, which the Hub reads.
 
+How it behaves is data/behaviour.toml over behaviour.py's defaults, checked
+on the same once-a-minute stat (its mtime, or the file appearing or going:
+gone is every setting back to its default). After a load the guard takes the
+new limits; each setting that moved is one line, "key: old -> new", in the
+journal and in data/logs/behaviour.log; a file that will not load, or a line
+that is refused, keeps the value in use and is said once per edit. A value
+already drawn (a tab's next reload or recycle, the next market-tab round, a
+site's back-off, the pacer's next load, the service's restart time) keeps
+until its next draw.
+
 This module wires the pieces: schedule.py says when a target is due,
 sinks.py delivers its rows (drop files for the Hub), status.py writes the
 heartbeat and status.json, guard.py says yes or no to every load, rest.py
@@ -50,6 +60,7 @@ from urllib.parse import urlparse
 from . import behaviour
 from . import browser
 from . import config
+from . import guard as guard_mod
 from . import joblog
 from . import login
 from . import rest
@@ -69,6 +80,7 @@ PARSE_EVERY_S = 60
 RESCHEDULE_FIELDS = ("every_min", "stale_min", "priority", "window", "min_rows", "trust_weight",
                      "near_min", "near_hours", "days", "until")
 TARGETS_CHECK_S = 60             # a stat of targets.toml; read only when it changed
+BEHAVIOUR_LOG = "behaviour"      # data/logs/behaviour.log (joblog's file for that name)
 # A job that delivers every parse logs the same delivery line again only
 # after this long (a change in what was handed or left out is logged at once).
 DELIVERY_SAID_S = 600
@@ -131,6 +143,13 @@ class Runner:
         self.targets_file = settings.targets_file
         self.targets_mtime = self._mtime()            # load() has just read it
         self.next_targets_check = 0.0
+        # data/behaviour.toml (behaviour.py): checked like targets.toml. __main__
+        # loaded it at start; this load takes up an edit made since, quietly
+        # unless it moved a value, and keeps the problems for status.json.
+        self.behaviour_seen = self._behaviour_sig()
+        self.next_behaviour_check = 0.0
+        self.behaviour_problems: list[str] = []
+        self._apply_behaviour(say_problems=False)
         self.reporter = Reporter(settings)
         self.last_load_at: dict[str, float] = {}       # target name -> last good load
         self.last_parse_at: dict[str, float] = {}      # ... last parse that returned rows
@@ -417,6 +436,7 @@ class Runner:
     # --- the tick -----------------------------------------------------------
     def tick(self, now=None):
         now = now or time.time()
+        self._reload_behaviour(now)
         self._reload_targets(now)
         for site in SITES:
             why = self._paused(site, now)
@@ -626,6 +646,48 @@ class Runner:
                   "keeping the current targets", flush=True)
             return
         self.apply_targets(targets)
+
+    # --- behaviour.toml, re-read when it changes ------------------------------------
+    def _behaviour_sig(self):
+        """What says the file moved: its inode (a save is a rename), mtime
+        and size; None when there is none."""
+        try:
+            st = behaviour.path(self.s.data_dir).stat()
+        except OSError:
+            return None
+        return st.st_ino, st.st_mtime_ns, st.st_size
+
+    def _reload_behaviour(self, now):
+        """Take up an edit to data/behaviour.toml without a restart, once a
+        minute at most, and only when the file has moved."""
+        if now < self.next_behaviour_check:
+            return
+        self.next_behaviour_check = now + TARGETS_CHECK_S
+        sig = self._behaviour_sig()
+        if sig == self.behaviour_seen:
+            return
+        self.behaviour_seen = sig
+        self._apply_behaviour()
+
+    def _apply_behaviour(self, say_problems=True):
+        """behaviour.load, then the guard takes the limits in use; a value
+        that moved is said, and the load's problems too (once: this runs only
+        when the file has moved). Never raises."""
+        before = {s.key: behaviour.get(s.key) for s in behaviour.SETTINGS}
+        self.behaviour_problems = behaviour.load(self.s.data_dir)
+        moved = [(s.key, before[s.key], behaviour.get(s.key)) for s in behaviour.SETTINGS
+                 if behaviour.get(s.key) != before[s.key]]
+        if moved:
+            self.guard.use(**guard_mod.from_behaviour())
+        for key, old, new in moved:
+            self._say_behaviour(f"{key}: {behaviour.show(old)} -> {behaviour.show(new)}")
+        if say_problems:
+            for p in self.behaviour_problems:
+                self._say_behaviour(p)
+
+    def _say_behaviour(self, msg: str) -> None:
+        print(f"behaviour: {msg}", flush=True)
+        joblog.write(self.s.data_dir, BEHAVIOUR_LOG, msg)
 
     def apply_targets(self, targets):
         """Swap in a new target list. A target that is gone (removed or
@@ -955,7 +1017,9 @@ class Runner:
                                         self.last_parse_at.get(t.name), self.rows_posted.get(t.name, 0),
                                         self.next_kickoff.get(t.name), t.name in self.near))
         return {"at": now, "targets_file": str(self.targets_file) if self.targets_file else None,
-                "targets": targets, "sites": site_status(self.guard, now)}
+                "targets": targets, "sites": site_status(self.guard, now),
+                "behaviour": {"changed": len(behaviour.changed()),
+                              "problems": list(self.behaviour_problems)}}
 
     def _report(self, now):
         self.reporter.report(now, self.status)

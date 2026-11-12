@@ -10,7 +10,8 @@ stops a resume-by-reflex, the resume makes a human look at why it happened.
 
 Its limits (each site's loads an hour and a day, the quiet hours, the
 cool-off's hours) are settings in behaviour.py. The guard takes them when it
-is built (`from_behaviour`) and keeps its own copy; `use` replaces that copy.
+is built (`from_behaviour`) and keeps its own copy; `use` replaces that copy,
+which the runner does after each load of data/behaviour.toml.
 """
 import sqlite3
 import time

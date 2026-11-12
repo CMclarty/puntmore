@@ -26,8 +26,10 @@
                    set <key> <value>` changes one ("20-45" for a range,
                    true/false, "1-7" for hours), refused outside its bounds;
                    `behaviour reset <key>` / `reset --all` puts it back to
-                   its default. Changes go to data/behaviour.toml, read when
-                   the service starts. --json for machine output.
+                   its default. Changes go to data/behaviour.toml; the
+                   running service takes them up within 60 s, no restart,
+                   and logs each (data/logs/behaviour.log). --json for
+                   machine output.
   selfcheck        What a site sees of this browser: navigator.webdriver,
                    userAgent, language, timezone, window, and that Chrome
                    runs without --enable-automation. Asks the running service
@@ -405,7 +407,7 @@ def behaviour_cmd(argv):
             print(json.dumps({"reset": gone}, indent=1))
         else:
             print(f"every setting back to its default ({len(gone)} taken out of {file}); "
-                  "the service reads it when it starts.")
+                  "the running Scraper takes it up within 60 s.")
         return
     if op in ("set", "reset"):
         # A key reset from the file that the catalogue does not know has no row.
@@ -417,7 +419,7 @@ def behaviour_cmd(argv):
         else:
             print(f"{row['key']} = {behaviour.show(row['value'])} {row['unit']}"
                   f"  (default {behaviour.show(row['default'])})")
-            print(f"saved to {file}; the service reads it when it starts.")
+            print(f"saved to {file}; the running Scraper takes it up within 60 s.")
         return
     changed = sum(r["changed"] for r in rows)
     if args.json:

@@ -28,7 +28,7 @@ prices are `scraper_prices` files that the Hub posts to Render.
 ## Module map
 - `runner.py` - the loop: wires the modules below, owns the tabs, loads
   through the guard, applies a targets.toml edit (in place for a timing-only
-  change).
+  change) and a behaviour.toml edit (the guard follows; each change logged).
 - `schedule.py` - when each target is due: `every_min`, `stale_min`, jitter
   drawn once per load, the per-site load gaps, whether a job is active at
   all (`inactive`: `until`, `days`, `window`; a window past midnight belongs
@@ -62,8 +62,10 @@ prices are `scraper_prices` files that the Hub posts to Render.
   module reads `behaviour.get(key)` when it acts and holds no number of its
   own for these. Overrides: `<data>/behaviour.toml`, only non-defaults,
   written only by `set_`/`reset` (lock, check, atomic save; `python -m
-  scraper behaviour`), read at start by `load` (a bad file or key is
-  reported and the values in use kept, never raised).
+  scraper behaviour`), read at start by `load` and again by
+  the runner within 60 s of a change, no restart (a bad file or key is
+  reported once per edit and the values in use kept, never raised; each
+  value that moved is a line in `data/logs/behaviour.log`).
 - `sites.py` - per-site rules in code: what a block means, whether it needs a
   login, Paddy's market-list url (its limits are in `behaviour.py`).
 - `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite);
