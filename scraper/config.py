@@ -54,13 +54,17 @@ def _clamp(v, lo=None, hi=None):
 
 @dataclass(frozen=True)
 class Matches:
-    """A listing page whose match links are each opened in a kept-open tab."""
+    """A listing page whose match links are each opened in a kept-open tab.
+    `listings`: further listing pages (other competitions) for the same job,
+    each kept open in its own tab; their match links are interleaved with the
+    url's, under the one max_tabs (Callum, 12 Nov 2026)."""
     link_re: str = r"-v-"
     max_tabs: int = 3
     market_tabs: tuple[str, ...] = ()   # in-page tabs clicked once on arrival
     open_gap_min: float = 4.0           # at least this long between opening tabs
     tab_max_hours: float = 8.0          # retire a match tab after this long
     relist_min: float = 60.0            # reload the listing to find new matches
+    listings: tuple[str, ...] = ()      # further listing pages, after the target's url
 
 
 @dataclass(frozen=True)
@@ -160,6 +164,29 @@ def _until(name: str, until) -> str | None:
     return until
 
 
+MAX_LISTINGS = 8                        # further listing pages one matches job may keep open
+
+
+def _listings(name: str, site: str, url: str, listings) -> tuple[str, ...]:
+    """A matches job's further listing pages: each on an allowed host for
+    the site (as url is), none repeating url or another, at most MAX_LISTINGS."""
+    if listings is None:
+        return ()
+    if not isinstance(listings, (list, tuple)) or not all(isinstance(u, str) and u for u in listings):
+        raise ValueError(f"target {name}: matches.listings must be a list of page urls, not {listings!r}")
+    if len(listings) > MAX_LISTINGS:
+        raise ValueError(f"target {name}: matches.listings may have at most {MAX_LISTINGS} pages, "
+                         f"not {len(listings)}")
+    for u in listings:
+        if not host_allowed(u, site):
+            raise ValueError(f"target {name}: listing {u} is not on an allowed host for site {site!r}")
+        if u == url:
+            raise ValueError(f"target {name}: listing {u} repeats url")
+    if len(set(listings)) != len(listings):
+        raise ValueError(f"target {name}: matches.listings names a page more than once")
+    return tuple(listings)
+
+
 def _target(t: dict) -> Target:
     from .sinks import PRICE_ROUTES
     from .sites import SITES
@@ -186,6 +213,7 @@ def _target(t: dict) -> Target:
             open_gap_min=_clamp(float(m.get("open_gap_min", 4.0)), lo=2.0),
             tab_max_hours=_clamp(float(m.get("tab_max_hours", 8.0)), hi=24.0),
             relist_min=_clamp(float(m.get("relist_min", 60.0)), lo=30.0),
+            listings=_listings(name, site, url, m.get("listings")),
         )
     every = t.get("every_min")
     return Target(

@@ -14,7 +14,9 @@ kept open for hours filled the container's memory cap and hung the scraper
 Target kinds:
   page     one URL, one tab (e.g. Bookie Bashing's saves page)
   matches  a listing page (kept open) whose match links are opened, a few at
-           a time, in their own kept-open tabs (e.g. a Paddy competition)
+           a time, in their own kept-open tabs (e.g. a Paddy competition);
+           `listings` adds other competitions' listing pages to the same job,
+           each in its own kept-open tab, their links interleaved
 
 Targets are targets.toml on the Hub, changed only through scraper/targets.py
 (an atomic rename, so a half-written file is never read). The file is checked every
@@ -569,9 +571,10 @@ class Runner:
         if not t.matches:
             tab = self.tabs.get(t.name)
             return tab is None or schedule.page_due(t, tab, now, self._every(t, now))
-        listing = self.tabs.get(f"{t.name}:list")
-        if listing is None or schedule.listing_due(t, listing, now):
-            return True
+        for key, _url in listing_keys(t):
+            listing = self.tabs.get(key)
+            if listing is None or schedule.listing_due(t, listing, now):
+                return True
         mine = [tab for k, tab in self.tabs.items() if k.startswith(t.name + ":m:")]
         if any(schedule.stale(t, tab, now) or tab.worn(now) for tab in mine):
             return True
@@ -584,9 +587,9 @@ class Runner:
         one, else now (the target is first seen wanting it now)."""
         if t.mode == "fetch":
             return min(self.next_fetch.get(t.name, now), now)
-        tab = self.tabs.get(f"{t.name}:list" if t.matches else t.name)
-        due = getattr(tab, "due_at", None)
-        return min(due, now) if due is not None else now
+        keys = [k for k, _url in listing_keys(t)] if t.matches else [t.name]
+        dues = [tab.due_at for tab in map(self.tabs.get, keys) if getattr(tab, "due_at", None) is not None]
+        return min(min(dues), now) if dues else now
 
     # --- targets.toml, re-read when it changes ------------------------------------
     def _mtime(self):
@@ -741,15 +744,17 @@ class Runner:
         return handed
 
     def _tick_matches(self, t, now):
+        """Every listing (url, then `listings`) has its own kept-open tab,
+        loaded when missing and relisted on its own clock; one load per tick
+        at most. Match links come from every listing, interleaved, so each
+        competition gets a tab before any gets two; max_tabs is the job's."""
         m = t.matches
-        list_key = f"{t.name}:list"
-        listing = self.tabs.get(list_key)
-        if listing is None:
-            self._load(t, list_key, t.url, now)
-            return
-        if schedule.listing_due(t, listing, now):
-            self._load(t, list_key, t.url, now)
-            return
+        listings = listing_keys(t)
+        for list_key, list_url in listings:
+            listing = self.tabs.get(list_key)
+            if listing is None or schedule.listing_due(t, listing, now):
+                self._load(t, list_key, list_url, now)
+                return
 
         retired = self.retired.setdefault(t.name, collections.deque(maxlen=500))
         mine = {k: tab for k, tab in self.tabs.items() if k.startswith(t.name + ":m:")}
@@ -774,7 +779,9 @@ class Runner:
             return
         if now < self.next_open.get(t.name, 0.0) or not self._may_load(t.site, now):
             return
-        for url in match_links(listing.page, m.link_re, t.url):
+        links = interleave([match_links(self.tabs[k].page, m.link_re, u)
+                            for k, u in listings if k in self.tabs])
+        for url in links:
             if url in open_urls or url in retired:
                 continue
             self.next_open[t.name] = schedule.next_open_at(now, m.open_gap_min)
@@ -1016,6 +1023,25 @@ def _rest_detail(r: dict) -> str:
 def reschedule_only(old, new) -> bool:
     """True when the two definitions differ only in RESCHEDULE_FIELDS."""
     return dataclasses.replace(old, **{f: getattr(new, f) for f in RESCHEDULE_FIELDS}) == new
+
+
+def listing_keys(t) -> list[tuple[str, str]]:
+    """A matches job's listing tabs, (key, url): its url first ("<name>:list"),
+    then each of `listings` ("<name>:list:1", ...), in order."""
+    return [(f"{t.name}:list", t.url),
+            *((f"{t.name}:list:{i}", u) for i, u in enumerate(t.matches.listings, 1))]
+
+
+def interleave(lists) -> list[str]:
+    """The first of each list, then the second of each, ...; a value already
+    taken is skipped."""
+    seen, out = set(), []
+    for i in range(max(map(len, lists), default=0)):
+        for xs in lists:
+            if i < len(xs) and xs[i] not in seen:
+                seen.add(xs[i])
+                out.append(xs[i])
+    return out
 
 
 def match_links(page, link_re, base_url) -> list[str]:

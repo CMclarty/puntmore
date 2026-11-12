@@ -21,7 +21,10 @@
 #   parser     name in parsers/ (leave out to just capture)
 #   post       the Render route the Hub posts the parsed rows to (a scraper_prices drop file), or "hub:tips"
 #   [target.matches]  treat url as a listing: open its match links in
-#              kept-open tabs (max_tabs, at most 6), clicking market_tabs once
+#              kept-open tabs (max_tabs, at most 6), clicking market_tabs once.
+#              listings: further listing pages (other competitions) for the
+#              same job, at most 8, each kept open and relisted on its own;
+#              their match links are interleaved with url's under max_tabs
 #
 # Finder's sources use site = "generic" (any host except the two bookmakers):
 #   mode       "fetch" (the default for generic): load, parse, close
@@ -67,6 +70,9 @@ window = "07:00-23:30"
   link_re = "-v-"
   max_tabs = 3
   market_tabs = ["Corners", "Cards"]
+  # The mosts include La Liga and Serie A, under this job (Callum, 12 Nov 2026).
+  listings = ["https://www.paddypower.com/football/spanish-la-liga",
+              "https://www.paddypower.com/football/italian-serie-a"]
 
 # A tip-finding source. Disabled: it exists as the worked example for
 # parsers/example_tipster.py and the tests.

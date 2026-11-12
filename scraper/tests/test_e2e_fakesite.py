@@ -27,6 +27,13 @@ LISTING = """<html><title>Football</title><body>
 <a href="/football/arsenal-v-chelsea#stats">dup</a>
 <a href="/promo">promo</a></body></html>"""
 
+# A second competition's listing, for a job with `listings` (one link repeats
+# the first listing's, so it is opened once).
+LISTING2 = """<html><title>Serie A</title><body>
+<a href="/football/milan-v-roma">Milan v Roma</a>
+<a href="/football/arsenal-v-chelsea">Arsenal v Chelsea</a>
+<a href="/football/inter-v-juventus">Inter v Juventus</a></body></html>"""
+
 # Two kinds of tab control, as sites draw them: an ARIA tab, and a plain div in
 # a tab bar. A click fetches that tab's markets, as Paddy's event page does.
 MATCH = """<html><title>Match</title><body>
@@ -110,6 +117,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(429, "<title>Too many</title>")
         if path == "/football":
             return self._send(200, LISTING)
+        if path == "/serie-a":
+            return self._send(200, LISTING2)
         if path.startswith("/football/"):
             return self._send(200, MATCH)
         if path.startswith("/smspp/event-page/"):
@@ -195,6 +204,59 @@ def test_keeps_match_tabs_open_and_captures(tmp_path, site):
         assert r.guard.spent("paddypower", t0 + 1300)[0] == 4  # 1 listing + 3 matches, no reloads
         samples = list((tmp_path / "samples").rglob("*-http.txt"))
         assert any('"prices"' in f.read_text() for f in samples)
+        r.close_all()
+        ctx.close()
+
+
+def test_a_job_with_two_listings_interleaves_their_matches(tmp_path, site):
+    """`listings`: a second competition's listing page in the same job. Each
+    listing has its own kept-open tab (one load per tick, the url's first);
+    the match links are interleaved, so each listing gets a tab before either
+    gets two, all under the one max_tabs; each listing is relisted on its own
+    clock; and the job's tabs, listings included, close as one."""
+    import dataclasses
+    from playwright.sync_api import sync_playwright
+    pp = _pp(site)
+    # no market tabs: their click rounds are slow and not what is tested here
+    t = dataclasses.replace(pp, matches=dataclasses.replace(pp.matches, market_tabs=(),
+                                                            listings=(site + "/serie-a",)))
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [t], p)
+        t0 = time.time()
+        opened, spent = [], 0
+        # Paddy loads are spaced 90-162 s, match tabs 4-6.4 min; all before a
+        # page's first recycle (RECYCLE_H, 25.5 min at the soonest).
+        for off in (0, 1, 170, 340, 730, 1120, 1500):
+            before = set(r.tabs)
+            r.tick(t0 + off)
+            ctx.pages[0].wait_for_timeout(500)
+            now_spent = r.guard.spent("paddypower", t0 + off)[0]
+            assert now_spent - spent <= 1                    # one load per tick at most
+            spent = now_spent
+            opened += sorted(set(r.tabs) - before)
+        assert opened == ["pp:list", "pp:list:1",
+                          f"pp:m:{site}/football/arsenal-v-chelsea",
+                          f"pp:m:{site}/football/milan-v-roma",
+                          f"pp:m:{site}/football/spurs-v-everton"]
+        assert spent == 5                                    # 2 listings + 3 matches (max_tabs)
+        assert r.status(t0 + 1500)["targets"][0]["detail"].startswith("5 tabs open")
+
+        # each listing on its own clock: the second is due, the first is not
+        for tab in r.tabs.values():                          # no page recycle in the way
+            tab.recycle_at = t0 + 99_999
+        first, second = r.tabs["pp:list"], r.tabs["pp:list:1"]
+        first.due_at, second.due_at = t0 + 99_999, t0 + 2300
+        r.tick(t0 + 2400)
+        assert r.guard.spent("paddypower", t0 + 2400)[0] == 6
+        assert r.tabs["pp:list:1"].last_load == t0 + 2400 and r.tabs["pp:list"].last_load == t0
+        first.due_at = t0 + 2700
+        r.tick(t0 + 2800)
+        assert r.guard.spent("paddypower", t0 + 2800)[0] == 7
+        assert r.tabs["pp:list"].last_load == t0 + 2800
+        assert r.tabs["pp:list:1"].last_load == t0 + 2400
+
+        r.apply_targets([pp])                               # listings changed: the job reopens
+        assert not r.tabs
         r.close_all()
         ctx.close()
 
