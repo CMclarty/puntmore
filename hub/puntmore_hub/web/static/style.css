@@ -150,7 +150,6 @@ table.beh td.acts { white-space: normal; min-width: 9em; }
 table.beh td.acts button + button { margin-left: 4px; }
 table.beh td.acts .field-error { display: block; margin-top: 2px; }
 table.beh tr.changed td { background: var(--warn-bg); }
-table.beh tr.changed td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
 
 /* On a phone the wide tables become one card per row, each cell labelled. */
 @media (max-width: 700px) {
