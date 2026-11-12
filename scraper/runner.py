@@ -69,6 +69,7 @@ from . import config
 from . import guard as guard_mod
 from . import joblog
 from . import login
+from . import look
 from . import rest
 from . import schedule
 from . import standing
@@ -512,7 +513,7 @@ class Runner:
             self._watch_betslip(now)
         except Exception as exc:
             print(f"betslip watch: {exc.__class__.__name__}: {exc}", flush=True)
-        self._requests()
+        self._requests(now)
         self._heartbeat(now)
         self._report(now)
 
@@ -1188,11 +1189,15 @@ class Runner:
     def _report(self, now):
         self.reporter.report(now, self.status)
 
-    def _requests(self):
+    def _requests(self, now=None):
         """`python -m scraper dump <target>` drops a file; the running loop
         answers it from the page it already has open - no extra load.
         `wake <target>` likewise ends that job's rest (rest.py).
+        `look <job> '<steps>'` likewise takes a few plain steps on the job's
+        open page and saves it (look.py; refused for a Paddy job; nothing
+        from it escapes here).
         `selfcheck` likewise, as the running browser holds the profile."""
+        now = now or time.time()
         req = self.s.data_dir / "requests" / "selfcheck"
         if req.exists():
             req.unlink(missing_ok=True)
@@ -1230,6 +1235,50 @@ class Runner:
                 self._say(name, "wake: not resting")
             else:                               # not a job: no log to write to
                 print(f"wake {name}: no such target", flush=True)
+        for req in sorted((self.s.data_dir / "requests").glob("look-*")):
+            name = req.name[len("look-"):]
+            try:
+                raw = req.read_text(encoding="utf-8")
+            except (OSError, ValueError) as exc:
+                raw = exc                       # said as a refusal below
+            req.unlink(missing_ok=True)
+            try:
+                self._look(name, raw, now)
+            except Exception as exc:            # a look never ends a tick
+                self._say(name, f"look: failed: {exc.__class__.__name__}: {exc}")
+
+    def _look(self, name, raw, now):
+        """Answer one `look-<job>` request (look.py): refused for a Paddy job
+        or steps of the wrong shape, said when the job has no open page;
+        else the steps on the job's page and the page saved to
+        data/dumps/<job>-<time>/. A step that moved the page is counted
+        with the guard as a load."""
+        target = next((t for t in self.targets if t.name == name), None)
+        tabs = sorted(((k, tab) for k, tab in self.tabs.items() if tab.target.name == name),
+                      key=lambda kt: kt[0] != name)     # the job's own page first
+        if target is None and not tabs:                 # not a job: no log to write to
+            print(f"look {name}: no such target", flush=True)
+            return
+        site = (target or tabs[0][1].target).site
+        why = look.refused(site)
+        if why is None and not isinstance(raw, str):
+            why = f"the request could not be read: {raw}"
+        if why is None:
+            try:
+                steps = look.parse_steps(raw)
+            except look.LookError as exc:
+                why = str(exc)
+        if why:
+            self._say(name, f"look: refused - {why}")
+            return
+        if not tabs:
+            self._say(name, "look: no open page for that target")
+            return
+        _key, tab = tabs[0]
+        out = self.s.data_dir / "dumps" / f"{_safe(name)}-{datetime.now():%Y%m%d-%H%M%S}"
+        look.run(tab.page, steps, out, lambda msg: self._say(name, f"look: {msg}"),
+                 capture=tab.capture,
+                 on_load=lambda url: self.guard.record_load(site, login.safe_url(url), now))
 
     def _say(self, name: str, msg: str) -> None:
         """A line about one job: printed as "<name>: <msg>" for the journal, and

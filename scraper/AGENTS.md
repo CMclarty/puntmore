@@ -27,6 +27,8 @@ prices are `scraper_prices` files that the Hub posts to Render.
   live (the Console's Behaviour pane or `python -m scraper behaviour`), every change is logged,
   and HubAI does not change them. `targets.toml` cannot loosen them.
 - Targets are direct page URLs in `targets.toml`.
+- `look` is how a page is learned (a few plain steps on a job's open page, then the page saved);
+  it is not for Paddy Power pages.
 
 ## Module map
 - `runner.py` - the loop: wires the modules below, owns the tabs, loads
@@ -59,6 +61,9 @@ prices are `scraper_prices` files that the Hub posts to Render.
 - `ids.py` - the one tip id, minted here when rows reach the Hub sink (a copy
   of `hub/puntmore_hub/ids.py`; a test in each suite pins the same vector).
 - `parsers/` - one module per page kind; rows only from what the page shows.
+  `bb_builder` keeps the Bookie Bashing bet builder up and reads nothing
+  (`bb_saves.bring_up`, shared): a page to `look` at, the start of the
+  preset-driven bet-builder job.
 - `targets.py` - the only writer of targets.toml (CLI, Console, HubAI).
 - `config.py` - settings and target validation (`_target`, the clamps).
 - `behaviour.py` - how the Scraper behaves, as one catalogue (`SETTINGS`): each
@@ -77,6 +82,12 @@ prices are `scraper_prices` files that the Hub posts to Render.
   login, Paddy's market-list url (its limits are in `behaviour.py`).
 - `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite);
   built from `behaviour.py`'s limits, which it keeps a copy of (`use`).
+- `look.py` - `python -m scraper look <job> '<steps>'`: a few plain steps
+  (click a named control with `browser.click`, set a select, type in a
+  field, wait, save) on a job's open page, answered by `Runner._look` from
+  `data/requests/look-<job>`, then the page saved to `data/dumps/`; a step
+  that moves the page stops it and is counted as a load; refused for Paddy
+  Power jobs.
 - `browser.py` - the one Chrome: launch, block/logout detection, clicks
   (their waits, steps and aim: `behaviour.py`). A click is aimed, then checked: if the element moved or something else is under the pointer at the press, it is aimed once more and otherwise not pressed (12 Nov 2026).
 - `login.py` - Bookie Bashing's login form, the login from `.env`, one sign-in
