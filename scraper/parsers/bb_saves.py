@@ -189,14 +189,15 @@ def _total_odds(page) -> float | None:
 def _read_total(page, previous: float | None) -> float | None:
     """Total Odds after it has settled: the same value twice bb.settle_s apart,
     and not the previous line's (consecutive lines never price the same)."""
-    deadline = time.time() + 3.0
+    settle = behaviour.get("bb.settle_s")
+    deadline = time.time() + max(3.0, 4 * settle)      # always room for the two matching reads
     last = None
     while time.time() < deadline:
         v = _total_odds(page)
         if v is not None and v == last and v != previous:
             return v
         last = v
-        time.sleep(behaviour.get("bb.settle_s"))
+        time.sleep(settle)
     return last if last != previous else None
 
 

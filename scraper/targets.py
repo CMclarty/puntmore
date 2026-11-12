@@ -257,10 +257,17 @@ def get(path, name) -> Target:
     return targets[_find(targets, name)]
 
 
+# Names whose log file is not a job's (runner.BEHAVIOUR_LOG).
+RESERVED_NAMES = ("behaviour",)
+
+
 def add(path, mapping: dict, timeout=None) -> Target:
     """A new target, appended. Refuses a name already in the file (disabled
     targets reserve their names too)."""
     t = validate(mapping)
+    if t.name in RESERVED_NAMES:
+        raise TargetsError(f"a target cannot be named {t.name!r}: data/logs/{t.name}.log is the "
+                           "behaviour change log")
     with locked(path, timeout):
         targets = load(path)
         if any(x.name == t.name for x in targets):

@@ -583,3 +583,56 @@ def test_a_runner_started_on_a_changed_file_says_nothing_new(tmp_path, capsys):
     r.tick(datetime(2026, 11, 12, 12).timestamp())
     assert behaviour.get("click.every_s") == 900 and _log(tmp_path) == []
     assert r.status(0)["behaviour"]["changed"] == 1
+
+
+# --- the final review's findings (12 Nov 2026) --------------------------------------
+@pytest.mark.parametrize("line", [
+    '"paddypower.per_hour" = ' + "9" * 400,
+    '"load.any_gap_s" = "[' + "9" * 400 + ', 5]"',
+    '"load.any_gap_s" = "' + "[" * 5000 + '"',
+])
+def test_load_never_raises_on_a_value_it_cannot_take(tmp_path, line):
+    """A number too big for a float, or a string nested past the parser's depth,
+    is a refused line like any other: said, and the value in use kept."""
+    behaviour.path(tmp_path).write_text(line + "\n")
+    try:
+        problems = behaviour.load(tmp_path)
+        assert len(problems) == 1 and "keeping" in problems[0]
+        assert behaviour.get("paddypower.per_hour") == 15 and behaviour.get("load.any_gap_s") == (20, 45)
+    finally:
+        behaviour.path(tmp_path).unlink()
+        behaviour.load(tmp_path)
+
+
+@pytest.mark.parametrize("value", ["9" * 400, "[" * 5000])
+def test_set_refuses_such_a_value_with_a_message(tmp_path, value):
+    with pytest.raises(behaviour.BehaviourError, match="paddypower.per_hour"):
+        behaviour.set_(tmp_path, "paddypower.per_hour", value)
+    assert not behaviour.path(tmp_path).exists()
+
+
+def test_set_says_so_when_the_file_holds_something_it_cannot_write_back(tmp_path):
+    behaviour.path(tmp_path).write_text('"paddypower.per_hour" = 10\nwhen = 2026-11-12\n')
+    with pytest.raises(behaviour.BehaviourError, match="reset --all"):
+        behaviour.set_(tmp_path, "paddypower.per_day", 100)
+    assert "when = 2026-11-12" in behaviour.path(tmp_path).read_text()      # untouched
+    behaviour.reset(tmp_path, None)
+    behaviour.set_(tmp_path, "paddypower.per_day", 100)                     # mended
+
+
+def test_bounds_keep_one_tick_inside_the_watchdog():
+    """The pauses a single click may add up to stay well under the 600 s after
+    which the service's watchdog restarts it."""
+    for key in ("arrive.passes", "read.passes"):
+        assert behaviour.setting(key).hi <= 6
+    for s in behaviour.SETTINGS:
+        if s.unit == "ms":
+            assert s.hi <= 5000, s.key
+    assert behaviour.setting("bb.settle_s").hi <= 1.0
+
+
+def test_the_change_log_is_not_a_name_a_job_can_take(tmp_path):
+    from scraper import runner, targets
+    with pytest.raises(targets.TargetsError, match="behaviour"):
+        targets.add(tmp_path / "targets.toml", {"name": runner.BEHAVIOUR_LOG, "site": "generic",
+                                                "url": "https://example.com/a", "post": "hub:tips"})
