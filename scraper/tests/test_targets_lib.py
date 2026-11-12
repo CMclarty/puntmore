@@ -465,3 +465,28 @@ def test_a_listings_edit_reopens_the_job():
     old = FULL[0]
     new = dataclasses.replace(old, matches=dataclasses.replace(old.matches, listings=(LA_LIGA,)))
     assert not reschedule_only(old, new)
+
+
+# --- `listings` as its own change: the other matches fields are kept (Callum, 12 Nov 2026) ---
+def test_set_listings_keeps_the_rest_of_the_matches_table(tmp_path):
+    p = tmp_path / "targets.toml"
+    T.add(p, {"name": "pp-most", "site": "paddypower", "url": PP_EPL,
+              "matches": {"max_tabs": 2, "market_tabs": ["Corners", "Cards"]}})
+    t = T.set(p, "pp-most", listings=[LA_LIGA, SERIE_A])
+    assert t.matches.listings == (LA_LIGA, SERIE_A)
+    assert (t.matches.max_tabs, t.matches.market_tabs) == (2, ("Corners", "Cards"))
+    t = T.set(p, "pp-most", listings=None)                     # cleared: back to the one listing
+    assert t.matches.listings == () and t.matches.max_tabs == 2
+    assert T.load(p)[0] == t
+
+
+def test_set_listings_needs_a_matches_job_and_is_validated(tmp_path):
+    p = tmp_path / "targets.toml"
+    T.add(p, {"name": "pp-most", "site": "paddypower", "url": PP_EPL, "matches": {}})
+    T.add(p, {"name": "page", "site": "paddypower", "url": PP_EPL + "/x"})
+    before = p.read_text()
+    with pytest.raises(T.TargetsError, match="listings"):
+        T.set(p, "page", listings=[LA_LIGA])
+    with pytest.raises(T.TargetsError, match="listing .* allowed host"):
+        T.set(p, "pp-most", listings=["https://example.com/a"])
+    assert p.read_text() == before
