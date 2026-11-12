@@ -290,6 +290,26 @@ def test_the_page_has_the_tab_and_no_inline_script(scfg):
     assert 'id="target-add-open"' in page and 'id="target-add-cancel"' in page
 
 
+def test_a_standing_alert_shows_in_the_row_in_place_of_the_detail(scfg):
+    # status.json's per-target "alert" (scraper/standing.py): the text of the job's standing alert
+    c = client(scfg)
+    v = {t["name"]: t for t in c.get("/api/scraper").json()["config"]["targets"]}["bb-saves"]["view"]
+    assert v["alert"] is None                              # none standing (or a Scraper from before)
+    d = scfg.scraper_data_dir
+    body = json.loads((d / "status.json").read_text())
+    body["targets"][0]["alert"] = "failing for 15 min: " + XSS
+    (d / "status.json").write_text(json.dumps(body))
+    c = client(scfg)                                       # the tab is cached per app
+    v = {t["name"]: t for t in c.get("/api/scraper").json()["config"]["targets"]}["bb-saves"]["view"]
+    assert v["alert"] == "failing for 15 min: " + XSS and v["detail"] == XSS
+    # the row: the alert in the page's warn tag (as text, never markup) where the detail's text was
+    js = c.get("/static/app.js").text
+    assert ('el("p", { class: "job-doing" }, v.alert ? el("span", { class: "st st-warn", text: v.alert })'
+            in js)
+    css = c.get("/static/style.css").text
+    assert "border-left" not in css and ".st-warn" in css
+
+
 def test_days_and_until_through_the_console(scfg):
     c = client(scfg)
     r = c.post("/api/actions/scraper/targets/bb-saves/set", headers=H,

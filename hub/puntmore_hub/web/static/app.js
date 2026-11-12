@@ -319,7 +319,8 @@ function logText(lines) {
   }).join("\n");
 }
 
-// One row per job: its name, state and what it is doing now, with when it last read rows and how
+// One row per job: its name, state and what it is doing now (or, while one stands, the Scraper's
+// alert about it, in the warn tag: scraper/standing.py), with when it last read rows and how
 // many it has sent. "details" opens the rest (site, url, schedule, log, actions) and stays open across
 // re-renders (openJobs); a full log, an edit or a remove of that job keeps it open too.
 function jobTile(r, skew, off) {
@@ -331,7 +332,8 @@ function jobTile(r, skew, off) {
   return el("article", { class: "job" + (r.enabled ? "" : " muted") },
     el("header", {},
       el("button", { class: "link", type: "button", text: show(r.name), onclick: () => showLatest(r.name) }), tag,
-      el("p", { class: "job-doing", text: v.detail || (r.enabled ? "" : "not running") }),
+      el("p", { class: "job-doing" }, v.alert ? el("span", { class: "st st-warn", text: v.alert })
+        : (v.detail || (r.enabled ? "" : "not running"))),
       el("span", { class: "job-read" }, "last read ", when(v.last_ok, skew), " · rows sent ", show(v.rows_posted)),
       el("button", { type: "button", class: "small", text: "details", "aria-expanded": open ? "true" : "false",
         onclick: () => { if (openJobs.has(r.name)) openJobs.delete(r.name); else openJobs.add(r.name); redrawTargets(); } })),
