@@ -247,10 +247,13 @@ names and no other; older names appear only in `docs/retired.md`.
   Paddy Power 15 loads/h with quiet hours 01-07, Bookie Bashing 8/h, generic
   sources 60/h and 400/day. (12 Nov 2026, Callum; replaces "Budgets are
   code", Oct 2026)
-- **The Scraper never adds to a betslip.** It clicks only a cookie banner and a game's market
+- **The Scraper never adds to a betslip.** On a bookmaker's pages it clicks only a cookie banner and a game's market
   tabs, and a click is not pressed when the page has moved under the pointer; a site's betslip
   seen holding a selection is alerted (`sites.py` `betslip`). A selection nobody chose was
   found in Paddy's betslip on 12 Nov 2026. (12 Nov 2026, Callum)
+  A page is learned with `python -m scraper look` (a few named clicks and selections on a
+  job's open page, then saved), which is refused for Paddy Power pages. (12 Nov 2026,
+  Callum: "build all those then")
 - **The Scraper says when it is not working.** One alert, and one when it clears, for a
   stalled loop (3 minutes; the watchdog restarts it at 10), a job failing the same way
   (15 minutes), and a running job with pages open that has handed over no rows (60 minutes);

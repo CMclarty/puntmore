@@ -3,8 +3,7 @@
 The Scraper service: the one real Chrome on the Hub, on its own virtual screen. It reads every
 page any tool needs and fills what OddsPapi lacks: Paddy Power pages kept
 **open** (it listens to what they receive), Finder's sources loaded and
-closed, and one Bookie Bashing page (`bb-saves`, the register's one named
-exception). After
+closed, and Bookie Bashing's bet builder for its jobs (`bb-saves` the first). After
 the first load the site's own scripts keep each page fresh, so most targets
 cost no further requests. Runs as the user service `puntmore-scraper` on its
 own virtual screen, the user service `puntmore-screen` (below), updated by
@@ -383,8 +382,8 @@ and market tabs.
 
 A worked example: the bet builder's presets panel, which shows once a game is
 chosen. The builder is kept up by a `bb_builder` job (a second Bookie Bashing
-page, its loads counted in Bookie Bashing's budget; a new Bookie Bashing job
-needs the register's leave, `docs/decisions.md`, Scraping conduct):
+page, its loads counted in Bookie Bashing's budget; the Scraper may run
+Bookie Bashing jobs, `docs/decisions.md`, Scraping conduct):
 
 ```sh
 python -m scraper targets add --name bb-look --site bookiebashing \
