@@ -304,29 +304,21 @@ def click(page, loc):
 
 
 def screenshot(page, path, full_page=False) -> None:
-    """Save a PNG of the page by asking Chrome for it directly (the devtools
-    Page.captureScreenshot), not through Playwright's page.screenshot: that one
-    first raises the tab, and on the Scraper's own screen it then waited 30 s
-    on any tab that was not already in front and gave up (12 Nov 2026), with
-    the whole loop waiting on it. This takes the picture where the tab is.
-    `full_page` takes the whole document, not just what the window shows.
-    Raises if Chrome will not give one."""
-    import base64
-    cdp = page.context.new_cdp_session(page)
-    try:
-        params = {"format": "png"}
-        if full_page:
-            size = cdp.send("Page.getLayoutMetrics")["cssContentSize"]
-            params.update(captureBeyondViewport=True,
-                          clip={"x": 0, "y": 0, "width": size["width"], "height": size["height"], "scale": 1})
-        data = cdp.send("Page.captureScreenshot", params)["data"]
-    finally:
-        try:
-            cdp.detach()
-        except Exception:
-            pass
-    with open(path, "wb") as f:
-        f.write(base64.b64decode(data))
+    """Save a PNG of the page: bring its tab to the front, then take the
+    picture with a time limit. Chrome only draws the tab in front, so a
+    picture of a tab behind another waits for a frame that never comes:
+    Playwright's page.screenshot gave up after 30 s on such a tab, and a
+    direct full-page capture (devtools Page.captureScreenshot) waited for
+    ever and held the whole loop (both seen on the Scraper's own screen,
+    12 Nov 2026; in front, both take a tenth of a second). On its own screen
+    a tab coming forward disturbs nobody. `full_page` takes the whole
+    document, not just what the window shows. Raises if no picture comes in
+    SCREENSHOT_TIMEOUT_MS."""
+    page.bring_to_front()
+    page.screenshot(path=str(path), full_page=full_page, timeout=SCREENSHOT_TIMEOUT_MS)
+
+
+SCREENSHOT_TIMEOUT_MS = 10_000
 
 
 def read_down(page):

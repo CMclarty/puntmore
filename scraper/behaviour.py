@@ -150,19 +150,19 @@ SETTINGS: tuple[Setting, ...] = (
     ),
     *_group(
         "Arriving on a page",
-        ("arrive.wait_ms", "range", (2500, 5000), 0, 10000, "ms",
+        ("arrive.wait_ms", "range", (2500, 5000), 0, 5000, "ms",
          "After a page loads, a wait for it to draw"),
-        ("arrive.passes", "range", (1, 3), 0, 20, "passes",
+        ("arrive.passes", "range", (1, 3), 0, 6, "passes",
          "Then it looks down the page this many times"),
         ("arrive.move_steps", "range", (8, 25), 1, 200, "steps",
          "Each look moves the pointer in this many steps"),
         ("arrive.scroll_px", "range", (250, 700), 0, 5000, "px",
          "Each look scrolls down this far"),
-        ("arrive.pause_ms", "range", (700, 2200), 0, 10000, "ms",
+        ("arrive.pause_ms", "range", (700, 2200), 0, 5000, "ms",
          "Each look pauses this long"),
         ("arrive.back_up_px", "range", (800, 2000), 0, 20000, "px",
          "Then it scrolls back up this far"),
-        ("arrive.after_consent_ms", "range", (600, 1500), 0, 10000, "ms",
+        ("arrive.after_consent_ms", "range", (600, 1500), 0, 5000, "ms",
          "After picking the minimum-cookies option on a consent banner, a pause"),
     ),
     *_group(
@@ -171,11 +171,11 @@ SETTINGS: tuple[Setting, ...] = (
          "A kept page's market tabs are clicked again this often (clicks, not loads)"),
         ("click.every_jitter_x", "range", (0.8, 1.4), 0.1, 5, "x",
          "That time is click.every_s times a number drawn from this range, once per round"),
-        ("click.before_move_ms", "range", (300, 900), 0, 10000, "ms",
+        ("click.before_move_ms", "range", (300, 900), 0, 5000, "ms",
          "Once the element is scrolled into view, a pause before the pointer moves"),
         ("click.move_steps", "range", (12, 30), 1, 200, "steps",
          "The pointer moves onto the element in this many steps"),
-        ("click.before_press_ms", "range", (250, 900), 0, 10000, "ms",
+        ("click.before_press_ms", "range", (250, 900), 0, 5000, "ms",
          "A pause on the element before pressing"),
         ("click.press_ms", "range", (50, 140), 0, 2000, "ms",
          "How long the button is held down"),
@@ -183,22 +183,22 @@ SETTINGS: tuple[Setting, ...] = (
          "Where across the element the click lands (0 left edge, 1 right)"),
         ("click.aim_y", "range", (0.35, 0.65), 0, 1, "of height",
          "Where down the element the click lands (0 top edge, 1 bottom)"),
-        ("click.after_feed_ms", "range", (1500, 3000), 0, 10000, "ms",
+        ("click.after_feed_ms", "range", (1500, 3000), 0, 5000, "ms",
          "Once a clicked tab's markets have arrived, a pause for their prices"),
     ),
     *_group(
         "Reading down a page",
-        ("read.passes", "range", (2, 4), 0, 20, "passes",
+        ("read.passes", "range", (2, 4), 0, 6, "passes",
          "After a market tab is clicked, it looks down what it showed this many times"),
         ("read.move_steps", "range", (8, 25), 1, 200, "steps",
          "Each look moves the pointer in this many steps"),
         ("read.scroll_px", "range", (300, 700), 0, 5000, "px",
          "Each look scrolls down this far"),
-        ("read.pause_ms", "range", (900, 2500), 0, 10000, "ms",
+        ("read.pause_ms", "range", (900, 2500), 0, 5000, "ms",
          "Each look pauses this long"),
         ("read.back_up_px", "range", (2500, 4000), 0, 20000, "px",
          "Then it scrolls back up this far"),
-        ("read.back_up_pause_ms", "range", (500, 1200), 0, 10000, "ms",
+        ("read.back_up_pause_ms", "range", (500, 1200), 0, 5000, "ms",
          "And pauses this long at the top"),
     ),
     *_group(
@@ -211,7 +211,7 @@ SETTINGS: tuple[Setting, ...] = (
          "Update Data clicks in a row before the builder counts as not ready"),
         ("bb.xsaves_retries", "int", 3, 0, 20, "pulls",
          "Extra data pulls in a row when BB xSaves is not listed"),
-        ("bb.settle_s", "float", 0.25, 0.05, 5, "s",
+        ("bb.settle_s", "float", 0.25, 0.05, 1.0, "s",
          "The Total Odds field counts as settled when it reads the same twice this far apart"),
     ),
 )
@@ -298,13 +298,17 @@ def _number(s: Setting, value, whole: bool):
             n = float(value.strip())
         except ValueError:
             n = None
-    if isinstance(n, bool) or not isinstance(n, (int, float)) or not math.isfinite(n):
-        raise BehaviourError(f"{s.key}: must be a {'whole ' if whole else ''}number, not {value!r}")
-    if whole:
-        if not float(n).is_integer():
-            raise BehaviourError(f"{s.key}: must be a whole number, not {value!r}")
-        return int(n)
-    return float(n)
+    said = value if len(repr(value)) <= 40 else repr(value)[:37] + "..."
+    try:
+        if isinstance(n, bool) or not isinstance(n, (int, float)) or not math.isfinite(n):
+            raise BehaviourError(f"{s.key}: must be a {'whole ' if whole else ''}number, not {said!r}")
+        if whole:
+            if not float(n).is_integer():
+                raise BehaviourError(f"{s.key}: must be a whole number, not {said!r}")
+            return int(n)
+        return float(n)
+    except OverflowError:                     # an int too big to be a float
+        raise BehaviourError(f"{s.key}: {said!r} is far too large") from None
 
 
 def _bounded(s: Setting, n):
@@ -315,13 +319,14 @@ def _bounded(s: Setting, n):
 
 def _pair(s: Setting, value) -> tuple:
     example = '"1-7"' if s.kind == "hours" else f'"{show(s.default)}"'
-    refused = BehaviourError(f"{s.key}: give a pair like {example}, not {value!r}")
+    said = value if len(repr(value)) <= 40 else repr(value)[:37] + "..."
+    refused = BehaviourError(f"{s.key}: give a pair like {example}, not {said!r}")
     if isinstance(value, str):
         text = value.strip()
         if text.startswith("["):
             try:
                 value = json.loads(text)
-            except ValueError:
+            except (ValueError, RecursionError):
                 raise refused from None
         else:
             m = _PAIR.match(text)
@@ -383,6 +388,9 @@ def load(data_dir) -> list[str]:
         except BehaviourError as exc:
             new[key] = _live[key]
             problems.append(f"{p}: {exc} - keeping {show(_live[key])}")
+        except Exception as exc:              # never stop the Scraper over one line of this file
+            new[key] = _live[key]
+            problems.append(f"{p}: {key}: {exc.__class__.__name__} - keeping {show(_live[key])}")
     _live.update(new)
     return problems
 
@@ -398,7 +406,11 @@ def set_(data_dir, key: str, value, timeout: float | None = None):
         values.pop(key, None)
         if v != setting(key).default:
             values[key] = v
-        _save(p, values)
+        try:
+            _save(p, values)
+        except TypeError as exc:              # a hand-written value render() cannot write back
+            raise BehaviourError(f"{key}: {p} holds something that cannot be written back ({exc}); "
+                                 "`python -m scraper behaviour reset --all` mends it") from None
     return v
 
 
