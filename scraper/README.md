@@ -106,12 +106,19 @@ python -m scraper targets set racing-tips --window none     # "none" clears a fi
 python -m scraper targets set racing-tips --days fri,sat --until 2026-11-30
 python -m scraper targets set racing-tips --days none --until none   # every day, forever
 python -m scraper targets set pp-epl-most --matches '{"max_tabs": 2, "market_tabs": ["Corners"]}'
+python -m scraper targets set pp-epl-most --matches '{"link_re": "-v-", "max_tabs": 3,
+    "market_tabs": ["Corners", "Cards"],
+    "listings": ["https://www.paddypower.com/football/spanish-la-liga",
+                 "https://www.paddypower.com/football/italian-serie-a"]}'
 python -m scraper targets enable racing-tips
 python -m scraper targets disable racing-tips
 python -m scraper targets remove racing-tips
 python -m scraper targets log racing-tips -n 50   # the job's own log, newest last
 ```
 
+- `--matches` replaces the whole `[target.matches]` table: a field it leaves
+  out goes back to its default, so give every field the job uses (as the
+  `listings` example above does).
 - Every change is validated as a whole by `config._target` (sites, hosts,
   clamps) before anything is written. A value the clamps would change is
   refused, not quietly raised: `--every-min 2` is an error, not 5. A refusal
@@ -392,7 +399,15 @@ Targets are of these kinds:
 - **matches**: a league's listing page, e.g. a Paddy competition, whose match
   links are opened up to `max_tabs` at a time. Each match tab clicks the
   market's tabs once, then stays open. A tab that goes quiet is reloaded once,
-  then retired.
+  then retired. `listings` (in `[target.matches]`, at most 8, each on a host
+  allowed for the site, none repeating `url` or each other) adds further
+  competitions' listing pages to the same job (Callum, 12 Nov 2026): each is
+  kept open in its own tab (`<name>:list`, then `<name>:list:1`, ...), loaded
+  and relisted every `relist_min` on its own clock, one load per tick. Their
+  match links are interleaved (the first of each listing, then the second of
+  each, ...), so every competition gets a tab before any gets two;
+  `max_tabs` is for the whole job. A listing tab is parsed like any other of
+  the job's tabs.
 - **page**: one URL kept open, e.g. the Bookie Bashing bet builder. It is
   reloaded every `every_min`, or only when it goes quiet for `stale_min`.
   Its parser may rest it (`rest.py`): the page closes and nothing loads

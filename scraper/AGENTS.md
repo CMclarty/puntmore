@@ -113,8 +113,9 @@ prices are `scraper_prices` files that the Hub posts to Render.
   the config is ONE file: **`targets.toml` on the Hub** (`data/targets.toml`,
   or the file `SCRAPER_TARGETS` names), changed through `targets.py`; nothing
   on Render configures the Scraper. A target is a page, or a
-  competition listing whose match links are opened (in-page tabs, parser,
-  ingest path). The Scraper checks the file once a minute and applies an edit
+  competition listing (and, by `listings`, further competitions' listings in
+  the same job) whose match links are opened (in-page tabs, parser, ingest
+  path). The Scraper checks the file once a minute and applies an edit
   without a restart; a file that will not load is reported and the running
   targets are kept. It writes its state to `data/status.json` once a minute,
   which the Hub reads; it sends Render nothing; its prices go through the Hub.

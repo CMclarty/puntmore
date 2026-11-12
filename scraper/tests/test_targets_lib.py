@@ -389,3 +389,78 @@ def test_cli_targets_log(cli, path):
     assert code == 0 and out.splitlines()[-1].endswith("  line 2")
     cli("remove", "pp")
     assert not joblog.path(path.parent, "pp").exists()
+
+
+# --- [target.matches] listings: one job, several competitions' listing pages ---
+PP_EPL = "https://www.paddypower.com/football/english-premier-league"
+LA_LIGA = "https://www.paddypower.com/football/spanish-la-liga"
+SERIE_A = "https://www.paddypower.com/football/italian-serie-a"
+
+
+def _pp_with(listings):
+    return {"name": "pp-most", "site": "paddypower", "url": PP_EPL, "matches": {"listings": listings}}
+
+
+def test_listings_default_to_none():
+    t = config._target({"name": "m", "site": "paddypower", "url": PP_EPL, "matches": {}})
+    assert t.matches.listings == ()
+
+
+def test_listings_are_read_in_order():
+    t = config._target(_pp_with([LA_LIGA, SERIE_A]))
+    assert t.matches.listings == (LA_LIGA, SERIE_A)
+
+
+@pytest.mark.parametrize("listings, why", [
+    (["https://www.bet365.com/football/la-liga"], "not on an allowed host"),
+    ([LA_LIGA, LA_LIGA], "more than once"),
+    ([PP_EPL], "repeats url"),
+    (LA_LIGA, "must be a list"),
+    ([LA_LIGA, 7], "must be a list"),
+    ([f"https://www.paddypower.com/football/c{i}" for i in range(9)], "at most 8"),
+])
+def test_listings_refused(listings, why):
+    with pytest.raises(ValueError, match=why):
+        config._target(_pp_with(listings))
+
+
+def test_eight_listings_are_allowed():
+    urls = [f"https://www.paddypower.com/football/c{i}" for i in range(8)]
+    assert config._target(_pp_with(urls)).matches.listings == tuple(urls)
+
+
+def test_a_generic_host_listing_is_refused_for_paddy(path):
+    before = path.read_text()
+    with pytest.raises(T.TargetsError, match="not on an allowed host"):
+        T.set(path, "pp", matches={"listings": ["https://tips.example.org/x"]})
+    assert path.read_text() == before
+
+
+def test_listings_round_trip_through_the_file(path):
+    T.set(path, "pp", matches={"max_tabs": 4, "listings": [LA_LIGA, SERIE_A]})
+    assert T.get(path, "pp").matches.listings == (LA_LIGA, SERIE_A)
+    assert f'listings = ["{LA_LIGA}", "{SERIE_A}"]' in path.read_text()
+    assert config.load_targets(path)[0].matches.listings == (LA_LIGA, SERIE_A)
+    text = path.read_text()
+    T.save(path, T.load(path))
+    assert path.read_text() == text                    # no drift
+
+
+def test_cli_set_listings_and_show_them(cli, path):
+    code, out, _ = cli("set", "pp", "--matches", json.dumps({"listings": [LA_LIGA, SERIE_A]}), "--json")
+    assert code == 0 and json.loads(out)["matches"]["listings"] == [LA_LIGA, SERIE_A]
+    assert T.get(path, "pp").matches.listings == (LA_LIGA, SERIE_A)
+    code, out, _ = cli("show", "pp", "--json")
+    assert json.loads(out)["matches"]["listings"] == [LA_LIGA, SERIE_A]
+    code, out, _ = cli("list", "--json")
+    assert code == 0 and json.loads(out) == T.summary(path)    # a list, as JSON gives it back
+    code, out, _ = cli("set", "pp", "--matches", json.dumps({"listings": [LA_LIGA, LA_LIGA]}), "--json")
+    assert code == 2 and "more than once" in json.loads(out)["error"]
+    assert T.get(path, "pp").matches.listings == (LA_LIGA, SERIE_A)
+
+
+def test_a_listings_edit_reopens_the_job():
+    from scraper.runner import reschedule_only
+    old = FULL[0]
+    new = dataclasses.replace(old, matches=dataclasses.replace(old.matches, listings=(LA_LIGA,)))
+    assert not reschedule_only(old, new)

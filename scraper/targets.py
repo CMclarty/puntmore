@@ -78,6 +78,7 @@ def to_mapping(t: Target) -> dict:
     d["days"] = list(t.days)
     if t.matches is not None:
         d["matches"]["market_tabs"] = list(t.matches.market_tabs)
+        d["matches"]["listings"] = list(t.matches.listings)
     return d
 
 
