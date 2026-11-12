@@ -8,6 +8,20 @@
                    It also forgets a failed sign-in (login.py).
   dump <target>    Ask the RUNNING service to save that target's open page(s)
                    (HTML + screenshot) to data/dumps/ - no extra page load.
+  look <job> '<steps as JSON>'
+                   Ask the RUNNING service to take a few plain steps on that
+                   job's open page, then save it as dump does (to
+                   data/dumps/<job>-<time>/): how a page state that needs a
+                   click is learned. Steps, each a one-key object, at most 12:
+                   {"click": "<text>"}, {"select": {"field": "<label>",
+                   "option": "<text>"}} ("nth": 1 for the second block,
+                   "prefix": true; or "has": "<an option>" in place of
+                   "field"), {"type": {"field": "<label>", "text": "<text>"}},
+                   {"wait_ms": n} (at most 5000), {"dump": "<note>"} (save
+                   now too). Each step is a line in the job's log; a step
+                   that fails stops it, the page still saved. Nothing in it
+                   loads a page. Not for Paddy Power jobs. --json for machine
+                   output. (scraper/look.py)
   wake <target>    Ask the RUNNING service to end that job's rest (a parser
                    that found nothing to do rested it: rest.py) - it runs on
                    its next tick.
@@ -401,6 +415,59 @@ def targets_cmd(argv):
             print("saved; the running Scraper picks it up within 60 s.")
 
 
+def look_cmd(s, argv):
+    """`python -m scraper look <job> '<steps as JSON>' [--json]`: the steps'
+    shape checked (look.parse_steps), a Paddy job refused, then the request
+    written atomically to data/requests/look-<job> for the running service
+    (Runner._look). A refusal exits 2 with the reason."""
+    import argparse
+    import json
+    import tempfile
+    from . import look
+    from .sinks import _safe
+    p = argparse.ArgumentParser(
+        prog="python -m scraper look",
+        description="Ask the running service to take a few plain steps on a job's open page "
+                    "and save it (html, url, full-page screenshot) to data/dumps/.")
+    p.add_argument("job")
+    p.add_argument("steps", help='a JSON list, e.g. \'[{"click": "Show/Hide Presets"}, '
+                                 '{"wait_ms": 1000}]\' (scraper/look.py)')
+    p.add_argument("--json", action="store_true", help="machine output")
+    args = p.parse_args(argv)
+
+    def refuse(why):
+        if args.json:
+            print(json.dumps({"error": why}))
+        else:
+            print(f"error: {why}", file=sys.stderr)
+        sys.exit(2)
+    target = next((t for t in s.targets if t.name == args.job), None)
+    if target is None:
+        refuse(f"no such target {args.job!r} (have {', '.join(t.name for t in s.targets) or 'none'})")
+    if look.refused(target.site):
+        refuse(look.refused(target.site))
+    try:
+        steps = look.parse_steps(args.steps)
+    except look.LookError as exc:
+        refuse(str(exc))
+    req = s.data_dir / "requests"
+    req.mkdir(parents=True, exist_ok=True)
+    final = req / f"look-{args.job}"
+    # Atomic: the service globs look-*, so the half-written file is a dot file.
+    with tempfile.NamedTemporaryFile("w", dir=req, prefix=".look-", delete=False,
+                                     encoding="utf-8") as f:
+        json.dump(steps, f)
+    os.replace(f.name, final)
+    dumps = s.data_dir / "dumps" / f"{_safe(args.job)}-<YYYYmmdd-HHMMSS>"
+    if args.json:
+        print(json.dumps({"job": args.job, "steps": steps, "request": str(final),
+                          "dumps": str(dumps)}, indent=1))
+    else:
+        print(f"asked the service to look at {args.job} ({len(steps)} step(s)) - the page is "
+              f"saved to {dumps}/ within ~15 s; each step is a line in its log "
+              f"(python -m scraper targets log {args.job})")
+
+
 def _data_dir():
     return pathlib.Path(os.environ.get("SCRAPER_DATA_DIR", config.HERE / "data"))
 
@@ -544,6 +611,8 @@ def main(argv=None):
         req.mkdir(parents=True, exist_ok=True)
         (req / f"dump-{rest[0]}").touch()
         print(f"asked the service to dump {rest[0]} - see data/dumps/ within ~15 s")
+    elif cmd == "look":
+        look_cmd(s, rest)
     elif cmd == "wake":
         if not rest or rest[0] not in {t.name for t in s.targets}:
             sys.exit(f"wake which target? {', '.join(t.name for t in s.targets)}")

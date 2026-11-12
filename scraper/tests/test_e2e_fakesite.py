@@ -634,7 +634,8 @@ def test_screenshot_of_a_tab_that_is_not_in_front(tmp_path):
             # Bounded: a picture that will not come is an error in seconds, never a wait for ever.
             import inspect
             src = inspect.getsource(browser.screenshot)
-            assert "bring_to_front()" in src and "timeout=SCREENSHOT_TIMEOUT_MS" in src
+            assert "bring_to_front()" in src and "timeout=timeout)" in src
+            assert "min(timeout_ms or SCREENSHOT_TIMEOUT_MS, SCREENSHOT_TIMEOUT_MS)" in src
             assert 0 < browser.SCREENSHOT_TIMEOUT_MS <= 15_000 and "new_cdp_session" not in src
         finally:
             ctx.close()

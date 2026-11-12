@@ -188,7 +188,7 @@ python -m scraper targets log racing-tips -n 50   # the job's own log, newest la
 - Each job keeps its own log, `SCRAPER_DATA_DIR/logs/<name>.log`
   (`joblog.py`): every line the runner prints about that job (window and
   days, kick-off sweep, load and parser failures, a `min_rows` breach and
-  its recovery, market tabs, retired match tabs, dumps, signing in) and its
+  its recovery, market tabs, retired match tabs, dumps, each step of a look, signing in) and its
   deliveries ("3 row(s) handed to the Hub (hub:tips), 2 left out"): a
   delivery is logged when what was handed or left out changes, else at most
   every 10 min. A block of its site is a line in every job of that site,
@@ -340,8 +340,65 @@ export SCRAPER_DATA_DIR=/opt/puntmore-scraper/data
 ~/.venvs/puntmore/bin/python -m scraper status
 ~/.venvs/puntmore/bin/python -m scraper selfcheck   # what a site sees, WebGL renderer included
 ~/.venvs/puntmore/bin/python -m scraper dump bb-saves
+~/.venvs/puntmore/bin/python -m scraper look bb-look '[{"click": "Show/Hide Presets"}]'   # steps, then saved (below)
 ~/.venvs/puntmore/bin/python -m scraper wake bb-saves   # end a job's rest (rest.py)
 ~/.venvs/puntmore/bin/python -m scraper resume paddypower
+```
+
+### Looking at a page: `look`
+Parsers are written only from real saved pages, and some states of a page need
+a click first (a panel opened, a preset loaded). `dump <job>` saves a job's
+open page as it is; `look <job> '<steps as JSON>'` first takes a few plain
+steps on it, then saves it the same way (html, url, a full-page screenshot, in
+`data/dumps/<job>-<time>/`; `scraper/look.py`). It asks the running service,
+which answers on its next tick (~15 s). The steps, in order, each a one-key
+object, at most 12:
+
+- `{"click": "<text>"}`: the first visible element whose own text is exactly
+  that (buttons, then links, then any element; case as given), clicked with
+  `browser.click` (which does not press when the page moved under the pointer).
+- `{"select": {"field": "<label>", "option": "<text>"}}`: the `<select>` in
+  the builder field whose button is `<label>`, set to the option whose text is
+  `<text>`; `"prefix": true` takes the first option starting with it, `"nth": 1`
+  the field in the second block. `{"select": {"has": "<an option's text>",
+  "option": "<text>"}}` picks the select that holds that option instead (the
+  stat chain's selects have no button).
+- `{"type": {"field": "<label>", "text": "<text>"}}`: the input in that field,
+  cleared and typed.
+- `{"wait_ms": n}`: at most 5000.
+- `{"dump": "<note>"}`: save the page now too, so one look can keep several
+  states (`1-<note>.*`, ..., then `<n>-end.*`).
+
+Every step is a line in the job's log (`look: clicked "Show/Hide Presets"`).
+A step that cannot be done stops the look and says which and why
+(`look: step 3 of 6 (...) failed: no visible element whose text is "..." -
+stopped`); the page is still saved (`<n>-stopped.*`). Nothing in a look loads
+a page: if a step changes the page's url, the look stops, says so, and the
+change is counted against the site's budget as a load. Each Playwright call
+in it has at most 8 s, so a look never holds the loop for long. The command
+checks the steps' shape before it asks (a refusal exits 2 with the reason;
+`--json` for machine output). **Not for Paddy Power jobs**, at the command
+line or in the service: the Scraper clicks nothing there but a cookie banner
+and market tabs.
+
+A worked example: the bet builder's presets panel, which shows once a game is
+chosen. The builder is kept up by a `bb_builder` job (a second Bookie Bashing
+page, its loads counted in Bookie Bashing's budget; a new Bookie Bashing job
+needs the register's leave, `docs/decisions.md`, Scraping conduct):
+
+```sh
+python -m scraper targets add --name bb-look --site bookiebashing \
+    --url https://www.bookiebashing.net/tools/betbuilder/ --parser bb_builder
+python -m scraper look bb-look '[
+  {"select": {"field": "Competition", "option": "English Premier League", "prefix": true}},
+  {"wait_ms": 1000},
+  {"select": {"field": "Game(s)", "option": "Arsenal v", "prefix": true}},
+  {"wait_ms": 1000},
+  {"click": "Show/Hide Presets"},
+  {"wait_ms": 1500},
+  {"dump": "presets open"}
+]'
+python -m scraper targets log bb-look -n 12      # one line a step, then "look: saved data/dumps/bb-look-..."
 ```
 
 ## Running in Docker (a box with no screen)
@@ -391,6 +448,7 @@ next read finds it logged in, and you get a "clear again" alert.
 docker logs -f puntmore-scraper
 docker exec puntmore-scraper python -m scraper status          # budget, cool-offs, each target, heartbeat
 docker exec puntmore-scraper python -m scraper dump bb-saves    # save the open page(s) to data/dumps/
+docker exec puntmore-scraper python -m scraper look bb-look '[{"click": "Show/Hide Presets"}]'   # steps, then saved
 docker exec puntmore-scraper python -m scraper wake bb-saves    # end a job's rest (rest.py)
 docker exec puntmore-scraper python -m scraper resume paddypower
 docker exec puntmore-scraper python -m scraper check            # load targets.toml and list the targets

@@ -329,7 +329,7 @@ _UNDER_POINTER = """(el, a) => {
 _MOVED_PX = 2
 
 
-def screenshot(page, path, full_page=False) -> None:
+def screenshot(page, path, full_page=False, timeout_ms=None) -> None:
     """Save a PNG of the page: bring its tab to the front, then take the
     picture with a time limit. Chrome only draws the tab in front, so a
     picture of a tab behind another waits for a frame that never comes:
@@ -339,9 +339,10 @@ def screenshot(page, path, full_page=False) -> None:
     12 Nov 2026; in front, both take a tenth of a second). On its own screen
     a tab coming forward disturbs nobody. `full_page` takes the whole
     document, not just what the window shows. Raises if no picture comes in
-    SCREENSHOT_TIMEOUT_MS."""
+    `timeout_ms` (default and most SCREENSHOT_TIMEOUT_MS; a look gives 8 s)."""
     page.bring_to_front()
-    page.screenshot(path=str(path), full_page=full_page, timeout=SCREENSHOT_TIMEOUT_MS)
+    timeout = min(timeout_ms or SCREENSHOT_TIMEOUT_MS, SCREENSHOT_TIMEOUT_MS)   # only ever shorter
+    page.screenshot(path=str(path), full_page=full_page, timeout=timeout)
 
 
 SCREENSHOT_TIMEOUT_MS = 10_000
