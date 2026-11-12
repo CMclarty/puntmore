@@ -59,6 +59,9 @@ prices are `scraper_prices` files that the Hub posts to Render.
 - `ids.py` - the one tip id, minted here when rows reach the Hub sink (a copy
   of `hub/puntmore_hub/ids.py`; a test in each suite pins the same vector).
 - `parsers/` - one module per page kind; rows only from what the page shows.
+  `bb_builder` keeps the Bookie Bashing bet builder up and reads nothing
+  (`bb_saves.bring_up`, shared): a page to `look` at, the start of the
+  preset-driven bet-builder job.
 - `targets.py` - the only writer of targets.toml (CLI, Console, HubAI).
 - `config.py` - settings and target validation (`_target`, the clamps).
 - `behaviour.py` - how the Scraper behaves, as one catalogue (`SETTINGS`): each

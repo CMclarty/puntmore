@@ -12,8 +12,10 @@ Parsers are written ONLY from captured samples (data/samples/) or dumps
 NotImplementedError is reported once ("capturing only") and its target keeps
 capturing, which is how the samples to write it get collected.
 """
+from .bb_builder import bb_builder
 from .bb_saves import bb_saves
 from .example_tipster import example_tipster
 from .pp_most import pp_most
 
-PARSERS = {"bb_saves": bb_saves, "pp_most": pp_most, "example_tipster": example_tipster}
+PARSERS = {"bb_saves": bb_saves, "bb_builder": bb_builder, "pp_most": pp_most,
+           "example_tipster": example_tipster}

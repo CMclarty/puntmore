@@ -212,28 +212,39 @@ def _type_line(page, line: float):
     page.keyboard.press("Tab")
 
 
-def _ensure_ready(page, state: dict, now: float):
-    """Bring the builder up (Update Data -> Standard View) and onto the BB
-    Player/Team Stats section. BB xSaves is chosen later (_ensure_xsaves), only
-    when there is a game to read."""
+def bring_up(page, state: dict, now: float) -> bool:
+    """The builder up: "Update Data" until "Standard View" shows, again every
+    bb.update_every_s (state["updated"]: when it last was), and a page that
+    is not the builder at all said at once. True when the data was pulled on
+    this call. Shared by every Bookie Bashing builder job (bb_saves,
+    bb_builder)."""
     standard = page.get_by_text("Standard View", exact=True).first
     if page.get_by_text("Update Data", exact=True).count() == 0:
         # Not the builder at all: logged out, Bookie Bashing sends the tool's
         # url to its "How it works" page. Said at once, not after a timeout.
         raise BuilderNotReady("not the bet builder page - logged out of Bookie Bashing?")
-    if not standard.is_visible() or now - state.get("updated", 0) >= behaviour.get("bb.update_every_s"):
-        # One click does not always bring it up (a data pull that failed shows
-        # as a red count by the title); a second usually does.
-        tries = behaviour.get("bb.update_tries")
-        for attempt in range(tries):
-            page.get_by_text("Update Data", exact=True).first.click()
-            try:
-                standard.wait_for(timeout=READY_TIMEOUT_MS)
-                break
-            except Exception:
-                if attempt == tries - 1:
-                    raise BuilderNotReady("the builder did not render after Update Data")
-        state["updated"] = now
+    if standard.is_visible() and now - state.get("updated", 0) < behaviour.get("bb.update_every_s"):
+        return False
+    # One click does not always bring it up (a data pull that failed shows
+    # as a red count by the title); a second usually does.
+    tries = behaviour.get("bb.update_tries")
+    for attempt in range(tries):
+        page.get_by_text("Update Data", exact=True).first.click()
+        try:
+            standard.wait_for(timeout=READY_TIMEOUT_MS)
+            break
+        except Exception:
+            if attempt == tries - 1:
+                raise BuilderNotReady("the builder did not render after Update Data")
+    state["updated"] = now
+    return True
+
+
+def _ensure_ready(page, state: dict, now: float):
+    """Bring the builder up (bring_up) and onto the BB Player/Team Stats
+    section. BB xSaves is chosen later (_ensure_xsaves), only when there is a
+    game to read."""
+    if bring_up(page, state, now):
         state["queue"] = []                 # the games may have changed
         state["section_set"] = False
         state["stat_set"] = False
@@ -390,10 +401,12 @@ _STATE: dict[int, dict] = {}
 _XSAVES = {"pulls": 0, "last": 0.0}
 
 
-def _state(page) -> dict:
-    for key in [k for k, st in _STATE.items() if st["page"] is not page and st["page"].is_closed()]:
-        del _STATE[key]
-    return _STATE.setdefault(id(page), {"page": page})
+def _state(page, store: dict | None = None) -> dict:
+    """The page's entry in `store` (default _STATE); closed pages' dropped."""
+    store = _STATE if store is None else store
+    for key in [k for k, st in store.items() if st["page"] is not page and st["page"].is_closed()]:
+        del store[key]
+    return store.setdefault(id(page), {"page": page})
 
 
 def bb_saves(page, capture) -> list[dict]:

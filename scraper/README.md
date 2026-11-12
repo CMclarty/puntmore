@@ -28,6 +28,12 @@ kicking off within 48 hours (`games.within_h`, below; Callum, 11 and 12 Nov
 until 48 hours before the next game it saw, or a day (`games.look_again_s`),
 whichever is sooner. `status` shows it `paused` with the reason; `wake
 bb-saves` ends the rest by hand.
+`bb_builder` only brings the same Bet Builder up and keeps it up ("Update
+Data" until "Standard View", again every `bb.update_every_s`, the logged-out
+check: `bb_saves`' own code, `bring_up`) and returns no rows; it never applies
+the 48-hour window and never rests. A job with it exists so the builder can be
+looked at with `look` (below). It is the start of the general preset-driven
+bet-builder job (`docs/superpowers/specs/2026-11-12-wop-check-design.md`).
 `pp_most` reads Paddy's most-corners / most-cards three-ways (written from
 the 29 Oct 2026 capture; see its docstring).
 
