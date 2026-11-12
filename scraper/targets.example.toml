@@ -54,9 +54,8 @@
 #   until      "YYYY-MM-DD", the last day it runs; after it the target is
 #              "finished" and loads nothing. Leave out to run forever
 
-# The single named exception (docs/decisions.md, "Scraping conduct"): this one
-# BB target predates the rule that BB is never automated, and stays
-# (Callum, 11 Nov 2026).
+# A Bookie Bashing job (docs/decisions.md, "Scraping conduct": the Scraper may
+# run them; Callum, 12 Nov 2026). This one reads Paddy's saves fairs.
 [[target]]
 name = "bb-saves"
 site = "bookiebashing"
