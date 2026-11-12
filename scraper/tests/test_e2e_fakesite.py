@@ -506,10 +506,10 @@ def test_selfcheck_reports_what_a_site_sees(tmp_path):
 
 
 def test_screenshot_of_a_tab_that_is_not_in_front(tmp_path):
-    """browser.screenshot asks Chrome for the picture directly, so a tab behind
-    another is photographed without being raised (on the Scraper's own screen
-    Playwright's page.screenshot waited 30 s on such a tab and gave up,
-    12 Nov 2026)."""
+    """browser.screenshot brings the tab forward and takes the picture with a
+    time limit: a tab behind another is never drawn, and a picture of it
+    waited 30 s (Playwright) or for ever (a direct capture) on the Scraper's
+    own screen, 12 Nov 2026."""
     from playwright.sync_api import sync_playwright
     from scraper import browser
     s = config.Settings(data_dir=tmp_path, profile_dir=tmp_path / "profile", channel=None,
@@ -530,6 +530,11 @@ def test_screenshot_of_a_tab_that_is_not_in_front(tmp_path):
                 sizes[name] = int.from_bytes(raw[20:24], "big")        # the PNG's height
             assert sizes["full"] >= 3000 > sizes["view"]
             assert front.inner_text("p") == "in front"
+            # Bounded: a picture that will not come is an error in seconds, never a wait for ever.
+            import inspect
+            src = inspect.getsource(browser.screenshot)
+            assert "bring_to_front()" in src and "timeout=SCREENSHOT_TIMEOUT_MS" in src
+            assert 0 < browser.SCREENSHOT_TIMEOUT_MS <= 15_000 and "new_cdp_session" not in src
         finally:
             ctx.close()
 
