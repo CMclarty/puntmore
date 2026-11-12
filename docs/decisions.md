@@ -258,7 +258,7 @@ names and no other; older names appear only in `docs/retired.md`.
   attempt waits for a person, a challenge is never answered. (Callum, 11 Nov
   2026: "bb will need to be able to login")
 - **The Scraper reads only games kicking off within 48 hours.** One live setting
-  (`games.within_h`; a job may carry its own `within_h`, 0 for no limit) covers every job
+  (`games.within_h`; a listing job may carry its own `within_h`, 0 for no limit; `bb-saves` follows the main setting only) covers every job
   that reads games: `bb-saves`, and a listing job, which opens a match only inside that
   window, reading kick-off times off the listing. With none that near a job rests: its pages
   are closed and nothing loads until 48 hours before the next game it saw, or a day,
