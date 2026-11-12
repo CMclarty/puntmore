@@ -40,6 +40,9 @@ _PP_MARKET_LIST = r"/smspp/(event-page|pub)/v\d+"
 # Paddy prices its betslip at every page load; the response lists what is in it
 # ("betCombinations"). Seen on 12 Nov 2026 with a selection nobody chose in it.
 _PP_BETSLIP = r"/transactional/v\d+/implyBets"
+# A match page prices its own "Most Popular Bet Builders" cards with the same
+# call, marked pricePolicy=SUGGESTED (seen 12 Nov 2026): not the betslip.
+_PP_BETSLIP_NOT = r"[?&]pricePolicy=SUGGESTED"
 
 
 @dataclass(frozen=True)
@@ -49,12 +52,14 @@ class Site:
                                 # False: back off and retry on its own
     market_list: str | None = None   # URL regex: a market tab's markets arrived
     betslip: str | None = None       # URL regex: the page pricing its betslip (never meant to hold anything)
+    betslip_not: str | None = None   # URL regex: the same call when it is NOT the betslip
 
 
 # The keys are the sites; behaviour.py has the same three under "Limits, per site".
 SITES = {
     "paddypower": Site(needs_login=False, block_means_cooloff=True,
-                       market_list=_PP_MARKET_LIST, betslip=_PP_BETSLIP),
+                       market_list=_PP_MARKET_LIST, betslip=_PP_BETSLIP,
+                       betslip_not=_PP_BETSLIP_NOT),
     "bookiebashing": Site(needs_login=True, block_means_cooloff=False),
     "generic": Site(needs_login=False, block_means_cooloff=True),
 }

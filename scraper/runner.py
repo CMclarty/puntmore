@@ -531,7 +531,7 @@ class Runner:
             last = self.betslip_seen.get(key, 0.0)
             for ts, _kind, url, text in tab.capture.since(last):
                 self.betslip_seen[key] = max(self.betslip_seen.get(key, 0.0), ts + 1e-6)
-                if not re.search(pattern, url or ""):
+                if not re.search(pattern, url or "") or re.search(SITES[site].betslip_not or r"$^", url or ""):
                     continue
                 try:
                     body = json.loads(text)
@@ -540,8 +540,8 @@ class Runner:
                     held = 0
                 if held:
                     self.betslip_said.add(site)
-                    msg = (f"the betslip is not empty ({held} selection{'s' if held != 1 else ''}) - "
-                           "nobody chose it; empty it on the Scraper's screen")
+                    msg = ("the betslip is not empty - nobody chose what is in it; "
+                           "empty it on the Scraper's screen")
                     self.alerts.send(f"{site}: {msg}")
                     joblog.write(self.s.data_dir, tab.target.name, msg)
                     break

@@ -371,7 +371,7 @@ def test_a_selection_in_paddys_betslip_is_alerted_once(tmp_path):
     tab.capture.rows.append((60.0, "http", SLIP, json.dumps({"betCombinations": [{"betType": "SINGLE"}]})))
     r._watch_betslip(70.0)
     lines = (tmp_path / "alerts.log").read_text().splitlines()
-    assert len(lines) == 1 and "paddypower: the betslip is not empty (1 selection)" in lines[0]
+    assert len(lines) == 1 and "paddypower: the betslip is not empty" in lines[0]
     assert "betslip is not empty" in joblog.read(tmp_path, "pp", 5)[-1]["msg"]
 
 
@@ -381,3 +381,19 @@ def test_the_betslip_watch_never_raises_on_a_payload_it_cannot_read(tmp_path):
     r.tabs["pp"] = SimpleNamespace(target=t, url=t.url, capture=_Seen([(1.0, "http", SLIP, "not json"), (2.0, "http", SLIP, "[1, 2]")]))
     r._watch_betslip(5.0)
     assert not (tmp_path / "alerts.log").exists()
+
+
+def test_the_pages_own_featured_bet_builders_are_not_the_betslip(tmp_path):
+    """A Paddy match page prices its "Most Popular Bet Builders" cards with the
+    same call (implyBets), marked pricePolicy=SUGGESTED: that is not the
+    betslip, and it alerted falsely on 12 Nov 2026 (England v Croatia)."""
+    t = _job()
+    r = _runner(tmp_path, [t])
+    body = json.dumps({"betCombinations": [{"betType": "FIVEFOLD", "isSGM": True}] * 5})
+    r.tabs["pp"] = SimpleNamespace(target=t, url=t.url, capture=_Seen([
+        (1.0, "http", SLIP + "?scope=MULTIPLES&pricePolicy=SUGGESTED&_ak=x", body)]))
+    r._watch_betslip(5.0)
+    assert not (tmp_path / "alerts.log").exists()
+    r.tabs["pp"].capture.rows.append((6.0, "http", SLIP + "?_ak=x", json.dumps({"betCombinations": [{"betType": "SINGLE"}]})))
+    r._watch_betslip(9.0)
+    assert "the betslip is not empty" in (tmp_path / "alerts.log").read_text()
