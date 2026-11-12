@@ -298,6 +298,7 @@ let removing = null;         // name
 // Kept across re-renders like an open edit form, re-read on every poll of the tab (refreshLog),
 // dropped when the job leaves the file.
 const fullLogs = new Map();
+const openJobs = new Set();  // job names whose row is opened ("details")
 const logBusy = new Set();   // job names with a full-log request in flight
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -317,28 +318,34 @@ function logText(lines) {
   }).join("\n");
 }
 
+// One row per job: its name, state and what it is doing now, with when it last read rows and how
+// many it has sent. "details" opens the rest (site, url, schedule, log, actions) and stays open across
+// re-renders (openJobs); a full log, an edit or a remove of that job keeps it open too.
 function jobTile(r, skew, off) {
   const v = r.view || {};
   const tag = v.state ? el("span", { class: "st st-" + (TARGET_STATE[v.state] || "warn"), text: v.state })
     : (r.enabled ? el("span", { class: "st st-unknown", text: "not reported" }) : el("span", { class: "st st-off", text: "disabled" }));
-  const said = [v.state, v.detail].filter((x) => x).join(" · ");
   const full = fullLogs.get(r.name);
+  const open = openJobs.has(r.name) || !!full;
   return el("article", { class: "job" + (r.enabled ? "" : " muted") },
     el("header", {},
-      el("button", { class: "link", type: "button", text: show(r.name), onclick: () => showLatest(r.name) }), tag),
-    el("p", { text: `${show(r.site)} · ${show(r.url)}` }),
-    el("p", { text: show(v.schedule) }),
-    said ? el("p", { text: said }) : null,
-    el("p", {}, "last load ", when(v.last_load, skew), " · last read ", when(v.last_ok, skew), " · rows sent ", show(v.rows_posted)),
-    el("pre", { class: "log", "data-job": r.name, text: logText(full && full.lines ? full.lines : v.log) }),
-    el("span", { class: "row-actions" },
-      el("button", { type: "button", class: "small", text: full ? "fewer lines" : "all lines",
-        "aria-expanded": full ? "true" : "false", onclick: () => toggleLog(r.name) }),
-      el("button", { type: "button", class: "small", disabled: off, text: r.enabled ? "disable" : "enable",
-        onclick: () => targetAct(`${encodeURIComponent(r.name)}/${r.enabled ? "disable" : "enable"}`, {},
-          `${r.enabled ? "Disable" : "Enable"} ${r.name}`) }),
-      el("button", { type: "button", class: "small", disabled: off, text: "edit", onclick: () => openEdit(r) }),
-      el("button", { type: "button", class: "small", disabled: off, text: "remove", onclick: () => openRemove(r.name) })));
+      el("button", { class: "link", type: "button", text: show(r.name), onclick: () => showLatest(r.name) }), tag,
+      el("p", { class: "job-doing", text: v.detail || (r.enabled ? "" : "not running") }),
+      el("span", { class: "job-read" }, "last read ", when(v.last_ok, skew), " · rows sent ", show(v.rows_posted)),
+      el("button", { type: "button", class: "small", text: "details", "aria-expanded": open ? "true" : "false",
+        onclick: () => { if (openJobs.has(r.name)) openJobs.delete(r.name); else openJobs.add(r.name); redrawTargets(); } })),
+    el("div", { class: "job-more", hidden: !open },
+      el("p", { text: `${show(r.site)} · ${show(r.url)}` }),
+      el("p", {}, show(v.schedule), " · last load ", when(v.last_load, skew)),
+      el("pre", { class: "log", "data-job": r.name, text: logText(full && full.lines ? full.lines : v.log) }),
+      el("span", { class: "row-actions" },
+        el("button", { type: "button", class: "small", text: full ? "fewer lines" : "all lines",
+          "aria-expanded": full ? "true" : "false", onclick: () => toggleLog(r.name) }),
+        el("button", { type: "button", class: "small", disabled: off, text: r.enabled ? "disable" : "enable",
+          onclick: () => targetAct(`${encodeURIComponent(r.name)}/${r.enabled ? "disable" : "enable"}`, {},
+            `${r.enabled ? "Disable" : "Enable"} ${r.name}`) }),
+        el("button", { type: "button", class: "small", disabled: off, text: "edit", onclick: () => openEdit(r) }),
+        el("button", { type: "button", class: "small", disabled: off, text: "remove", onclick: () => openRemove(r.name) }))));
 }
 
 function renderTargets(sec, d, skew) {
@@ -350,6 +357,7 @@ function renderTargets(sec, d, skew) {
   else if (c.exists === false) empty = "No targets file at " + (c.file || "targets.toml") + " yet. Add the first job below.";
   const named = new Set(rows.map((r) => r.name));
   for (const name of fullLogs.keys()) if (!named.has(name)) fullLogs.delete(name);
+  for (const name of openJobs) if (!named.has(name)) openJobs.delete(name);
   for (const name of fullLogs.keys()) refreshLog(name);
   // Re-rendering replaces each log pre: keep where each one was scrolled to.
   const scrolled = new Map([...sec.querySelectorAll('[data-slot="config"] pre[data-job]')].map((p) => [p.dataset.job, p.scrollTop]));
@@ -501,8 +509,18 @@ function wireTargets() {
     body.days = fieldValue(add.elements.days);
     if (await targetAct("add", body, "Add " + (body.name || "?"), add)) {
       add.reset();
+      showAdd(false);
     }
   });
+  // The add form is closed until asked for.
+  const addOpen = document.getElementById("target-add-open");
+  const showAdd = (on) => {
+    add.hidden = !on;
+    addOpen.setAttribute("aria-expanded", on ? "true" : "false");
+    if (on) { add.scrollIntoView({ behavior: "smooth", block: "nearest" }); add.elements.name.focus(); }
+  };
+  addOpen.addEventListener("click", () => showAdd(add.hidden));
+  document.getElementById("target-add-cancel").addEventListener("click", () => { clearErrors(add); showAdd(false); });
   const edit = document.getElementById("target-edit-form");
   edit.addEventListener("submit", async (ev) => {
     ev.preventDefault();

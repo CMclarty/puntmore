@@ -305,7 +305,10 @@ names and no other; older names appear only in `docs/retired.md`.
   HubAI's scraper-manager can add, change, pause and remove any of them.
   (Callum, 11 Nov 2026: "each job is a separate, you know, tile or separate
   entry with a target, a duration, logs, and then Hermes can manually change
-  or add any of these")
+  or add any of these") Each job shows as one row saying what it is doing
+  now; its target, schedule, log and actions open from the row, and the form
+  that adds a job opens from a button. (Callum, 12 Nov 2026: "simplify the
+  scraper console page to make this easier to see")
 - **The Scraper service runs as the user service `puntmore-scraper` on its
   own virtual screen** (`puntmore-screen`), data in `/opt/puntmore-scraper/data`, updated by the same
   timer. (5 Nov 2026, Callum)
