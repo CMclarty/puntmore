@@ -337,3 +337,47 @@ def test_a_fetch_job_is_left_to_min_rows(tmp_path, parser):
     random.seed(1)
     _run(r, time.time(), 180)
     assert _no_rows(tmp_path) == []
+
+
+# --- the betslip tripwire (12 Nov 2026) ---------------------------------------------
+class _Seen:
+    """A tab's capture holding what its page received."""
+    def __init__(self, rows):
+        self.rows = rows
+
+    def since(self, ts):
+        return [r for r in self.rows if r[0] >= ts]
+
+
+SLIP = "https://www.paddypower.com/www/sports/fixedodds/transactional/v1/implyBets"
+
+
+def test_a_selection_in_paddys_betslip_is_alerted_once(tmp_path):
+    """Paddy's page prices its betslip at every load (implyBets). A slip with
+    a selection in it is something the Scraper never means to have: said once
+    per run, in the alerts and the job's log."""
+    t = _job()
+    r = _runner(tmp_path, [t])
+    tab = SimpleNamespace(target=t, url=t.url, capture=_Seen([
+        (10.0, "http", SLIP, json.dumps({"betCombinations": []})),                     # an empty slip: nothing
+        (11.0, "http", PP + "/other", "{}"),
+    ]))
+    r.tabs["pp"] = tab
+    r._watch_betslip(20.0)
+    assert not (tmp_path / "alerts.log").exists()
+    tab.capture.rows.append((30.0, "http", SLIP, json.dumps({"betCombinations": [{"betType": "SINGLE"}]})))
+    r._watch_betslip(40.0)
+    r._watch_betslip(50.0)
+    tab.capture.rows.append((60.0, "http", SLIP, json.dumps({"betCombinations": [{"betType": "SINGLE"}]})))
+    r._watch_betslip(70.0)
+    lines = (tmp_path / "alerts.log").read_text().splitlines()
+    assert len(lines) == 1 and "paddypower: the betslip is not empty (1 selection)" in lines[0]
+    assert "betslip is not empty" in joblog.read(tmp_path, "pp", 5)[-1]["msg"]
+
+
+def test_the_betslip_watch_never_raises_on_a_payload_it_cannot_read(tmp_path):
+    t = _job()
+    r = _runner(tmp_path, [t])
+    r.tabs["pp"] = SimpleNamespace(target=t, url=t.url, capture=_Seen([(1.0, "http", SLIP, "not json"), (2.0, "http", SLIP, "[1, 2]")]))
+    r._watch_betslip(5.0)
+    assert not (tmp_path / "alerts.log").exists()

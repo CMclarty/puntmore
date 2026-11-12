@@ -167,6 +167,8 @@ class Runner:
         self.rows_posted: dict[str, int] = {}
         self.retired_targets: dict[str, config.Target] = {}   # removed by a config change
         self.snapshots: set = set()                    # (target, why) saved this run
+        self.betslip_seen: dict[str, float] = {}       # tab key -> newest payload looked at (_watch_betslip)
+        self.betslip_said: set = set()                 # sites whose non-empty betslip was alerted this run
         (settings.data_dir / "latest").mkdir(parents=True, exist_ok=True)
         (settings.data_dir / "requests").mkdir(parents=True, exist_ok=True)
         # Fetch targets (Finder's sources): next run per target, and the health
@@ -506,9 +508,43 @@ class Runner:
             self._watch_rows(live, now)
         except Exception as exc:                # an alert's bookkeeping never ends a tick
             print(f"job alerts: {exc.__class__.__name__}: {exc}", flush=True)
+        try:
+            self._watch_betslip(now)
+        except Exception as exc:
+            print(f"betslip watch: {exc.__class__.__name__}: {exc}", flush=True)
         self._requests()
         self._heartbeat(now)
         self._report(now)
+
+    def _watch_betslip(self, now):
+        """A site's betslip is never meant to hold anything (sites.py
+        `betslip`): when a page of that site is seen pricing a slip with a
+        selection in it, say so once per run - in the alerts and that job's
+        log. The Scraper clicks only a cookie banner and a game's market tabs
+        (browser.click, which checks what is under the pointer), so a
+        selection means a click landed where it should not have."""
+        for key, tab in list(self.tabs.items()):
+            site = tab.target.site
+            pattern = SITES[site].betslip
+            if not pattern or site in self.betslip_said or tab.capture is None:
+                continue
+            last = self.betslip_seen.get(key, 0.0)
+            for ts, _kind, url, text in tab.capture.since(last):
+                self.betslip_seen[key] = max(self.betslip_seen.get(key, 0.0), ts + 1e-6)
+                if not re.search(pattern, url or ""):
+                    continue
+                try:
+                    body = json.loads(text)
+                    held = len(body.get("betCombinations") or []) if isinstance(body, dict) else 0
+                except (TypeError, ValueError):
+                    held = 0
+                if held:
+                    self.betslip_said.add(site)
+                    msg = (f"the betslip is not empty ({held} selection{'s' if held != 1 else ''}) - "
+                           "nobody chose it; empty it on the Scraper's screen")
+                    self.alerts.send(f"{site}: {msg}")
+                    joblog.write(self.s.data_dir, tab.target.name, msg)
+                    break
 
     def _watch_rows(self, live, now):
         """The no-rows clock (standing.py) runs for a job with a `post` route
