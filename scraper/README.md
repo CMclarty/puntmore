@@ -104,12 +104,19 @@ python -m scraper targets set racing-tips --window none     # "none" clears a fi
 python -m scraper targets set racing-tips --days fri,sat --until 2026-11-30
 python -m scraper targets set racing-tips --days none --until none   # every day, forever
 python -m scraper targets set pp-epl-most --matches '{"max_tabs": 2, "market_tabs": ["Corners"]}'
+python -m scraper targets set pp-epl-most --matches '{"link_re": "-v-", "max_tabs": 3,
+    "market_tabs": ["Corners", "Cards"],
+    "listings": ["https://www.paddypower.com/football/spanish-la-liga",
+                 "https://www.paddypower.com/football/italian-serie-a"]}'
 python -m scraper targets enable racing-tips
 python -m scraper targets disable racing-tips
 python -m scraper targets remove racing-tips
 python -m scraper targets log racing-tips -n 50   # the job's own log, newest last
 ```
 
+- `--matches` replaces the whole `[target.matches]` table: a field it leaves
+  out goes back to its default, so give every field the job uses (as the
+  `listings` example above does).
 - Every change is validated as a whole by `config._target` (sites, hosts,
   clamps) before anything is written. A value the clamps would change is
   refused, not quietly raised: `--every-min 2` is an error, not 5. A refusal
