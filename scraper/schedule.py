@@ -149,6 +149,13 @@ def inactive(t, now: float) -> str | None:
     return None
 
 
+# --- how far ahead a job reads games ------------------------------------------
+def within_h(t) -> float:
+    """The hours in force for the job: its own `within_h`, else the main
+    setting (behaviour.py's games.within_h); 0 is no limit."""
+    return behaviour.get("games.within_h") if t.within_h is None else t.within_h
+
+
 # --- the kick-off sweep -----------------------------------------------------
 def kickoff_ts(value) -> float | None:
     """A row's `kickoff` (ISO 8601, `Z` or an offset; naive = UTC) as unix

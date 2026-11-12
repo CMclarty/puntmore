@@ -290,8 +290,8 @@ const RENDER = {
 };
 
 // ---- the Scraper's jobs (targets.toml through scraper/targets.py) ----------------------------------
-const EDIT_FIELDS = ["every_min", "stale_min", "near_min", "near_hours", "priority", "window", "days", "until", "min_rows", "trust_weight", "wait_for", "url", "listings"];
-const NUMERIC = new Set(["every_min", "stale_min", "near_min", "near_hours", "priority", "min_rows", "trust_weight"]);
+const EDIT_FIELDS = ["every_min", "stale_min", "near_min", "near_hours", "priority", "window", "days", "until", "min_rows", "trust_weight", "wait_for", "url", "listings", "within_h"];
+const NUMERIC = new Set(["every_min", "stale_min", "near_min", "near_hours", "priority", "min_rows", "trust_weight", "within_h"]);
 const LOG_ALL = 200;         // lines "all lines" asks for
 let editing = null;          // {name, original: {field: value}}
 let removing = null;         // name

@@ -404,7 +404,8 @@ def test_the_behaviour_view_is_the_librarys_catalogue_with_the_files_values(bcfg
     rows = d["settings"]
     lib = blib(bcfg)
     assert [r["key"] for r in rows] == [s.key for s in lib.SETTINGS]
-    pp = rows[0]
+    assert rows[0]["key"] == "games.within_h" and rows[0]["group"] == "Games"     # the first group (12 Nov 2026)
+    pp = next(r for r in rows if r["key"] == "paddypower.per_hour")
     assert pp == {"key": "paddypower.per_hour", "group": "Limits, per site", "kind": "int", "value": 15,
                   "default": 15, "lo": 0, "hi": 600, "unit": "loads", "changed": False,
                   "says": pp["says"]} and pp["says"]
@@ -413,7 +414,8 @@ def test_the_behaviour_view_is_the_librarys_catalogue_with_the_files_values(bcfg
     # a change made elsewhere (the CLI) is what the console shows next
     lib.set_(bcfg.scraper_data_dir, "paddypower.per_hour", 9)
     d = client(bcfg).get("/api/scraper/behaviour").json()
-    assert d["changed"] == 1 and d["settings"][0]["value"] == 9 and d["settings"][0]["changed"] is True
+    pp = next(r for r in d["settings"] if r["key"] == "paddypower.per_hour")
+    assert d["changed"] == 1 and pp["value"] == 9 and pp["changed"] is True
     # the tab carries the same view, for the line shown while the pane is closed
     assert client(bcfg).get("/api/scraper").json()["behaviour"]["changed"] == 1
     # a file that does not load is said, not raised
@@ -570,3 +572,26 @@ def test_leagues_through_the_console(scfg):
     assert r.status_code == 200 and r.json()["target"]["matches"]["listings"] == []
     page = c.get("/").text
     assert page.count('name="listings"') == 1          # the edit form only
+
+
+def test_within_h_through_the_console(scfg):
+    # Only games kicking off within N hours (Callum, 12 Nov 2026): a job's own window on the edit form.
+    assert "within_h" in scraper_targets.EDITABLE
+    c = client(scfg)
+    r = c.post("/api/actions/scraper/targets/add", headers=H, json={
+        "name": "pp-most", "site": "paddypower", "url": "https://www.paddypower.com/football/english-premier-league",
+        "matches": {"max_tabs": 2}})
+    assert r.status_code == 200, r.text
+    r = c.post("/api/actions/scraper/targets/pp-most/set", headers=H, json={"within_h": 72})
+    assert r.status_code == 200, r.text
+    assert r.json()["target"]["within_h"] == 72.0 and "within_h=72" in r.json()["message"]
+    r = c.post("/api/actions/scraper/targets/pp-most/set", headers=H, json={"within_h": 800})
+    assert r.status_code == 400 and r.json()["field"] == "within_h"
+    r = c.post("/api/actions/scraper/targets/pp-most/set", headers=H, json={"within_h": None})
+    assert r.status_code == 200 and r.json()["target"]["within_h"] is None
+    page = c.get("/").text
+    form = page[page.index('id="target-edit-form"'):page.index('id="target-remove-form"')]
+    assert 'name="within_h" type="number"' in form and 'placeholder="48 (the main setting)"' in form
+    assert "only games within (hours)" in form
+    js = c.get("/static/app.js").text
+    assert '"within_h"' in js[js.index("const EDIT_FIELDS"):js.index("const LOG_ALL")]

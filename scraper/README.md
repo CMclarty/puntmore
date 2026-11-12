@@ -22,11 +22,12 @@ The parsers (`parsers/`, one module each) are written only from what the real
 pages were seen to do. `bb_saves` DRIVES Bookie Bashing's Bet Builder (select
 the game, type each line, read "Total Odds" — see its docstring; needs the
 box's Chrome logged in, which the Scraper does itself with the login in
-`.env`, below). It reads only games kicking off within 48 hours (Callum,
-11 Nov 2026); with none that near it rests: its page is closed and nothing
-loads until 48 hours before the next game it saw, or a day, whichever is
-sooner. `status` shows it `paused` with the reason; `wake bb-saves` ends the
-rest by hand.
+`.env`, below). Like every job that reads games, it reads only games
+kicking off within 48 hours (`games.within_h`, below; Callum, 11 and 12 Nov
+2026); with none that near it rests: its page is closed and nothing loads
+until 48 hours before the next game it saw, or a day (`games.look_again_s`),
+whichever is sooner. `status` shows it `paused` with the reason; `wake
+bb-saves` ends the rest by hand.
 `pp_most` reads Paddy's most-corners / most-cards three-ways (written from
 the 29 Oct 2026 capture; see its docstring).
 
@@ -111,6 +112,7 @@ python -m scraper targets set pp-epl-most --matches '{"link_re": "-v-", "max_tab
     "market_tabs": ["Corners", "Cards"],
     "listings": ["https://www.paddypower.com/football/spanish-la-liga",
                  "https://www.paddypower.com/football/italian-serie-a"]}'
+python -m scraper targets set pp-epl-most --within-h 72   # its own window; none = games.within_h
 python -m scraper targets enable racing-tips
 python -m scraper targets disable racing-tips
 python -m scraper targets remove racing-tips
@@ -122,6 +124,10 @@ python -m scraper targets log racing-tips -n 50   # the job's own log, newest la
   `listings` example above does).
 - `--listings url,url` changes only a matches job's further league pages and keeps the rest of
   its matches table (`none` clears them). The Console's edit form has the same field, "more leagues".
+- `--within-h 72` gives a job its own window: only games kicking off within 72 hours are read
+  (0 to 720; 0 is no limit; `none` goes back to the main setting, `games.within_h`). `show`
+  prints it and `list` says "games within 72 h" (or "games: no limit") on the job's line. The
+  Console's edit form has it as "only games within (hours)".
 - Every change is validated as a whole by `config._target` (sites, hosts,
   clamps) before anything is written. A value the clamps would change is
   refused, not quietly raised: `--every-min 2` is an error, not 5. A refusal
@@ -142,7 +148,7 @@ python -m scraper targets log racing-tips -n 50   # the job's own log, newest la
   hand-written file as `targets.toml.bak`.
 - The running Scraper picks a change up within 60 s (its re-read of the
   file). A change to only `every_min`, `stale_min`, `near_min`, `near_hours`,
-  `priority`, `window`, `days`, `until`, `min_rows` or `trust_weight` is applied in place: the open tabs stay and
+  `priority`, `window`, `days`, `until`, `min_rows`, `trust_weight` or `within_h` is applied in place: the open tabs stay and
   are rescheduled (a timed reload is redrawn from the last load), so it
   costs no load. A change to `url`, `site`, `mode`, `parser`, `post`,
   `wait_for` or `matches` closes the target's tabs and reopens them on the
@@ -174,8 +180,9 @@ python -m scraper targets log racing-tips -n 50   # the job's own log, newest la
 ## Changing how it behaves
 How the Scraper behaves - each site's limits, quiet hours, the cool-off and
 back-off, every gap and jitter between loads, how it arrives on a page, clicks
-and reads down it, and the Bookie Bashing bet builder's pacing - is one
-catalogue, `scraper/behaviour.py`: every setting with its default, unit,
+and reads down it, the Bookie Bashing bet builder's pacing, and how far ahead
+a game is read (`games.within_h`, 48 h, and `games.look_again_s`, a day; a
+job may carry its own `within_h`, below) - is one catalogue, `scraper/behaviour.py`: every setting with its default, unit,
 bounds and a line saying what it is. Read that file first when something has
 gone wrong. What a block means, the allowed hosts and never answering a
 challenge are not settings, and nothing about what the browser shows a site
@@ -421,11 +428,33 @@ Targets are of these kinds:
   each, ...), so every competition gets a tab before any gets two;
   `max_tabs` is for the whole job. A listing tab is parsed like any other of
   the job's tabs.
+  Only games kicking off within the job's window are opened (`within_h`, or
+  `games.within_h`, 48 h; Callum, 12 Nov 2026): the kick-off of each match
+  link is read off the listing the job already has open (`parsers/
+  pp_listing.py`: Paddy's "Saturday 21" day headers and each fixture's
+  "12:30", London time; no request), and a link is opened only when its
+  kick-off is known and inside the window. An open match tab whose game has
+  kicked off, or has left the window, is retired. A link with no readable
+  kick-off (under a header the reader has not seen in a real page, such as
+  whatever Paddy writes for today or in-play) is not opened; when the
+  listings show links but none with a kick-off, the job says once in its log,
+  and shows as its detail, "kick-off times could not be read from the listing
+  - nothing opened" (a Paddy layout change shows), and does not rest. When
+  every listing is open and no link is inside the window the job rests, as a
+  parser's rest does: its tabs close, `data/resting.json` keeps it, `status`
+  shows it `paused` ("no games within 48 hours - next is Man City v Fulham,
+  Sat 21 Nov 12:30 - resting until Thu 19 Nov 12:30") until `within_h` hours
+  before the next game the listings showed, or `games.look_again_s`, whichever
+  is sooner; `wake <job>` ends it, and so does a change to the job's own
+  `within_h`. A `within_h` of 0 reads no kick-off and opens every link, as
+  before.
 - **page**: one URL kept open, e.g. the Bookie Bashing bet builder. It is
   reloaded every `every_min`, or only when it goes quiet for `stale_min`.
   Its parser may rest it (`rest.py`): the page closes and nothing loads
   until the time the parser gave, as outside a `window`; `bb_saves` does so
-  when no game kicks off within 48 hours.
+  when no game kicks off within `games.within_h` hours (the catalogue's value:
+  a parser is handed its page, not its job, so a `within_h` on `bb-saves`
+  is not read).
 - **fetch**: a `generic` Finder source, loaded, parsed once and closed
   (above).
 

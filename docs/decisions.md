@@ -257,10 +257,14 @@ names and no other; older names appear only in `docs/retired.md`.
   `.env` (`BB_USERNAME`, `BB_PASSWORD`): one attempt per logout, a failed
   attempt waits for a person, a challenge is never answered. (Callum, 11 Nov
   2026: "bb will need to be able to login")
-- **`bb-saves` works only for games kicking off within 48 hours.** With none that near it
-  rests: its page is closed and nothing loads until 48 hours before the next game it saw, or
-  a day, whichever is sooner (`python -m scraper wake bb-saves` ends a rest by hand).
-  (11 Nov 2026, Callum)
+- **The Scraper reads only games kicking off within 48 hours.** One live setting
+  (`games.within_h`; a listing job may carry its own `within_h`, 0 for no limit; `bb-saves` follows the main setting only) covers every job
+  that reads games: `bb-saves`, and a listing job, which opens a match only inside that
+  window, reading kick-off times off the listing. With none that near a job rests: its pages
+  are closed and nothing loads until 48 hours before the next game it saw, or a day,
+  whichever is sooner (`python -m scraper wake <job>` ends a rest by hand). (12 Nov 2026,
+  Callum: "I wouldn't want to waste budget on scraping games more than 48 hours out";
+  bb-saves since 11 Nov 2026)
 - **Never guess a tip.** Parsers are written from real pages only; a parser
   that cannot read the page returns nothing and `min_rows` raises the alarm.
 

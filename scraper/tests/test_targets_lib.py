@@ -489,3 +489,65 @@ def test_set_listings_needs_a_matches_job_and_is_validated(tmp_path):
     with pytest.raises(T.TargetsError, match="listing .* allowed host"):
         T.set(p, "pp-most", listings=["https://example.com/a"])
     assert p.read_text() == before
+
+
+# --- within_h: a job's own "only games kicking off within N hours" (Callum, 12 Nov 2026) ---
+def test_within_h_defaults_to_the_main_setting():
+    from scraper import behaviour, schedule
+    t = config._target({"name": "pp", "site": "paddypower", "url": PP_EPL, "matches": {}})
+    assert t.within_h is None
+    assert schedule.within_h(t) == behaviour.get("games.within_h") == 48
+    assert schedule.within_h(dataclasses.replace(t, within_h=72.0)) == 72
+    assert schedule.within_h(dataclasses.replace(t, within_h=0.0)) == 0      # no limit
+
+
+@pytest.mark.parametrize("value, got", [(0, 0.0), (72, 72.0), (720, 720.0), (1.5, 1.5)])
+def test_within_h_is_read_as_hours(value, got):
+    t = config._target({"name": "pp", "site": "paddypower", "url": PP_EPL, "within_h": value})
+    assert t.within_h == got
+
+
+@pytest.mark.parametrize("value", [-1, 721, "48", True])
+def test_within_h_outside_0_to_720_hours_is_refused(value):
+    with pytest.raises(ValueError, match=r"within_h must be a number of hours from 0 to 720"):
+        config._target({"name": "pp", "site": "paddypower", "url": PP_EPL, "within_h": value})
+
+
+def test_within_h_round_trips_through_the_file(path):
+    T.set(path, "pp", within_h=72)
+    assert "within_h = 72\n" in path.read_text()
+    assert T.get(path, "pp").within_h == 72.0 and config.load_targets(path)[0].within_h == 72.0
+    T.set(path, "pp", within_h=0)
+    assert "within_h = 0\n" in path.read_text() and T.get(path, "pp").within_h == 0.0
+    T.set(path, "pp", within_h=None)                       # back to the main setting
+    assert "within_h" not in path.read_text() and T.get(path, "pp").within_h is None
+    before = path.read_text()
+    with pytest.raises(T.TargetsError, match="within_h"):
+        T.set(path, "pp", within_h=800)
+    with pytest.raises(T.TargetsError, match="within_h must be a number"):
+        T.set(path, "pp", within_h="soon")
+    assert path.read_text() == before
+
+
+def test_cli_set_within_h_and_show_it(cli, path):
+    code, out, _ = cli("set", "pp", "--within-h", "72", "--json")
+    assert code == 0 and json.loads(out)["within_h"] == 72.0
+    code, out, _ = cli("show", "pp")
+    assert code == 0 and "within_h" in out and "72" in out
+    code, out, _ = cli("list")
+    assert "games within 72 h" in out.splitlines()[1]
+    cli("set", "pp", "--within-h", "0")
+    code, out, _ = cli("list")
+    assert "games: no limit" in out.splitlines()[1]
+    code, out, _ = cli("set", "pp", "--within-h", "none", "--json")
+    assert code == 0 and json.loads(out)["within_h"] is None
+    code, out, _ = cli("list")
+    assert "games" not in out.splitlines()[1]
+    code, _, err = cli("set", "pp", "--within-h", "900")
+    assert code == 2 and "within_h" in err
+
+
+def test_a_within_h_edit_is_applied_in_place():
+    from scraper.runner import RESCHEDULE_FIELDS, reschedule_only
+    assert "within_h" in RESCHEDULE_FIELDS
+    assert reschedule_only(FULL[0], dataclasses.replace(FULL[0], within_h=24.0))

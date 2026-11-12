@@ -1,0 +1,130 @@
+<!doctype html>
+<!-- Paddy Power's Premier League listing as the Scraper's page held it on 12 Nov 2026
+     (data/dumps/pp-epl-most-20261112-105256/0.html, a `dump` of pp-epl-most's listing tab),
+     cut down to what scraper/parsers/pp_listing.py reads: the fixture card's items, one per
+     day sub-header, each fixture row with its scoreboard link, team names, prices and time.
+     Element names, classes and nesting are the page's; its scripts, Angular attributes,
+     styles and everything outside the card are left out. -->
+<html><head><meta charset="utf-8"><title>English Premier League Betting Odds | Paddy Power</title></head>
+<body>
+<avb-coupon-card-items>
+ <div class="avb-coupon-card-items-item"><ng-switch><div ng-switch-when="SINGLE_CONTENT">
+  <abc-sub-header><div class="subheader grid subheader--with-signifier subheader--secondary">
+   <div class="subheader__text--title grid__cell-flex grid__cell-flex--gutter"><span>Saturday 21</span></div>
+   <div class="subheader__text--subtitle grid__cell-2-12"> Home </div>
+   <div class="subheader__text--subtitle grid__cell-2-12"> Draw </div>
+   <div class="subheader__text--subtitle grid__cell-2-12"> Away </div>
+  </div></abc-sub-header>
+  <avb-item class="avb-coupon__item"><div class="avb-item grid">
+   <div class="avb-item__event-row">
+    <a class="avb-item__scoreboard grid__cell-flex" href="/football/english-premier-league/man-city-v-fulham-36293092"><ui-scoreboard-coupon><div class="ui-scoreboard-coupon-template__content"><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__home"><span> Man City </span></ui-scoreboard-runner><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__away"><span> Fulham </span></ui-scoreboard-runner></div></ui-scoreboard-coupon></a>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">2/5</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">15/4</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">5/1</span></abc-btn-odds></div>
+   </div>
+   <abc-line-footer><div class="line-footer" data-testid="line-footer"><a class="line-footer__container line-footer__container--align-center" data-testid="line-footer-container" href="/football/english-premier-league/man-city-v-fulham-36293092"><div class="line-footer__container-left"><span class="line-footer__left-label" data-testid="line-footer-left-label">12:30</span></div><div class="line-footer__badges" data-testid="line-footer-badges"><div class="badges badges--horizontal"><span class="badge badge--primary" data-testid="badge">Super Sub</span></div></div></a></div></abc-line-footer>
+  </div></avb-item>
+  <avb-item class="avb-coupon__item"><div class="avb-item grid">
+   <div class="avb-item__event-row">
+    <a class="avb-item__scoreboard grid__cell-flex" href="/football/english-premier-league/aston-villa-v-sunderland-36294872"><ui-scoreboard-coupon><div class="ui-scoreboard-coupon-template__content"><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__home"><span> Aston Villa </span></ui-scoreboard-runner><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__away"><span> Sunderland </span></ui-scoreboard-runner></div></ui-scoreboard-coupon></a>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">7/10</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">14/5</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">7/2</span></abc-btn-odds></div>
+   </div>
+   <abc-line-footer><div class="line-footer" data-testid="line-footer"><a class="line-footer__container line-footer__container--align-center" data-testid="line-footer-container" href="/football/english-premier-league/aston-villa-v-sunderland-36294872"><div class="line-footer__container-left"><span class="line-footer__left-label" data-testid="line-footer-left-label">15:00</span></div><div class="line-footer__badges" data-testid="line-footer-badges"><div class="badges badges--horizontal"><span class="badge badge--primary" data-testid="badge">Super Sub</span></div></div></a></div></abc-line-footer>
+  </div></avb-item>
+  <avb-item class="avb-coupon__item"><div class="avb-item grid">
+   <div class="avb-item__event-row">
+    <a class="avb-item__scoreboard grid__cell-flex" href="/football/english-premier-league/bournemouth-v-nottm-forest-36292923"><ui-scoreboard-coupon><div class="ui-scoreboard-coupon-template__content"><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__home"><span> Bournemouth </span></ui-scoreboard-runner><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__away"><span> Nottm Forest </span></ui-scoreboard-runner></div></ui-scoreboard-coupon></a>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">EVS</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">13/5</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">13/5</span></abc-btn-odds></div>
+   </div>
+   <abc-line-footer><div class="line-footer" data-testid="line-footer"><a class="line-footer__container line-footer__container--align-center" data-testid="line-footer-container" href="/football/english-premier-league/bournemouth-v-nottm-forest-36292923"><div class="line-footer__container-left"><span class="line-footer__left-label" data-testid="line-footer-left-label">15:00</span></div><div class="line-footer__badges" data-testid="line-footer-badges"><div class="badges badges--horizontal"><span class="badge badge--primary" data-testid="badge">Super Sub</span></div></div></a></div></abc-line-footer>
+  </div></avb-item>
+  <avb-item class="avb-coupon__item"><div class="avb-item grid">
+   <div class="avb-item__event-row">
+    <a class="avb-item__scoreboard grid__cell-flex" href="/football/english-premier-league/chelsea-v-leeds-36294873"><ui-scoreboard-coupon><div class="ui-scoreboard-coupon-template__content"><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__home"><span> Chelsea </span></ui-scoreboard-runner><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__away"><span> Leeds </span></ui-scoreboard-runner></div></ui-scoreboard-coupon></a>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">17/20</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">11/4</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">14/5</span></abc-btn-odds></div>
+   </div>
+   <abc-line-footer><div class="line-footer" data-testid="line-footer"><a class="line-footer__container line-footer__container--align-center" data-testid="line-footer-container" href="/football/english-premier-league/chelsea-v-leeds-36294873"><div class="line-footer__container-left"><span class="line-footer__left-label" data-testid="line-footer-left-label">15:00</span></div><div class="line-footer__badges" data-testid="line-footer-badges"><div class="badges badges--horizontal"><span class="badge badge--primary" data-testid="badge">Super Sub</span></div></div></a></div></abc-line-footer>
+  </div></avb-item>
+  <avb-item class="avb-coupon__item"><div class="avb-item grid">
+   <div class="avb-item__event-row">
+    <a class="avb-item__scoreboard grid__cell-flex" href="/football/english-premier-league/coventry-v-crystal-palace-36294871"><ui-scoreboard-coupon><div class="ui-scoreboard-coupon-template__content"><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__home"><span> Coventry </span></ui-scoreboard-runner><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__away"><span> Crystal Palace </span></ui-scoreboard-runner></div></ui-scoreboard-coupon></a>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">7/5</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">5/2</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">17/10</span></abc-btn-odds></div>
+   </div>
+   <abc-line-footer><div class="line-footer" data-testid="line-footer"><a class="line-footer__container line-footer__container--align-center" data-testid="line-footer-container" href="/football/english-premier-league/coventry-v-crystal-palace-36294871"><div class="line-footer__container-left"><span class="line-footer__left-label" data-testid="line-footer-left-label">15:00</span></div><div class="line-footer__badges" data-testid="line-footer-badges"><div class="badges badges--horizontal"><span class="badge badge--primary" data-testid="badge">Super Sub</span></div></div></a></div></abc-line-footer>
+  </div></avb-item>
+  <avb-item class="avb-coupon__item"><div class="avb-item grid">
+   <div class="avb-item__event-row">
+    <a class="avb-item__scoreboard grid__cell-flex" href="/football/english-premier-league/tottenham-v-ipswich-36293779"><ui-scoreboard-coupon><div class="ui-scoreboard-coupon-template__content"><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__home"><span> Tottenham </span></ui-scoreboard-runner><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__away"><span> Ipswich </span></ui-scoreboard-runner></div></ui-scoreboard-coupon></a>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">1/2</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">7/2</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">9/2</span></abc-btn-odds></div>
+   </div>
+   <abc-line-footer><div class="line-footer" data-testid="line-footer"><a class="line-footer__container line-footer__container--align-center" data-testid="line-footer-container" href="/football/english-premier-league/tottenham-v-ipswich-36293779"><div class="line-footer__container-left"><span class="line-footer__left-label" data-testid="line-footer-left-label">15:00</span></div><div class="line-footer__badges" data-testid="line-footer-badges"><div class="badges badges--horizontal"><span class="badge badge--primary" data-testid="badge">Super Sub</span></div></div></a></div></abc-line-footer>
+  </div></avb-item>
+  <avb-item class="avb-coupon__item"><div class="avb-item grid">
+   <div class="avb-item__event-row">
+    <a class="avb-item__scoreboard grid__cell-flex" href="/football/english-premier-league/newcastle-v-arsenal-36293556"><ui-scoreboard-coupon><div class="ui-scoreboard-coupon-template__content"><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__home"><span> Newcastle </span></ui-scoreboard-runner><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__away"><span> Arsenal </span></ui-scoreboard-runner></div></ui-scoreboard-coupon></a>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">4/1</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">3/1</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">4/7</span></abc-btn-odds></div>
+   </div>
+   <abc-line-footer><div class="line-footer" data-testid="line-footer"><a class="line-footer__container line-footer__container--align-center" data-testid="line-footer-container" href="/football/english-premier-league/newcastle-v-arsenal-36293556"><div class="line-footer__container-left"><span class="line-footer__left-label" data-testid="line-footer-left-label">17:30</span></div><div class="line-footer__badges" data-testid="line-footer-badges"><div class="badges badges--horizontal"><span class="badge badge--primary" data-testid="badge">Super Sub</span></div></div></a></div></abc-line-footer>
+  </div></avb-item>
+ </div></ng-switch></div>
+ <div class="avb-coupon-card-items-item"><ng-switch><div ng-switch-when="SINGLE_CONTENT">
+  <abc-sub-header><div class="subheader grid subheader--with-signifier subheader--secondary">
+   <div class="subheader__text--title grid__cell-flex grid__cell-flex--gutter"><span>Sunday 22</span></div>
+   <div class="subheader__text--subtitle grid__cell-2-12"> Home </div>
+   <div class="subheader__text--subtitle grid__cell-2-12"> Draw </div>
+   <div class="subheader__text--subtitle grid__cell-2-12"> Away </div>
+  </div></abc-sub-header>
+  <avb-item class="avb-coupon__item"><div class="avb-item grid">
+   <div class="avb-item__event-row">
+    <a class="avb-item__scoreboard grid__cell-flex" href="/football/english-premier-league/hull-v-brighton-36296140"><ui-scoreboard-coupon><div class="ui-scoreboard-coupon-template__content"><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__home"><span> Hull </span></ui-scoreboard-runner><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__away"><span> Brighton </span></ui-scoreboard-runner></div></ui-scoreboard-coupon></a>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">9/2</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">17/5</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">1/2</span></abc-btn-odds></div>
+   </div>
+   <abc-line-footer><div class="line-footer" data-testid="line-footer"><a class="line-footer__container line-footer__container--align-center" data-testid="line-footer-container" href="/football/english-premier-league/hull-v-brighton-36296140"><div class="line-footer__container-left"><span class="line-footer__left-label" data-testid="line-footer-left-label">14:00</span></div><div class="line-footer__badges" data-testid="line-footer-badges"><div class="badges badges--horizontal"><span class="badge badge--primary" data-testid="badge">Super Sub</span></div></div></a></div></abc-line-footer>
+  </div></avb-item>
+  <avb-item class="avb-coupon__item"><div class="avb-item grid">
+   <div class="avb-item__event-row">
+    <a class="avb-item__scoreboard grid__cell-flex" href="/football/english-premier-league/liverpool-v-man-utd-36225147"><ui-scoreboard-coupon><div class="ui-scoreboard-coupon-template__content"><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__home"><span> Liverpool </span></ui-scoreboard-runner><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__away"><span> Man Utd </span></ui-scoreboard-runner></div></ui-scoreboard-coupon></a>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">8/11</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">3/1</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">16/5</span></abc-btn-odds></div>
+   </div>
+   <abc-line-footer><div class="line-footer" data-testid="line-footer"><a class="line-footer__container line-footer__container--align-center" data-testid="line-footer-container" href="/football/english-premier-league/liverpool-v-man-utd-36225147"><div class="line-footer__container-left"><span class="line-footer__left-label" data-testid="line-footer-left-label">16:30</span></div><div class="line-footer__badges" data-testid="line-footer-badges"><div class="badges badges--horizontal"><span class="badge badge--primary" data-testid="badge">Super Sub</span></div></div></a></div></abc-line-footer>
+  </div></avb-item>
+ </div></ng-switch></div>
+ <div class="avb-coupon-card-items-item"><ng-switch><div ng-switch-when="SINGLE_CONTENT">
+  <abc-sub-header><div class="subheader grid subheader--with-signifier subheader--secondary">
+   <div class="subheader__text--title grid__cell-flex grid__cell-flex--gutter"><span>Monday 23</span></div>
+   <div class="subheader__text--subtitle grid__cell-2-12"> Home </div>
+   <div class="subheader__text--subtitle grid__cell-2-12"> Draw </div>
+   <div class="subheader__text--subtitle grid__cell-2-12"> Away </div>
+  </div></abc-sub-header>
+  <avb-item class="avb-coupon__item"><div class="avb-item grid">
+   <div class="avb-item__event-row">
+    <a class="avb-item__scoreboard grid__cell-flex" href="/football/english-premier-league/brentford-v-everton-36303120"><ui-scoreboard-coupon><div class="ui-scoreboard-coupon-template__content"><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__home"><span> Brentford </span></ui-scoreboard-runner><ui-scoreboard-runner class="ui-scoreboard-runner ui-scoreboard-runner__away"><span> Everton </span></ui-scoreboard-runner></div></ui-scoreboard-coupon></a>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">EVS</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">27/10</span></abc-btn-odds></div>
+    <div class="avb-item__box grid grid__cell-2-12"><abc-btn-odds class="avb-item__btn-odds"><span class="btn-odds__label">12/5</span></abc-btn-odds></div>
+   </div>
+   <abc-line-footer><div class="line-footer" data-testid="line-footer"><a class="line-footer__container line-footer__container--align-center" data-testid="line-footer-container" href="/football/english-premier-league/brentford-v-everton-36303120"><div class="line-footer__container-left"><span class="line-footer__left-label" data-testid="line-footer-left-label">20:00</span></div><div class="line-footer__badges" data-testid="line-footer-badges"><div class="badges badges--horizontal"><span class="badge badge--primary" data-testid="badge">Super Sub</span></div></div></a></div></abc-line-footer>
+  </div></avb-item>
+ </div></ng-switch></div>
+</avb-coupon-card-items>
+<abc-sub-header><div class="subheader grid subheader--with-signifier subheader--secondary">
+ <div class="subheader__text--title grid__cell-flex grid__cell-flex--gutter"><span>Popular Football Betting</span></div>
+</div></abc-sub-header>
+<div class="grid abc-list"><a href="/football/uefa-nations-league-a">UEFA Nations League A Odds</a></div>
+</body></html>

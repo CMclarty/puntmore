@@ -1,8 +1,9 @@
 """A job's rest: "nothing for this job to do until <time>".
 
 A parser raises `Rest(until, why)` when its page has nothing worth reading
-for a while (bb_saves with no game kicking off within 48 hours). The runner
-then closes the job's page and loads nothing for it until `until` - like a
+for a while (bb_saves with no game kicking off within 48 hours), and the
+runner rests a listing job whose listings show no match kicking off within
+its window (runner._window_links). The runner then closes the job's page and loads nothing for it until `until` - like a
 job outside its window - and keeps the rest in `data/resting.json`
 (`{name: {"until": <epoch>, "why": "..."}}`), so a restart does not undo it.
 `python -m scraper wake <target>` ends one by hand.

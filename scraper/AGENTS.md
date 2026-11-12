@@ -37,17 +37,20 @@ prices are `scraper_prices` files that the Hub posts to Render.
   all (`inactive`: `until`, `days`, `window`; a window past midnight belongs
   to the day it started, `job_day`), `priority`, and the
   kick-off sweep (`near_min` within `near_hours` of a kick-off the rows
-  report; nearest kick-off first when a budget is short).
+  report; nearest kick-off first when a budget is short), and `within_h`:
+  the hours ahead a job reads games, its own `within_h` or `games.within_h`.
 - `sinks.py` - where rows go, by `post`: `/api/...` targets:
   `scraper_prices` drop files the Hub posts to that route; `hub:<chan>`:
   tips (each row with its `tip_id`); events. All are drop files for the
   Hub; the Scraper sends Render nothing.
 - `status.py` - the heartbeat, `data/status.json`, the per-site budget summary.
 - `rest.py` - a job's rest: a parser raises `Rest(until, why)` when its page
-  has nothing to read for a while; the runner closes the job's tabs and loads
-  nothing for it until then (clamped to a minute..a week), shows it `paused`
-  with the reason, and keeps it in `data/resting.json` across restarts; a
-  changed or removed target loses it, `python -m scraper wake <target>` ends it.
+  has nothing to read for a while, and a listing job rests when no match on
+  its listings kicks off within its window (`runner._window_links`); the
+  runner closes the job's tabs and loads nothing for it until then (clamped
+  to a minute..a week), shows it `paused` with the reason, and keeps it in
+  `data/resting.json` across restarts; a changed or removed target loses it
+  (and a change to its `within_h`), `python -m scraper wake <target>` ends it.
 - `joblog.py` - one log per job, `data/logs/<name>.log` (JSON lines; past
   512 KB cut to its newest lines in 256 KB, 1000 at most); the runner
   writes it through `Runner._say`, `targets log` reads it. A write never
@@ -61,7 +64,8 @@ prices are `scraper_prices` files that the Hub posts to Render.
 - `behaviour.py` - how the Scraper behaves, as one catalogue (`SETTINGS`): each
   site's limits and quiet hours, the cool-off, sign-ins and back-off, the
   spacing and jitter of loads, arriving on a page, clicks, reading down, the
-  BB builder's pacing; each with default, unit, bounds and a line. Every
+  BB builder's pacing, and how far ahead games are read (`games.within_h`,
+  `games.look_again_s`); each with default, unit, bounds and a line. Every
   module reads `behaviour.get(key)` when it acts and holds no number of its
   own for these. Overrides: `<data>/behaviour.toml`, only non-defaults,
   written only by `set_`/`reset` (lock, check, atomic save; `python -m
@@ -144,6 +148,9 @@ prices are `scraper_prices` files that the Hub posts to Render.
   (`scraper/parsers/`, one module each) are written only from what the real
   pages were seen to do: `bb_saves` drives the Bookie Bashing bet builder
   (above; this one BB target is the single named exception to "BB is never
-  automated", `docs/decisions.md`), and only for games kicking off within 48
-  hours: with none that near it rests (`rest.py`; Callum, 11 Nov 2026); `pp_most` reads Paddy's most-corners / most-cards three-ways
-  (written from the 29 Oct 2026 capture).
+  automated", `docs/decisions.md`); `pp_most` reads Paddy's most-corners /
+  most-cards three-ways (written from the 29 Oct 2026 capture); `pp_listing`
+  reads the kick-off times off a Paddy listing (written from the 12 Nov 2026
+  dump). Every job that reads games reads only those kicking off within 48
+  hours (`games.within_h`, or a job's own `within_h`; 0 is no limit): with
+  none that near it rests (`rest.py`; Callum, 11 and 12 Nov 2026).
