@@ -82,11 +82,13 @@ class Watchdog:
         self.last_tick, self.limit_s, self.exit = last_tick, limit_s, exit
         self.alerts, self.data_dir, self.clock = alerts, data_dir, clock
         self.stalled_at: float | None = None    # the tick a stall alert was sent for
+        self.exited = False                     # (os._exit never returns; a test's exit does)
 
     def check(self):
         tick = self.last_tick[0]
         stuck = self.clock() - tick
         if stuck > self.limit_s:
+            self.exited = True
             try:
                 print(f"watchdog: no tick for {int(stuck)} s - exiting so the "
                       "service restarts", flush=True)
@@ -116,7 +118,7 @@ def watchdog(last_tick: list, limit_s: float = WATCHDOG_S, every_s: float = 30,
     dog = Watchdog(last_tick, limit_s, exit, alerts, data_dir)
 
     def loop():
-        while True:
+        while not dog.exited:
             time.sleep(every_s)
             try:
                 dog.check()

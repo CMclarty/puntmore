@@ -2,7 +2,8 @@
 
   heartbeat     data/heartbeat, the time of the last tick (and an optional
                 healthchecks ping every HEALTH_PING_S)
-  status.json   per target: state, detail, last load/parse, rows posted; per
+  status.json   per target: state, detail, last load/parse, rows posted, the
+                standing alert (standing.py) or null; per
                 site: budget spent and cool-off. Written every STATUS_EVERY_S.
 
 Nothing here is sent off the box except the healthcheck ping.
@@ -45,10 +46,12 @@ class Reporter:
 
 
 def target_entry(t, state, detail, last_load, last_parse, rows_posted,
-                 next_kickoff=None, near=False) -> dict:
+                 next_kickoff=None, near=False, alert=None) -> dict:
+    """`alert`: the text of the job's standing alert (standing.py), or None."""
     return {"name": t.name, "site": t.site, "url": t.url, "state": state, "mode": t.mode,
             "detail": detail, "last_load": last_load, "last_parse": last_parse,
-            "rows_posted": rows_posted, "next_kickoff": next_kickoff, "near": bool(near)}
+            "rows_posted": rows_posted, "next_kickoff": next_kickoff, "near": bool(near),
+            "alert": alert}
 
 
 def site_status(guard, now) -> list[dict]:

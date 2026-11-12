@@ -49,7 +49,10 @@ line about one job goes to stdout and to that job's own log (joblog.py,
 Runner._say); site-wide lines are stdout only. How it behaves (each site's
 limits and quiet hours, the back-off, every gap, jitter and click) is
 behaviour.py's, read when it is used; the guard holds its own copy of the
-limits (guard.py).
+limits (guard.py). A job failing the same way, or running with pages open
+and handing over no rows, is alerted once and once when it clears
+(standing.JobAlerts, which this module feeds: _parse, _start_rest,
+_watch_rows); the standing alert is the job's "alert" in status.json.
 """
 import collections
 import dataclasses
@@ -68,6 +71,7 @@ from . import joblog
 from . import login
 from . import rest
 from . import schedule
+from . import standing
 from .capture import Capture, DiskBudget
 from .config import host_allowed
 from .parsers import PARSERS, pp_listing
@@ -197,6 +201,9 @@ class Runner:
         # A matches job's listing read (_window_links): what it last said about
         # its kick-offs, shown as its status detail (UNREAD_KICKOFFS).
         self.listing_said: dict[str, str] = {}
+        # Each job's failing and no-rows alerts (standing.py), kept in data/alerted.json.
+        self.job_alerts = standing.JobAlerts(settings.data_dir, alerts)
+        self.job_alerts.keep_only(names)
 
     # --- site-wide state ----------------------------------------------------
     def _paused(self, site, now) -> str | None:
@@ -495,9 +502,34 @@ class Runner:
                 continue
             if not self._paused(tab.target.site, now) and tab.target.site not in self.login_pending:
                 self._parse(tab, now)
+        try:
+            self._watch_rows(live, now)
+        except Exception as exc:                # an alert's bookkeeping never ends a tick
+            print(f"job alerts: {exc.__class__.__name__}: {exc}", flush=True)
         self._requests()
         self._heartbeat(now)
         self._report(now)
+
+    def _watch_rows(self, live, now):
+        """The no-rows clock (standing.py) runs for a job with a `post` route
+        that is running this tick (site not paused, inside its window and
+        days, not resting, not finished, not signing in) with a page open that
+        its parser reads: its own tab, or for a matches job a match tab (a
+        listing alone does not count). A fetch job has min_rows instead."""
+        running = {t.name for t in live}
+        for t in self.targets:
+            if (t.name in running and t.post and t.parser and t.mode != "fetch"
+                    and t.name not in self.resting and t.site not in self.login_pending
+                    and not self._paused(t.site, now) and self._read_tab_open(t)):
+                self.job_alerts.running(t.name, now, lambda t=t: self._state(t, now)[1])
+            else:
+                self.job_alerts.idle(t.name)
+        self.job_alerts.flush(now)
+
+    def _read_tab_open(self, t) -> bool:
+        if t.matches:
+            return any(k.startswith(t.name + ":m:") for k in self.tabs)
+        return t.name in self.tabs
 
     # --- days, until, window and priority ------------------------------------
     def _outside_window(self, t, why):
@@ -554,6 +586,7 @@ class Runner:
             self._close(key)
         self.parser_said.pop(t.name, None)
         self.listing_said.pop(t.name, None)
+        self.job_alerts.reading(t.name)                # a rest clears a failing alert
         self.rest_said.add(t.name)
         self._say(t.name, _rest_detail(self.resting[t.name]))
 
@@ -744,6 +777,7 @@ class Runner:
                 self.retired_targets[name] = t
         for name in new:
             self.retired_targets.pop(name, None)
+        self.job_alerts.keep_only(new)
         added = sorted(set(new) - set(old))
         removed = sorted(set(old) - set(new))
         changed = sorted(n + (" (in place)" if n in in_place else "")
@@ -1054,9 +1088,11 @@ class Runner:
                 self._say(t.name, f"parser failed: {exc}")
             self.parser_said[t.name] = said
             self.failure_said[t.name] = first
+            self.job_alerts.failed(t.name, first, now)
             return
         self.parser_said.pop(t.name, None)
         self.failure_said.pop(t.name, None)
+        self.job_alerts.reading(t.name)
         k = schedule.next_kickoff(rows, now)
         if k is not None:
             self.next_kickoff[t.name] = k
@@ -1069,6 +1105,7 @@ class Runner:
             handed = self._deliver(t, rows, now)
             if handed:
                 self.rows_posted[t.name] = self.rows_posted.get(t.name, 0) + handed
+                self.job_alerts.delivered(t.name, now)
 
     # --- status, for the Hub and `python -m scraper status` ---------------------------
     def status(self, now) -> dict:
@@ -1079,35 +1116,38 @@ class Runner:
         targets = []
         for t in [*self.targets, *self.retired_targets.values()]:
             retired = t.name in self.retired_targets
-            why = self._paused(t.site, now)
-            off = schedule.inactive(t, now)
-            if retired:
-                state, detail = "retired", "removed from targets.toml"
-            elif off == "finished":
-                state, detail = "finished", f"ended {t.until}"
-            elif why and (why.startswith("cooling off") or why.startswith("backing off")):
-                state, detail = "blocked", why
-            elif why:
-                state, detail = "paused", why
-            elif off:
-                state, detail = "paused", off
-            elif t.name in self.resting and now < self.resting[t.name]["until"]:
-                state, detail = "paused", _rest_detail(self.resting[t.name])
-            else:
-                mine = [tab for tab in self.tabs.values() if tab.target.name == t.name]
-                n = len(mine)
-                state = "running"
-                detail = "; ".join(x for x in (f"{n} tab{'s' if n != 1 else ''} open",
-                                               market_tabs_said(mine),
-                                               self.listing_said.get(t.name),
-                                               self.parser_said.get(t.name)) if x)
+            state, detail = self._state(t, now)
             targets.append(target_entry(t, state, detail, self.last_load_at.get(t.name),
                                         self.last_parse_at.get(t.name), self.rows_posted.get(t.name, 0),
-                                        self.next_kickoff.get(t.name), t.name in self.near))
+                                        self.next_kickoff.get(t.name), t.name in self.near,
+                                        None if retired else self.job_alerts.standing(t.name)))
         return {"at": now, "targets_file": str(self.targets_file) if self.targets_file else None,
                 "targets": targets, "sites": site_status(self.guard, now),
                 "behaviour": {"changed": len(behaviour.changed()),
                               "problems": list(self.behaviour_problems)}}
+
+    def _state(self, t, now) -> tuple[str, str]:
+        """A target's (state, detail), as status.json gives them."""
+        why = self._paused(t.site, now)
+        off = schedule.inactive(t, now)
+        if t.name in self.retired_targets:
+            return "retired", "removed from targets.toml"
+        if off == "finished":
+            return "finished", f"ended {t.until}"
+        if why and (why.startswith("cooling off") or why.startswith("backing off")):
+            return "blocked", why
+        if why:
+            return "paused", why
+        if off:
+            return "paused", off
+        if t.name in self.resting and now < self.resting[t.name]["until"]:
+            return "paused", _rest_detail(self.resting[t.name])
+        mine = [tab for tab in self.tabs.values() if tab.target.name == t.name]
+        n = len(mine)
+        return "running", "; ".join(x for x in (f"{n} tab{'s' if n != 1 else ''} open",
+                                                market_tabs_said(mine),
+                                                self.listing_said.get(t.name),
+                                                self.parser_said.get(t.name)) if x)
 
     def _report(self, now):
         self.reporter.report(now, self.status)

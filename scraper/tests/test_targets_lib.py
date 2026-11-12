@@ -184,7 +184,8 @@ def test_summary_joins_status_json(path, tmp_path):
         "at": now, "targets_file": str(path),
         "targets": [{"name": "pp", "site": "paddypower", "url": FULL[0].url, "state": "running",
                      "mode": "keep", "detail": "2 tabs open", "last_load": now - 60,
-                     "last_parse": now - 30, "rows_posted": 42},
+                     "last_parse": now - 30, "rows_posted": 42,
+                     "alert": "no rows for 60 min (2 tabs open)"},
                     {"name": "gone", "site": "generic", "url": "https://x.org", "state": "retired",
                      "mode": "fetch", "detail": "removed from targets.toml", "last_load": None,
                      "last_parse": None, "rows_posted": 0}],
@@ -193,7 +194,8 @@ def test_summary_joins_status_json(path, tmp_path):
     assert [r["name"] for r in rows] == ["pp", "tips", "bb-saves"]       # the file's targets only
     pp = rows[0]
     assert pp["status"] == {"state": "running", "detail": "2 tabs open", "last_load": now - 60,
-                            "last_parse": now - 30, "rows_posted": 42, "reported_at": now}
+                            "last_parse": now - 30, "rows_posted": 42,
+                            "alert": "no rows for 60 min (2 tabs open)", "reported_at": now}
     assert pp["every_min"] == 15.0 and pp["priority"] == 5 and pp["window"] == "07:00-23:30"
     assert pp["matches"]["market_tabs"] == ["Corners", 'Cards "x"']
     assert rows[1]["status"] is None and rows[1]["enabled"] is False
