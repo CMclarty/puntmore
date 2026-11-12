@@ -37,6 +37,9 @@ from dataclasses import dataclass
 # and pub endpoints; getMarketPrices then polls their prices every few seconds.
 # A response matching this after a market-tab click is what "loaded" means.
 _PP_MARKET_LIST = r"/smspp/(event-page|pub)/v\d+"
+# Paddy prices its betslip at every page load; the response lists what is in it
+# ("betCombinations"). Seen on 12 Nov 2026 with a selection nobody chose in it.
+_PP_BETSLIP = r"/transactional/v\d+/implyBets"
 
 
 @dataclass(frozen=True)
@@ -45,12 +48,13 @@ class Site:
     block_means_cooloff: bool   # True: stop the site and wait for `resume`
                                 # False: back off and retry on its own
     market_list: str | None = None   # URL regex: a market tab's markets arrived
+    betslip: str | None = None       # URL regex: the page pricing its betslip (never meant to hold anything)
 
 
 # The keys are the sites; behaviour.py has the same three under "Limits, per site".
 SITES = {
     "paddypower": Site(needs_login=False, block_means_cooloff=True,
-                       market_list=_PP_MARKET_LIST),
+                       market_list=_PP_MARKET_LIST, betslip=_PP_BETSLIP),
     "bookiebashing": Site(needs_login=True, block_means_cooloff=False),
     "generic": Site(needs_login=False, block_means_cooloff=True),
 }

@@ -78,7 +78,7 @@ prices are `scraper_prices` files that the Hub posts to Render.
 - `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite);
   built from `behaviour.py`'s limits, which it keeps a copy of (`use`).
 - `browser.py` - the one Chrome: launch, block/logout detection, clicks
-  (their waits, steps and aim: `behaviour.py`).
+  (their waits, steps and aim: `behaviour.py`). A click is aimed, then checked: if the element moved or something else is under the pointer at the press, it is aimed once more and otherwise not pressed (12 Nov 2026).
 - `login.py` - Bookie Bashing's login form, the login from `.env`, one sign-in
   per logout on the page already open (at most `login.max_signins` in
   `login.window_h` hours, 3 in 6 by default, then it waits for a person),

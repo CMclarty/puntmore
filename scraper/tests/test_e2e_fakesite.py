@@ -645,3 +645,39 @@ def test_the_runner_takes_no_playwright_screenshot():
     import pathlib
     src = (pathlib.Path(__file__).parents[1] / "runner.py").read_text()
     assert ".page.screenshot(" not in src and src.count("browser.screenshot(") == 3
+
+
+def test_a_click_on_a_real_page_checks_what_is_under_the_pointer(tmp_path):
+    """browser.click against real elements: a button that stays is clicked; one
+    that jumps away every time the pointer reaches it is not, and neither is
+    the 'price' it uncovers; one that jumps once is aimed at again and clicked."""
+    from playwright.sync_api import sync_playwright
+    from scraper import browser
+    s = config.Settings(data_dir=tmp_path, profile_dir=tmp_path / "profile", channel=None,
+                        alert_webhook=None, healthcheck_url=None, capture_mb=20, targets=[])
+    html = """<body style='margin:0'><div id=price style='position:absolute;left:0;top:0;width:400px;height:300px'
+      onclick="window.n_price=(window.n_price||0)+1">5/1</div>
+      <button id=stay style='position:absolute;left:20px;top:20px;width:120px;height:40px' onclick="window.n_stay=1">Corners</button>
+      <button id=slide style='position:absolute;left:20px;top:120px;width:120px;height:40px' onclick="window.n_slide=1">Cards</button>
+      <button id=once style='position:absolute;left:220px;top:20px;width:120px;height:40px' onclick="window.n_once=1">Goals</button>
+      <script>
+      // #slide jumps away every time the pointer reaches it; #once jumps a single time, then stays.
+      const jump = (id, again) => { let n = 0; const el = document.getElementById(id);
+        el.addEventListener('mouseover', () => { if (again || !n) setTimeout(() => {
+          el.style.top = (parseInt(el.style.top) > 150 ? 120 : 220) + 'px'; }, 50); n++; }); };
+      jump('slide', true); jump('once', false);
+      </script></body>"""
+    with sync_playwright() as p:
+        ctx = browser.launch(p, s, headless=True)
+        try:
+            page = ctx.new_page()
+            page.set_content(html)
+            browser.click(page, page.locator("#stay"))
+            assert page.evaluate("window.n_stay") == 1
+            with pytest.raises(RuntimeError, match="moved under the pointer"):
+                browser.click(page, page.locator("#slide"))
+            assert page.evaluate("[window.n_slide || 0, window.n_price || 0]") == [0, 0]
+            browser.click(page, page.locator("#once"))          # moved once: aimed again, then clicked
+            assert page.evaluate("[window.n_once || 0, window.n_price || 0]") == [1, 0]
+        finally:
+            ctx.close()

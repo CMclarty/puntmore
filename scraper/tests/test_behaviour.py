@@ -352,11 +352,19 @@ class _Page:
 
 
 class _Loc:
+    """An element that stays put; `moves` makes its next looks report a shift
+    or something else under the point (browser.click's last look)."""
+    def __init__(self, looks=()):
+        self.looks = list(looks)
+
     def scroll_into_view_if_needed(self, timeout):
         pass
 
     def bounding_box(self):
         return {"x": 100, "y": 200, "width": 40, "height": 20}
+
+    def evaluate(self, js, arg):
+        return self.looks.pop(0) if self.looks else {"left": 100, "top": 200, "hit": True}
 
 
 def test_the_click_helper_reads_the_catalogue(tmp_path):
@@ -695,3 +703,30 @@ def test_alerts_is_the_last_group_and_holds_the_three_thresholds():
         assert behaviour.parse(key, "0") == 0                   # off
     with pytest.raises(behaviour.BehaviourError, match="alerts.stuck_s"):
         behaviour.parse("alerts.stuck_s", 591)                  # the watchdog's 600 s would come first
+
+
+# --- a click never lands on what moved under the pointer (12 Nov 2026) ----------------
+STILL = {"left": 100, "top": 200, "hit": True}
+
+
+def test_a_click_is_not_pressed_when_the_page_moved_under_the_pointer(tmp_path):
+    """The press comes up to two seconds after the aim. If the element has
+    shifted, or something else is now under the point, the aim is taken again;
+    if it happens twice nothing is pressed (on Paddy the thing underneath can
+    be a price: a selection was found in the betslip on 12 Nov 2026)."""
+    _use(tmp_path, click__before_move_ms="7-7", click__move_steps="3-3", click__before_press_ms="8-8",
+         click__press_ms="9-9", click__aim_x="0.25-0.25", click__aim_y="0.5-0.5")
+    # shifted 30 px between the aim and the press, both times: no click at all
+    page = _Page()
+    with pytest.raises(RuntimeError, match="moved under the pointer"):
+        browser.click(page, _Loc([STILL, {"left": 100, "top": 230, "hit": True}, STILL, {"left": 100, "top": 230, "hit": True}]))
+    assert not [x for x in page.said if x[0] == "click"]
+    # something else under the point, both times: no click
+    page = _Page()
+    with pytest.raises(RuntimeError, match="moved under the pointer"):
+        browser.click(page, _Loc([STILL, {"left": 100, "top": 200, "hit": False}, STILL, {"left": 100, "top": 200, "hit": False}]))
+    assert not [x for x in page.said if x[0] == "click"]
+    # it settled on the second aim: one click
+    page = _Page()
+    browser.click(page, _Loc([STILL, {"left": 100, "top": 230, "hit": True}, STILL, STILL]))
+    assert [x[0] for x in page.said].count("click") == 1 and [x[0] for x in page.said].count("move") == 2

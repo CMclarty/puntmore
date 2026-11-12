@@ -290,17 +290,43 @@ def settle(page):
 
 def click(page, loc):
     """Click the way a hand does: bring it into view, move the pointer over
-    it, pause, press and release - not a jump to its exact centre."""
+    it, pause, press and release - not a jump to its exact centre.
+
+    The press comes up to two seconds after the aim, and a page can move in
+    that time (a banner sliding in, a market list arriving), so the last thing
+    before the press is a look at what is under the pointer: if the element
+    has shifted, or something else is there now, the aim is taken once more,
+    and if that fails too nothing is pressed and this raises. On Paddy the
+    thing underneath can be a price: a selection nobody chose was found in
+    the betslip on 12 Nov 2026."""
     loc.scroll_into_view_if_needed(timeout=5000)
     page.wait_for_timeout(_n("click.before_move_ms"))
-    box = loc.bounding_box()
-    if not box:
-        raise RuntimeError("element has no box")
-    x = box["x"] + box["width"] * _x("click.aim_x")
-    y = box["y"] + box["height"] * _x("click.aim_y")
-    page.mouse.move(x, y, steps=_n("click.move_steps"))
-    page.wait_for_timeout(_n("click.before_press_ms"))
-    page.mouse.click(x, y, delay=_n("click.press_ms"))
+    for _attempt in (1, 2):
+        box = loc.bounding_box()
+        if not box:
+            raise RuntimeError("element has no box")
+        fx, fy = _x("click.aim_x"), _x("click.aim_y")
+        x = box["x"] + box["width"] * fx
+        y = box["y"] + box["height"] * fy
+        before = loc.evaluate(_UNDER_POINTER, {"fx": fx, "fy": fy})
+        page.mouse.move(x, y, steps=_n("click.move_steps"))
+        page.wait_for_timeout(_n("click.before_press_ms"))
+        now = loc.evaluate(_UNDER_POINTER, {"fx": fx, "fy": fy})
+        if (now["hit"] and abs(now["left"] - before["left"]) <= _MOVED_PX
+                and abs(now["top"] - before["top"]) <= _MOVED_PX):
+            page.mouse.click(x, y, delay=_n("click.press_ms"))
+            return
+    raise RuntimeError("the page moved under the pointer - not clicked")
+
+
+# Where the element is now (in its own frame) and whether it is still the thing
+# at the aimed point: itself or something inside it, not what slid over or under.
+_UNDER_POINTER = """(el, a) => {
+  const r = el.getBoundingClientRect();
+  const t = document.elementFromPoint(r.left + r.width * a.fx, r.top + r.height * a.fy);
+  return {left: r.left, top: r.top, hit: !!t && (t === el || el.contains(t))};
+}"""
+_MOVED_PX = 2
 
 
 def screenshot(page, path, full_page=False) -> None:
