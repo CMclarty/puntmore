@@ -214,6 +214,18 @@ SETTINGS: tuple[Setting, ...] = (
         ("bb.settle_s", "float", 0.25, 0.05, 1.0, "s",
          "The Total Odds field counts as settled when it reads the same twice this far apart"),
     ),
+    # When the Scraper says it is not working (standing.py; the stall: __main__.watchdog). One
+    # alert when a problem has stood this long, one when it clears.
+    *_group(
+        "Alerts",
+        ("alerts.stuck_s", "int", 180, 0, 590, "s",
+         "Alert when the loop has made no progress for this long (0: off); the watchdog "
+         "restarts it at 600 s"),
+        ("alerts.failing_min", "int", 15, 0, 1440, "min",
+         "Alert when a job's parser has failed the same way for this long (0: off)"),
+        ("alerts.no_rows_min", "int", 60, 0, 1440, "min",
+         "Alert when a running job with pages open has handed over no rows for this long (0: off)"),
+    ),
 )
 
 _BY_KEY = {s.key: s for s in SETTINGS}

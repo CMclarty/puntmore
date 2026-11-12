@@ -54,6 +54,8 @@ OLD = {
     "games.within_h": 48, "games.look_again_s": 86400,
     "bb.call_budget_s": 40.0, "bb.update_every_s": 1800, "bb.update_tries": 3,
     "bb.xsaves_retries": 3, "bb.settle_s": 0.25,
+    # new with the Scraper's own alerts (12 Nov 2026, Callum); no constant before
+    "alerts.stuck_s": 180, "alerts.failing_min": 15, "alerts.no_rows_min": 60,
 }
 
 
@@ -85,7 +87,7 @@ def test_the_catalogue_reads_as_a_description():
     groups = list(dict.fromkeys(s.group for s in behaviour.SETTINGS))
     assert groups == ["Games", "Limits, per site", "Limits, all sites", "Spacing of page loads",
                       "Arriving on a page", "Clicks", "Reading down a page",
-                      "Bookie Bashing bet builder"]
+                      "Bookie Bashing bet builder", "Alerts"]
     for s in behaviour.SETTINGS:
         assert s.kind in ("int", "float", "bool", "range", "hours"), s.key
         assert s.says and s.says[0].isupper(), s.key
@@ -671,3 +673,25 @@ def test_the_change_log_is_not_a_name_a_job_can_take(tmp_path):
     with pytest.raises(targets.TargetsError, match="behaviour"):
         targets.add(tmp_path / "targets.toml", {"name": runner.BEHAVIOUR_LOG, "site": "generic",
                                                 "url": "https://example.com/a", "post": "hub:tips"})
+
+
+# --- "Alerts": when the Scraper says it is not working (Callum, 12 Nov 2026) --------
+def test_alerts_is_the_last_group_and_holds_the_three_thresholds():
+    last = [s for s in behaviour.SETTINGS if s.group == "Alerts"]
+    assert behaviour.SETTINGS[-3:] == tuple(last)
+    stuck, failing, no_rows = last
+    assert (stuck.key, stuck.kind, stuck.default, stuck.lo, stuck.hi, stuck.unit) == \
+        ("alerts.stuck_s", "int", 180, 0, 590, "s")
+    assert stuck.says == ("Alert when the loop has made no progress for this long (0: off); "
+                          "the watchdog restarts it at 600 s")
+    assert (failing.key, failing.kind, failing.default, failing.lo, failing.hi, failing.unit) == \
+        ("alerts.failing_min", "int", 15, 0, 1440, "min")
+    assert failing.says == "Alert when a job's parser has failed the same way for this long (0: off)"
+    assert (no_rows.key, no_rows.kind, no_rows.default, no_rows.lo, no_rows.hi, no_rows.unit) == \
+        ("alerts.no_rows_min", "int", 60, 0, 1440, "min")
+    assert no_rows.says == ("Alert when a running job with pages open has handed over no rows "
+                            "for this long (0: off)")
+    for key in ("alerts.stuck_s", "alerts.failing_min", "alerts.no_rows_min"):
+        assert behaviour.parse(key, "0") == 0                   # off
+    with pytest.raises(behaviour.BehaviourError, match="alerts.stuck_s"):
+        behaviour.parse("alerts.stuck_s", 591)                  # the watchdog's 600 s would come first

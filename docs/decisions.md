@@ -247,6 +247,11 @@ names and no other; older names appear only in `docs/retired.md`.
   Paddy Power 15 loads/h with quiet hours 01-07, Bookie Bashing 8/h, generic
   sources 60/h and 400/day. (12 Nov 2026, Callum; replaces "Budgets are
   code", Oct 2026)
+- **The Scraper says when it is not working.** One alert, and one when it clears, for a
+  stalled loop (3 minutes; the watchdog restarts it at 10), a job failing the same way
+  (15 minutes), and a running job with pages open that has handed over no rows (60 minutes);
+  the thresholds are behaviour settings, 0 turns one off. They go where a block's alert goes:
+  `data/alerts.log`, the Console, and the webhook when one is set. (12 Nov 2026, Callum)
 - **Bookie Bashing is not a Finder source and the 2-Up rescue model is tuned
   against BB's 2-up tracker by hand.** BB's terms ban automated access.
   **The single named exception is `bb-saves`:** the Scraper's one BB target
