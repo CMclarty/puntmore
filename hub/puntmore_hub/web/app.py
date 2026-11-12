@@ -27,7 +27,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .. import __version__
 from ..config import Settings, settings as default_settings
 from ..store import Store, iso, utcnow
-from . import actions, collect, scraper_targets
+from . import actions, collect, scraper_behaviour, scraper_targets
 
 STATIC = Path(__file__).resolve().parent / "static"
 CACHE_S = {"render": 15.0, "hermes": 4.0, "model": 4.0}   # outside calls: overview and tab share one answer
@@ -129,6 +129,10 @@ def create_app(cfg: Settings | None = None, *, allowed_hosts: list[str] | None =
         except scraper_targets.LibraryMissing as exc:
             raise HTTPException(503, str(exc)) from None
 
+    @app.get("/api/scraper/behaviour")
+    def scraper_behaviour_view():
+        return scraper_behaviour.view(cfg)
+
     # ---- actions ----------------------------------------------------------------------------------
     def authorise(request: Request, action: str) -> None:
         given = request.headers.get("x-puntmore-token", "")
@@ -229,6 +233,23 @@ def create_app(cfg: Settings | None = None, *, allowed_hosts: list[str] | None =
         body = await body_of(request)
         authorise(request, f"scraper targets remove {name}")
         return run(request, f"scraper targets remove {name}", lambda: scraper_targets.remove(cfg, name, body), "scraper")
+
+    # The Scraper's behaviour: scraper/behaviour.py's own set_ and reset (scraper_behaviour.py). A
+    # refusal is the library's message (400, its field the setting's key); its lock held is a 409.
+    @app.post("/api/actions/scraper/behaviour/set")
+    async def behaviour_set(request: Request):
+        body = await body_of(request)
+        label = f"scraper behaviour set {scraper_behaviour.said(body.get('key'))[:80]} {scraper_behaviour.said(body.get('value'))[:80]}"
+        authorise(request, label)
+        return run(request, label, lambda: scraper_behaviour.set_(cfg, body), "scraper")
+
+    @app.post("/api/actions/scraper/behaviour/reset")
+    async def behaviour_reset(request: Request):
+        body = await body_of(request)
+        label = ("scraper behaviour reset --all" if body.get("all") is True
+                 else f"scraper behaviour reset {scraper_behaviour.said(body.get('key'))[:80]}")
+        authorise(request, label)
+        return run(request, label, lambda: scraper_behaviour.reset(cfg, body), "scraper")
 
     return app
 

@@ -9,7 +9,7 @@ Read `docs/decisions.md` first; it wins over this runbook. One Chrome on the Hub
 
 ## Hard rules (never break these)
 - Real headful Chrome, one persistent profile, no stealth or fingerprint tooling, no fake mouse movement. The Scraper's `browser.py` is the only place Chrome is configured.
-- Budgets are code (`sites.py`): Paddy 15/h, Bookie Bashing 8/h, generic 60/h and 400/day. Never loop retries. Never add a bookmaker host as a generic target.
+- The Scraper's limits, timings and clicks (by default Paddy 15/h, Bookie Bashing 8/h, generic 60/h and 400/day) are its behaviour settings, `scraper/behaviour.py`. Behaviour settings are Callum's; HubAI does not change them (no `python -m scraper behaviour set` or `reset`, no edit of `behaviour.toml`): if one looks wrong, say so to the chief of staff. Never loop retries. Never add a bookmaker host as a generic target.
 - A block starts a cool-off the Scraper enforces. Do not clear it to "try again"; it needs `python -m scraper resume <site>` after the hours have passed, and a human look at why.
 - Bookie Bashing is not a Finder source. Any BB interaction is user-triggered.
 - Parsers are written only from what real pages were seen to do: a saved dump or sample, never a guessed layout.

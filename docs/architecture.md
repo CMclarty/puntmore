@@ -80,7 +80,7 @@ flowchart TB
 | Finder | `finder_rows`, its status machine, `/api/finder/*` (`app/finder/`, `docs/finder-spec.md`) | Render · me | live, Callum only; on the main domain until `ME_HOST` is set |
 | Personal tools | dogs, Virtuals, P&L, Kelly, shop | Render · me | live on the main domain until `ME_HOST` is set |
 | AW 26 | Callum's Paddy terminal slips (`app/aw26/`): the page, the slips HubAI records and the photo queue `aw_photos` the Hub takes from; Render reads no photo | Render · me | live on the main domain until `ME_HOST` is set |
-| Scraper service | `scraper/`, user service `puntmore-scraper`: one real Chrome on its own virtual screen (`puntmore-screen`), budgets in code (Docker is the fallback for a box with no screen) | Hub | live |
+| Scraper service | `scraper/`, user service `puntmore-scraper`: one real Chrome on its own virtual screen (`puntmore-screen`), its limits and timings one catalogue Callum changes live (`scraper/behaviour.py`) (Docker is the fallback for a box with no screen) | Hub | live |
 | Scraper control | `targets.toml` changed only through `scraper/targets.py` (Console, CLI, HubAI); the Hub daemon's inbox of the drop files and its tipster-mailbox poll (`hub/`); posts the Scraper's Paddy prices to Render (`inbox.post_prices`) | Hub | part built |
 | HubAI | the Hermes layer: chief of staff on Telegram, specialist profiles, Qwen3.5-122B under llama-server; takes every escalation; judges tips for Finder (`puntmore finder`) and takes a tip Callum asks for on Telegram; reads AW 26's slip photos, which the Hub daemon's AW 26 loop hands it one at a time, and records the slips (`puntmore aw26`, the runbook `hub/deploy/hermes-skills/puntmore-aw26/`) | Hub | live; AW 26 slip reading built, the loop off (`PUNTMORE_AW26_READ`) until proved on real slips; the Finder skill to build |
 | Bet Placer | reads the three feeds, sizes, places through DeviceFarmer, keeps the only book, posts `placed` / `gone` to Finder (`docs/placer-spec.md`); starts from the placement engine in `hub/puntmore_hub/placement/` (dry-run adapter only) | Hub; third parties, 2-Up only | to build |
@@ -106,7 +106,7 @@ command.
 1. **Dry-run by default** in every Bet Placer; two weeks of clean dry-run before real money.
 2. **The kill switch is a file**, `hub/data/KILL`; Render's `TWOUP_KILL_SWITCH` empties the 2-Up feed.
 3. **No retry, no re-route** of a failed bet; it goes to HubAI.
-4. **Real Chrome, no stealth.** Budgets in code, 24 h cool-off on a block.
+4. **Real Chrome, no stealth.** Limits and timings in one catalogue Callum changes live (`scraper/behaviour.py`, every change logged); a block is a 24 h cool-off, in code.
 5. **Tips on Finder are Callum's only**, behind the `finder` grant and on `me` (the main domain until `ME_HOST` is set); never in the combined value feed, never offered to a third party.
 6. **OddsPapi prices Paddy, 2-Up and the coupon tracker; odds-api.net prices Hills.** Render keeps no record of anyone's bets.
 7. **One deploy**, not designed to scale.

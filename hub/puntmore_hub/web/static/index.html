@@ -115,6 +115,24 @@
       <p id="latest-meta" class="hint"></p>
       <div class="scroll" id="latest-rows"></div>
     </div>
+
+    <p class="behaviour-bar"><button id="behaviour-open" type="button" aria-expanded="false" aria-controls="behaviour">Behaviour</button> <span class="hint" data-slot="behaviour-count">…</span></p>
+    <div id="behaviour" class="card behaviour" hidden>
+      <h3>How the Scraper behaves</h3>
+      <p class="hint">Every limit, timing and click, each declared in <code>scraper/behaviour.py</code>; a change is written to <code data-slot="behaviour-file">behaviour.toml</code>. <strong>Changes apply within 60 s</strong>, without a restart. A timing already drawn (a page's next reload or fresh page, the next round of clicks, a back-off, the service's restart) changes from its next draw. Every change is logged (<code>logs/behaviour.log</code> in the Scraper's data, and <code>console-actions.log</code>).</p>
+      <p id="behaviour-result" class="action-result" role="status" hidden></p>
+      <div data-slot="behaviour-problems"></div>
+      <div id="behaviour-groups"></div>
+      <p><button id="behaviour-reset-all" type="button" data-act>Reset all</button></p>
+      <form id="behaviour-reset-form" class="form" autocomplete="off" hidden>
+        <p class="rule">This puts every setting back to its default. Type <code>RESET</code> to confirm.</p>
+        <label>Confirm <input name="confirm" type="text" autocapitalize="characters" spellcheck="false" placeholder="type RESET" maxlength="5"><span class="field-error" data-err="confirm"></span></label>
+        <p class="field-error" data-err="_"></p>
+        <button type="submit" class="danger">Reset all</button>
+        <button type="button" id="behaviour-reset-cancel">Cancel</button>
+      </form>
+    </div>
+
     <h3>Site budgets</h3>
     <p class="hint">Read-only. A cool-off that needs <code>resume</code> is ended with the Scraper's own command, run on the Hub; the console does not run it.</p>
     <div class="scroll" data-slot="sites"></div>

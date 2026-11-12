@@ -70,6 +70,7 @@ files.
 | Want to... | Change |
 |---|---|
 | Add or pause a Scraper job (days, end date; a Finder source is `site = "generic"`) | the Console's Scraper tab, or `python -m scraper targets …` (`scraper/README.md`, "Changing targets"); never `targets.toml` by hand |
+| Change how the Scraper behaves (a site's loads an hour or a day, quiet hours, the cool-off, gaps, jitter, clicks; Callum only, never HubAI) | the Console's Scraper tab, "Behaviour", or `python -m scraper behaviour set …` (`scraper/README.md`, "Changing how it behaves"); every setting is declared in `scraper/behaviour.py`; never `behaviour.toml` by hand |
 | Fix a broken parser | `scraper/parsers/<name>.py` + a fixture under `scraper/tests/fixtures/` |
 | Add an email tipster | an entry in `data/tipsters.toml` (see `tipsters.example.toml`) + a parser in `puntmore_hub/tipsters/<name>.py` registered in `PARSERS`, written from a real email; `puntmore mail --dry-run` shows what it reads |
 | Change how HubAI reads a slip photo | the runbook `deploy/hermes-skills/puntmore-aw26/SKILL.md` (on the box after the next `puntmore update`); what is sent to Render, `puntmore_hub/aw26.py` |

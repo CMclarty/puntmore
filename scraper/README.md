@@ -35,10 +35,11 @@ the 29 Oct 2026 capture; see its docstring).
   exception in `docs/decisions.md`) and Finder's `generic` sources, within
   budgets (`behaviour.py`; these are the defaults): Paddy 15 loads/h and
   120/day, Bookie Bashing 8/h and 120/day, generic 60/h and 400/day.
-  `targets.toml` cannot raise them; only `python -m scraper behaviour set`
-  changes them ("Changing how it behaves", below).
-- No Paddy traffic between 01:00 and 07:00 (Europe/London). Its pages are
-  closed for those hours.
+  `targets.toml` cannot raise them; only Callum changes them, from the
+  Console's Behaviour pane or `python -m scraper behaviour set` ("Changing
+  how it behaves", below); HubAI does not.
+- No Paddy traffic between 01:00 and 07:00 (Europe/London; `quiet.hours`,
+  by default). Its pages are closed for those hours.
 - Paddy 403/429 or Cloudflare check → every Paddy page closes and a 24 h
   cool-off starts. It also needs `resume`, and you get an alert.
 - Bookie Bashing logout → it signs in once, on the page already open, with the
@@ -176,7 +177,9 @@ catalogue, `scraper/behaviour.py`: every setting with its default, unit,
 bounds and a line saying what it is. Read that file first when something has
 gone wrong. What a block means, the allowed hosts and never answering a
 challenge are not settings, and nothing about what the browser shows a site
-is.
+is. These settings are Callum's (the register, "Scraping conduct"): he
+changes them from the Console's Scraper tab ("Behaviour", which calls the
+same library) or with the commands below; HubAI does not change them.
 
 ```sh
 python -m scraper behaviour                        # every setting: group, key, value, default; * = changed

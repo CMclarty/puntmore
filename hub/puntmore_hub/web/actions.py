@@ -1,9 +1,10 @@
 """The few things the Hub Console can do. Each is the CLI's own function, never a shell-out.
 
-Kill switch on and off, resolve an escalation, one inbox pass, a heartbeat, and the
-Scraper's target edits (add, set, enable, disable, remove), which are ``scraper/targets.py``'s own
-functions (``scraper_targets.py``). Nothing else: no Scraper commands (``resume`` is the Scraper's
-CLI), no placement triggers, no ``.env`` writes. Every call, done or refused, is one line in
+Kill switch on and off, resolve an escalation, one inbox pass, a heartbeat, the Scraper's target
+edits (add, set, enable, disable, remove), which are ``scraper/targets.py``'s own functions
+(``scraper_targets.py``), and its behaviour settings (set one, reset one or all), which are
+``scraper/behaviour.py``'s (``scraper_behaviour.py``). Nothing else: no Scraper commands (``resume``
+is the Scraper's CLI), no placement triggers, no ``.env`` writes. Every call, done or refused, is one line in
 ``data/console-actions.log``.
 
 Token checking lives in ``app.py``; these functions assume the caller is allowed.

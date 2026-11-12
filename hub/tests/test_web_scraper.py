@@ -376,3 +376,175 @@ def test_remove_takes_the_log_from_the_scraper_data_dir(scfg, monkeypatch):
     monkeypatch.setattr(lib, "remove", spy)
     r = client(scfg).post("/api/actions/scraper/targets/bb-saves/remove", headers=H, json={"confirm": "bb-saves"})
     assert r.status_code == 200 and seen["data_dir"] == scfg.scraper_data_dir
+
+
+# ---- the Behaviour pane: scraper/behaviour.py through the console ---------------------------------
+
+def bfile(cfg):
+    p = cfg.scraper_data_dir / "behaviour.toml"
+    return p.read_text() if p.exists() else ""
+
+
+def blib(cfg):
+    scraper_targets.library(cfg)
+    import importlib
+    return importlib.import_module("scraper.behaviour")
+
+
+@pytest.fixture
+def bcfg(scfg):
+    yield scfg
+    blib(scfg).load(scfg.scraper_data_dir / "no-such-dir")     # this process back on the defaults
+
+
+def test_the_behaviour_view_is_the_librarys_catalogue_with_the_files_values(bcfg):
+    d = client(bcfg).get("/api/scraper/behaviour").json()
+    assert d["file"] == str(bcfg.scraper_data_dir / "behaviour.toml")
+    assert d["changed"] == 0 and d["problems"] == [] and d["error"] is None
+    rows = d["settings"]
+    lib = blib(bcfg)
+    assert [r["key"] for r in rows] == [s.key for s in lib.SETTINGS]
+    pp = rows[0]
+    assert pp == {"key": "paddypower.per_hour", "group": "Limits, per site", "kind": "int", "value": 15,
+                  "default": 15, "lo": 0, "hi": 600, "unit": "loads", "changed": False,
+                  "says": pp["says"]} and pp["says"]
+    gap = next(r for r in rows if r["key"] == "load.any_gap_s")
+    assert gap["kind"] == "range" and gap["value"] == [20, 45]
+    # a change made elsewhere (the CLI) is what the console shows next
+    lib.set_(bcfg.scraper_data_dir, "paddypower.per_hour", 9)
+    d = client(bcfg).get("/api/scraper/behaviour").json()
+    assert d["changed"] == 1 and d["settings"][0]["value"] == 9 and d["settings"][0]["changed"] is True
+    # the tab carries the same view, for the line shown while the pane is closed
+    assert client(bcfg).get("/api/scraper").json()["behaviour"]["changed"] == 1
+    # a file that does not load is said, not raised
+    (bcfg.scraper_data_dir / "behaviour.toml").write_text("oops = [\n")
+    d = client(bcfg).get("/api/scraper/behaviour").json()
+    assert d["problems"] and "does not load" in d["problems"][0]
+
+
+def test_set_and_reset_through_the_routes_change_the_file_through_the_library(bcfg):
+    c = client(bcfg)
+    r = c.post("/api/actions/scraper/behaviour/set", headers=H, json={"key": "paddypower.per_hour", "value": "10"})
+    assert r.status_code == 200, r.text
+    assert r.json()["ok"] is True and r.json()["setting"]["value"] == 10 and "within 60 s" in r.json()["message"]
+    assert '"paddypower.per_hour" = 10' in bfile(bcfg)
+    assert c.post("/api/actions/scraper/behaviour/set", headers=H,
+                  json={"key": "load.any_gap_s", "value": ["30", "60"]}).json()["setting"]["value"] == [30, 60]
+    assert c.post("/api/actions/scraper/behaviour/set", headers=H,
+                  json={"key": "generic.quiet_hours", "value": True}).json()["setting"]["value"] is True
+    assert c.post("/api/actions/scraper/behaviour/set", headers=H,
+                  json={"key": "quiet.hours", "value": "2-6"}).json()["setting"]["value"] == [2, 6]
+    assert c.get("/api/scraper/behaviour").json()["changed"] == 4
+    assert c.get("/api/scraper").json()["behaviour"]["changed"] == 4          # the tab's cache was dropped
+    r = c.post("/api/actions/scraper/behaviour/reset", headers=H, json={"key": "paddypower.per_hour"})
+    assert r.status_code == 200 and r.json()["setting"]["value"] == 15 and r.json()["setting"]["changed"] is False
+    assert "paddypower.per_hour" not in bfile(bcfg)
+    # every setting at once needs RESET typed
+    for body in ({"all": True}, {"all": True, "confirm": "reset"}):
+        r = c.post("/api/actions/scraper/behaviour/reset", headers=H, json=body)
+        assert r.status_code == 400 and r.json()["field"] == "confirm"
+    assert c.get("/api/scraper/behaviour").json()["changed"] == 3
+    r = c.post("/api/actions/scraper/behaviour/reset", headers=H, json={"all": True, "confirm": "RESET"})
+    assert r.status_code == 200 and sorted(r.json()["reset"]) == ["generic.quiet_hours", "load.any_gap_s", "quiet.hours"]
+    assert c.get("/api/scraper/behaviour").json()["changed"] == 0
+    lines = log(bcfg)
+    assert any("\tscraper behaviour set paddypower.per_hour 10\tok: paddypower.per_hour = 10" in ln for ln in lines)
+    assert any("\tscraper behaviour reset paddypower.per_hour\tok:" in ln for ln in lines)
+    assert any("\tscraper behaviour reset --all\tok:" in ln for ln in lines)
+
+
+def test_a_refused_value_is_a_400_naming_the_setting_and_writes_nothing(bcfg):
+    lib = blib(bcfg)
+    with pytest.raises(lib.BehaviourError) as want:
+        lib.parse("paddypower.per_hour", "-4")
+    c = client(bcfg)
+    r = c.post("/api/actions/scraper/behaviour/set", headers=H, json={"key": "paddypower.per_hour", "value": "-4"})
+    assert r.status_code == 400
+    assert r.json() == {"ok": False, "message": str(want.value), "field": "paddypower.per_hour"}
+    for body, field in (({"key": "no.such", "value": "1"}, "no.such"),
+                        ({"key": "load.any_gap_s", "value": "45-20"}, "load.any_gap_s"),
+                        ({"key": "generic.quiet_hours", "value": "maybe"}, "generic.quiet_hours"),
+                        ({"key": "click.every_s", "value": ""}, "click.every_s"),
+                        ({"value": "1"}, "key"), ({"key": ["x"], "value": "1"}, "key")):
+        r = c.post("/api/actions/scraper/behaviour/set", headers=H, json=body)
+        assert r.status_code == 400 and r.json()["field"] == field, (body, r.text)
+    r = c.post("/api/actions/scraper/behaviour/reset", headers=H, json={"key": "no.such"})
+    assert r.status_code == 400 and r.json()["field"] == "no.such"
+    assert bfile(bcfg) == ""                                       # nothing written
+    assert any("scraper behaviour set paddypower.per_hour -4\trefused: paddypower.per_hour:" in ln for ln in log(bcfg))
+
+
+def test_the_behaviour_lock_held_elsewhere_is_a_409(bcfg):
+    lib = blib(bcfg)
+    held, release = threading.Event(), threading.Event()
+
+    def hold():                        # the CLI, mid-change
+        with lib._locked(lib.path(bcfg.scraper_data_dir)):
+            held.set()
+            release.wait(5)
+    t = threading.Thread(target=hold)
+    t.start()
+    try:
+        assert held.wait(5)
+        r = client(bcfg).post("/api/actions/scraper/behaviour/set", headers=H,
+                              json={"key": "paddypower.per_hour", "value": 9})
+        assert r.status_code == 409 and r.json()["retry"] is True
+    finally:
+        release.set()
+        t.join()
+    assert bfile(bcfg) == ""
+
+
+BWRITES = [("set", {"key": "paddypower.per_hour", "value": 9}), ("reset", {"key": "paddypower.per_hour"}),
+           ("reset", {"all": True, "confirm": "RESET"})]
+
+
+@pytest.mark.parametrize("path,body", BWRITES)
+def test_every_behaviour_write_needs_the_token(bcfg, path, body):
+    blib(bcfg).set_(bcfg.scraper_data_dir, "click.every_s", 900)
+    before = bfile(bcfg)
+    assert client(bcfg, "").post(f"/api/actions/scraper/behaviour/{path}", json=body).status_code == 403
+    c = client(bcfg)
+    assert c.post(f"/api/actions/scraper/behaviour/{path}", json=body).status_code == 403
+    assert c.post(f"/api/actions/scraper/behaviour/{path}", json=body,
+                  headers={"X-Puntmore-Token": "x"}).status_code == 403
+    assert bfile(bcfg) == before
+    lines = log(bcfg)
+    assert len(lines) == 3 and all("\tscraper behaviour " in ln and "\trefused" in ln for ln in lines)
+    assert client(bcfg, "").get("/api/scraper/behaviour").status_code == 200       # reads need nothing
+
+
+def test_the_page_has_the_behaviour_pane_closed_and_no_inline_script(bcfg):
+    page = client(bcfg).get("/").text
+    assert '<button id="behaviour-open" type="button" aria-expanded="false" aria-controls="behaviour">Behaviour</button>' in page
+    assert '<div id="behaviour" class="card behaviour" hidden>' in page
+    assert 'data-slot="behaviour-count"' in page and 'id="behaviour-reset-form"' in page
+    # under the jobs, above the site budgets
+    assert page.index('id="target-add-form"') < page.index('id="behaviour"') < page.index("<h3>Site budgets</h3>")
+    assert "within 60 s" in page[page.index('id="behaviour"'):page.index("<h3>Site budgets</h3>")]
+    assert page.count("<script") == 1 and "onclick=" not in page and "<style" not in page
+    js = client(bcfg).get("/static/app.js").text
+    assert '"scraper/behaviour/"' in js and '"all defaults"' in js and "changed from default" in js
+    assert '"RESET"' in js and "button[data-act]" in js
+    css = client(bcfg).get("/static/style.css").text
+    assert "table.beh" in css and "tr.changed" in css
+
+
+FETCH = """\
+[[target]]
+name = "tips"
+site = "generic"
+url = "https://tips.example/today"
+"""
+
+
+def test_the_fetch_interval_wording_follows_a_changed_default(bcfg):
+    (bcfg.scraper_data_dir / "targets.toml").write_text(FETCH)
+
+    def words():
+        return client(bcfg).get("/api/scraper").json()["config"]["targets"][0]["view"]["schedule"]
+    assert words().startswith("every 60 min")
+    blib(bcfg).set_(bcfg.scraper_data_dir, "fetch.default_min", 90)          # the CLI, or the pane
+    assert words().startswith("every 90 min")
+    (bcfg.scraper_data_dir / "behaviour.toml").unlink()
+    assert words().startswith("every 60 min")

@@ -22,7 +22,10 @@ prices are `scraper_prices` files that the Hub posts to Render.
   (`puntmore-screen`, a headless sway on the box's GPU; Callum, 11 Nov 2026), never on Callum's
   desktop: a page sees the screen it is really on, and a person reaches it over VNC on
   `127.0.0.1` only (`README.md`, "Its own screen").
-- Per-site rules live in code (`sites.py`). Config can only make it slower.
+- What a block means and the hosts a job may load are code (`sites.py`, `config.py`). Its
+  limits, timings and clicks are the behaviour catalogue (`behaviour.py`): Callum changes them
+  live (the Console's Behaviour pane or `python -m scraper behaviour`), every change is logged,
+  and HubAI does not change them. `targets.toml` cannot loosen them.
 - Targets are direct page URLs in `targets.toml`.
 
 ## Module map
@@ -62,7 +65,7 @@ prices are `scraper_prices` files that the Hub posts to Render.
   module reads `behaviour.get(key)` when it acts and holds no number of its
   own for these. Overrides: `<data>/behaviour.toml`, only non-defaults,
   written only by `set_`/`reset` (lock, check, atomic save; `python -m
-  scraper behaviour`), read at start by `load` and again by
+  scraper behaviour`, the Console), read at start by `load` and again by
   the runner within 60 s of a change, no restart (a bad file or key is
   reported once per edit and the values in use kept, never raised; each
   value that moved is a line in `data/logs/behaviour.log`).
@@ -85,8 +88,8 @@ prices are `scraper_prices` files that the Hub posts to Render.
 ## Rules
 - **Finder's sources are Scraper targets** (5 Nov 2026, Callum: one Chrome,
   one budget, one alert path). `site = "generic"` may name any host except the
-  two bookmakers; its budget is in `sites.py` (60/h, 400/day, no quiet hours,
-  a block = 24 h cool-off + `resume generic`). A generic target is `fetch`
+  two bookmakers; its budget is `behaviour.py`'s (60/h, 400/day, no quiet hours,
+  by default; a block = 24 h cool-off + `resume generic`, in `sites.py`). A generic target is `fetch`
   mode: loaded, parsed once, closed. Its parser follows the same contract as
   every other parser and emits TIPS (event, market, selection, optional
   advised_price / advised_stake_units / tip_time / expiry / origin). With
@@ -122,9 +125,11 @@ prices are `scraper_prices` files that the Hub posts to Render.
   targets are kept. It writes its state to `data/status.json` once a minute,
   which the Hub reads; it sends Render nothing; its prices go through the Hub.
   Timings are clamped to the scraper's own floors (`config._target`).
-  HOW each site is treated is code
-  (`sites.py`: budgets, Paddy quiet hours 01-07, a Paddy block = every Paddy
-  page closed + 24 h cool-off needing `resume`) — no config edit can loosen it.
+  What a block means is code (`sites.py`: a Paddy block = every Paddy page
+  closed + 24 h cool-off needing `resume`). Each site's budgets and quiet
+  hours (Paddy 15/h, 01-07, by default) are `behaviour.py`'s settings, which
+  only Callum changes (the Console's Behaviour pane or `python -m scraper
+  behaviour`; every change logged); no `targets.toml` edit can loosen them.
   It detects challenges and logouts (also on an already-open page: 3+
   refusals in 10 min, Cloudflare, logout) and never answers a challenge — no
   fingerprint spoofing, no solvers, no proxies, no user-agent or navigator
@@ -135,7 +140,7 @@ prices are `scraper_prices` files that the Hub posts to Render.
   `--enable-automation` test flag is not passed and AutomationControlled is
   off (Callum's decision, 26 Oct 2026 — `navigator.webdriver` false, no
   infobar); `python -m scraper selfcheck` prints what a site sees. Page loads are spaced per site and
-  across sites (`sites.py load_gap_s`); jitter is drawn once per load. Parsers
+  across sites (`behaviour.py`: `<site>.load_gap_s`, `load.any_gap_s`); jitter is drawn once per load. Parsers
   (`scraper/parsers/`, one module each) are written only from what the real
   pages were seen to do: `bb_saves` drives the Bookie Bashing bet builder
   (above; this one BB target is the single named exception to "BB is never
