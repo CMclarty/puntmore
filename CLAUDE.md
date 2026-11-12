@@ -11,7 +11,7 @@ whole repo; each directory's `AGENTS.md` holds the rules for its code.
 
 | Directory | Runs on | Deployed by | Updated when |
 |---|---|---|---|
-| `render/api/` + `render/frontend/` | Render, ONE Docker web service | `render.yaml`; `render/api/Dockerfile` builds the frontend into the API image, `app/asgi.py` serves both | **every push to `main`** |
+| `render/api/` + `render/frontend/` | Render, ONE Docker web service | `render.yaml`; `render/api/Dockerfile` builds the frontend into the API image, `app/asgi.py` serves both | **a push to `main` that changes `render/` or `render.yaml`** |
 | `scraper/` | Hub: the Scraper service, user service `puntmore-scraper` on its own virtual screen, `puntmore-screen` (Docker is the fallback for a box with no screen) | `scraper/deploy/native/`; fallback `scraper-image.yml` | `puntmore-update.timer`, every 10 min |
 | `hub/` | Hub: the daemon, the Console, the Finder CLI, escalations to HubAI, the placement engine | `hub/deploy/systemd/` on a checkout | `puntmore-update.timer` pulls `main` every 10 min and restarts the services |
 
@@ -116,7 +116,7 @@ code.
   (required: the session cookie is `same_site=lax` and the frontend calls relative `/api/...`).
   CSS modules + vars in `index.css`.
 - **Deployment is Render only.** ONE Docker web service (`render.yaml`), `autoDeploy: true`:
-  **every push to `main` deploys** (`puntmore.com`). There is no local docker-compose or nginx
+  **a push to `main` that changes `render/` or `render.yaml` deploys** (`puntmore.com`; `buildFilter`). There is no local docker-compose or nginx
   stack; don't reintroduce one. To deploy, merge a pull request into `main`. Health gate:
   `/api/ready`.
 - Storage: SQLite on the Render persistent disk at `/data` (`DATABASE_URL`); uploaded images
