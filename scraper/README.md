@@ -360,7 +360,15 @@ Targets are of these kinds:
 - **matches**: a league's listing page, e.g. a Paddy competition, whose match
   links are opened up to `max_tabs` at a time. Each match tab clicks the
   market's tabs once, then stays open. A tab that goes quiet is reloaded once,
-  then retired.
+  then retired. `listings` (in `[target.matches]`, at most 8, each on a host
+  allowed for the site, none repeating `url` or each other) adds further
+  competitions' listing pages to the same job (Callum, 12 Nov 2026): each is
+  kept open in its own tab (`<name>:list`, then `<name>:list:1`, ...), loaded
+  and relisted every `relist_min` on its own clock, one load per tick. Their
+  match links are interleaved (the first of each listing, then the second of
+  each, ...), so every competition gets a tab before any gets two;
+  `max_tabs` is for the whole job. A listing tab is parsed like any other of
+  the job's tabs.
 - **page**: one URL kept open, e.g. the Bookie Bashing bet builder. It is
   reloaded every `every_min`, or only when it goes quiet for `stale_min`.
   Its parser may rest it (`rest.py`): the page closes and nothing loads
