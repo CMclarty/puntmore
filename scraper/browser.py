@@ -27,6 +27,7 @@ import random
 import re
 import time
 
+from . import behaviour
 from . import login
 
 # Background tabs in Chrome have their timers throttled to about once a minute,
@@ -256,49 +257,62 @@ def dismiss_consent(page):
         try:
             if btn.count() and btn.first.is_visible():
                 click(page, btn.first)
-                page.wait_for_timeout(random.randint(600, 1500))
+                page.wait_for_timeout(_n("arrive.after_consent_ms"))
                 return label
         except Exception:
             continue
     return None
 
 
+# The waits, steps and distances below are settings in behaviour.py ("Arriving
+# on a page", "Clicks", "Reading down a page"), read at each use. Where the
+# pointer wanders while looking down a page stays here: it is the window's
+# own area, not a setting.
+def _n(key) -> int:
+    """A whole number drawn from a range setting (ms, steps, px, passes)."""
+    return random.randint(*behaviour.get(key))
+
+
+def _x(key) -> float:
+    return random.uniform(*behaviour.get(key))
+
+
 def settle(page):
     """Arrive like a reader: wait for the page to draw, look down it a little."""
-    page.wait_for_timeout(random.randint(2500, 5000))
-    for _ in range(random.randint(1, 3)):
+    page.wait_for_timeout(_n("arrive.wait_ms"))
+    for _ in range(_n("arrive.passes")):
         page.mouse.move(random.randint(200, 1100), random.randint(200, 800),
-                        steps=random.randint(8, 25))
-        page.mouse.wheel(0, random.randint(250, 700))
-        page.wait_for_timeout(random.randint(700, 2200))
-    page.mouse.wheel(0, -random.randint(800, 2000))
+                        steps=_n("arrive.move_steps"))
+        page.mouse.wheel(0, _n("arrive.scroll_px"))
+        page.wait_for_timeout(_n("arrive.pause_ms"))
+    page.mouse.wheel(0, -_n("arrive.back_up_px"))
 
 
 def click(page, loc):
     """Click the way a hand does: bring it into view, move the pointer over
     it, pause, press and release - not a jump to its exact centre."""
     loc.scroll_into_view_if_needed(timeout=5000)
-    page.wait_for_timeout(random.randint(300, 900))
+    page.wait_for_timeout(_n("click.before_move_ms"))
     box = loc.bounding_box()
     if not box:
         raise RuntimeError("element has no box")
-    x = box["x"] + box["width"] * random.uniform(0.3, 0.7)
-    y = box["y"] + box["height"] * random.uniform(0.35, 0.65)
-    page.mouse.move(x, y, steps=random.randint(12, 30))
-    page.wait_for_timeout(random.randint(250, 900))
-    page.mouse.click(x, y, delay=random.randint(50, 140))
+    x = box["x"] + box["width"] * _x("click.aim_x")
+    y = box["y"] + box["height"] * _x("click.aim_y")
+    page.mouse.move(x, y, steps=_n("click.move_steps"))
+    page.wait_for_timeout(_n("click.before_press_ms"))
+    page.mouse.click(x, y, delay=_n("click.press_ms"))
 
 
 def read_down(page):
     """Look down what a click has just shown, then back up to the top, so
     markets drawn only when they come into view are drawn."""
-    for _ in range(random.randint(2, 4)):
+    for _ in range(_n("read.passes")):
         page.mouse.move(random.randint(250, 1100), random.randint(300, 800),
-                        steps=random.randint(8, 25))
-        page.mouse.wheel(0, random.randint(300, 700))
-        page.wait_for_timeout(random.randint(900, 2500))
-    page.mouse.wheel(0, -random.randint(2500, 4000))
-    page.wait_for_timeout(random.randint(500, 1200))
+                        steps=_n("read.move_steps"))
+        page.mouse.wheel(0, _n("read.scroll_px"))
+        page.wait_for_timeout(_n("read.pause_ms"))
+    page.mouse.wheel(0, -_n("read.back_up_px"))
+    page.wait_for_timeout(_n("read.back_up_pause_ms"))
 
 
 # Where a page's own tab bar is, when its tabs are not ARIA tabs/links/buttons.
@@ -343,7 +357,7 @@ def wait_for_feed(page, capture, since: float, feed, timeout_s: float = 12.0) ->
     deadline = since + timeout_s
     while time.time() < deadline:
         if any(feed.search(url) for _ts, _k, url, _t in capture.since(since)):
-            page.wait_for_timeout(random.randint(1500, 3000))   # its prices follow
+            page.wait_for_timeout(_n("click.after_feed_ms"))   # its prices follow
             return True
         page.wait_for_timeout(500)
     return False

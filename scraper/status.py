@@ -54,13 +54,14 @@ def target_entry(t, state, detail, last_load, last_parse, rows_posted,
 def site_status(guard, now) -> list[dict]:
     """Budget spent and cool-off per site, off the guard's SQLite."""
     out = []
-    for site, rules in SITES.items():
+    for site in SITES:
         h, d = guard.spent(site, now)
+        per_hour, per_day = guard.limit(site)
         c = guard.cooloff(site)
         cooling = bool(c) and guard.cooloff_active(site, now)
         left = (max(0.0, guard.cooloff_hours * 3600 - (now - c["since"])) / 3600) if cooling else None
-        out.append({"site": site, "loads_hour": h, "per_hour": rules.per_hour,
-                    "loads_day": d, "per_day": rules.per_day,
+        out.append({"site": site, "loads_hour": h, "per_hour": per_hour,
+                    "loads_day": d, "per_day": per_day,
                     "cooloff": c["reason"] if cooling else None,
                     "cooloff_left_h": None if left is None else round(left, 2),
                     "needs_resume": bool(cooling and not c["resumed"])})

@@ -28,10 +28,10 @@ import tempfile
 import time
 from dataclasses import asdict, fields
 
+from . import behaviour
 from . import config
 from . import joblog
 from .config import Matches, Target
-from .schedule import FETCH_DEFAULT_MIN
 
 LOCK_TIMEOUT_S = 10.0
 
@@ -315,12 +315,12 @@ def schedule_words(d: dict) -> str:
     """A target's schedule in words, from its mapping: "every 15 min · Fri, Sat
     · 07:00–01:00 · until 30 Nov 2026". Days in week order whatever order
     they were given in. A fetch job with no every_min runs every
-    FETCH_DEFAULT_MIN; a kept-open page with none reloads when it goes quiet
+    fetch.default_min (behaviour.py); a kept-open page with none reloads when it goes quiet
     (a mapping with no mode is the Target default, a kept-open page)."""
     if d["every_min"]:
         every = f"every {d['every_min']:g} min"
     elif d.get("mode", Target.mode) == "fetch":
-        every = f"every {FETCH_DEFAULT_MIN:g} min"
+        every = f"every {behaviour.get('fetch.default_min'):g} min"
     else:
         every = f"when quiet {d['stale_min']:g} min"
     days = ", ".join(x.title() for x in config.WEEKDAYS if x in (d["days"] or ())) or "every day"

@@ -53,7 +53,7 @@ def _bump(path, text):
 
 def _runner(tmp_path):
     s = config.load()
-    guard = Guard(tmp_path / "g.sqlite3", {k: (v.per_hour, v.per_day) for k, v in SITES.items()})
+    guard = Guard(tmp_path / "g.sqlite3")
     return Runner(s, ctx=None, guard=guard, alerts=Alerts(tmp_path / "alerts.log", None),
                   run_dir=tmp_path / "run")
 
@@ -109,7 +109,7 @@ def test_status_is_written_locally_and_sent_nowhere(env, monkeypatch):
 def test_a_runner_without_a_file_never_reloads(tmp_path):
     s = SimpleNamespace(data_dir=tmp_path, capture_mb=10, capture_tab_mb=1, targets=[],
                         targets_file=None)
-    guard = Guard(tmp_path / "g.sqlite3", {k: (v.per_hour, v.per_day) for k, v in SITES.items()})
+    guard = Guard(tmp_path / "g.sqlite3")
     r = Runner(s, ctx=None, guard=guard, alerts=Alerts(tmp_path / "alerts.log", None),
                run_dir=tmp_path / "run")
     r._reload_targets(time.time() + 10 * TARGETS_CHECK_S)
@@ -130,7 +130,7 @@ def test_a_timing_change_reschedules_a_fetch_target_in_place(tmp_path):
     tips = {"name": "tips", "site": "generic", "url": "https://tips.example.org/"}
     s = SimpleNamespace(data_dir=tmp_path, capture_mb=10, capture_tab_mb=1, targets_file=None,
                         targets=[config._target({**tips, "every_min": 600})])
-    guard = Guard(tmp_path / "g.sqlite3", {k: (v.per_hour, v.per_day) for k, v in SITES.items()})
+    guard = Guard(tmp_path / "g.sqlite3")
     r = Runner(s, ctx=None, guard=guard, alerts=Alerts(tmp_path / "alerts.log", None),
                run_dir=tmp_path / "run")
     now = time.time()

@@ -3,11 +3,10 @@ would do - no burst at startup, loads spaced, timed reloads jittered."""
 import random
 import time
 
-from scraper import config, runner
+from scraper import behaviour, config, runner
 from scraper.alerts import Alerts
 from scraper.guard import Guard
 from scraper.runner import Runner
-from scraper.sites import SITES
 
 
 class _Nothing:
@@ -51,7 +50,7 @@ class _Ctx:
 def _runner(tmp_path, targets):
     s = config.Settings(data_dir=tmp_path, profile_dir=tmp_path / "profile", channel=None,
                         alert_webhook=None, healthcheck_url=None, capture_mb=1, targets=targets)
-    guard = Guard(tmp_path / "g.sqlite3", {n: (r.per_hour, r.per_day) for n, r in SITES.items()})
+    guard = Guard(tmp_path / "g.sqlite3")
     guard.quiet = (0, 0)
     return Runner(s, _Ctx(), guard, Alerts(tmp_path / "alerts.log", None), tmp_path / "samples")
 
@@ -80,7 +79,7 @@ def test_startup_is_staggered_and_loads_are_spaced(tmp_path):
     gaps = [b[1] - a[1] for a, b in zip(loads, loads[1:])]
     assert min(gaps) >= 20                              # never two loads at once
     pp = [ts for site, ts in loads if site == "paddypower"]
-    assert min(b - a for a, b in zip(pp, pp[1:])) >= SITES["paddypower"].load_gap_s
+    assert min(b - a for a, b in zip(pp, pp[1:])) >= behaviour.get("paddypower.load_gap_s")
     for h in range(4):                                  # and the hourly ceiling holds
         assert sum(1 for ts in pp if t0 + 3600 * h <= ts < t0 + 3600 * (h + 1)) <= 15
     # 3 listings + 9 match tabs open in the end, none of them in a burst
@@ -105,7 +104,7 @@ def test_timed_reloads_are_jittered_around_the_interval(tmp_path):
 
 def test_a_kept_open_tab_gets_a_fresh_page_every_so_often(tmp_path):
     """A tab nothing reloads still has its page swapped for a fresh one about
-    every RECYCLE_H (Playwright frees a page's requests only on close), and
+    `recycle.hours` (Playwright frees a page's requests only on close), and
     the old page is closed - not reloaded in place."""
     random.seed(3)
     bb = config.Target(name="bb", site="bookiebashing", url="https://www.bookiebashing.net/s",
@@ -113,16 +112,17 @@ def test_a_kept_open_tab_gets_a_fresh_page_every_so_often(tmp_path):
     r = _runner(tmp_path, [bb])
     t0 = time.time()
     pages = []
-    hours = 5 * runner.RECYCLE_H
+    recycle_h = behaviour.get("recycle.hours")
+    hours = 5 * recycle_h
     for i in range(int(hours * 3600 / 15)):
         r.tick(t0 + 15 * i)
         page = r.tabs["bb"].page
         if not pages or pages[-1] is not page:
             pages.append(page)
-    assert 4 <= len(pages) <= 7                         # first page + one about every RECYCLE_H
+    assert 4 <= len(pages) <= 7                         # first page + one about every recycle_h
     assert r.ctx.n == len(pages)                        # each a new page, none reloaded
     ts = [t for _, t in _loads(r)]
-    assert min(b - a for a, b in zip(ts, ts[1:])) >= 0.85 * runner.RECYCLE_H * 3600 - 15
+    assert min(b - a for a, b in zip(ts, ts[1:])) >= 0.85 * recycle_h * 3600 - 15
 
 
 def test_a_crashed_page_is_replaced_on_the_next_tick(tmp_path):

@@ -6,7 +6,7 @@ import random
 import time
 from datetime import datetime, timedelta
 
-from scraper import config, schedule
+from scraper import behaviour, config, schedule
 from scraper.tests.test_pacing import _loads, _runner
 
 
@@ -59,7 +59,7 @@ def test_a_fetch_target_runs_at_its_window_start(tmp_path):
     r.tick(_at(8))
     assert "tips" not in r.next_fetch                           # nothing tried outside
     r.tick(_at(9, 30))
-    assert r.next_fetch["tips"] == _at(9, 30) + schedule.FETCH_RETRY_S
+    assert r.next_fetch["tips"] == _at(9, 30) + behaviour.get("fetch.retry_s")
     r.tick(_at(10))
     assert "tips" not in r.next_fetch                           # forgotten at the end...
     seen = []
@@ -152,7 +152,7 @@ def test_a_kickoff_in_the_rows_pulls_the_reload_forward_then_lets_go(tmp_path, m
     """A kept-open page reloaded only when stale, with near_min 10: once its
     parser reports a kick-off two hours out it reloads about every 10 min,
     and after the kick-off it is back to the page's own rhythm (here the
-    half-hourly recycle, schedule.RECYCLE_H)."""
+    half-hourly recycle, `recycle.hours`)."""
     from scraper import runner as runner_mod
     t0 = time.time()
     kickoff = t0 + 2 * 3600

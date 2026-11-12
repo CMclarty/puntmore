@@ -18,7 +18,7 @@ Fouls tabs clicked; trimmed into tests/fixtures/pp_most/):
   only, no names. It polls only the markets of the tab on screen: once Cards
   & Fouls is clicked, Corners is no longer refreshed. So a price is sent only
   while it is fresh (PRICE_FRESH_S), and the runner clicks the market tabs
-  again now and then (runner.CLICK_EVERY_S) to bring each back.
+  again now and then (`click.every_s`, behaviour.py) to bring each back.
 
 Names and kickoff come from the event-page; the newest price for each
 selection wins, whichever payload it came in. trueOdds is the fractional

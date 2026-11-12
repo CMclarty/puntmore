@@ -167,7 +167,7 @@ def _runner(tmp_path, targets, p, targets_file=None):
     s = config.Settings(data_dir=tmp_path, profile_dir=tmp_path / "profile", channel=None,
                         alert_webhook=None, healthcheck_url=None, capture_mb=20, targets=targets,
                         targets_file=targets_file)
-    guard = Guard(tmp_path / "g.sqlite3", {n: (r.per_hour, r.per_day) for n, r in SITES.items()})
+    guard = Guard(tmp_path / "g.sqlite3")
     guard.quiet = (0, 0)
     ctx = browser.launch(p, s, headless=True)
     return Runner(s, ctx, guard, Alerts(tmp_path / "alerts.log", None), tmp_path / "samples"), ctx
@@ -393,7 +393,7 @@ def test_open_page_refused_cools_off_with_a_screenshot(tmp_path, site):
 def test_cooloff_alerts_once_when_served_and_once_when_running(tmp_path):
     s = config.Settings(data_dir=tmp_path, profile_dir=tmp_path / "profile", channel=None,
                         alert_webhook=None, healthcheck_url=None, capture_mb=1, targets=[])
-    guard = Guard(tmp_path / "g.sqlite3", {n: (r.per_hour, r.per_day) for n, r in SITES.items()})
+    guard = Guard(tmp_path / "g.sqlite3")
     guard.quiet = (0, 0)
     r = Runner(s, None, guard, Alerts(tmp_path / "alerts.log", None), tmp_path / "samples")
     t0 = time.time()

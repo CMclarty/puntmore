@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from scraper import config
+from scraper import behaviour, config
 from scraper.alerts import Alerts
 from scraper.guard import Guard
 from scraper.runner import Runner, deliver_to_hub, emit_event
@@ -14,8 +14,8 @@ from scraper.sites import SITES
 
 
 def test_generic_site_budget_is_in_code():
-    g = SITES["generic"]
-    assert (g.per_hour, g.per_day, g.quiet_hours, g.block_means_cooloff) == (60, 400, False, True)
+    assert (behaviour.get("generic.per_hour"), behaviour.get("generic.per_day"),
+            behaviour.get("generic.quiet_hours"), SITES["generic"].block_means_cooloff) == (60, 400, False, True)
 
 
 def test_generic_targets_may_not_open_the_bookmakers():
@@ -72,7 +72,7 @@ enabled = false
 def _runner(tmp_path):
     s = SimpleNamespace(data_dir=tmp_path, capture_mb=10, capture_tab_mb=1, targets=[],
                         targets_file=None)
-    guard = Guard(tmp_path / "g.sqlite3", {k: (v.per_hour, v.per_day) for k, v in SITES.items()})
+    guard = Guard(tmp_path / "g.sqlite3")
     return Runner(s, ctx=None, guard=guard, alerts=Alerts(tmp_path / "alerts.log", None),
                   run_dir=tmp_path / "run")
 

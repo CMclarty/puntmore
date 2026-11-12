@@ -20,6 +20,14 @@
                    prints the job's own log (data/logs/<name>.log); --json for
                    machine output, --file for another file. `targets -h` for
                    more.
+  behaviour ...    How the Scraper behaves: every limit, timing and click
+                   (scraper/behaviour.py). `behaviour` lists them (group,
+                   key, value, default; * marks a changed one); `behaviour
+                   set <key> <value>` changes one ("20-45" for a range,
+                   true/false, "1-7" for hours), refused outside its bounds;
+                   `behaviour reset <key>` / `reset --all` puts it back to
+                   its default. Changes go to data/behaviour.toml, read when
+                   the service starts. --json for machine output.
   selfcheck        What a site sees of this browser: navigator.webdriver,
                    userAgent, language, timezone, window, and that Chrome
                    runs without --enable-automation. Asks the running service
@@ -27,6 +35,7 @@
                    on about:blank. No network.
 """
 import os
+import pathlib
 import random
 import signal
 import sys
@@ -34,6 +43,7 @@ import threading
 import time
 from datetime import datetime
 
+from . import behaviour
 from . import config
 from . import login
 from .alerts import Alerts
@@ -46,12 +56,12 @@ from .sites import SITES
 # restart policy brings it back up on a fresh Chrome. Ticks normally take
 # seconds; the image's healthcheck already calls 5 min stale.
 WATCHDOG_S = 600
-# The whole service is restarted (a clean exit; Docker brings it back) about
-# this often. Swapping pages (runner.RECYCLE_H) frees the Python side, but the
-# Playwright driver still grew ~300 MB an hour on 29 Oct with Paddy's match
-# pages open, toward the container's 3 GB. Only a new driver frees that. At
-# 2.5-3.5 h the Bookie Bashing renderer still crashed once (2 h 47 min in).
-RESTART_H = (1.5, 2.0)
+# The whole service is restarted (a clean exit; the service manager brings it
+# back) every `restart.hours` (behaviour.py, 1.5-2 h). Swapping pages
+# (`recycle.hours`) frees the Python side, but the Playwright driver still grew
+# ~300 MB an hour on 29 Oct with Paddy's match pages open, toward the
+# container's 3 GB. Only a new driver frees that. At 2.5-3.5 h the Bookie
+# Bashing renderer still crashed once (2 h 47 min in).
 
 
 def watchdog(last_tick: list, limit_s: float = WATCHDOG_S, every_s: float = 30,
@@ -71,8 +81,7 @@ def watchdog(last_tick: list, limit_s: float = WATCHDOG_S, every_s: float = 30,
 
 def _guard(s):
     s.data_dir.mkdir(parents=True, exist_ok=True)
-    return Guard(s.data_dir / "guard.sqlite3",
-                 {name: (r.per_hour, r.per_day) for name, r in SITES.items()})
+    return Guard(s.data_dir / "guard.sqlite3")      # its limits: behaviour.py
 
 
 def run(s):
@@ -104,7 +113,7 @@ def run(s):
               + ", ".join(f"{t.name} ({t.site})" for t in s.targets), flush=True)
         last_tick = [time.monotonic()]
         watchdog(last_tick)
-        restart_at = time.monotonic() + random.uniform(*RESTART_H) * 3600
+        restart_at = time.monotonic() + random.uniform(*behaviour.get("restart.hours")) * 3600
         while not stop:
             last_tick[0] = time.monotonic()
             if last_tick[0] >= restart_at:
@@ -274,14 +283,14 @@ def targets_cmd(argv):
     machine output (the Console and HubAI); a refused change exits 2 with the
     reason."""
     import json
-    import pathlib
     from . import joblog
     from . import targets as T
     args = vars(_targets_parser().parse_args(argv))
     op, as_json = args.pop("op"), args.pop("json")
     path = pathlib.Path(args.pop("file") or T.default_path())
-    data_dir = pathlib.Path(os.environ.get("SCRAPER_DATA_DIR", config.HERE / "data"))
+    data_dir = _data_dir()
     status_json = data_dir / "status.json"
+    _load_behaviour(data_dir, out=sys.stderr)   # schedule_words reads fetch.default_min
 
     def show(t):
         return next(d for d in T.summary(path, status_json) if d["name"] == t.name)
@@ -335,6 +344,100 @@ def targets_cmd(argv):
             print("saved; the running Scraper picks it up within 60 s.")
 
 
+def _data_dir():
+    return pathlib.Path(os.environ.get("SCRAPER_DATA_DIR", config.HERE / "data"))
+
+
+def _load_behaviour(data_dir, out=None) -> list[str]:
+    """data/behaviour.toml's values made the ones in use; a problem is said
+    (stdout, the journal, unless `out`), and the values in use are kept."""
+    problems = behaviour.load(data_dir)
+    for p in problems:
+        print(f"behaviour: {p}", file=out or sys.stdout, flush=True)
+    return problems
+
+
+def _behaviour_parser():
+    import argparse
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--json", action="store_true", help="machine output")
+    p = argparse.ArgumentParser(
+        prog="python -m scraper behaviour", parents=[common],
+        description="How the Scraper behaves (scraper/behaviour.py): list, set, reset.")
+    sub = p.add_subparsers(dest="op")
+    sub.add_parser("list", parents=[common], help="every setting (the default)")
+    s = sub.add_parser("set", parents=[common], help="change one setting")
+    s.add_argument("key")
+    s.add_argument("value", help='a number, true/false, "20-45" for a range, "1-7" for hours')
+    r = sub.add_parser("reset", parents=[common], help="put a setting back to its default")
+    which = r.add_mutually_exclusive_group(required=True)
+    which.add_argument("key", nargs="?")
+    which.add_argument("--all", action="store_true", help="every setting")
+    return p
+
+
+def behaviour_cmd(argv):
+    """`python -m scraper behaviour [list|set|reset] [--json]`, through
+    scraper/behaviour.py. A refused change exits 2 with the reason (naming
+    the setting). The list reads data/behaviour.toml first; a file that does
+    not load is reported (stderr; "problems" in --json) and the defaults
+    listed."""
+    import json
+    args = _behaviour_parser().parse_args(argv)
+    op = args.op or "list"
+    data_dir = _data_dir()
+    file = behaviour.path(data_dir)
+    try:
+        if op == "set":
+            behaviour.set_(data_dir, args.key, args.value)
+        elif op == "reset":
+            gone = behaviour.reset(data_dir, None if args.all else args.key)
+    except behaviour.BehaviourError as exc:
+        if args.json:
+            print(json.dumps({"error": str(exc)}))
+        else:
+            print(f"error: {exc}", file=sys.stderr)
+        sys.exit(2)
+    problems = behaviour.load(data_dir)
+    rows = behaviour.listing()
+    if op == "reset" and args.all:
+        if args.json:
+            print(json.dumps({"reset": gone}, indent=1))
+        else:
+            print(f"every setting back to its default ({len(gone)} taken out of {file}); "
+                  "the service reads it when it starts.")
+        return
+    if op in ("set", "reset"):
+        # A key reset from the file that the catalogue does not know has no row.
+        row = next((r for r in rows if r["key"] == args.key), None)
+        if args.json:
+            print(json.dumps(row or {"reset": gone}, indent=1))
+        elif row is None:
+            print(f"removed {args.key} from {file}")
+        else:
+            print(f"{row['key']} = {behaviour.show(row['value'])} {row['unit']}"
+                  f"  (default {behaviour.show(row['default'])})")
+            print(f"saved to {file}; the service reads it when it starts.")
+        return
+    changed = sum(r["changed"] for r in rows)
+    if args.json:
+        print(json.dumps({"file": str(file), "changed": changed, "problems": problems,
+                          "settings": rows}, indent=1))
+        return
+    for p in problems:
+        print(f"behaviour: {p}", file=sys.stderr)
+    group, width = None, max(len(r["key"]) for r in rows)
+    for r in rows:
+        if r["group"] != group:
+            group = r["group"]
+            print(f"\n{group}")
+        value = f"{behaviour.show(r['value'])} {r['unit']}".strip()
+        print(f"  {'*' if r['changed'] else ' '} {r['key']:{width}}  {value:20} "
+              f"default {behaviour.show(r['default'])}")
+    print(f"\n{changed} setting(s) changed from default (* above), in {file}. "
+          "Each one's meaning: scraper/behaviour.py.")
+
+
 def _target_line(d):
     st = d["status"]
     state = "disabled" if not d["enabled"] else (st["state"] if st else "not reported")
@@ -352,7 +455,11 @@ def main(argv=None):
     if cmd == "targets":            # not config.load(): it would exit on a file that does not load
         targets_cmd(rest)
         return
+    if cmd == "behaviour":          # nor here: the behaviour file is changed without the targets
+        behaviour_cmd(rest)
+        return
     s = config.load()
+    _load_behaviour(s.data_dir)     # once, at start; a problem keeps the defaults
     if cmd == "run":
         run(s)
     elif cmd == "status":

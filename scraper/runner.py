@@ -6,7 +6,7 @@ reloaded only when its target asks for it (`every_min`) or it has gone quiet
 for `stale_min`. Every load goes through the guard first.
 
 Every load of an open tab is a fresh page (the old one closed), and a tab is
-given one every RECYCLE_H anyway. Playwright holds every request and response
+given one every `recycle.hours` anyway. Playwright holds every request and response
 a page has seen until that page closes - a reload frees none of it - so a tab
 kept open for hours filled the container's memory cap and hung the scraper
 (27-28 Oct 2026).
@@ -31,7 +31,10 @@ heartbeat and status.json, guard.py says yes or no to every load, rest.py
 keeps a job's rest (a parser that raised rest.Rest: its tabs closed, nothing
 loaded until then, like a job outside its window). Every
 line about one job goes to stdout and to that job's own log (joblog.py,
-Runner._say); site-wide lines are stdout only.
+Runner._say); site-wide lines are stdout only. How it behaves (each site's
+limits and quiet hours, the back-off, every gap, jitter and click) is
+behaviour.py's, read when it is used; the guard holds its own copy of the
+limits (guard.py).
 """
 import collections
 import dataclasses
@@ -42,6 +45,7 @@ import time
 from datetime import datetime
 from urllib.parse import urlparse
 
+from . import behaviour
 from . import browser
 from . import config
 from . import joblog
@@ -51,10 +55,8 @@ from . import schedule
 from .capture import Capture, DiskBudget
 from .config import host_allowed
 from .parsers import PARSERS
-from .schedule import (ANY_LOAD_GAP_S, CLICK_EVERY_S, CLICK_JITTER, RECYCLE_H,  # noqa: F401
-                       RECYCLE_JITTER, RELIST_JITTER, RELOAD_JITTER)
 from .sinks import Sinks, _safe, deliver_to_hub, emit_event  # noqa: F401  (re-exported)
-from .sites import BACKOFF_MIN, SITES
+from .sites import SITES
 from .status import (HEALTH_PING_S, STATUS_EVERY_S, Reporter, market_tabs_said,  # noqa: F401
                      site_status, target_entry)
 
@@ -95,10 +97,15 @@ class Tab:
         return self.crashed or now >= self.recycle_at
 
 
+def _quiet_applies(site) -> bool:
+    """Whether the site keeps quiet hours (`<site>.quiet_hours`)."""
+    return behaviour.get(f"{site}.quiet_hours")
+
+
 class SiteState:
     def __init__(self):
         self.blocked_for = None
-        self.backoff = BACKOFF_MIN[0]
+        self.backoff = behaviour.get("backoff.min")[0]
         self.retry_at = 0.0
 
 
@@ -112,7 +119,7 @@ class Runner:
         self.paused_said: dict[str, str] = {}
         self.served_said: dict[str, float] = {}       # site -> cool-off `since` already alerted
         self.next_open: dict[str, float] = {}         # target -> earliest next match-tab open
-        self.pacer = schedule.Pacer(SITES)            # spacing between page loads
+        self.pacer = schedule.Pacer()                 # spacing between page loads
         self.retired: dict[str, collections.deque] = {}
         self.parser_said: dict[str, str] = {}
         self.failure_said: dict[str, str] = {}        # job -> first line of its last parser failure
@@ -162,10 +169,9 @@ class Runner:
 
     # --- site-wide state ----------------------------------------------------
     def _paused(self, site, now) -> str | None:
-        rules = SITES[site]
         if self.guard.cooloff_active(site, now):
             return "cooling off - run `resume`"
-        if rules.quiet_hours and self.guard.in_quiet(now):
+        if _quiet_applies(site) and self.guard.in_quiet(now):
             return "quiet hours"
         if self.sites[site].retry_at > now:
             return f"backing off ({self.sites[site].blocked_for})"
@@ -215,8 +221,8 @@ class Runner:
                 self.alerts.send(f"{site}: {reason}{where} - needs you {where_to}. Backing off.", image)
             self._say_site(site, f"blocked: {reason} - backing off")
         st.blocked_for = reason
-        st.retry_at = now + st.backoff * 60 * random.uniform(0.9, 1.2)
-        st.backoff = min(st.backoff * 2, BACKOFF_MIN[1])
+        st.retry_at = now + st.backoff * 60 * random.uniform(*behaviour.get("backoff.jitter_x"))
+        st.backoff = min(st.backoff * 2, behaviour.get("backoff.min")[1])
 
     def _block_shot(self, site, tab):
         out = self.s.data_dir / "blocks"
@@ -290,7 +296,7 @@ class Runner:
         was = st.blocked_for
         if was:
             self.alerts.send(f"{site}: clear again ({was} sorted).")
-        st.blocked_for, st.backoff, st.retry_at = None, BACKOFF_MIN[0], 0.0
+        st.blocked_for, st.backoff, st.retry_at = None, behaviour.get("backoff.min")[0], 0.0
         told = set()
         if SITES[site].needs_login:             # logged in: a failed sign-in is forgotten
             pending = self.login_pending.pop(site, None)
@@ -311,7 +317,7 @@ class Runner:
         there is no login in .env, when the last attempt failed (until the site
         is seen logged in or `resume`), or when this attempt failed - and then
         the logout is reported as today, its alert saying the sign-in failed.
-        Failing too: login.MAX_SIGNINS already sent in the window, or the
+        Failing too: login.max_signins already sent in the window, or the
         sign-in's time could not be written down first."""
         creds = login.credentials(site)
         if creds is None:
@@ -329,9 +335,9 @@ class Runner:
         if site in self.login_pending:          # sent last time, and still logged out
             del self.login_pending[site]
             why = "still logged out after signing in"
-        elif len(login.sent(self.s.data_dir, site, now)) >= login.MAX_SIGNINS:
-            why = (f"signed out again after {login.MAX_SIGNINS} sign-ins in "
-                   f"{login.SIGNIN_WINDOW_H} h")
+        elif len(login.sent(self.s.data_dir, site, now)) >= behaviour.get("login.max_signins"):
+            why = (f"signed out again after {behaviour.get('login.max_signins')} sign-ins in "
+                   f"{behaviour.get('login.window_h')} h")
         elif not login.record_sent(self.s.data_dir, site, now):
             why = "cannot write login.json"     # fail closed: no sign-in it cannot count
         else:
@@ -361,7 +367,7 @@ class Runner:
         site = target.site
         if not self._may_load(site, now):
             return None
-        ok, _why = self.guard.can_load(site, now, quiet_applies=SITES[site].quiet_hours)
+        ok, _why = self.guard.can_load(site, now, quiet_applies=_quiet_applies(site))
         if not ok or not host_allowed(url, site):
             return None
         self.pacer.spaced(site, now)
@@ -545,7 +551,8 @@ class Runner:
     def _left(self, site, now) -> int:
         """Loads the site has left: this hour's, or today's if fewer."""
         h, d = self.guard.spent(site, now)
-        return max(0, min(SITES[site].per_hour - h, SITES[site].per_day - d))
+        per_hour, per_day = self.guard.limit(site)
+        return max(0, min(per_hour - h, per_day - d))
 
     def _wanting(self, targets, now) -> dict:
         """name -> when the target began wanting a load, for schedule.order.
@@ -686,13 +693,13 @@ class Runner:
         due = self.next_fetch.get(t.name)
         if due is not None and now < due:
             return
-        ok, _why = self.guard.can_load(t.site, now, quiet_applies=SITES[t.site].quiet_hours)
+        ok, _why = self.guard.can_load(t.site, now, quiet_applies=_quiet_applies(t.site))
         if not ok or not self._may_load(t.site, now):
             return                                  # budget or spacing: try next tick
         key = f"fetch:{t.name}"
         tab = self._load(t, key, t.url, now)
         if tab is None:
-            self.next_fetch[t.name] = now + schedule.FETCH_RETRY_S
+            self.next_fetch[t.name] = now + behaviour.get("fetch.retry_s")
             return
         self.next_fetch[t.name] = schedule.next_fetch_at(now, self._every(t, now))
         try:
@@ -785,7 +792,7 @@ class Runner:
 
     def _open_market_tabs(self, t, tab, now):
         """Click the in-page market tabs, so the page fetches the markets we
-        want - on arrival, then every CLICK_EVERY_S, since the page keeps
+        want - on arrival, then about every `click.every_s`, since the page keeps
         refreshing only the tab on screen. Each click goes through the
         mouse, then waits for the page's own network to bring the tab's
         markets in, then reads down them. What happened to each is kept on
