@@ -55,14 +55,27 @@ prices are `scraper_prices` files that the Hub posts to Render.
 - `parsers/` - one module per page kind; rows only from what the page shows.
 - `targets.py` - the only writer of targets.toml (CLI, Console, HubAI).
 - `config.py` - settings and target validation (`_target`, the clamps).
-- `sites.py` - per-site rules in code: budgets, quiet hours, what a block means.
-- `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite).
-- `browser.py` - the one Chrome: launch, block/logout detection, clicks.
+- `behaviour.py` - how the Scraper behaves, as one catalogue (`SETTINGS`): each
+  site's limits and quiet hours, the cool-off, sign-ins and back-off, the
+  spacing and jitter of loads, arriving on a page, clicks, reading down, the
+  BB builder's pacing; each with default, unit, bounds and a line. Every
+  module reads `behaviour.get(key)` when it acts and holds no number of its
+  own for these. Overrides: `<data>/behaviour.toml`, only non-defaults,
+  written only by `set_`/`reset` (lock, check, atomic save; `python -m
+  scraper behaviour`), read at start by `load` (a bad file or key is
+  reported and the values in use kept, never raised).
+- `sites.py` - per-site rules in code: what a block means, whether it needs a
+  login, Paddy's market-list url (its limits are in `behaviour.py`).
+- `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite);
+  built from `behaviour.py`'s limits, which it keeps a copy of (`use`).
+- `browser.py` - the one Chrome: launch, block/logout detection, clicks
+  (their waits, steps and aim: `behaviour.py`).
 - `login.py` - Bookie Bashing's login form, the login from `.env`, one sign-in
-  per logout on the page already open (at most 3 in 6 hours, then it waits
-  for a person), and `data/login.json` (the sign-ins' times, written before
-  each is sent; the last attempt failed: nothing is tried again until logged
-  in or `resume`). A form Chrome would send itself (the password in the url)
+  per logout on the page already open (at most `login.max_signins` in
+  `login.window_h` hours, 3 in 6 by default, then it waits for a person),
+  and `data/login.json` (the sign-ins' times, written before each is sent;
+  the last attempt failed: nothing is tried again until logged in or
+  `resume`). A form Chrome would send itself (the password in the url)
   is aborted inside Chrome; `safe_url` keeps such a url out of what is written.
 - `capture.py` / `alerts.py` - what a page receives (and its disk samples;
   never the sign-in's own response) / the alert webhook and log.
