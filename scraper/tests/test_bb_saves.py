@@ -10,6 +10,8 @@ import pytest
 
 import importlib
 
+from scraper import behaviour
+
 # The package re-exports the FUNCTION bb_saves, which shadows the module name.
 mod = importlib.import_module("scraper.parsers.bb_saves")
 parse_game_label = mod.parse_game_label
@@ -279,7 +281,7 @@ def test_after_three_extra_pulls_it_waits_for_the_next_data_update(page, monkeyp
             mod.bb_saves(page, _Capture())
         said.append(str(e.value).rsplit(" - ", 1)[1])
     assert said == ["updating the data again"] * 3 + ["waiting for the next data update"] * 3
-    assert page.evaluate("UPDATES") == 1 + mod.XSAVES_RETRIES
+    assert page.evaluate("UPDATES") == 1 + behaviour.get("bb.xsaves_retries")
 
 
 def _fresh_page(page):
@@ -295,7 +297,7 @@ def test_the_extra_pull_count_survives_a_new_page(page, monkeypatch):
     pulls spent on the old one still count (11 Nov 2026 review)."""
     _only_epl(monkeypatch)
     _games(page, _SOON, _SOON_PLAYERS, xsaves_after=99)
-    for _ in range(mod.XSAVES_RETRIES):
+    for _ in range(behaviour.get("bb.xsaves_retries")):
         with pytest.raises(mod.BuilderNotReady) as e:
             mod.bb_saves(page, _Capture())
         assert str(e.value).endswith("updating the data again")
@@ -312,10 +314,10 @@ def test_the_extra_pull_count_survives_a_new_page(page, monkeypatch):
 def test_extra_pulls_are_allowed_again_once_an_update_interval_has_passed(page, monkeypatch):
     _only_epl(monkeypatch)
     _games(page, _SOON, _SOON_PLAYERS, xsaves_after=99)
-    for _ in range(mod.XSAVES_RETRIES + 1):
+    for _ in range(behaviour.get("bb.xsaves_retries") + 1):
         with pytest.raises(mod.BuilderNotReady):
             mod.bb_saves(page, _Capture())
-    mod._XSAVES["last"] -= mod.UPDATE_EVERY_S            # the last extra pull, 30 min ago
+    mod._XSAVES["last"] -= behaviour.get("bb.update_every_s")           # the last extra pull, 30 min ago
     with pytest.raises(mod.BuilderNotReady) as e:
         mod.bb_saves(page, _Capture())
     assert str(e.value).endswith("updating the data again")

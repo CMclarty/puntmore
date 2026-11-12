@@ -22,13 +22,16 @@ prices are `scraper_prices` files that the Hub posts to Render.
   (`puntmore-screen`, a headless sway on the box's GPU; Callum, 11 Nov 2026), never on Callum's
   desktop: a page sees the screen it is really on, and a person reaches it over VNC on
   `127.0.0.1` only (`README.md`, "Its own screen").
-- Per-site rules live in code (`sites.py`). Config can only make it slower.
+- What a block means and the hosts a job may load are code (`sites.py`, `config.py`). Its
+  limits, timings and clicks are the behaviour catalogue (`behaviour.py`): Callum changes them
+  live (the Console's Behaviour pane or `python -m scraper behaviour`), every change is logged,
+  and HubAI does not change them. `targets.toml` cannot loosen them.
 - Targets are direct page URLs in `targets.toml`.
 
 ## Module map
 - `runner.py` - the loop: wires the modules below, owns the tabs, loads
   through the guard, applies a targets.toml edit (in place for a timing-only
-  change).
+  change) and a behaviour.toml edit (the guard follows; each change logged).
 - `schedule.py` - when each target is due: `every_min`, `stale_min`, jitter
   drawn once per load, the per-site load gaps, whether a job is active at
   all (`inactive`: `until`, `days`, `window`; a window past midnight belongs
@@ -55,14 +58,29 @@ prices are `scraper_prices` files that the Hub posts to Render.
 - `parsers/` - one module per page kind; rows only from what the page shows.
 - `targets.py` - the only writer of targets.toml (CLI, Console, HubAI).
 - `config.py` - settings and target validation (`_target`, the clamps).
-- `sites.py` - per-site rules in code: budgets, quiet hours, what a block means.
-- `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite).
-- `browser.py` - the one Chrome: launch, block/logout detection, clicks.
+- `behaviour.py` - how the Scraper behaves, as one catalogue (`SETTINGS`): each
+  site's limits and quiet hours, the cool-off, sign-ins and back-off, the
+  spacing and jitter of loads, arriving on a page, clicks, reading down, the
+  BB builder's pacing; each with default, unit, bounds and a line. Every
+  module reads `behaviour.get(key)` when it acts and holds no number of its
+  own for these. Overrides: `<data>/behaviour.toml`, only non-defaults,
+  written only by `set_`/`reset` (lock, check, atomic save; `python -m
+  scraper behaviour`, the Console), read at start by `load` and again by
+  the runner within 60 s of a change, no restart (a bad file or key is
+  reported once per edit and the values in use kept, never raised; each
+  value that moved is a line in `data/logs/behaviour.log`).
+- `sites.py` - per-site rules in code: what a block means, whether it needs a
+  login, Paddy's market-list url (its limits are in `behaviour.py`).
+- `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite);
+  built from `behaviour.py`'s limits, which it keeps a copy of (`use`).
+- `browser.py` - the one Chrome: launch, block/logout detection, clicks
+  (their waits, steps and aim: `behaviour.py`).
 - `login.py` - Bookie Bashing's login form, the login from `.env`, one sign-in
-  per logout on the page already open (at most 3 in 6 hours, then it waits
-  for a person), and `data/login.json` (the sign-ins' times, written before
-  each is sent; the last attempt failed: nothing is tried again until logged
-  in or `resume`). A form Chrome would send itself (the password in the url)
+  per logout on the page already open (at most `login.max_signins` in
+  `login.window_h` hours, 3 in 6 by default, then it waits for a person),
+  and `data/login.json` (the sign-ins' times, written before each is sent;
+  the last attempt failed: nothing is tried again until logged in or
+  `resume`). A form Chrome would send itself (the password in the url)
   is aborted inside Chrome; `safe_url` keeps such a url out of what is written.
 - `capture.py` / `alerts.py` - what a page receives (and its disk samples;
   never the sign-in's own response) / the alert webhook and log.
@@ -70,8 +88,8 @@ prices are `scraper_prices` files that the Hub posts to Render.
 ## Rules
 - **Finder's sources are Scraper targets** (5 Nov 2026, Callum: one Chrome,
   one budget, one alert path). `site = "generic"` may name any host except the
-  two bookmakers; its budget is in `sites.py` (60/h, 400/day, no quiet hours,
-  a block = 24 h cool-off + `resume generic`). A generic target is `fetch`
+  two bookmakers; its budget is `behaviour.py`'s (60/h, 400/day, no quiet hours,
+  by default; a block = 24 h cool-off + `resume generic`, in `sites.py`). A generic target is `fetch`
   mode: loaded, parsed once, closed. Its parser follows the same contract as
   every other parser and emits TIPS (event, market, selection, optional
   advised_price / advised_stake_units / tip_time / expiry / origin). With
@@ -107,9 +125,11 @@ prices are `scraper_prices` files that the Hub posts to Render.
   targets are kept. It writes its state to `data/status.json` once a minute,
   which the Hub reads; it sends Render nothing; its prices go through the Hub.
   Timings are clamped to the scraper's own floors (`config._target`).
-  HOW each site is treated is code
-  (`sites.py`: budgets, Paddy quiet hours 01-07, a Paddy block = every Paddy
-  page closed + 24 h cool-off needing `resume`) — no config edit can loosen it.
+  What a block means is code (`sites.py`: a Paddy block = every Paddy page
+  closed + 24 h cool-off needing `resume`). Each site's budgets and quiet
+  hours (Paddy 15/h, 01-07, by default) are `behaviour.py`'s settings, which
+  only Callum changes (the Console's Behaviour pane or `python -m scraper
+  behaviour`; every change logged); no `targets.toml` edit can loosen them.
   It detects challenges and logouts (also on an already-open page: 3+
   refusals in 10 min, Cloudflare, logout) and never answers a challenge — no
   fingerprint spoofing, no solvers, no proxies, no user-agent or navigator
@@ -120,7 +140,7 @@ prices are `scraper_prices` files that the Hub posts to Render.
   `--enable-automation` test flag is not passed and AutomationControlled is
   off (Callum's decision, 26 Oct 2026 — `navigator.webdriver` false, no
   infobar); `python -m scraper selfcheck` prints what a site sees. Page loads are spaced per site and
-  across sites (`sites.py load_gap_s`); jitter is drawn once per load. Parsers
+  across sites (`behaviour.py`: `<site>.load_gap_s`, `load.any_gap_s`); jitter is drawn once per load. Parsers
   (`scraper/parsers/`, one module each) are written only from what the real
   pages were seen to do: `bb_saves` drives the Bookie Bashing bet builder
   (above; this one BB target is the single named exception to "BB is never

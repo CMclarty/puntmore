@@ -6,9 +6,9 @@ to be able to login"). It signs in on the page that is already open - the
 logged-out page carries the form - so signing in costs no page load. Plain
 fill and click, nothing else.
 
-One attempt per logout, and at most MAX_SIGNINS in SIGNIN_WINDOW_H: a site
-that keeps ending the session (a one-session rule set off by Callum's own
-devices) then waits for a person. Each sign-in's time is written to
+One attempt per logout, and at most `login.max_signins` in `login.window_h`
+hours (behaviour.py; 3 in 6 by default): a site that keeps ending the session
+(a one-session rule set off by Callum's own devices) then waits for a person. Each sign-in's time is written to
 <data>/login.json before the form is sent; if it cannot be written, there is
 no sign-in. A failed one is noted there too, and nothing is tried again until
 the site is seen logged in or `resume <site>` is run (which also forgets the
@@ -31,6 +31,8 @@ import tempfile
 import time
 from dataclasses import dataclass
 from urllib.parse import quote, quote_plus
+
+from . import behaviour
 
 
 @dataclass(frozen=True)
@@ -65,8 +67,6 @@ FORMS = {
 NOTE_FILE = "login.json"
 WHY_MAX = 120
 POLL_MS = 250                # between looks at the page after the button is pressed
-MAX_SIGNINS = 3              # sign-ins sent per site in SIGNIN_WINDOW_H; the next logout waits for a person
-SIGNIN_WINDOW_H = 6
 NATIVE = "form not sent by the site's script"
 
 
@@ -243,11 +243,11 @@ def mark_failed(data_dir, site: str, why: str, now: float) -> bool:
 def _recent(entry: dict, now: float) -> list[float]:
     times = entry.get("sent")
     return [t for t in (times if isinstance(times, list) else [])
-            if isinstance(t, (int, float)) and now - t < SIGNIN_WINDOW_H * 3600]
+            if isinstance(t, (int, float)) and now - t < behaviour.get("login.window_h") * 3600]
 
 
 def sent(data_dir, site: str, now: float) -> list[float]:
-    """When the site's sign-ins were sent, within SIGNIN_WINDOW_H of now."""
+    """When the site's sign-ins were sent, within login.window_h of now."""
     return _recent(_entry(_read(data_dir), site), now)
 
 

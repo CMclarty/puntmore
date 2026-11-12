@@ -27,22 +27,16 @@ import random
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 
+from . import behaviour
 from .config import WEEKDAYS
 
-# Jitter on timed reloads, drawn once per load.
-RELOAD_JITTER = (0.75, 1.35)     # every_min (and a fetch target's next run)
-RELIST_JITTER = (0.9, 1.3)       # a listing's relist_min
-ANY_LOAD_GAP_S = (20, 45)        # between any two page loads, whatever the site
-SITE_GAP_JITTER = (1.0, 1.8)     # x the site's load_gap_s between two of its loads
-RECYCLE_H = 0.5                  # a tab's page is swapped for a fresh one this often
-RECYCLE_JITTER = (0.85, 1.2)
-# A match page polls only the prices of the market tab on screen, so its
-# market tabs are clicked again this often (in-page clicks, not loads).
-CLICK_EVERY_S = 10 * 60
-CLICK_JITTER = (0.8, 1.4)
-OPEN_GAP_JITTER = (1.0, 1.6)     # x a matches target's open_gap_min
-FETCH_DEFAULT_MIN = 60           # a fetch target with no every_min runs hourly
-FETCH_RETRY_S = 300              # a fetch whose load failed tries again after this
+# Every number here (the jitters, the gaps, how often a page is recycled or
+# its market tabs clicked) is a setting in behaviour.py, read when it is used.
+
+
+def _x(key) -> float:
+    """A number drawn from a range setting, afresh each call."""
+    return random.uniform(*behaviour.get(key))
 
 
 class Pacer:
@@ -50,8 +44,7 @@ class Pacer:
     only then opens the next. Nothing is opened in a burst - not at startup,
     not when quiet hours end, not when several tabs go stale together."""
 
-    def __init__(self, sites):
-        self.sites = sites
+    def __init__(self):
         self.next_load_at: dict[str, float] = {}      # site -> earliest next page load
         self.next_any_load = 0.0                      # ... of any site
 
@@ -59,32 +52,35 @@ class Pacer:
         return now >= self.next_load_at.get(site, 0.0) and now >= self.next_any_load
 
     def spaced(self, site, now):
-        self.next_load_at[site] = now + self.sites[site].load_gap_s * random.uniform(*SITE_GAP_JITTER)
-        self.next_any_load = now + random.uniform(*ANY_LOAD_GAP_S)
+        self.next_load_at[site] = now + behaviour.get(f"{site}.load_gap_s") * _x("load.site_gap_x")
+        self.next_any_load = now + _x("load.any_gap_s")
 
 
 def recycle_at(now) -> float:
-    return now + RECYCLE_H * 3600 * random.uniform(*RECYCLE_JITTER)
+    return now + behaviour.get("recycle.hours") * 3600 * _x("recycle.jitter_x")
 
 
 def reload_at(last_load, every_min) -> float:
-    return last_load + every_min * 60 * random.uniform(*RELOAD_JITTER)
+    return last_load + every_min * 60 * _x("reload.jitter_x")
 
 
 def relist_at(last_load, relist_min) -> float:
-    return last_load + relist_min * 60 * random.uniform(*RELIST_JITTER)
+    return last_load + relist_min * 60 * _x("relist.jitter_x")
 
 
 def next_clicks_at(now) -> float:
-    return now + CLICK_EVERY_S * random.uniform(*CLICK_JITTER)
+    """A match page polls only the prices of the market tab on screen, so its
+    market tabs are clicked again (in-page clicks, not loads) this often."""
+    return now + behaviour.get("click.every_s") * _x("click.every_jitter_x")
 
 
 def next_open_at(now, open_gap_min) -> float:
-    return now + open_gap_min * 60 * random.uniform(*OPEN_GAP_JITTER)
+    return now + open_gap_min * 60 * _x("open_gap.jitter_x")
 
 
 def next_fetch_at(now, every_min) -> float:
-    return now + (every_min or FETCH_DEFAULT_MIN) * 60 * random.uniform(*RELOAD_JITTER)
+    """A fetch target with no every_min runs every fetch.default_min."""
+    return now + (every_min or behaviour.get("fetch.default_min")) * 60 * _x("reload.jitter_x")
 
 
 def page_due(t, tab, now, every_min=None) -> bool:

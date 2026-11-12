@@ -1,27 +1,35 @@
-"""How each site is treated. Code, not config: these are the guarantees.
+"""How each site is treated: what a block means, and whether it needs a login.
 
-Every site: page loads are spaced (load_gap_s x 1.0-1.8, and 20-45 s between
-any two loads of any site), so nothing opens in a burst.
+These are code, not settings. Its limits (loads an hour and a day, the least
+gap between two of its loads, whether it keeps quiet hours) and every other
+number about how the Scraper behaves are in behaviour.py, read when they are
+used; the defaults are given below as they stand there.
 
-paddypower     Logged out. Budget 15 loads/h, 120/day across ALL its targets.
-               No traffic 01:00-07:00 (pages are closed, not just left idle).
+Every site: page loads are spaced (load_gap_s x load.site_gap_x, and
+load.any_gap_s between any two loads of any site), so nothing opens in a burst.
+
+paddypower     Logged out. 15 loads/h, 120/day across ALL its targets by
+               default. No traffic in quiet hours (01:00-07:00 by default;
+               pages are closed, not just left idle).
                A block (403/429/Cloudflare) closes every Paddy page and starts
-               a 24 h cool-off that also needs a manual `resume`.
+               a cool-off (cooloff.hours, 24 h by default) that also needs a
+               manual `resume`.
 bookiebashing  Your subscription. The Scraper signs in itself with the login in
                its .env (BB_USERNAME, BB_PASSWORD; login.py), once per logout,
-               on the page already open. Budget 8/h, 120/day. No quiet hours.
-               A block, a failed sign-in, or a logout with no login in .env
-               alerts once and backs off (15 min doubling to 2 h) until a
-               person has sorted it (over VNC only in the Docker fallback).
+               on the page already open. 8/h, 120/day by default. No quiet
+               hours. A block, a failed sign-in, or a logout with no login in
+               .env alerts once and backs off (backoff.min: 15 min doubling to
+               2 h by default) until a person has sorted it (over VNC only in
+               the Docker fallback).
                Its one target (bb-saves) is the single named exception in
                docs/decisions.md.
 generic        Any other site: Finder's sources (tipster pages, listings) and any
                other page a tool needs.
-               Never Paddy or Bookie Bashing. Budget 60/h, 400/day across ALL
-               generic targets, 20 s+ between loads. A target is loaded, parsed
-               and closed - nothing kept open. A block (403/429/Cloudflare)
-               starts the 24 h cool-off for every generic target and needs
-               `resume generic`.
+               Never Paddy or Bookie Bashing. 60/h, 400/day across ALL generic
+               targets by default, 20 s+ between loads. A target is loaded,
+               parsed and closed - nothing kept open. A block (403/429/
+               Cloudflare) starts the cool-off for every generic target and
+               needs `resume generic`.
 """
 from dataclasses import dataclass
 
@@ -33,26 +41,16 @@ _PP_MARKET_LIST = r"/smspp/(event-page|pub)/v\d+"
 
 @dataclass(frozen=True)
 class Site:
-    per_hour: int
-    per_day: int
-    quiet_hours: bool
     needs_login: bool
     block_means_cooloff: bool   # True: stop the site and wait for `resume`
                                 # False: back off and retry on its own
-    load_gap_s: float = 90.0    # at least this (x1.0-1.8) between two of its page loads
     market_list: str | None = None   # URL regex: a market tab's markets arrived
 
 
+# The keys are the sites; behaviour.py has the same three under "Limits, per site".
 SITES = {
-    "paddypower": Site(per_hour=15, per_day=120, quiet_hours=True,
-                       needs_login=False, block_means_cooloff=True,
-                       load_gap_s=90.0, market_list=_PP_MARKET_LIST),
-    "bookiebashing": Site(per_hour=8, per_day=120, quiet_hours=False,
-                          needs_login=True, block_means_cooloff=False,
-                          load_gap_s=60.0),
-    "generic": Site(per_hour=60, per_day=400, quiet_hours=False,
-                    needs_login=False, block_means_cooloff=True,
-                    load_gap_s=20.0),
+    "paddypower": Site(needs_login=False, block_means_cooloff=True,
+                       market_list=_PP_MARKET_LIST),
+    "bookiebashing": Site(needs_login=True, block_means_cooloff=False),
+    "generic": Site(needs_login=False, block_means_cooloff=True),
 }
-
-BACKOFF_MIN = (15, 120)

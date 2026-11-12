@@ -10,7 +10,8 @@ allowed not to be (Render's health URL not set, llama-server not answering); ``u
 is when the console cannot tell (no systemctl, no Scraper data dir).
 
 The Scraper tab's ``config`` is ``scraper.targets.summary()`` (``scraper_targets.view``): targets.toml
-joined to status.json, read through the Scraper's own library.
+joined to status.json, read through the Scraper's own library; its ``behaviour`` is the Scraper's
+behaviour settings as ``behaviour.toml`` has them (``scraper_behaviour.view``).
 
 Nothing here writes, loads a page or talks to a bookmaker. Everything read from the Scraper's files,
 tips, escalations and logs is untrusted text and is returned as data for the page to insert with
@@ -34,7 +35,7 @@ from typing import Any
 from .. import inbox
 from ..config import Settings
 from ..store import Store, iso, parse_iso, utcnow
-from . import scraper_targets
+from . import scraper_behaviour, scraper_targets
 
 STATES = ("up", "warn", "down", "off", "unknown")
 HERMES_HOME = Path.home() / ".hermes"
@@ -140,10 +141,11 @@ def resume_command(cfg: Settings, site: str) -> str:
 def scraper(cfg: Settings) -> dict[str, Any]:
     def go():
         d = cfg.scraper_data_dir
+        behaviour = scraper_behaviour.view(cfg)
         config = scraper_targets.view(cfg, lambda name: _latest_count(cfg, name), _ts_iso)
         if not d.is_dir():
             return _result("unknown", f"Scraper data dir {d} not found", heartbeat_age_s=None, targets=[], sites=[],
-                           alerts=[], status_at=None, data_dir=str(d), config=config)
+                           alerts=[], status_at=None, data_dir=str(d), config=config, behaviour=behaviour)
         w = inbox.scraper_status(cfg)
         status_at = None
         try:
@@ -180,7 +182,7 @@ def scraper(cfg: Settings) -> dict[str, Any]:
                  for s in w.get("sites", [])]
         return _result(state, detail, heartbeat_age_s=age, running=w["running"], blocked=w["blocked"],
                        unhealthy=w["unhealthy"], targets=targets, sites=sites, alerts=alerts,
-                       status_at=status_at, data_dir=str(d), config=config)
+                       status_at=status_at, data_dir=str(d), config=config, behaviour=behaviour)
     return _guard("scraper", go)
 
 

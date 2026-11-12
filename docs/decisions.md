@@ -236,9 +236,17 @@ names and no other; older names appear only in `docs/retired.md`.
   nothing about the browser is overridden. This replaces the own-workspace
   rule of the same day, which made Chrome drag the desktop to its workspace.
   (11 Nov 2026, Callum)
-- **Budgets are code** (`scraper/sites.py`): Paddy Power 15 loads/h with quiet
-  hours 01–07; Bookie Bashing 8/h; generic sources 60/h and 400/day. A block
-  means a 24 h cool-off and a human `resume`; nothing retries. (Oct 2026)
+- **The Scraper's behaviour is one catalogue, changed live.** Its limits,
+  timings and clicks are declared in `scraper/behaviour.py`, each with its
+  default; Callum changes any of them while it runs, from the Console's
+  Behaviour pane or `python -m scraper behaviour`, within 60 seconds and
+  without a restart, and every change is logged (`data/logs/behaviour.log`).
+  HubAI does not change them. What a block means (a 24 h cool-off and a human
+  `resume`; nothing retries), never answering a challenge, and which hosts a
+  job may load stay code. The defaults are the budgets this rule replaced:
+  Paddy Power 15 loads/h with quiet hours 01-07, Bookie Bashing 8/h, generic
+  sources 60/h and 400/day. (12 Nov 2026, Callum; replaces "Budgets are
+  code", Oct 2026)
 - **Bookie Bashing is not a Finder source and the 2-Up rescue model is tuned
   against BB's 2-up tracker by hand.** BB's terms ban automated access.
   **The single named exception is `bb-saves`:** the Scraper's one BB target

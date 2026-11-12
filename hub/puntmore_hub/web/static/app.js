@@ -155,7 +155,7 @@ function renderOverview() {
     chip.querySelector(".chip-detail").textContent = c.detail || "";
     chip.title = c.detail || "";
   }
-  for (const b of document.querySelectorAll(".actions-bar button, form button")) {
+  for (const b of document.querySelectorAll(".actions-bar button, form button, button[data-act]")) {
     b.disabled = !d.actions_enabled;
     if (!d.actions_enabled) b.title = "Actions are disabled: PUNTMORE_WEB_TOKEN is not set on the Hub";
   }
@@ -195,6 +195,7 @@ const RENDER = {
       ["to resume, run on the Hub", (r) => r.needs_resume ? el("code", { class: "cmd", text: show(r.resume_command) }) : "—", "wrap"],
     ], d.sites, "no site budgets in status.json", { cls: "cards" }));
     lines(sec, "alerts", d.alerts, "alerts.log is empty or missing");
+    renderBehaviour(sec, d.behaviour);
   },
 
   daemon(sec, d, skew) {
@@ -564,6 +565,156 @@ function wireTargets() {
   document.getElementById("target-remove-cancel").addEventListener("click", () => { rm.hidden = true; removing = null; });
 }
 
+// ---- the Scraper's behaviour (scraper/behaviour.py through the console) ---------------------------
+// One table per group, built once and then updated in place on each poll of the tab, so an open pane
+// and what a person is typing in it survive the refresh: a row someone has typed in (dirty) keeps its
+// boxes until it is saved or reset. Every check of a value is the library's; the page sends the text.
+const beh = { sig: "", rows: new Map() };    // key -> {tr, kind, inputs, dirty, tag, save, reset, err}
+const behShow = (v) => Array.isArray(v) ? v.map(String).join("–")
+  : (typeof v === "boolean" ? (v ? "on" : "off") : show(v));
+
+function behSetInputs(row, v) {
+  if (row.kind === "bool") row.inputs[0].checked = !!v;
+  else if (row.inputs.length === 2) { row.inputs[0].value = String(v[0]); row.inputs[1].value = String(v[1]); }
+  else row.inputs[0].value = String(v);
+}
+
+function behValue(row) {
+  if (row.kind === "bool") return row.inputs[0].checked;
+  if (row.inputs.length === 2) return row.inputs.map((i) => i.value.trim());
+  return row.inputs[0].value.trim();
+}
+
+function behaviourRow(s) {
+  const row = { kind: s.kind, dirty: false, inputs: [] };
+  const typed = () => { row.dirty = true; row.err.textContent = ""; };
+  const box = (label) => {
+    const i = el("input", s.kind === "bool" ? { type: "checkbox", "aria-label": label, onchange: typed }
+      : { type: "text", inputmode: "decimal", autocomplete: "off", spellcheck: "false", "aria-label": label, oninput: typed,
+        onkeydown: (ev) => { if (ev.key === "Enter") { ev.preventDefault(); behSave(row, s.key); } } });
+    row.inputs.push(i);
+    return i;
+  };
+  const pair = s.kind === "range" || s.kind === "hours";
+  const value = pair ? el("span", { class: "pair" }, box(s.key + " low"), el("span", { text: "–", "aria-hidden": "true" }), box(s.key + " high"))
+    : box(s.key);
+  row.tag = el("span", { class: "st st-warn", text: "changed", hidden: true });
+  row.save = el("button", { type: "button", class: "small", text: "save", "data-act": true, onclick: () => behSave(row, s.key) });
+  row.reset = el("button", { type: "button", class: "small", text: "reset", "data-act": true, hidden: true,
+    onclick: () => behaviourAct("reset", { key: s.key }, "Reset " + s.key, row) });
+  row.err = el("span", { class: "field-error", role: "alert" });
+  row.def = el("td", { "data-label": "default", class: "n" });
+  row.tr = el("tr", {},
+    el("td", { "data-label": "", class: "setting" }, el("span", { class: "says", text: s.says }), " ", row.tag,
+      el("small", { class: "key", text: s.key })),
+    el("td", { "data-label": "value", class: "value" }, value),
+    el("td", { "data-label": "unit", class: "unit", text: s.unit || "" }),
+    row.def,
+    el("td", { "data-label": "", class: "acts" }, row.save, row.reset, row.err));
+  behSetInputs(row, s.value);
+  return row;
+}
+
+function behUpdate(row, s) {
+  row.tr.classList.toggle("changed", !!s.changed);
+  row.tag.hidden = !s.changed;
+  row.reset.hidden = !s.changed;
+  row.def.textContent = behShow(s.default);
+  for (const b of [row.save, row.reset]) b.disabled = !canAct();
+  if (!row.dirty && !row.inputs.includes(document.activeElement)) behSetInputs(row, s.value);
+}
+
+function renderBehaviour(sec, b) {
+  if (!b) return;
+  const n = b.changed || 0;
+  const probs = b.problems || [];
+  fill(sec, "behaviour-count", b.error ? "could not read the settings: " + b.error
+    : (n ? `${n} changed from default` : "all defaults") + (probs.length ? ` · ${probs.length} problem${probs.length > 1 ? "s" : ""} in behaviour.toml` : ""));
+  fill(sec, "behaviour-file", b.file || "behaviour.toml");
+  fill(sec, "behaviour-problems", probs.length
+    ? el("ul", { class: "problems" }, probs.map((p) => el("li", { text: p }))) : "");
+  const settings = b.settings || [];
+  const sig = settings.map((s) => s.key + ":" + s.kind).join("|");
+  if (sig !== beh.sig) {                 // the catalogue itself changed (or first time): build the tables
+    beh.sig = sig;
+    beh.rows.clear();
+    const groups = [];
+    for (const s of settings) {
+      if (!groups.length || groups[groups.length - 1].name !== s.group) groups.push({ name: s.group, rows: [] });
+      const row = behaviourRow(s);
+      beh.rows.set(s.key, row);
+      groups[groups.length - 1].rows.push(row.tr);
+    }
+    document.getElementById("behaviour-groups").replaceChildren(...groups.map((g) => el("section", { class: "beh-group" },
+      el("h4", { text: g.name }),
+      el("table", { class: "cards beh" },
+        el("thead", {}, el("tr", {}, ["setting", "value", "unit", "default", ""].map((h) => el("th", { text: h })))),
+        el("tbody", {}, g.rows)))));
+  }
+  for (const s of settings) behUpdate(beh.rows.get(s.key), s);
+}
+
+function behSave(row, key) {
+  behaviourAct("set", { key, value: behValue(row) }, "Set " + key, row);
+}
+
+// One write: POST, the outcome above the tables (and a refusal beside its row), re-read the tab.
+async function behaviourAct(path, body, label, row, form) {
+  const out = document.getElementById("behaviour-result");
+  out.hidden = false;
+  out.className = "action-result";
+  out.textContent = label + "…";
+  if (row) row.err.textContent = "";
+  if (form) clearErrors(form);
+  const res = await post("scraper/behaviour/" + path, body);
+  const msg = (res.d && (res.d.message || res.d.detail)) || res.error || ("HTTP " + res.status);
+  const again = res.d && res.d.retry ? " Try again in a few seconds." : "";
+  out.className = "action-result " + (res.ok ? "ok" : "bad");
+  out.textContent = res.ok ? `${label}: ${msg}` : `${label}: refused (HTTP ${res.status}): ${msg}${again}`;
+  if (res.ok) {
+    if (row) row.dirty = false;
+    else for (const r of beh.rows.values()) r.dirty = false;            // reset all: every row shows the file
+    const s = res.d && res.d.setting;
+    if (row && s) { behSetInputs(row, s.value); behUpdate(row, s); }
+  } else if (row) {
+    row.err.textContent = msg + again;
+  } else if (form) {
+    showError(form, res.d, res.status);
+  }
+  pollOverview();
+  pollTab("scraper");
+  return res.ok;
+}
+
+function wireBehaviour() {
+  const pane = document.getElementById("behaviour");
+  const open = document.getElementById("behaviour-open");
+  open.addEventListener("click", () => {
+    pane.hidden = !pane.hidden;
+    open.setAttribute("aria-expanded", pane.hidden ? "false" : "true");
+    if (!pane.hidden) pane.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+  const form = document.getElementById("behaviour-reset-form");
+  const showForm = (on) => {
+    form.hidden = !on;
+    clearErrors(form);
+    form.elements.confirm.value = "";
+    if (on) form.elements.confirm.focus();
+  };
+  document.getElementById("behaviour-reset-all").addEventListener("click", () => showForm(form.hidden));
+  document.getElementById("behaviour-reset-cancel").addEventListener("click", () => showForm(false));
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const typed = form.elements.confirm.value.trim();
+    if (typed !== "RESET") {
+      form.querySelector('[data-err="confirm"]').textContent = "type RESET exactly to put every setting back";
+      form.elements.confirm.focus();
+      return;
+    }
+    if (await behaviourAct("reset", { all: true, confirm: typed }, "Reset all", null, form)) showForm(false);
+  });
+}
+
 async function showLatest(target) {
   const box = document.getElementById("latest");
   box.hidden = false;
@@ -651,6 +802,7 @@ document.addEventListener("DOMContentLoaded", () => {
   buildStrip();
   wireActions();
   wireTargets();
+  wireBehaviour();
   let first = "scraper";
   try { first = localStorage.getItem("puntmoreTab") || first; } catch (e) { /* */ }
   if (location.hash.length > 1) first = location.hash.slice(1);     // #escalations etc., for a bookmark

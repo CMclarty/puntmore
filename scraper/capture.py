@@ -96,8 +96,8 @@ class Capture:
 
     def attach(self, page):
         """Listen to `page` - the tab's first page, or the fresh one that
-        replaces it (runner.RECYCLE_H). The ring, pins and disk record carry
-        over: they are the tab's, not the page's."""
+        replaces it (`recycle.hours`, behaviour.py). The ring, pins and disk
+        record carry over: they are the tab's, not the page's."""
         page.on("response", self._on_response)
         page.on("websocket", self._on_ws)
 

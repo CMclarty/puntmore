@@ -107,6 +107,7 @@ def view(cfg: Settings, latest_count, ts_iso) -> dict[str, Any]:
                            "sites": list(SITES), "editable": list(EDITABLE), "apply_note": APPLY_NOTE}
     try:
         lib = library(cfg)
+        _follow_behaviour(cfg)
         rows = lib.summary(path, cfg.scraper_data_dir / "status.json")
     except Exception as exc:  # noqa: BLE001 - TargetsError, LibraryMissing, an import error: all shown
         out["error"] = f"{exc.__class__.__name__}: {exc}" if not _is_targets_error(exc) else str(exc)
@@ -143,6 +144,16 @@ def view(cfg: Settings, latest_count, ts_iso) -> dict[str, Any]:
                      "schedule": r.get("schedule"), "log": tail}
     out["targets"] = rows
     return out
+
+
+def _follow_behaviour(cfg: Settings) -> None:
+    """The schedule in words reads the Scraper's behaviour (a fetch job's default interval): load
+    ``behaviour.toml`` into this process first, so the words follow a change. Never raises."""
+    from . import scraper_behaviour
+    try:
+        scraper_behaviour.follow(cfg)
+    except Exception:  # noqa: BLE001 - the words then show the defaults; the pane says what is wrong
+        pass
 
 
 def _is_targets_error(exc: BaseException) -> bool:

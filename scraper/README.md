@@ -33,10 +33,13 @@ the 29 Oct 2026 capture; see its docstring).
 ## What it will and won't do
 - Opens pages on `paddypower.com`, `bookiebashing.net` (one target, the named
   exception in `docs/decisions.md`) and Finder's `generic` sources, within
-  fixed budgets (`sites.py`): Paddy 15 loads/h and 120/day, Bookie Bashing 8/h
-  and 120/day, generic 60/h and 400/day. Nothing in config can raise them.
-- No Paddy traffic between 01:00 and 07:00 (Europe/London). Its pages are
-  closed for those hours.
+  budgets (`behaviour.py`; these are the defaults): Paddy 15 loads/h and
+  120/day, Bookie Bashing 8/h and 120/day, generic 60/h and 400/day.
+  `targets.toml` cannot raise them; only Callum changes them, from the
+  Console's Behaviour pane or `python -m scraper behaviour set` ("Changing
+  how it behaves", below); HubAI does not.
+- No Paddy traffic between 01:00 and 07:00 (Europe/London; `quiet.hours`,
+  by default). Its pages are closed for those hours.
 - Paddy 403/429 or Cloudflare check → every Paddy page closes and a 24 h
   cool-off starts. It also needs `resume`, and you get an alert.
 - Bookie Bashing logout → it signs in once, on the page already open, with the
@@ -78,7 +81,7 @@ the 29 Oct 2026 capture; see its docstring).
 
 ## Finder's sources
 Any other site, as a `generic` target (see `targets.example.toml`): loaded,
-parsed once and closed, under its own budget in `sites.py` (60 loads/h,
+parsed once and closed, under its own budget in `behaviour.py` (60 loads/h,
 400/day across all generic targets, 20 s+ apart, never Paddy or Bookie
 Bashing). The parser returns tips; `post = "hub:tips"` writes them to
 `data/hub/tips/` for the Hub's inbox, which stores them for HubAI to judge for
@@ -167,6 +170,53 @@ python -m scraper targets log racing-tips -n 50   # the job's own log, newest la
   log is rewritten to its newest lines that fit in 256 KB, 1000 at most.
   `targets log <name> [-n 50]` prints it (`--json`: `{"name": name, "lines": [{"ts", "msg"}, ...]}`);
   `targets remove` removes it.
+
+## Changing how it behaves
+How the Scraper behaves - each site's limits, quiet hours, the cool-off and
+back-off, every gap and jitter between loads, how it arrives on a page, clicks
+and reads down it, and the Bookie Bashing bet builder's pacing - is one
+catalogue, `scraper/behaviour.py`: every setting with its default, unit,
+bounds and a line saying what it is. Read that file first when something has
+gone wrong. What a block means, the allowed hosts and never answering a
+challenge are not settings, and nothing about what the browser shows a site
+is. These settings are Callum's (the register, "Scraping conduct"): he
+changes them from the Console's Scraper tab ("Behaviour", which calls the
+same library) or with the commands below; HubAI does not change them.
+
+```sh
+python -m scraper behaviour                        # every setting: group, key, value, default; * = changed
+python -m scraper behaviour set paddypower.per_hour 10
+python -m scraper behaviour set load.any_gap_s 30-60      # a range: low-high
+python -m scraper behaviour set generic.quiet_hours true
+python -m scraper behaviour set quiet.hours 1-7           # local hours, start-end
+python -m scraper behaviour reset paddypower.per_hour     # back to its default
+python -m scraper behaviour reset --all
+python -m scraper behaviour --json                 # {"file", "changed", "problems", "settings": [...]}
+```
+
+- A change is written to `SCRAPER_DATA_DIR/behaviour.toml`: flat
+  `"key" = value` lines, only the settings that differ from their default,
+  each under a comment with its default and meaning. It is written only
+  through `behaviour.py` (this CLI): checked against the setting's kind and
+  bounds, under an `flock` on `behaviour.toml.lock`, saved atomically. A value
+  outside the bounds, or an unknown key, is refused with a message naming the
+  setting (exit 2; `{"error": "..."}` with `--json`), and nothing is written.
+- The running service takes a change up within 60 s, without a restart: it
+  checks the file once a minute (with `targets.toml`) and loads it when it
+  has moved; a deleted file is every setting back to its default. The guard
+  takes the new limits at once; each setting that moved is one line,
+  `key: old -> new`, in the journal (`behaviour: ...`) and in
+  `data/logs/behaviour.log`. A value already drawn from a range keeps until
+  its next draw (a page's next timed reload or fresh page, the next round of
+  market-tab clicks, a site's back-off, the next load's spacing, the
+  service's own restart time). A file that does not load keeps the values in
+  use, and an unknown key or a refused value keeps that setting's value; each
+  is said once per edit, and nothing stops. `status.json` carries
+  `"behaviour": {"changed": <settings not at their default>, "problems": [...]}`.
+  Every other command reads the file when it runs.
+- `--json` on `set` and `reset <key>` prints that setting's entry (`key`,
+  `group`, `kind`, `value`, `default`, `lo`, `hi`, `unit`, `says`,
+  `changed`); `reset --all` prints `{"reset": [the keys that were changed]}`.
 
 ## Running on the Hub (the default)
 Since 5 Nov 2026 the Scraper runs on the Hub itself, not in a container, so the
@@ -379,8 +429,8 @@ Targets are of these kinds:
 - **fetch**: a `generic` Finder source, loaded, parsed once and closed
   (above).
 
-Timings are clamped to the floors in `config._target`, and `sites.py`
-budgets stay the ceiling whatever the file says.
+Timings are clamped to the floors in `config._target`, and the site budgets
+(`behaviour.py`) stay the ceiling whatever the file says.
 
 Six fields say when and who first (`schedule.py`):
 - **`near_min`** and **`near_hours`** (default 3): the kick-off sweep. A
