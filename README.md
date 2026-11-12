@@ -22,7 +22,7 @@ Nothing about the system lives outside the repo.
 
 ## Render
 
-One Docker web service; every push to `main` deploys it. Render never loads a bookmaker page and
+One Docker web service; a push to `main` that changes `render/` or `render.yaml` deploys it. Render never loads a bookmaker page and
 never places a bet. **OddsPapi** prices Paddy, 2-Up and the coupon tracker; **odds-api.net**,
 the second odds provider, prices Hills (11 Nov 2026).
 
@@ -77,7 +77,7 @@ One program on Callum's box, in five parts:
 
 | Directory | Runs on | Deployed by | Updated when |
 |---|---|---|---|
-| `render/api/` + `render/frontend/` | Render, one Docker web service | `render.yaml`; `render/api/Dockerfile` builds the frontend into the API image | every push to `main` |
+| `render/api/` + `render/frontend/` | Render, one Docker web service | `render.yaml`; `render/api/Dockerfile` builds the frontend into the API image | a push to `main` that changes `render/` or `render.yaml` |
 | `scraper/` | Hub: the Scraper service, user service `puntmore-scraper` on its own virtual screen, `puntmore-screen` (Docker is the fallback for a box with no screen) | `scraper/deploy/native/`; fallback `.github/workflows/scraper-image.yml` | `puntmore-update.timer`, every 10 min |
 | `hub/` | Hub: the daemon, the Console, HubAI's CLI, the placement engine; systemd user services | `hub/deploy/systemd/` on the box's checkout | `puntmore-update.timer`, every 10 min |
 | `clients/python/` | any machine client of the API | from the repo | on demand |
