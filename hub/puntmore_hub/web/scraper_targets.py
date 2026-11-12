@@ -141,7 +141,7 @@ def view(cfg: Settings, latest_count, ts_iso) -> dict[str, Any]:
                      "last_load": ts_iso(last_load), "next_due": next_due, "rows_last_parsed": rows_parsed,
                      "next_kickoff": ts_iso(st.get("next_kickoff")), "near": bool(st.get("near")),
                      "rows_posted": st.get("rows_posted"), "reported_at": ts_iso(st.get("reported_at")),
-                     "schedule": r.get("schedule"), "log": tail}
+                     "schedule": r.get("schedule"), "log": tail, "alert": st.get("alert")}
     out["targets"] = rows
     return out
 

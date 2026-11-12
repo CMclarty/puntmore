@@ -352,14 +352,14 @@ def schedule_words(d: dict) -> str:
     return " · ".join((every, days, window, until))
 
 
-STATUS_KEYS = ("state", "detail", "last_load", "last_parse", "rows_posted")
+STATUS_KEYS = ("state", "detail", "last_load", "last_parse", "rows_posted", "alert")
 
 
 def summary(path, status_json_path=None) -> list[dict]:
     """One dict per target in the file (file order): every field (to_mapping),
     "schedule" (schedule_words), and "status": the running Scraper's last
     report on it from status.json (state, detail, last_load, last_parse,
-    rows_posted, reported_at), or None when there is no status.json or it does not name the target. A disabled
+    rows_posted, the standing alert's text or None, reported_at), or None when there is no status.json or it does not name the target. A disabled
     target is not loaded, so it has no status unless it was running when it
     was disabled (then "retired" until the Scraper restarts)."""
     path = pathlib.Path(path)

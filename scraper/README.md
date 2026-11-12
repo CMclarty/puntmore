@@ -62,6 +62,26 @@ the 29 Oct 2026 capture; see its docstring).
   carries a screenshot (also in `data/blocks/`). A Paddy cool-off alerts once
   when its hours are served and it waits on `resume`, and once when it runs
   again.
+- It says when it is not working (`standing.py`; Callum, 12 Nov 2026): one
+  alert, and one when it clears, for a loop that has made no progress for 3
+  minutes ("stalled: ...", from the watchdog's own thread; "running again"
+  if it ticks before the watchdog restarts it at 10 minutes, and "restarted
+  by the watchdog" at the next start if it does, from `data/stalled.json`),
+  a job whose parser has failed the same way for 15 minutes ("<job>: failing
+  for 15 min: <first line>", then "reading again" when a parse works or the
+  job rests), and a running job with a page open that its parser reads (a
+  matches job: a match tab) that has handed over no rows for 60 minutes
+  ("<job>: no rows for 60 min (<its status detail>)", then "delivering
+  again"; not sent while that job's failing alert stands; a fetch job has
+  `min_rows` instead). The no-rows clock counts only time the job is running
+  with such a page open: a rest, quiet hours, a block or a restart pause it,
+  a delivery starts it again. The thresholds are the "Alerts" settings
+  (`alerts.stuck_s`, `alerts.failing_min`, `alerts.no_rows_min`; 0 turns
+  one off). They go where a block's alert goes (`data/alerts.log`, the
+  Console, the webhook) and a job's is a line in its log; a job's alert
+  state is kept in `data/alerted.json`, so the service's own restart neither
+  says one again nor loses a clock. The standing one is the job's `alert` in
+  `status.json`.
 - Paced like one person with a few tabs: page loads are spaced (Paddy 90 s+,
   Bookie Bashing 60 s+, and 20-45 s between any two), so nothing opens in a
   burst at startup or after quiet hours; timed reloads are jittered once per
@@ -137,7 +157,7 @@ python -m scraper targets log racing-tips -n 50   # the job's own log, newest la
   `{"removed": name, "targets": [names left]}`. Each entry is every field of
   the target plus `status`: the running Scraper's last report on it from
   `status.json` (`state`, `detail`, `last_load`, `last_parse`,
-  `rows_posted`, `reported_at`), or `null` when it has none (disabled, or
+  `rows_posted`, `alert`, `reported_at`), or `null` when it has none (disabled, or
   not reported yet), and `schedule`: the job's schedule in words
   (`targets.schedule_words`, "every 15 min · Fri, Sat · 07:00–23:30 · until
   30 Nov 2026"), which `list` prints too.

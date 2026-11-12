@@ -88,6 +88,13 @@ prices are `scraper_prices` files that the Hub posts to Render.
   is aborted inside Chrome; `safe_url` keeps such a url out of what is written.
 - `capture.py` / `alerts.py` - what a page receives (and its disk samples;
   never the sign-in's own response) / the alert webhook and log.
+- `standing.py` - when the Scraper is not working it says so, once, and once
+  when it clears: a stalled loop (`__main__.Watchdog`, on its own thread,
+  never the browser; `data/stalled.json` for the next start), a job failing
+  the same way, a running job with pages open handing over no rows
+  (`JobAlerts`, fed by the runner; `data/alerted.json`, so a restart neither
+  repeats nor loses one). Thresholds: the "Alerts" settings (`behaviour.py`).
+  Nothing in it raises: a write or a send that fails is printed and dropped.
 
 ## Rules
 - **Finder's sources are Scraper targets** (5 Nov 2026, Callum: one Chrome,
