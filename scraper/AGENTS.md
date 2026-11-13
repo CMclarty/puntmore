@@ -7,13 +7,15 @@ Hub's inbox, as drop files: `hub/PROTOCOL.md`) and from there to a board or to H
 prices are `scraper_prices` files that the Hub posts to Render.
 
 ## Boundaries (agreed; keep them)
-- It detects challenges and logouts and **stops** (a Bookie Bashing logout after one sign-in,
-  below). It never answers a check and never fakes a fingerprint. It types one login only:
-  Bookie Bashing's, Callum's own, from the Scraper's `.env` (`BB_USERNAME`, `BB_PASSWORD`;
-  Callum, 11 Nov 2026), once per logout and at most 3 sign-ins in 6 hours, then it waits for a
-  person, with plain fill and click (`login.py`). A failed sign-in waits for a person or `resume
-  bookiebashing`; a person is needed only then or for a challenge. The password is never written
-  anywhere, and the capture never keeps the sign-in's own response. No proxies or IP rotation,
+- It detects challenges and logouts and **stops** (a logout on a site that signs in, after one
+  sign-in, below). It never answers a check and never fakes a fingerprint. It signs in to the
+  sites its jobs need, each with Callum's own login from the Scraper's `.env`, one `Form` per
+  site in `login.py` (Bookie Bashing `BB_USERNAME`, `BB_PASSWORD`; Team Casino `TC_USERNAME`,
+  `TC_PASSWORD`; Callum, 13 Nov 2026), once per logout and at most 3 sign-ins in 6 hours per
+  site, then it waits for a person, with plain fill and click. It never types a two-factor
+  code. A failed sign-in waits for a person or `resume <site>`; a person is needed only then or
+  for a challenge. The password is never written anywhere and never goes in a url, and the
+  capture never keeps the sign-in's own response. No proxies or IP rotation,
   no clicking through menus to look human, and no other ways to avoid detection. If Paddy blocks
   the Hub, the answer is to slow down or get the data another way, not to work around the block.
 - One agreed exception (Callum, 26 Oct 2026): Chrome is started as a person's Chrome, without
@@ -79,7 +81,8 @@ prices are `scraper_prices` files that the Hub posts to Render.
   reported once per edit and the values in use kept, never raised; each
   value that moved is a line in `data/logs/behaviour.log`).
 - `sites.py` - per-site rules in code: what a block means, whether it needs a
-  login, Paddy's market-list url (its limits are in `behaviour.py`).
+  login, what marks a logged-out page where the url does not (Team Casino's
+  login form), Paddy's market-list url (its limits are in `behaviour.py`).
 - `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite);
   built from `behaviour.py`'s limits, which it keeps a copy of (`use`).
 - `look.py` - `python -m scraper look <job> '<steps>'`: a few plain steps
@@ -88,15 +91,20 @@ prices are `scraper_prices` files that the Hub posts to Render.
   `data/requests/look-<job>`, then the page saved to `data/dumps/`; a step
   that moves the page stops it and is counted as a load; refused for Paddy
   Power jobs.
-- `browser.py` - the one Chrome: launch, block/logout detection, clicks
+- `browser.py` - the one Chrome: launch, block/logout detection (per site: a
+  site's own mark from `sites.py`, else a visible password field or a login
+  path), clicks
   (their waits, steps and aim: `behaviour.py`). A click is aimed, then checked: if the element moved or something else is under the pointer at the press, it is aimed once more and otherwise not pressed (12 Nov 2026).
-- `login.py` - Bookie Bashing's login form, the login from `.env`, one sign-in
-  per logout on the page already open (at most `login.max_signins` in
-  `login.window_h` hours, 3 in 6 by default, then it waits for a person),
-  and `data/login.json` (the sign-ins' times, written before each is sent;
-  the last attempt failed: nothing is tried again until logged in or
-  `resume`). A form Chrome would send itself (the password in the url)
-  is aborted inside Chrome; `safe_url` keeps such a url out of what is written.
+- `login.py` - one login `Form` per site that needs one (Bookie Bashing, Team
+  Casino), each site's login from `.env`, one sign-in per logout on the page
+  already open (at most `login.max_signins` in `login.window_h` hours for each
+  site, 3 in 6 by default, then it waits for a person), and `data/login.json`
+  (each site's sign-in times, written before each is sent; the last attempt
+  failed: nothing is tried again on that site until logged in or `resume
+  <site>`). A two-factor box shown is a failed sign-in; no code is typed. Any
+  request naming a password field in its url (a form Chrome would send itself
+  as a GET) is aborted inside Chrome, for every site; a POST, the password in
+  its body, goes. `safe_url` keeps such a url out of what is written.
 - `capture.py` / `alerts.py` - what a page receives (and its disk samples;
   never the sign-in's own response) / the alert webhook and log.
 - `standing.py` - when the Scraper is not working it says so, once, and once
@@ -117,8 +125,9 @@ prices are `scraper_prices` files that the Hub posts to Render.
   advised_price / advised_stake_units / tip_time / expiry / origin). With
   `post = "hub:tips"` the rows go to `data/hub/tips/` as one file per run;
   `min_rows` breaches and blocks go to `data/hub/events/`. The Hub's
-  `puntmore inbox` reads both. Never let a generic target reach Paddy Power
-  or Bookie Bashing; never add a second budget anywhere.
+  `puntmore inbox` reads both. Never let a generic target reach Paddy Power,
+  Bookie Bashing or Team Casino (`config.OWN_SITE_HOSTS`); never add a second
+  budget anywhere.
 - targets.toml is edited only through `scraper/targets.py` (the CLI, the
   Console, HubAI's scraper-manager); never by hand while the Scraper runs.
   Validation stays in `config._target`; `targets.py` must not grow its own
@@ -155,8 +164,10 @@ prices are `scraper_prices` files that the Hub posts to Render.
   It detects challenges and logouts (also on an already-open page: 3+
   refusals in 10 min, Cloudflare, logout) and never answers a challenge — no
   fingerprint spoofing, no solvers, no proxies, no user-agent or navigator
-  overrides; do not add any. A Bookie Bashing logout is the one thing it
-  answers, by signing in once with the login in `.env` (`login.py`). Chrome
+  overrides; do not add any. A logout on a site its jobs need a login for
+  (Bookie Bashing, Team Casino) is the one thing it answers, by signing in
+  once with that site's login in `.env` (`login.py`; never a two-factor
+  code). Chrome
   is configured coherently, as a person's
   Chrome: the one departure from Playwright's defaults is that its
   `--enable-automation` test flag is not passed and AutomationControlled is
@@ -168,6 +179,8 @@ prices are `scraper_prices` files that the Hub posts to Render.
   (above; a Bookie Bashing job like any Callum adds, `docs/decisions.md`); `pp_most` reads Paddy's most-corners /
   most-cards three-ways (written from the 29 Oct 2026 capture); `pp_listing`
   reads the kick-off times off a Paddy listing (written from the 12 Nov 2026
-  dump). Every job that reads games reads only those kicking off within 48
+  dump). Team Casino has no parser yet: nobody has seen its members page
+  logged in, so a `teamcasino` job keeps the page open and reads nothing
+  until it is learned with `look`. Every job that reads games reads only those kicking off within 48
   hours (`games.within_h`, or a job's own `within_h`; 0 is no limit): with
   none that near it rests (`rest.py`; Callum, 11 and 12 Nov 2026).

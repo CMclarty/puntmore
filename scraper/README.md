@@ -34,13 +34,17 @@ the 48-hour window and never rests. A job with it exists so the builder can be
 looked at with `look` (below). It is the start of the general preset-driven
 bet-builder job (`docs/superpowers/specs/2026-11-12-wop-check-design.md`).
 `pp_most` reads Paddy's most-corners / most-cards three-ways (written from
-the 29 Oct 2026 capture; see its docstring).
+the 29 Oct 2026 capture; see its docstring). Team Casino (`teamcasino`) has no
+parser yet: nobody has seen its members page logged in. A `teamcasino` job
+with no parser keeps its page open, signed in, and reads nothing; learn the
+page with `look` (below), then write the parser from what it saved.
 
 ## What it will and won't do
-- Opens pages on `paddypower.com`, `bookiebashing.net` (one target, the named
-  exception in `docs/decisions.md`) and Finder's `generic` sources, within
-  budgets (`behaviour.py`; these are the defaults): Paddy 15 loads/h and
-  120/day, Bookie Bashing 8/h and 120/day, generic 60/h and 400/day.
+- Opens pages on `paddypower.com`, `bookiebashing.net`, `teamcasino.com` and
+  Finder's `generic` sources (never one of the other three), within budgets
+  (`behaviour.py`; these are the defaults): Paddy 15 loads/h and 120/day,
+  Bookie Bashing 8/h and 120/day, Team Casino 6/h and 30/day, generic 60/h
+  and 400/day.
   `targets.toml` cannot raise them; only Callum changes them, from the
   Console's Behaviour pane or `python -m scraper behaviour set` ("Changing
   how it behaves", below); HubAI does not.
@@ -62,6 +66,17 @@ the 29 Oct 2026 capture; see its docstring).
   `data/login.json` before the form is sent; if that file cannot be written
   it does not sign in at all and the alert says "cannot write login.json"
   (once per start of the service).
+- Team Casino logout (its members page keeps its url and shows the login
+  form) → the same: it signs in once on the open page with `TC_USERNAME` and
+  `TC_PASSWORD`, the page reloads itself, and the members url is loaded again
+  through the guard; both count as loads. Each site's sign-ins are counted on
+  their own (3 in 6 hours each), and one site's failed sign-in never stops
+  another's. Its refusal text has never been seen, so none is read: the form
+  still showing on the next read is a failed sign-in ("still logged out after
+  signing in"), as is the site asking for a two-factor code (never typed). A
+  failed sign-in, a logout with no login in `.env`, or a block closes every
+  Team Casino page and starts the cool-off (24 h by default), which also
+  needs `resume teamcasino`; the alert says why the sign-in failed.
 - A block is also caught on a page that is already open: 3+ refused
   requests in 10 min, a Cloudflare page, or a logout. Every block alert
   carries a screenshot (also in `data/blocks/`). A Paddy cool-off alerts once
@@ -91,9 +106,10 @@ the 29 Oct 2026 capture; see its docstring).
   Bookie Bashing 60 s+, and 20-45 s between any two), so nothing opens in a
   burst at startup or after quiet hours; timed reloads are jittered once per
   load. Market tabs are clicked through the mouse, then read down.
-- It never answers a challenge and never fakes a fingerprint. It types one
-  login only, Bookie Bashing's, from `.env`; a person is needed there only
-  after a failed sign-in or for a challenge. On the Hub Chrome keeps its
+- It never answers a challenge and never fakes a fingerprint. It signs in to
+  the sites its jobs need (Bookie Bashing, Team Casino), each with Callum's
+  own login from `.env`, and never types a two-factor code; a person is
+  needed there only after a failed sign-in or for a challenge. On the Hub Chrome keeps its
   own defaults: en-GB from the box's locale, London time, the box's own GPU
   and fonts, on its own virtual 1920x1080 screen. In Docker, with
   no screen, Chrome gets a 1600x1000 window on Xvfb's 1920x1080 screen and
@@ -313,7 +329,8 @@ he is logged in. Two user units:
   Radeon's WebGL, `navigator.webdriver` false).
 
 To look at it, or to sign in by hand (Bookie Bashing after a failed sign-in,
-a check), open the screen in a VNC viewer on the Hub:
+a check; Team Casino's pages are closed by its cool-off, so open the members
+page in a new tab there), open the screen in a VNC viewer on the Hub:
 
 ```sh
 remmina -c vnc://127.0.0.1:5910
@@ -460,13 +477,17 @@ In `/opt/puntmore-scraper/.env`: `SCRAPER_ALERT_WEBHOOK` (Discord), `SCRAPER_HEA
 (optional), and `VNC_PASSWORD` on a box with no screen. It holds no Render key: the Hub posts
 its prices (`PUNTMORE_RENDER_API_KEY` in the Hub's `.env`). The Scraper no longer reads
 `SAVES_INGEST_KEY` or `PUNTMORE_URL`, so both can be deleted from `/opt/puntmore-scraper/.env`.
-The Bookie Bashing login is `BB_USERNAME` and `BB_PASSWORD` (Callum's own; leave either blank
-and a person logs in instead). The Scraper types it when its page is found logged out, once
-per logout and at most 3 sign-ins in 6 hours, then it waits for a person; the password is never
-logged or kept, and Chrome is not given either variable. A failed sign-in is noted in
-`data/login.json` (with the times of recent sign-ins) and nothing is tried again until the site
-is seen logged in (log in on the Hub's screen) or `python -m scraper resume bookiebashing` is
-run, which forgets it and the sign-in times. The
+Each site the Scraper signs in to has its own login, Callum's own (leave either blank and a
+person logs in instead): Bookie Bashing `BB_USERNAME` and `BB_PASSWORD`, Team Casino
+`TC_USERNAME` (the email) and `TC_PASSWORD`. The Scraper types a site's login when that site's
+page is found logged out, once per logout and at most 3 sign-ins in 6 hours for each site, then
+it waits for a person; the password is never logged or kept, and Chrome is not given any of the
+variables. It never types a two-factor code: an account with two-factor on is a failed sign-in.
+A failed sign-in is noted in `data/login.json` (with each site's recent sign-in times) and
+nothing is tried again on that site until it is seen logged in (log in on the Hub's screen) or
+`python -m scraper resume <site>` is run, which forgets it and the sign-in times. A failed
+Team Casino sign-in also closes its pages and starts its cool-off (24 h by default), like a
+block. The
 session itself lives in the Chrome profile in the data directory; never share
 `data/profile/`: it holds the login cookies.
 
