@@ -1,7 +1,7 @@
 """Settings (environment) and targets (targets.toml on the Hub).
 
 WHAT is read is config: a list of targets — pages, any mix of Paddy Power,
-Bookie Bashing and generic sources (Finder's, and any other page a tool needs) — that changes without a code change. HOW each site is treated
+Bookie Bashing, Team Casino and generic sources (Finder's, and any other page a tool needs) — that changes without a code change. HOW each site is treated
 — its budget, quiet hours, what a block means — is code (sites.py), because
 those are the guarantees, and a config edit must not be able to loosen them.
 
@@ -23,14 +23,22 @@ from urllib.parse import urlparse
 
 HERE = pathlib.Path(__file__).resolve().parent
 
-# The only hosts a paddypower / bookiebashing target may open. localhost is for
-# the tests' fake site. A `generic` target (Finder's sources) may open
-# any host EXCEPT these two: the bookmakers are read only under their own site
-# rules, never under the looser generic budget.
+# The hosts each site's targets may open (and a subdomain of one). localhost is
+# for the tests' fake site. A paddypower or bookiebashing target may open either
+# bookmaker, as before; a teamcasino target only Team Casino. A `generic` target
+# (Finder's sources) may open any host EXCEPT the ones a site of their own has:
+# those are read only under their own site's rules, never under the looser
+# generic budget. With no site (capture.py: is this one of the sites' own
+# hosts?), any of them.
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")   # a target's `days`, in week order
 
-ALLOWED_HOSTS = ("paddypower.com", "bookiebashing.net", "localhost", "127.0.0.1")
 BOOKMAKER_HOSTS = ("paddypower.com", "bookiebashing.net")
+TEAMCASINO_HOSTS = ("teamcasino.com",)
+LOCAL_HOSTS = ("localhost", "127.0.0.1")
+SITE_HOSTS = {"paddypower": BOOKMAKER_HOSTS, "bookiebashing": BOOKMAKER_HOSTS,
+              "teamcasino": TEAMCASINO_HOSTS}
+OWN_SITE_HOSTS = BOOKMAKER_HOSTS + TEAMCASINO_HOSTS     # never a generic target's
+ALLOWED_HOSTS = OWN_SITE_HOSTS + LOCAL_HOSTS
 
 
 def _on(host: str, hosts) -> bool:
@@ -40,7 +48,9 @@ def _on(host: str, hosts) -> bool:
 def host_allowed(url: str, site: str | None = None) -> bool:
     host = (urlparse(url).hostname or "").lower()
     if site == "generic":
-        return bool(host) and not _on(host, BOOKMAKER_HOSTS)
+        return bool(host) and not _on(host, OWN_SITE_HOSTS)
+    if site in SITE_HOSTS:
+        return _on(host, SITE_HOSTS[site] + LOCAL_HOSTS)
     return _on(host, ALLOWED_HOSTS)
 
 
@@ -70,14 +80,14 @@ class Matches:
 @dataclass(frozen=True)
 class Target:
     name: str
-    site: str                           # "paddypower" | "bookiebashing"
+    site: str                           # a key of sites.SITES
     url: str
     every_min: float | None = None      # reload on this interval; None = only when stale
     stale_min: float = 20.0             # reload a page that has gone this quiet
     parser: str | None = None           # name in parsers.PARSERS
     post: str | None = None             # Render route the Hub posts these price rows to (the Scraper only writes it in the drop file)
     matches: Matches | None = None
-    mode: str = "keep"                  # keep: page stays open (Paddy/BB) | fetch: load, parse, close
+    mode: str = "keep"                  # keep: page stays open (Paddy/BB/Team Casino) | fetch: load, parse, close
     enabled: bool = True
     min_rows: int = 0                   # fewer parsed rows than this = unhealthy (layout change?)
     trust_weight: float = 1.0           # Finder: sent to the Hub beside the rows, for HubAI

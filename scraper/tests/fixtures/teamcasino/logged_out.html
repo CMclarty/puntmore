@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<!--
+Team Casino's logged-out members page, https://www.teamcasino.com/reload-offers-dashboard,
+as the Scraper saved it on 13 Nov 2026 (data/dumps/team-casino-20261113-121600/2-end.html),
+cut down for the tests. The modal below (both forms, #loginrequest and #resetrequest) is the
+real markup, unchanged except that its icons are removed. The page's theme, styles and
+third-party scripts are left out.
+
+The script at the end is a STAND-IN, not the site's: the real page binds #loginrequest's
+submit with jQuery (loaded from c0.wp.com) and this file loads nothing from outside, so the
+same steps are written in plain JavaScript: stop the native submit, POST the form serialised
+to /wp-admin/admin-ajax.php (the real url is https://www.teamcasino.com/wp-admin/admin-ajax.php),
+write the answer's `data` into the form's .response, reload the page 500 ms after a success,
+and show the two-factor box when the answer is "Please enter the Two-Factor Authentication
+code.". The tests' server takes the script out to stand for a page whose script never ran.
+-->
+<html><head><meta charset="UTF-8"><title>Reload Offers Dashboard - Team Casino</title></head>
+<body>
+	<div id="open-modal" class="" style="
+    border-radius: 5px;
+    max-width: 750px;
+    margin: 0 auto; background-color: #f7f7f7;">
+    <div>
+        <!-- to close:
+            <a href="#modal-close" title="Close" class="modal-close">close &times;</a>
+        -->
+        <div class="modalHeaderTC">
+            <h2 id="header1_TC" class="headerTitleTC" data-fontsize="30" data-lineheight="36">Team Casino Members Only Page</h2>
+            <h2 id="header2_TC" class="headerTitleTC" data-fontsize="30" data-lineheight="36">Please Log In To View This Page</h2>
+        </div>
+
+        <div class="mainModalBodyTC">
+
+            <div class="leftContainerTC login-wrap">
+
+                <div class="modalBorderTC">
+
+                    <h2 class="headerModalTC" data-fontsize="22" data-lineheight="26">Welcome Back...</h2>
+
+                    <!-- forms -->
+   
+					<form id="loginrequest" method="POST" action="">
+					
+						<div class="login-request-form-wrap" style="height: 180px;">
+							
+						
+						
+						<div>
+							<p class="labelTC">Email</p>
+							<div class="alignFormTC">
+								<input type="text" name="login" class="formTC" placeholder="Email" value="" required="" style="">
+							</div>
+						</div>
+
+						<div>
+							<div class="passwordBoxTC">
+								<p class="labelTC">Password</p>
+								<a class="passwordLinkTC" href="#" onclick="resetBtn()" tabindex="-1">Forgot Password?</a>
+						
+							</div>
+							<div class="alignFormTC">
+								<input type="password" name="password" class="formTC" placeholder="Password" value="" required="" style="">
+							</div>
+						</div>
+						
+						<!-- Two-Factor Authentication Code -->
+						<div id="2fa-code-input" style="display: none;">
+							<p class="labelTC">Two-Factor Authentication Code</p>
+							<div class="alignFormTC">
+								<input type="text" name="2facode" class="formTC" placeholder="Two-Factor Authentication Code" value="" style="">
+							</div>
+						</div>
+						
+						<!-- Remember Me -->
+						<input type="hidden" name="remember" id="login-remember" value="forever" style="">
+
+						<!-- checkbox section -->
+						<div class="checkboxContainer">
+							<input type="checkbox" id="offersAll" name="offers" value="offers" style="margin: auto; width: 16px; height: 16px;">
+							<div>
+								<p class="infoTxt">Remember Me</p>
+							</div>
+						</div>
+							
+						</div>
+
+						<!-- login button -->
+						<div class="btnBoxContainerTC">
+							<button class="continueBtnTC" type="submit">Log In</button>
+						</div>
+						
+						<input type="hidden" name="action" value="login_request" style="">
+						
+						
+						<!-- error message -->
+						<div class="messageContainerTC" style="display: none;">
+							<!--<p class="errorMessageTC"><span class="msgGreen">Success!</span> Please check the email address you provided and follow the next steps to reset your password.</p>-->
+							<p class="errorMessageTC response"></p>
+						</div>
+						
+					</form>
+					
+
+				</div>
+				
+				<!--<p class="tcInfo">By signing in, you agree to our <a class="linkStyling" href="/terms-of-service">Terms</a> and <a class="linkStyling" href="/privacy-policy">Privacy Policy</a></p>-->
+				
+
+
+            </div>
+			
+			
+			<div class="leftContainerTC forgot-your-pass-wrap" style="display: none;">
+				
+				<div class="modalBorderTC">
+				
+				 <h2 class="headerModalTC" data-fontsize="22" data-lineheight="26">Reset Your Password</h2>
+
+
+				
+				<form id="resetrequest" method="POST" action="" style="max-width: 297px;">
+					
+
+					<div>
+						<p class="labelTC">Email</p>
+						<p class="tcInfo" style="margin-top: 0px;
+    margin-bottom: 0px;
+    text-align: left;
+    padding-bottom: 5px; padding-left: 15px;">Enter your email address below and we'll send you a link to reset your password!</p>
+						<div class="alignFormTC">
+							<input type="text" name="user_login" class="formTC" placeholder="Email" value="" required="" style="">
+						</div>
+					</div>
+
+
+
+					<!-- submit button -->
+					<div class="btnBoxContainerTC">
+						<button class="continueBtnTC" type="submit">Send Email Link</button>
+					</div>
+
+					<input type="hidden" name="action" value="forgot_password_process" style="">
+
+
+					<!-- error message -->
+					<div class="messageContainerTC" style="display: none;">
+						
+						<p class="errorMessageTC response"><!--<span class="msgGreen">Success!</span> Please check the email address you provided and follow the next steps to reset your password.--></p>
+					</div>
+
+
+				</form>
+				
+				</div>
+				
+			</div>
+    
+
+
+            <div class="rightContainerTC">
+
+                <div class="hiddenContainerTC">
+                    <h2 class="hiddenHeaderTC" data-fontsize="30" data-lineheight="36">Not Yet A Member?</h2>
+                </div>
+
+                <h2 class="headerModalTC" data-fontsize="22" data-lineheight="26">Nice To Meet You...</h2>
+                
+                <div class="pointsBody">
+
+                    <div id="boxOneTC" class="headerBoxEl">
+                        <p class="headerTextTC">Easy-to-follow guides</p>
+                    </div>
+    
+                    <div id="boxTwoTC" class="headerBoxEl">
+                        <p class="headerTextTC">90+ welcome offers with expected values £1,000+</p>
+                    </div>
+    
+                    <div id="boxThreeTC" class="headerBoxEl">
+                        <p class="headerTextTC">Best-in-class casino offer tools</p>
+                    </div>
+    
+                    <div id="boxFourTC" class="headerBoxEl">
+                        <p class="headerTextTC">Unlimited support from our team</p>
+                    </div>
+
+                    <div id="boxFiveTC" class="headerBoxEl">
+                        <p class="headerTextTC">The Home Of Casino Offers</p>
+                    </div>
+
+                    <div id="boxSixTC" class="headerBoxEl">
+                        <p class="headerTextTC">10 day full-access trial for £1</p>
+                    </div>
+    
+                </div>
+
+                <!-- login button -->
+                    <div class="btnBoxContainerTC2">
+                        <button id="tcBtnOne" onclick="window.location.href = '/payment-plans';" class="pricingBtnTC" type="button">View Membership Options</button>
+                        <button id="tcBtnTwo" onclick="window.location.href = '/checkout-page-1-pound-trial?action=register';" class="pricingBtnTC" type="button">Start Your Trial</button>
+                    </div>
+
+                <p id="tcInfo" class="tcInfo"><span style="color: #fedb41; font-size: 13px;"><i class="fas fa-star"></i></span> 10 day trial for £1 available</p>
+
+            </div>
+
+        </div>
+
+
+
+    </div>
+
+<!-- STAND-IN for the site's jQuery handler (see the comment at the top) -->
+<script>
+document.getElementById('loginrequest').addEventListener('submit', async function (ev) {
+  ev.preventDefault();
+  const form = this;
+  const box = form.querySelector('.messageContainerTC');
+  const response = form.querySelector('.response');
+  box.style.display = 'none';
+  response.innerHTML = '';
+  const r = await fetch('/wp-admin/admin-ajax.php',
+                        {method: 'POST', body: new URLSearchParams(new FormData(form))});
+  const answer = await r.json();
+  box.style.display = 'block';
+  response.innerHTML = '<p>' + answer.data + '</p>';
+  if (answer.success) {
+    form.reset();
+    setTimeout(function () { location.reload(); }, 500);
+  } else if (answer.data == 'Please enter the Two-Factor Authentication code.') {
+    document.getElementById('2fa-code-input').style.display = 'block';
+  }
+});
+</script>
+</body></html>

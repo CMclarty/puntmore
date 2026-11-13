@@ -294,7 +294,7 @@ class Runner:
                     reason = "repeated 403/429 on an open page"
                 else:
                     reason = browser.blocked(tab.page)
-                if reason is None and rules.needs_login and browser.logged_out(tab.page, tab.url):
+                if reason is None and rules.needs_login and browser.logged_out(tab.page, tab.url, site):
                     reason = "logged out"
                 if reason is None:
                     continue
@@ -440,7 +440,7 @@ class Runner:
             return None
 
         reason = browser.blocked(tab.page, resp.status if resp else None)
-        if reason is None and SITES[site].needs_login and browser.logged_out(tab.page, url):
+        if reason is None and SITES[site].needs_login and browser.logged_out(tab.page, url, site):
             if self._try_login(site, tab, now):
                 return None
             reason = "logged out"

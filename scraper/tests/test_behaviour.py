@@ -25,6 +25,9 @@ OLD = {
     "bookiebashing.load_gap_s": 60.0, "bookiebashing.quiet_hours": False,
     "generic.per_hour": 60, "generic.per_day": 400,
     "generic.load_gap_s": 20.0, "generic.quiet_hours": False,
+    # new with Team Casino (13 Nov 2026, Callum); no constant before
+    "teamcasino.per_hour": 6, "teamcasino.per_day": 30,
+    "teamcasino.load_gap_s": 60.0, "teamcasino.quiet_hours": False,
     # guard.Guard's defaults; login.MAX_SIGNINS, SIGNIN_WINDOW_H; sites.BACKOFF_MIN;
     # runner's random.uniform(0.9, 1.2) on a back-off
     "quiet.hours": (1, 7), "cooloff.hours": 24.0,

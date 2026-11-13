@@ -103,6 +103,7 @@ SETTINGS: tuple[Setting, ...] = (
         "Limits, per site",
         *_site("paddypower", "Paddy Power", 15, 120, 90.0, True),
         *_site("bookiebashing", "Bookie Bashing", 8, 120, 60.0, False),
+        *_site("teamcasino", "Team Casino", 6, 30, 60.0, False),
         *_site("generic", "Any other site (Finder's sources)", 60, 400, 20.0, False),
     ),
     *_group(
@@ -113,12 +114,12 @@ SETTINGS: tuple[Setting, ...] = (
          "After a block on Paddy Power or a generic site, nothing loads for this long, "
          "and then only once `resume` has been run"),
         ("login.max_signins", "int", 3, 0, 20, "sign-ins",
-         "Bookie Bashing sign-ins sent within login.window_h; the next logout waits for "
-         "a person (0: never signs in)"),
+         "Sign-ins sent to one site within login.window_h (each site counted on its own); "
+         "the next logout waits for a person (0: never signs in)"),
         ("login.window_h", "int", 6, 1, 168, "h",
          "The window login.max_signins is counted over"),
         ("backoff.min", "range", (15, 120), 1, 1440, "min",
-         "After a block on Bookie Bashing, the first wait before it tries again; it "
+         "After a block on Bookie Bashing or Team Casino, the first wait before it tries again; it "
          "doubles each time up to the second (not drawn)"),
         ("backoff.jitter_x", "range", (0.9, 1.2), 0.1, 5, "x",
          "Each back-off wait is multiplied by a number drawn from this range"),

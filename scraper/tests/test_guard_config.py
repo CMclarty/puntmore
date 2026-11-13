@@ -86,3 +86,5 @@ stale_min = 1
 def test_example_targets_parse():
     targets = config.load_targets(config.HERE / "targets.example.toml")
     assert {t.site for t in targets} == {"paddypower", "bookiebashing"}
+    every = config.load_targets(config.HERE / "targets.example.toml", include_disabled=True)
+    assert {t.site for t in every} == {"paddypower", "bookiebashing", "teamcasino", "generic"}

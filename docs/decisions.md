@@ -265,11 +265,20 @@ names and no other; older names appear only in `docs/retired.md`.
   Callum asks for them, each a job on the Console inside Bookie Bashing's
   load budget. The rule that `bb-saves` was the single named exception to
   "Bookie Bashing is never automated" is removed. (12 Nov 2026, Callum:
-  "remove that rule"; before that, 11 Nov 2026: "reenable the bb scraper") The Scraper signs
-  in to Bookie Bashing itself with Callum's own login, kept in the Scraper's
-  `.env` (`BB_USERNAME`, `BB_PASSWORD`): one attempt per logout, a failed
-  attempt waits for a person, a challenge is never answered. (Callum, 11 Nov
-  2026: "bb will need to be able to login")
+  "remove that rule"; before that, 11 Nov 2026: "reenable the bb scraper")
+- **The Scraper signs in to the sites its jobs need.** Each with Callum's own
+  login from the Scraper's `.env`, one `Form` per site in `scraper/login.py`:
+  Bookie Bashing (`BB_USERNAME`, `BB_PASSWORD`) and Team Casino (`TC_USERNAME`,
+  `TC_PASSWORD`; the site `teamcasino`). The limits are the same for every
+  site: one attempt per logout, at most `login.max_signins` sign-ins in
+  `login.window_h` hours for each site, a failed attempt (or a logout with no
+  login in `.env`) backs off with the page left open and waits for a person
+  or `resume <site>`, which gives one more try at once, and the password is
+  never written. It never types a
+  two-factor code and never answers a challenge. (13 Nov 2026, Callum: "the
+  scraper needs to know how to login to the needed sites"; replaces "the
+  Scraper signs in to Bookie Bashing itself", 11 Nov 2026: "bb will need to be
+  able to login")
 - **The Scraper reads only games kicking off within 48 hours.** One live setting
   (`games.within_h`; a listing job may carry its own `within_h`, 0 for no limit; `bb-saves` follows the main setting only) covers every job
   that reads games: `bb-saves`, and a listing job, which opens a match only inside that

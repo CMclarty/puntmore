@@ -23,9 +23,19 @@ bookiebashing  Your subscription. The Scraper signs in itself with the login in
                the Docker fallback).
                Its jobs are Callum's to add (docs/decisions.md; the rule that
                bb-saves was the only one was removed on 12 Nov 2026).
+teamcasino     Callum's subscription (casino reload offers; 13 Nov 2026). The
+               Scraper signs in itself with the login in its .env (TC_USERNAME,
+               TC_PASSWORD; login.py), once per logout, on the page already
+               open. Its members page keeps its url when logged out and shows
+               the login form instead (`logged_out` below). 6/h, 30/day by
+               default. No quiet hours. As Bookie Bashing: a block, a failed
+               sign-in, or a logout with no login in .env alerts once and backs
+               off, with the tab left open, until a person has sorted it (a
+               failed sign-in: logs in on the Scraper's screen, or runs
+               `resume teamcasino`, which gives one more try at once).
 generic        Any other site: Finder's sources (tipster pages, listings) and any
                other page a tool needs.
-               Never Paddy or Bookie Bashing. 60/h, 400/day across ALL generic
+               Never Paddy, Bookie Bashing or Team Casino. 60/h, 400/day across ALL generic
                targets by default, 20 s+ between loads. A target is loaded,
                parsed and closed - nothing kept open. A block (403/429/
                Cloudflare) starts the cool-off for every generic target and
@@ -53,13 +63,27 @@ class Site:
     market_list: str | None = None   # URL regex: a market tab's markets arrived
     betslip: str | None = None       # URL regex: the page pricing its betslip (never meant to hold anything)
     betslip_not: str | None = None   # URL regex: the same call when it is NOT the betslip
+    # CSS: shown on the site's page only to a logged-out visitor, for a site
+    # whose url says nothing when logged out; None: browser.py's general rule
+    # (a visible password field, or a login path).
+    logged_out: str | None = None
 
 
-# The keys are the sites; behaviour.py has the same three under "Limits, per site".
+# The keys are the sites; behaviour.py has the same ones under "Limits, per site".
 SITES = {
     "paddypower": Site(needs_login=False, block_means_cooloff=True,
                        market_list=_PP_MARKET_LIST, betslip=_PP_BETSLIP,
                        betslip_not=_PP_BETSLIP_NOT),
     "bookiebashing": Site(needs_login=True, block_means_cooloff=False),
+    # Its members page (reload-offers-dashboard) answers a logged-out visit at the
+    # same url, with "Please Log In To View This Page" and the login form shown
+    # (the page saved on 13 Nov 2026). Its forms are the mark, not a password
+    # field: a logged-in page may well have one of its own. Either form shown
+    # is logged out: the page's "Forgot Password?" (resetBtn()) hides the login
+    # form and shows the reset form in its place, which is still logged out -
+    # read as logged in, a person clicking it over VNC would clear a failed
+    # sign-in's note. A page with neither form shown reads as logged in.
+    "teamcasino": Site(needs_login=True, block_means_cooloff=False,
+                       logged_out="form#loginrequest:visible, form#resetrequest:visible"),
     "generic": Site(needs_login=False, block_means_cooloff=True),
 }

@@ -6,11 +6,11 @@
 # checks the file once a minute and applies an edit without a restart; a file
 # that will not load is logged and the running targets are kept.
 #
-# Any mix of the three site kinds. Each site's budget, quiet hours and block
+# Any mix of the four site kinds. Each site's budget, quiet hours and block
 # handling are fixed in code (sites.py), whatever is listed here.
 #
 #   name       unique; used for samples, dumps and `dump <name>`
-#   site       paddypower | bookiebashing | generic
+#   site       paddypower | bookiebashing | teamcasino | generic
 #   url        the page
 #   every_min  reload on this interval (min 5). Leave out to reload only
 #              when the page has gone quiet for stale_min (default 20, min 10)
@@ -33,7 +33,8 @@
 #              games.look_again_s (a day), whichever is sooner. bb-saves
 #              follows games.within_h only
 #
-# Finder's sources use site = "generic" (any host except the two bookmakers):
+# Finder's sources use site = "generic" (any host except Paddy Power, Bookie
+# Bashing and Team Casino):
 #   mode       "fetch" (the default for generic): load, parse, close
 #   post       "hub:tips" hands the rows to the Hub as tips (a scraper_tips drop file)
 #   min_rows   fewer parsed rows than this = unhealthy, alert + an event for the Hub
@@ -79,6 +80,18 @@ window = "07:00-23:30"
   # The mosts include La Liga and Serie A, under this job (Callum, 12 Nov 2026).
   listings = ["https://www.paddypower.com/football/spanish-la-liga",
               "https://www.paddypower.com/football/italian-serie-a"]
+
+# A Team Casino job (Callum, 13 Nov 2026): its members page kept open and
+# signed in with TC_USERNAME / TC_PASSWORD from the Scraper's .env (login.py).
+# No parser yet - nobody has seen the page logged in; learn it with `look`.
+# Disabled until the login is in .env: logged out with none, it backs off and
+# waits for a person.
+[[target]]
+name = "tc-reload-offers"
+site = "teamcasino"
+enabled = false
+url = "https://www.teamcasino.com/reload-offers-dashboard"
+every_min = 60
 
 # A tip-finding source. Disabled: it exists as the worked example for
 # parsers/example_tipster.py and the tests.

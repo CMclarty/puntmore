@@ -23,9 +23,11 @@ A refusal or an error is not activity.
 
 The sign-in's own response (login.py) is never kept, in the ring or on disk:
 a site's answer to a login may repeat what was typed. It is known by its
-request, a POST naming a password field; one whose post data cannot be read
-is dropped too. The post data is only searched, never kept. A 403/429 to it
-still counts as a refusal.
+request, a POST naming one of the forms' password fields as a field (login.
+names_a_password: `password=` in a form body, or "password" quoted, but not
+`forgot_password=`); one whose post data cannot be read is dropped too. The
+post data is only searched, never kept. A 403/429 to it still counts as a
+refusal.
 
 `refusals` records every 403/429 the page's OWN requests get (on the site's
 hosts - a third-party widget's 403 says nothing about us). A kept-open page
@@ -56,7 +58,7 @@ def _signs_in(req) -> bool:
         data = req.post_data or ""
     except Exception:
         return True                                  # unreadable: not kept
-    return any(name in data for name in login.password_fields())
+    return login.names_a_password(data)
 
 
 class DiskBudget:

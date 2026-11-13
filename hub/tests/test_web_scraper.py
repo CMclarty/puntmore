@@ -94,7 +94,7 @@ def test_the_tab_is_the_library_summary(scfg):
     d = client(scfg).get("/api/scraper").json()
     c = d["config"]
     assert c["error"] is None and c["exists"] is True and c["file"].endswith("targets.toml")
-    assert c["sites"] == ["paddypower", "bookiebashing", "generic"]
+    assert c["sites"] == ["paddypower", "bookiebashing", "teamcasino", "generic"]
     bb, tip = c["targets"]
     assert (bb["name"], bb["site"], bb["mode"], bb["enabled"], bb["every_min"], bb["stale_min"]) == \
         ("bb-saves", "bookiebashing", "keep", True, 10.0, 20.0)
@@ -271,7 +271,7 @@ def test_the_page_has_the_tab_and_no_inline_script(scfg):
     page = client(scfg).get("/").text
     for needle in ('id="target-add-form"', 'id="target-edit-form"', 'id="target-remove-form"',
                    '<option selected>generic</option>', "<option>paddypower</option>", "<option>bookiebashing</option>",
-                   "the Scraper applies changes within 60 s"):
+                   "<option>teamcasino</option>", "the Scraper applies changes within 60 s"):
         assert needle in page
     assert page.count("<script") == 1 and "onclick=" not in page and "Worker" not in page
     css = client(scfg).get("/static/style.css").text
