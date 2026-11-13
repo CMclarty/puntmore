@@ -111,15 +111,15 @@ SETTINGS: tuple[Setting, ...] = (
         ("quiet.hours", "hours", (1, 7), 0, 24, "h",
          "Quiet hours, local time: a site with quiet_hours on loads nothing and its pages close"),
         ("cooloff.hours", "float", 24.0, 0, 168, "h",
-         "After a block on Paddy Power, Team Casino or a generic site, nothing loads for "
-         "this long, and then only once `resume` has been run"),
+         "After a block on Paddy Power or a generic site, nothing loads for this long, "
+         "and then only once `resume` has been run"),
         ("login.max_signins", "int", 3, 0, 20, "sign-ins",
          "Sign-ins sent to one site within login.window_h (each site counted on its own); "
          "the next logout waits for a person (0: never signs in)"),
         ("login.window_h", "int", 6, 1, 168, "h",
          "The window login.max_signins is counted over"),
         ("backoff.min", "range", (15, 120), 1, 1440, "min",
-         "After a block on Bookie Bashing, the first wait before it tries again; it "
+         "After a block on Bookie Bashing or Team Casino, the first wait before it tries again; it "
          "doubles each time up to the second (not drawn)"),
         ("backoff.jitter_x", "range", (0.9, 1.2), 0.1, 5, "x",
          "Each back-off wait is multiplied by a number drawn from this range"),

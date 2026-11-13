@@ -145,6 +145,29 @@ def test_the_real_page_reads_as_logged_out_and_a_members_page_does_not(tmp_path,
         ctx.close()
 
 
+def test_the_reset_form_in_place_of_the_login_form_is_still_logged_out(tmp_path, site):
+    """The page's "Forgot Password?" (resetBtn(): .login-wrap hidden, the reset
+    form's wrap shown) leaves #loginrequest in the page but hidden. That is
+    still logged out - read as logged in, it would clear a failed sign-in's
+    note. Neither form shown (the page never does this itself) reads as
+    logged in: the mark is a form shown, not a form present."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        ctx = _ctx(p, tmp_path)
+        page = ctx.new_page()
+        page.goto(site + MEMBERS)
+        page.evaluate("""() => {
+            document.querySelector('.login-wrap').style.display = 'none';
+            document.querySelector('.forgot-your-pass-wrap').style.display = 'block'; }""")
+        assert not page.locator("form#loginrequest").is_visible()
+        assert page.locator("form#loginrequest").count() == 1
+        assert page.locator("form#resetrequest").is_visible()
+        assert browser.logged_out(page, site + MEMBERS, "teamcasino")
+        page.evaluate("() => { document.querySelector('.forgot-your-pass-wrap').style.display = 'none'; }")
+        assert not browser.logged_out(page, site + MEMBERS, "teamcasino")
+        ctx.close()
+
+
 def test_sign_in_sends_the_login_form_once_and_nothing_else(tmp_path, site):
     """One POST, from #loginrequest only: the email and password typed, the
     two-factor box left empty, the hidden remember/action as the page has
@@ -299,10 +322,14 @@ def test_the_runner_waits_for_a_person_after_a_sign_in_that_did_not_take(tmp_pat
         r.tick(t0)
         r.tick(t0 + 200)
         assert login.failed(tmp_path, "teamcasino")["why"] == "still logged out after signing in"
-        assert r.guard.cooloff_active("teamcasino", t0 + 200)
-        assert not r.tabs
+        assert r.guard.cooloff("teamcasino") is None          # a back-off, as Bookie Bashing's
+        assert r.sites["teamcasino"].blocked_for == "logged out"
+        assert "tc-offers" in r.tabs                          # left open to sort on the screen
         r.tick(t0 + 400)
         assert len(_posts()) == 1                             # one sign-in, no second
+        alerts = (tmp_path / "alerts.log").read_text()
+        assert "signing in failed (still logged out after signing in)" in alerts
+        assert "`resume teamcasino`. Backing off." in alerts
         r.close_all()
         ctx.close()
     assert _files_with(tmp_path, b"not-the-password") == []

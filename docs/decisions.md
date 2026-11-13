@@ -271,8 +271,10 @@ names and no other; older names appear only in `docs/retired.md`.
   Bookie Bashing (`BB_USERNAME`, `BB_PASSWORD`) and Team Casino (`TC_USERNAME`,
   `TC_PASSWORD`; the site `teamcasino`). The limits are the same for every
   site: one attempt per logout, at most `login.max_signins` sign-ins in
-  `login.window_h` hours for each site, a failed attempt waits for a person or
-  `resume <site>`, and the password is never written. It never types a
+  `login.window_h` hours for each site, a failed attempt (or a logout with no
+  login in `.env`) backs off with the page left open and waits for a person
+  or `resume <site>`, which gives one more try at once, and the password is
+  never written. It never types a
   two-factor code and never answers a challenge. (13 Nov 2026, Callum: "the
   scraper needs to know how to login to the needed sites"; replaces "the
   Scraper signs in to Bookie Bashing itself", 11 Nov 2026: "bb will need to be

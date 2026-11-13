@@ -232,8 +232,9 @@ _LOGIN_PATHS = ("/how-it-works", "wp-login.php", "/login")
 
 def logged_out(page, wanted_url: str | None = None, site: str | None = None) -> bool:
     """A site with a mark of its own (sites.py `logged_out`; Team Casino's
-    members page keeps its url and shows its login form): that mark shown,
-    and nothing else. Every other site: a visible password field, or a page
+    members page keeps its url and shows its login or reset form): that mark
+    shown, and nothing else (a selector list: each part names its own
+    `:visible`, so the first match is a shown one). Every other site: a visible password field, or a page
     on one of the sites' login paths."""
     mark = SITES[site].logged_out if site in SITES else None
     try:

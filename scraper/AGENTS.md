@@ -82,7 +82,7 @@ prices are `scraper_prices` files that the Hub posts to Render.
   value that moved is a line in `data/logs/behaviour.log`).
 - `sites.py` - per-site rules in code: what a block means, whether it needs a
   login, what marks a logged-out page where the url does not (Team Casino's
-  login form), Paddy's market-list url (its limits are in `behaviour.py`).
+  login form, or the reset form shown in its place), Paddy's market-list url (its limits are in `behaviour.py`).
 - `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite);
   built from `behaviour.py`'s limits, which it keeps a copy of (`use`).
 - `look.py` - `python -m scraper look <job> '<steps>'`: a few plain steps
@@ -117,8 +117,8 @@ prices are `scraper_prices` files that the Hub posts to Render.
 
 ## Rules
 - **Finder's sources are Scraper targets** (5 Nov 2026, Callum: one Chrome,
-  one budget, one alert path). `site = "generic"` may name any host except the
-  two bookmakers; its budget is `behaviour.py`'s (60/h, 400/day, no quiet hours,
+  one budget, one alert path). `site = "generic"` may name any host except
+  Paddy Power's, Bookie Bashing's and Team Casino's; its budget is `behaviour.py`'s (60/h, 400/day, no quiet hours,
   by default; a block = 24 h cool-off + `resume generic`, in `sites.py`). A generic target is `fetch`
   mode: loaded, parsed once, closed. Its parser follows the same contract as
   every other parser and emits TIPS (event, market, selection, optional
@@ -157,7 +157,8 @@ prices are `scraper_prices` files that the Hub posts to Render.
   which the Hub reads; it sends Render nothing; its prices go through the Hub.
   Timings are clamped to the scraper's own floors (`config._target`).
   What a block means is code (`sites.py`: a Paddy block = every Paddy page
-  closed + 24 h cool-off needing `resume`). Each site's budgets and quiet
+  closed + 24 h cool-off needing `resume`; Bookie Bashing and Team Casino
+  back off, their tabs left open). Each site's budgets and quiet
   hours (Paddy 15/h, 01-07, by default) are `behaviour.py`'s settings, which
   only Callum changes (the Console's Behaviour pane or `python -m scraper
   behaviour`; every change logged); no `targets.toml` edit can loosen them.

@@ -112,11 +112,12 @@ def password_fields() -> tuple[str, ...]:
 
 def _field_re(name: str) -> re.Pattern:
     """A field called exactly `name`: in a url's query or a form body
-    (`name=`, first or after ? & ; #), or quoted (multipart's name="...",
-    a JSON key). Not part of a longer name: a site's `forgot_password=` or
+    (`name=`, first or after ? & ; # or a newline - a text/plain form puts
+    each field on its own line), or quoted (multipart's name="...", a JSON
+    key). Not part of a longer name: a site's `forgot_password=` or
     `reset-password=` is not Team Casino's `password` field."""
     n = re.escape(name)
-    return re.compile(rf'(?:^|[?&;#]){n}=|"{n}"')
+    return re.compile(rf'(?:^|[?&;#\r\n]){n}=|"{n}"')
 
 
 def names_a_password(text: str) -> bool:

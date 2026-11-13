@@ -73,10 +73,13 @@ page with `look` (below), then write the parser from what it saved.
   their own (3 in 6 hours each), and one site's failed sign-in never stops
   another's. Its refusal text has never been seen, so none is read: the form
   still showing on the next read is a failed sign-in ("still logged out after
-  signing in"), as is the site asking for a two-factor code (never typed). A
-  failed sign-in, a logout with no login in `.env`, or a block closes every
-  Team Casino page and starts the cool-off (24 h by default), which also
-  needs `resume teamcasino`; the alert says why the sign-in failed.
+  signing in"), as is the site asking for a two-factor code (never typed).
+  After that, exactly as Bookie Bashing: one alert saying why, a back-off
+  with the tab left open, and no other sign-in until it sees the site logged
+  in or you run `resume teamcasino` (which gives it one more try at once).
+  A logout with no login in `.env`, or a block, is the same back-off. Its
+  page reads as logged out while its login form, or the reset form that
+  "Forgot Password?" shows in its place, is on screen.
 - A block is also caught on a page that is already open: 3+ refused
   requests in 10 min, a Cloudflare page, or a logout. Every block alert
   carries a screenshot (also in `data/blocks/`). A Paddy cool-off alerts once
@@ -328,9 +331,8 @@ he is logged in. Two user units:
   sees the screen it is really on (measured: screen 1920x1080, dpr 1, the
   Radeon's WebGL, `navigator.webdriver` false).
 
-To look at it, or to sign in by hand (Bookie Bashing after a failed sign-in,
-a check; Team Casino's pages are closed by its cool-off, so open the members
-page in a new tab there), open the screen in a VNC viewer on the Hub:
+To look at it, or to sign in by hand (Bookie Bashing or Team Casino after a
+failed sign-in, a check), open the screen in a VNC viewer on the Hub:
 
 ```sh
 remmina -c vnc://127.0.0.1:5910
@@ -485,9 +487,7 @@ it waits for a person; the password is never logged or kept, and Chrome is not g
 variables. It never types a two-factor code: an account with two-factor on is a failed sign-in.
 A failed sign-in is noted in `data/login.json` (with each site's recent sign-in times) and
 nothing is tried again on that site until it is seen logged in (log in on the Hub's screen) or
-`python -m scraper resume <site>` is run, which forgets it and the sign-in times. A failed
-Team Casino sign-in also closes its pages and starts its cool-off (24 h by default), like a
-block. The
+`python -m scraper resume <site>` is run, which forgets it and the sign-in times. The
 session itself lives in the Chrome profile in the data directory; never share
 `data/profile/`: it holds the login cookies.
 

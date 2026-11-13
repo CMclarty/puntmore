@@ -244,11 +244,7 @@ class Runner:
         if SITES[site].block_means_cooloff:
             self.guard.start_cooloff(site, reason, now)
             self._close_site(site)
-            failed = ""                         # a site that signs in (Team Casino): why it failed
-            if reason == "logged out" and login.credentials(site):
-                note = login.failed(self.s.data_dir, site) or self.login_failed.get(site)
-                failed = f" - signing in failed ({note.get('why')})" if note else ""
-            self.alerts.send(f"{site}: {reason}{where}{failed} - every page closed, cooling off "
+            self.alerts.send(f"{site}: {reason}{where} - every page closed, cooling off "
                              f"{self.guard.cooloff_hours:g} h. Needs `resume` after that.", image)
             self._say_site(site, f"blocked: {reason} - every page closed, cooling off "
                                  f"{self.guard.cooloff_hours:g} h, then needs resume")

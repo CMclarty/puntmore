@@ -172,6 +172,21 @@ def test_capture_keeps_a_post_with_no_password_field(tmp_path, body):
     assert [r[2] for r in cap.since(0)] == [url]
 
 
+@pytest.mark.parametrize("body", [
+    f"login=tc%40example.test\r\npassword={TC_PW}\r\n2facode=\r\n",     # a text/plain form
+    f"login=tc%40example.test\npassword={TC_PW}\n",
+    f"xoo-el-username=u\r\nxoo-el-password={BB_PW}\r\n",
+])
+def test_a_text_plain_form_body_is_a_sign_in(tmp_path, body):
+    """enctype="text/plain" puts each field on its own line: a field starts
+    after a newline too, as the old substring match found it."""
+    assert login.names_a_password(body)
+    page, cap = _cap(tmp_path)
+    page.handlers["response"](_Resp(page, TC_URL, _Req("POST", body, "document"), ECHO))
+    assert cap.since(0) == []
+    assert not login.names_a_password("note=forgot\r\nforgot_password=1\r\n")
+
+
 def test_capture_still_drops_bookie_bashings_sign_in(tmp_path):
     for body in (f"xoo-el-username=u&xoo-el-password={BB_PW}&_xoo_el_form=login",
                  f'------x\r\nContent-Disposition: form-data; name="xoo-el-password"\r\n\r\n{BB_PW}',
@@ -212,8 +227,8 @@ def test_a_team_casino_target_keeps_its_page_and_a_generic_one_cannot_name_it():
 def test_team_casino_is_a_site_with_its_own_limits():
     from scraper import behaviour, look
     rules = SITES["teamcasino"]
-    assert rules.needs_login and rules.block_means_cooloff
-    assert rules.logged_out == "form#loginrequest"
+    assert rules.needs_login and not rules.block_means_cooloff   # as Bookie Bashing: a back-off
+    assert rules.logged_out == "form#loginrequest:visible, form#resetrequest:visible"
     assert (behaviour.get("teamcasino.per_hour"), behaviour.get("teamcasino.per_day"),
             behaviour.get("teamcasino.quiet_hours")) == (6, 30, False)
     assert look.refused("teamcasino") is None                 # its pages are learned with look
@@ -237,13 +252,21 @@ class _Shown:
         return self.n > 0
 
 
+def _parts(sel):
+    """A selector list's parts, each without its `:visible` (a stand-in shows
+    only what is shown, so it means nothing here)."""
+    return {p.strip().removesuffix(":visible") for p in sel.split(",")}
+
+
 class _Seen(_Nothing):
     """A page that shows exactly the selectors in `shown`."""
     def __init__(self, url, shown=()):
         self.url, self.shown = url, set(shown)
 
     def locator(self, sel):
-        return _Shown(int(sel in self.shown))
+        if sel == PW_FIELD:
+            return _Shown(int(sel in self.shown))
+        return _Shown(len(_parts(sel) & self.shown))
 
 
 PW_FIELD = "input[type=password]:visible"
@@ -252,6 +275,8 @@ PW_FIELD = "input[type=password]:visible"
 def test_team_casino_is_logged_out_only_while_its_form_shows():
     out = _Seen(TC_URL, {"form#loginrequest", PW_FIELD})
     assert browser.logged_out(out, TC_URL, "teamcasino")
+    # "Forgot Password?" hides the login form and shows the reset form: still out
+    assert browser.logged_out(_Seen(TC_URL, {"form#resetrequest"}), TC_URL, "teamcasino")
     # logged in: a password field elsewhere on the page (a "change password"
     # box, say) is not a logout here, and the url never says anything
     assert not browser.logged_out(_Seen(TC_URL, {PW_FIELD}), TC_URL, "teamcasino")
@@ -271,10 +296,12 @@ def test_bookie_bashing_logged_out_is_unchanged():
 
 # --- the runner, two sites with logins --------------------------------------------------
 class _World:
-    """Each site's side: signed in or not, and whether it takes the login."""
+    """Each site's side: signed in or not, and whether it takes the login.
+    `reset_view`: Team Casino's page shows its reset form, not the login form."""
     def __init__(self, tc_accept=True, bb_accept=True, tc_in=False, bb_in=False):
         self.accept = {"teamcasino": tc_accept, "bookiebashing": bb_accept}
         self.signed_in = {"teamcasino": tc_in, "bookiebashing": bb_in}
+        self.reset_view = False
 
 
 class _Page(_Nothing):
@@ -303,7 +330,8 @@ class _Page(_Nothing):
     def locator(self, sel):
         out = not self.world.signed_in[self.site]
         if self.site == "teamcasino":
-            return _Shown(int(out and sel == "form#loginrequest"))
+            shown = {"form#resetrequest" if self.world.reset_view else "form#loginrequest"}
+            return _Shown(len(_parts(sel) & shown) if out else 0)
         return _Shown(0)                    # Bookie Bashing: its logout is the url
 
 
@@ -379,10 +407,13 @@ def test_team_casino_signs_in_with_its_own_login_then_runs(tmp_path, monkeypatch
     assert len(login.sent(tmp_path, "teamcasino", time.time())) == 1
 
 
-def test_team_casino_still_logged_out_is_a_failed_sign_in_that_waits(tmp_path, monkeypatch):
-    """The form sent and the page still showing it: failed, noted, no second
-    sign-in, every Team Casino page closed and the cool-off started; only
-    `resume teamcasino` (and the cool-off's hours) lets it try again."""
+FAILED_ALERT = (f"teamcasino: logged out on {TC_URL} - signing in failed (still logged out after "
+                "signing in). Not trying again until you log in on the Hub's screen or run "
+                "`resume teamcasino`. Backing off.")
+
+
+def _failed_once(tmp_path, monkeypatch):
+    """Logged out, the form sent, and the next read still logged out."""
     _tc_creds(monkeypatch)
     world = _World(tc_accept=False)
     calls = _attempts(monkeypatch, world)
@@ -390,41 +421,80 @@ def test_team_casino_still_logged_out_is_a_failed_sign_in_that_waits(tmp_path, m
     t0 = time.time()
     r.tick(t0)
     t = _until_loaded(r, t0 + 200, "teamcasino", 3)
+    return r, world, calls, t
+
+
+def test_team_casino_still_logged_out_is_a_failed_sign_in_that_waits(tmp_path, monkeypatch):
+    """As Bookie Bashing's: the form sent and the page still showing it is a
+    failed sign-in - noted, one alert, a back-off with the tab left open, no
+    second sign-in - until `resume teamcasino`, which gives one more try at
+    once (no cool-off, no hours to serve)."""
+    r, world, calls, t = _failed_once(tmp_path, monkeypatch)
     assert calls == [("teamcasino", (TC_USER, TC_PW))]
     assert login.failed(tmp_path, "teamcasino")["why"] == "still logged out after signing in"
-    assert r.guard.cooloff_active("teamcasino", t)
-    assert not [k for k, tab in r.tabs.items() if tab.target.site == "teamcasino"]
-    alerts = _alerts(tmp_path)
-    assert len(alerts) == 1
-    assert alerts[0].startswith(f"teamcasino: logged out on {TC_URL} - signing in failed "
-                                "(still logged out after signing in) - every page closed")
-    assert "Needs `resume` after that." in alerts[0]
-    for h in range(1, 30):                                   # the cool-off's hours pass: still nothing
+    st = r.sites["teamcasino"]
+    assert st.blocked_for == "logged out" and st.retry_at > t
+    assert r.guard.cooloff("teamcasino") is None             # never a cool-off
+    assert "tc-offers" in r.tabs                             # left open to sort on the screen
+    assert _alerts(tmp_path) == [FAILED_ALERT]
+    assert _said(tmp_path, "tc-offers")[-2:] == [
+        "signing in failed (still logged out after signing in)", "blocked: logged out - backing off"]
+    loads = r.guard.db.execute("SELECT COUNT(*) FROM loads").fetchone()[0]
+    for h in range(1, 6):                                    # past the back-offs: read again, still out
         r.tick(t + 3600 * h)
+    assert r.guard.db.execute("SELECT COUNT(*) FROM loads").fetchone()[0] > loads
     assert calls == [("teamcasino", (TC_USER, TC_PW))]
+    assert _alerts(tmp_path) == [FAILED_ALERT]
     from scraper.tests.test_login import _resume
     _resume(tmp_path, monkeypatch, "teamcasino")
     assert login.failed(tmp_path, "teamcasino") is None
-    r.guard.resume("teamcasino")             # the command's guard is data/guard.sqlite3, this one g.sqlite3
     world.accept["teamcasino"] = True
-    t += 3600 * 30
-    for i in range(40):
+    t += 3600 * 5 + 15
+    assert r.sites["teamcasino"].retry_at > t                # still backing off: sent on the open page
+    r.tick(t)
+    assert len(calls) == 2                                   # one more try, at once
+    r.tick(t + 15)                                           # the open page now reads logged in
+    assert world.signed_in["teamcasino"] and r.sites["teamcasino"].blocked_for is None
+    assert _said(tmp_path, "tc-offers")[-2:] == ["logged out - signing in", "signed in"]
+
+
+def test_logged_in_by_hand_clears_the_failure_but_the_reset_form_does_not(tmp_path, monkeypatch):
+    """After a failed sign-in a person sorts it on the Scraper's screen. Their
+    "Forgot Password?" click (the reset form shown, the login form hidden) is
+    still logged out: the note stays. Logged in, it is forgotten."""
+    r, world, calls, t = _failed_once(tmp_path, monkeypatch)
+    world.reset_view = True
+    for i in range(1, 5):
         r.tick(t + 15 * i)
-    assert len(calls) == 2                                    # one more try, after `resume`
-    assert world.signed_in["teamcasino"]
+    assert login.failed(tmp_path, "teamcasino") is not None
+    assert r.sites["teamcasino"].blocked_for == "logged out"
+    world.reset_view, world.signed_in["teamcasino"] = False, True
+    r.tick(t + 90)
+    assert login.failed(tmp_path, "teamcasino") is None
+    assert r.sites["teamcasino"].blocked_for is None
+    assert _alerts(tmp_path)[-1] == "teamcasino: clear again (logged out sorted)."
+    assert calls == [("teamcasino", (TC_USER, TC_PW))]
 
 
 def test_team_casino_with_no_login_in_env_is_a_logout_that_waits(tmp_path, monkeypatch):
-    _bb_creds(monkeypatch)                                    # Bookie Bashing's is no use here
+    """As Bookie Bashing's with no login: one alert, a back-off, the tab left
+    open, no sign-in; another site's login is no use here."""
+    _bb_creds(monkeypatch)
     world = _World()
     calls = _attempts(monkeypatch, world)
     r = _sites_runner(tmp_path, world, [TC])
     t0 = time.time()
-    r.tick(t0)
+    for i in range(40):
+        r.tick(t0 + 15 * i)
+    for h in range(1, 4):
+        r.tick(t0 + 3600 * h)
     assert calls == []
-    assert r.guard.cooloff_active("teamcasino", t0)
-    assert _alerts(tmp_path) == [f"teamcasino: logged out on {TC_URL} - every page closed, "
-                                 "cooling off 24 h. Needs `resume` after that."]
+    assert r.guard.cooloff("teamcasino") is None
+    assert "tc-offers" in r.tabs
+    assert r.sites["teamcasino"].blocked_for == "logged out"
+    assert _alerts(tmp_path) == [f"teamcasino: logged out on {TC_URL} - needs you on the "
+                                 "Hub's screen. Backing off."]
+    assert _said(tmp_path, "tc-offers") == ["blocked: logged out - backing off"]
 
 
 def test_a_failed_sign_in_on_one_site_does_not_stop_the_other(tmp_path, monkeypatch):
@@ -442,7 +512,7 @@ def test_a_failed_sign_in_on_one_site_does_not_stop_the_other(tmp_path, monkeypa
     assert login.failed(tmp_path, "bookiebashing")["why"] == "still logged out after signing in"
     assert login.failed(tmp_path, "teamcasino") is None
     assert world.signed_in["teamcasino"] and "signed in" in _said(tmp_path, "tc-offers")
-    assert not r.guard.cooloff_active("teamcasino", t)
+    assert r.guard.cooloff("teamcasino") is None
     # and the other way round
     world2 = _World(tc_accept=False, bb_accept=True)
     calls2 = _attempts(monkeypatch, world2)
