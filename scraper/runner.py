@@ -244,7 +244,11 @@ class Runner:
         if SITES[site].block_means_cooloff:
             self.guard.start_cooloff(site, reason, now)
             self._close_site(site)
-            self.alerts.send(f"{site}: {reason}{where} - every page closed, cooling off "
+            failed = ""                         # a site that signs in (Team Casino): why it failed
+            if reason == "logged out" and login.credentials(site):
+                note = login.failed(self.s.data_dir, site) or self.login_failed.get(site)
+                failed = f" - signing in failed ({note.get('why')})" if note else ""
+            self.alerts.send(f"{site}: {reason}{where}{failed} - every page closed, cooling off "
                              f"{self.guard.cooloff_hours:g} h. Needs `resume` after that.", image)
             self._say_site(site, f"blocked: {reason} - every page closed, cooling off "
                                  f"{self.guard.cooloff_hours:g} h, then needs resume")
@@ -294,7 +298,7 @@ class Runner:
                     reason = "repeated 403/429 on an open page"
                 else:
                     reason = browser.blocked(tab.page)
-                if reason is None and rules.needs_login and browser.logged_out(tab.page, tab.url):
+                if reason is None and rules.needs_login and browser.logged_out(tab.page, tab.url, site):
                     reason = "logged out"
                 if reason is None:
                     continue
@@ -440,7 +444,7 @@ class Runner:
             return None
 
         reason = browser.blocked(tab.page, resp.status if resp else None)
-        if reason is None and SITES[site].needs_login and browser.logged_out(tab.page, url):
+        if reason is None and SITES[site].needs_login and browser.logged_out(tab.page, url, site):
             if self._try_login(site, tab, now):
                 return None
             reason = "logged out"

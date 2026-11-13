@@ -630,7 +630,7 @@ def test_pending_is_dropped_when_the_tab_goes(tmp_path, monkeypatch):
 
 def test_chrome_env_has_no_login_variables():
     from scraper import browser
-    assert set(login.env_names()) == {"BB_USERNAME", "BB_PASSWORD"}
+    assert {"BB_USERNAME", "BB_PASSWORD"} <= set(login.env_names())   # every site's: test_login_sites.py
     env = {"HOME": "/home/x", "BB_USERNAME": USER, "BB_PASSWORD": PW, "SCRAPER_DATA_DIR": "/d"}
     for kw in (browser.launch_options(headless=False, environ=env),
                browser.launch_options(headless=True, environ=env),

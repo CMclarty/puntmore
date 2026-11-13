@@ -33,7 +33,7 @@ from ..config import Settings
 # How long a console write waits for the library's lock before answering 409. The library's own
 # default is 10 s; a person at a page should hear "busy, try again" sooner than that.
 LOCK_WAIT_S = 3.0
-SITES = ("paddypower", "bookiebashing", "generic")
+SITES = ("paddypower", "bookiebashing", "teamcasino", "generic")
 # What the edit form may change (the rest - name, site, mode, parser, post - is remove + add).
 EDITABLE = ("every_min", "stale_min", "near_min", "near_hours", "priority", "window", "min_rows", "trust_weight",
             "wait_for", "url", "days", "until", "listings", "within_h")

@@ -1,5 +1,6 @@
 """One real Chrome, one persistent profile, shared by every site (Paddy Power,
-Bookie Bashing, Finder's generic sources and any other page a tool needs).
+Bookie Bashing, Team Casino, Finder's generic sources and any other page a
+tool needs).
 
 Nothing here fakes a fingerprint: spoofed values that disagree with the real
 browser are what bot checks look for. The profile is a real, ordinary Chrome
@@ -29,6 +30,7 @@ import time
 
 from . import behaviour
 from . import login
+from .sites import SITES
 
 # Background tabs in Chrome have their timers throttled to about once a minute,
 # which would stop a kept-open page refreshing its own prices. These keep every
@@ -228,9 +230,15 @@ def blocked(page, status: int | None = None) -> str | None:
 _LOGIN_PATHS = ("/how-it-works", "wp-login.php", "/login")
 
 
-def logged_out(page, wanted_url: str | None = None) -> bool:
-    """A visible password field, or a page on one of the sites' login paths."""
+def logged_out(page, wanted_url: str | None = None, site: str | None = None) -> bool:
+    """A site with a mark of its own (sites.py `logged_out`; Team Casino's
+    members page keeps its url and shows its login form): that mark shown,
+    and nothing else. Every other site: a visible password field, or a page
+    on one of the sites' login paths."""
+    mark = SITES[site].logged_out if site in SITES else None
     try:
+        if mark:
+            return page.locator(mark).first.is_visible()
         if page.locator("input[type=password]:visible").count() > 0:
             return True
         if wanted_url and any(p in _path(page.url) for p in _LOGIN_PATHS):
