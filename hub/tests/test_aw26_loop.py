@@ -196,7 +196,7 @@ def _gone(pid):
     try:
         with open(f"/proc/{pid}/stat") as fh:
             return fh.read().rsplit(")", 1)[1].split()[0] == "Z"
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):   # reaped between the open and the read: ESRCH
         return True
 
 
