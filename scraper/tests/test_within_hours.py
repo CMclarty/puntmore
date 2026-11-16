@@ -206,6 +206,7 @@ def test_a_far_off_next_game_rests_at_most_look_again(tmp_path, read):
     assert r.resting["pp"]["until"] == t0 + 15 + 86400
     data = tmp_path / "other"
     behaviour.set_(data, "games.look_again_s", 3600)
+    behaviour.set_(data, "quiet.hours", "0-0")     # a behaviour file brings 01-07 back otherwise
     r = _runner(data, [_job()], ctx)                       # takes data/behaviour.toml up
     r.tick(t0)
     r.tick(t0 + 15)
@@ -262,6 +263,7 @@ def test_an_open_match_that_kicks_off_or_leaves_the_window_is_retired(tmp_path, 
     assert _opened(r) == [_m(1), _m(2)]
     end = _run(r, end, 10)                                     # A1 has kicked off
     assert _opened(r) == [_m(2)] and f"pp:m:{_m(1)}: retired" in _msgs(tmp_path)
+    behaviour.set_(tmp_path, "quiet.hours", "0-0")     # a behaviour file brings 01-07 back otherwise
     behaviour.set_(tmp_path, "games.within_h", 24)            # A2 is now outside the window
     r.next_behaviour_check = 0
     end = _run(r, end, 2)
