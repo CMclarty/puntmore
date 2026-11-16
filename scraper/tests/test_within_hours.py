@@ -5,6 +5,7 @@ tested on the real page's fixture in test_pp_listing.py)."""
 import dataclasses
 import random
 import time
+from datetime import datetime
 
 import pytest
 
@@ -96,6 +97,11 @@ def _msgs(tmp_path):
     return [x["msg"] for x in joblog.read(tmp_path, "pp", n=500)]
 
 
+def _midday():
+    """Today at 12:00, local time: clear of any quiet hours."""
+    return datetime.now().replace(hour=12, minute=0, second=0, microsecond=0).timestamp()
+
+
 def _m(n):
     return f"{PP}/epl/a{n}-v-b{n}"
 
@@ -127,8 +133,11 @@ def test_a_jobs_own_within_h_wins(tmp_path, read):
 
 
 def test_the_main_setting_is_read_live(tmp_path, read):
+    """The behaviour file it writes brings the default quiet hours (01-07)
+    back to the guard, so its hour of ticks runs from midday: on the real
+    clock it failed whenever that hour crossed 01:00."""
     random.seed(1)
-    t0 = time.time()
+    t0 = _midday()
     ctx = _Ctx()
     ctx.listings[PP + "/epl"] = [(_m(1), "A1 v B1", t0 + 10 * H), (_m(2), "A2 v B2", t0 + 60 * H)]
     behaviour.set_(tmp_path, "games.within_h", 72)
