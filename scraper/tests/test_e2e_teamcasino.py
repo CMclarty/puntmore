@@ -5,6 +5,7 @@
 Needs Playwright and a Chromium. Set SCRAPER_CHROME_PATH if Playwright's own
 browser isn't installed.
 """
+import dataclasses
 import http.server
 import json
 import os
@@ -48,6 +49,27 @@ IN_PAGE = """<html><head><title>Reload Offers Dashboard - Team Casino</title></h
 <button type="submit">Change</button></form></body></html>"""
 
 
+# The signed-in dashboard for a fetch job (parsers/tc_reload.py's fixture, cut
+# from the real page), every src= taken out so Chrome asks nothing of
+# teamcasino.com; and the same offers drawn in LATE_MS after the page arrives,
+# as the real page shows "Searching for most profitable offers.." first.
+DASHBOARD = re.sub(r'\ssrc="[^"]*"', "", (FIXTURE.parent / "dashboard.html").read_text(encoding="utf-8"))
+_MAIN = '<div id="offers-main-wrap" style="display: block;">'
+_OFFERS = DASHBOARD[DASHBOARD.index(_MAIN) + len(_MAIN):DASHBOARD.rindex("</div>\n</body>")]
+assert "</script" not in _OFFERS and "data-offer-id" in _OFFERS
+LATE_MS = 2500
+LATE = f"""<html><head><title>Reload Offers Dashboard - Team Casino</title></head><body>
+<div id="offers-loading-icon" style=""><p>Searching for most profitable offers..</p></div>
+<div id="offers-main-wrap" style="display: none;"></div>
+<script>setTimeout(function () {{
+  var main = document.getElementById('offers-main-wrap');
+  main.innerHTML = {json.dumps(_OFFERS)};
+  main.style.display = 'block';
+  document.getElementById('offers-loading-icon').style.display = 'none';
+}}, {LATE_MS});</script></body></html>"""
+WAIT_FOR = "#offers-main-wrap table[data-offer-id]"
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     seen: list = []                      # (method, path, body)
     signed_in = False                    # the site's side: this browser's session
@@ -79,6 +101,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, AS_GET)
         if path == "/in":
             return self._send(200, IN_PAGE)
+        if path == "/offers" + MEMBERS:
+            return self._send(200, DASHBOARD if self._in() else OUT_PAGE)
+        if path == "/late" + MEMBERS:
+            return self._send(200, LATE)
         self._send(404, "no")
 
     def _login(self, form):
@@ -334,3 +360,80 @@ def test_the_runner_waits_for_a_person_after_a_sign_in_that_did_not_take(tmp_pat
         r.close_all()
         ctx.close()
     assert _files_with(tmp_path, b"not-the-password") == []
+
+
+@pytest.fixture
+def quick_arrival(tmp_path):
+    """No wait or look-down on arrival (behaviour.toml in the job's data
+    dir), so a page is read as soon as it is loaded; the defaults after."""
+    from scraper import behaviour
+    for key in ("arrive.wait_ms", "arrive.passes", "arrive.pause_ms"):
+        behaviour.set_(tmp_path, key, "0-0")
+    yield
+    behaviour.load(tmp_path / "no-overrides")
+
+
+def _only_the_test_site(ctx, site):
+    """Belt and braces: anything not for the test's own server is refused."""
+    ctx.route("**/*", lambda route: route.fallback() if route.request.url.startswith(site)
+              else route.abort())
+
+
+def _fetch_job(site, path, **kw):
+    return config.Target(name="tc-fetch", site="teamcasino", url=site + path + MEMBERS, mode="fetch",
+                         parser="tc_reload", every_min=100, **kw)
+
+
+def test_a_fetch_job_found_logged_out_signs_in_and_reads_on_the_next_tick(tmp_path, site, monkeypatch,
+                                                                         quick_arrival):
+    """A fetch load that finds Team Casino logged out signs in on that page
+    (login.py: one attempt, counted in login.json, capped), is due again at
+    once, and its next load, through the guard and the spacing, reads the
+    offers and closes the page: 3 loads (the visit, the sign-in's own
+    navigation, the visit again)."""
+    from playwright.sync_api import sync_playwright
+    monkeypatch.setenv("TC_USERNAME", USER)
+    monkeypatch.setenv("TC_PASSWORD", PASS)
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [_fetch_job(site, "/offers", wait_for=WAIT_FOR)], p)
+        _only_the_test_site(ctx, site)
+        t0 = time.time()
+        r.tick(t0)
+        assert "teamcasino" in r.login_pending
+        assert r.guard.spent("teamcasino", t0)[0] == 2
+        assert len(login.sent(tmp_path, "teamcasino", t0)) == 1
+        r.tick(t0 + 200)
+        assert r.guard.spent("teamcasino", t0 + 200)[0] == 3
+        assert "teamcasino" not in r.login_pending and r.tabs == {}
+        st = r.status(t0 + 200)["targets"][0]
+        assert "12 rows read, sent nowhere (no post)" in st["detail"]
+        assert len(json.loads((tmp_path / "latest" / "tc-fetch.json").read_text())["rows"]) == 12
+        r.tick(t0 + 400)
+        assert r.guard.spent("teamcasino", t0 + 400)[0] == 3       # not due again for 75 min+
+        assert len([1 for path, _b in _posts() if path == "/wp-admin/admin-ajax.php"]) == 1
+        r.close_all()
+        ctx.close()
+    assert _files_with(tmp_path, PASS.encode()) == []
+
+
+def test_a_fetch_job_waits_for_the_offers_with_wait_for(tmp_path, site, quick_arrival):
+    """The page shows "Searching for most profitable offers.." and draws the
+    offers in later: with wait_for the read waits for them; without it the
+    read is the loading notice, no rows."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [_fetch_job(site, "/late", wait_for=WAIT_FOR)], p)
+        _only_the_test_site(ctx, site)
+        t0 = time.time()
+        r.tick(t0)
+        assert r.tabs == {}
+        assert len(json.loads((tmp_path / "latest" / "tc-fetch.json").read_text())["rows"]) == 12
+        bare = dataclasses.replace(_fetch_job(site, "/late"), name="tc-bare",
+                                   url=site + "/late" + MEMBERS + "?bare")      # no wait_for
+        r.apply_targets([bare])
+        r.tick(t0 + 200)
+        assert r.tabs == {}
+        assert json.loads((tmp_path / "latest" / "tc-bare.json").read_text())["rows"] == []
+        assert r.read_said["tc-bare"] == "still loading: Searching for most profitable offers.."
+        r.close_all()
+        ctx.close()

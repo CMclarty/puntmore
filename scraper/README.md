@@ -54,7 +54,13 @@ available" count differs from the rows read the job's log says so. Where
 its rows go is not decided yet, so a `teamcasino` job runs it with no
 `post`: the rows are read and counted (the job's status detail: "121 rows
 read, sent nowhere (no post)"), kept in `data/latest/<job>.json` like every
-job's last parse, and handed to nobody.
+job's last parse, and handed to nobody. The job is a `fetch` job: a page of
+daily offers needs no page kept open, and kept open it cost about 29 loads a
+day (a fresh page every `recycle.hours` and at every restart), Team Casino's
+whole 30. As a fetch job, `every_min = 100` inside `window = "08:00-23:00"`
+is 8-10 loads a day, with `wait_for = "#offers-main-wrap table[data-offer-id]"`
+so it reads the offers, not the "Searching for most profitable offers.."
+notice (`targets.example.toml`, `tc-reload-offers`).
 
 ## What it will and won't do
 - Opens pages on `paddypower.com`, `bookiebashing.net`, `teamcasino.com` and
@@ -579,8 +585,16 @@ Targets are of these kinds:
   detail says how many the last parse read, and a line a parser hands back
   about its page (`parsers/rows.py`) is shown there too and written to the
   job's log when it changes.
-- **fetch**: a `generic` Finder source, loaded, parsed once and closed
-  (above).
+- **fetch**: a `generic` Finder source (above), or any job whose page needs
+  no keeping open (the Team Casino dashboard): loaded, parsed once (after
+  `wait_for` shows, up to 20 s) and closed, every `every_min`
+  (`fetch.default_min` without one). Its next run is drawn from its last
+  load in the guard's record, so a restart does not load it early, and no
+  recycle touches it: nothing is open. A load that finds the site logged out
+  signs in there as a kept-open page does (once per logout, counted and
+  capped, `login.py`) and is due again at once: the visit, the sign-in's own
+  navigation and the visit again that reads, 3 loads. A load that fails
+  otherwise tries again after `fetch.retry_s`.
 
 Timings are clamped to the floors in `config._target`, and the site budgets
 (`behaviour.py`) stay the ceiling whatever the file says.

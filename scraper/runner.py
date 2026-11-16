@@ -690,7 +690,7 @@ class Runner:
         """Would this target load something if it were given the next slot?
         Asks only what is already known: no page is read."""
         if t.mode == "fetch":
-            due = self.next_fetch.get(t.name)
+            due = self._fetch_due(t, now)
             return due is None or now >= due
         if not t.matches:
             tab = self.tabs.get(t.name)
@@ -854,11 +854,14 @@ class Runner:
             self._load(t, key, url, now)
 
     def _tick_fetch(self, t, now):
-        """A fetch target (a Finder source): load the page, parse it once, close it. Nothing
-        is kept open, so each run is one load against its site's budget. The
-        next run is scheduled before parsing, so a broken parser can never turn
-        into a reload loop; a load that fails backs off five minutes."""
-        due = self.next_fetch.get(t.name)
+        """A fetch target (a Finder source, or a Team Casino job): load the page, parse it
+        once, close it. Nothing is kept open, so each run is one load against its site's
+        budget, and no recycle or restart reloads it (_fetch_due). The next run is
+        scheduled before parsing, so a broken parser can never turn into a reload loop;
+        a load that fails backs off fetch.retry_s. One that found the site logged out
+        and sent a sign-in is due again at once (3 loads in all: the visit, the
+        sign-in's own navigation, the visit again, which reads)."""
+        due = self._fetch_due(t, now)
         if due is not None and now < due:
             return
         ok, _why = self.guard.can_load(t.site, now, quiet_applies=_quiet_applies(t.site))
@@ -867,7 +870,11 @@ class Runner:
         key = f"fetch:{t.name}"
         tab = self._load(t, key, t.url, now)
         if tab is None:
-            self.next_fetch[t.name] = now + behaviour.get("fetch.retry_s")
+            # A sign-in was sent from this page (login.py): its tab stays
+            # open and the job is due again at once, as a kept-open page's
+            # reload is, so the next load says whether it took and reads.
+            signing_in = t.site in self.login_pending and key in self.tabs
+            self.next_fetch[t.name] = now if signing_in else now + behaviour.get("fetch.retry_s")
             return
         self.next_fetch[t.name] = schedule.next_fetch_at(now, self._every(t, now))
         try:
@@ -879,6 +886,19 @@ class Runner:
             self._parse(tab, now, force=True)
         finally:
             self._close(key)
+
+    def _fetch_due(self, t, now) -> float | None:
+        """When a fetch target runs next. With none drawn by this process (it
+        has just started, or the job was outside its window or resting) it
+        is drawn from the job's last load in the guard's record, which
+        outlives a restart: a restart is not a load. None: never loaded in
+        the guard's two days, so due now."""
+        due = self.next_fetch.get(t.name)
+        if due is None:
+            last = self.guard.last_load(t.site, t.url)
+            if last is not None:
+                due = self.next_fetch[t.name] = schedule.next_fetch_at(last, self._every(t, now))
+        return due
 
     def _check_rows(self, t, rows, now):
         """Row-count health for fetch targets: fewer than min_rows is a suspected

@@ -81,19 +81,26 @@ window = "07:00-23:30"
   listings = ["https://www.paddypower.com/football/spanish-la-liga",
               "https://www.paddypower.com/football/italian-serie-a"]
 
-# A Team Casino job (Callum, 13 Nov 2026): its members page kept open and
-# signed in with TC_USERNAME / TC_PASSWORD from the Scraper's .env (login.py).
-# parsers/tc_reload.py reads one row per offer and clicks nothing. No `post`:
-# where the rows go is not decided yet, so they are read and counted (the
-# status detail) and sent nowhere. Disabled until the login is in .env:
-# logged out with none, it backs off and waits for a person.
+# A Team Casino job (Callum, 13 Nov 2026): the reload-offers dashboard, signed
+# in with TC_USERNAME / TC_PASSWORD from the Scraper's .env (login.py).
+# parsers/tc_reload.py reads one row per offer and clicks nothing. A page of
+# daily offers, not live prices, so it is fetched: loaded, read once, closed,
+# about every 100 minutes from 08:00 to 23:00, 8-10 loads a day (kept open,
+# the page cost ~29 a day, Team Casino's whole 30). wait_for: the offers drawn
+# in, not "Searching for most profitable offers..". No `post`: where the rows
+# go is not decided yet, so they are read and counted (the status detail) and
+# sent nowhere. Disabled until the login is in .env: logged out with none, it
+# backs off and waits for a person.
 [[target]]
 name = "tc-reload-offers"
 site = "teamcasino"
 enabled = false
 url = "https://www.teamcasino.com/reload-offers-dashboard"
-every_min = 60
+mode = "fetch"
+every_min = 100
+window = "08:00-23:00"
 parser = "tc_reload"
+wait_for = "#offers-main-wrap table[data-offer-id]"
 
 # A tip-finding source. Disabled: it exists as the worked example for
 # parsers/example_tipster.py and the tests.

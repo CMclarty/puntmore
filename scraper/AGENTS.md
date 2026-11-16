@@ -91,7 +91,8 @@ prices are `scraper_prices` files that the Hub posts to Render.
   login, what marks a logged-out page where the url does not (Team Casino's
   login form, or the reset form shown in its place), Paddy's market-list url (its limits are in `behaviour.py`).
 - `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite);
-  built from `behaviour.py`'s limits, which it keeps a copy of (`use`).
+  built from `behaviour.py`'s limits, which it keeps a copy of (`use`). Its
+  record of loads (two days) also gives a fetch job's last load (`last_load`).
 - `look.py` - `python -m scraper look <job> '<steps>'`: a few plain steps
   (click a named control with `browser.click`, set a select, type in a
   field, wait, save) on a job's open page, answered by `Runner._look` from
@@ -190,6 +191,11 @@ prices are `scraper_prices` files that the Hub posts to Render.
   dump); `tc_reload` reads Team Casino's reload-offers dashboard (written
   from the signed-in page `look` saved on 13 Nov 2026). Where its rows go is
   not decided (Callum's design is open), so a `teamcasino` job runs it with
-  no `post`: rows read and counted, sent nowhere. Every job that reads games reads only those kicking off within 48
+  no `post`: rows read and counted, sent nowhere. That job is `mode =
+  "fetch"` (load, read, close, `every_min` inside a `window`, `wait_for` the
+  offers): kept open, the page cost ~29 of Team Casino's 30 loads a day. A
+  fetch job's next run is drawn from its last load in the guard's record
+  (`Runner._fetch_due`), so a restart does not load it early; a fetch load
+  that signs in is due again at once. Every job that reads games reads only those kicking off within 48
   hours (`games.within_h`, or a job's own `within_h`; 0 is no limit): with
   none that near it rests (`rest.py`; Callum, 11 and 12 Nov 2026).
