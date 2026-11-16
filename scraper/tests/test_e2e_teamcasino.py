@@ -38,9 +38,10 @@ assert "addEventListener('submit'" not in UNBOUND and 'method="POST"' in UNBOUND
 AS_GET = UNBOUND.replace('<form id="loginrequest" method="POST"', '<form id="loginrequest" method="GET"')
 assert AS_GET != UNBOUND
 
-# What a members page looks like once logged in is not known (never seen); this
-# one has no login form and, to be sure it is not taken for one, a "change
-# password" box with a visible password field.
+# A stand-in members page once logged in (the real one, seen on 13 Nov 2026, is
+# parsers/tc_reload.py's fixture, fixtures/teamcasino/dashboard.html): no login
+# form and, to be sure it is not taken for one, a "change password" box with a
+# visible password field.
 IN_PAGE = """<html><head><title>Reload Offers Dashboard - Team Casino</title></head><body>
 <h1>Reload offers</h1><table><tr><td>Offer A</td><td>£10</td></tr></table>
 <form id="changepassword" method="POST"><input type="password" name="new_password">

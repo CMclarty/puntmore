@@ -118,7 +118,7 @@ def test_a_runner_without_a_file_never_reloads(tmp_path):
 
 def test_parsers_are_modules():
     from scraper.parsers import PARSERS
-    assert set(PARSERS) == {"pp_most", "bb_saves", "bb_builder", "example_tipster"}
+    assert set(PARSERS) == {"pp_most", "bb_saves", "bb_builder", "tc_reload", "example_tipster"}
     # Both are written (test_pp_most.py, test_bb_saves.py); bb_saves drives a
     # page, so with no page it fails like any parser would.
     with pytest.raises(Exception) as exc:

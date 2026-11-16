@@ -34,10 +34,27 @@ the 48-hour window and never rests. A job with it exists so the builder can be
 looked at with `look` (below). It is the start of the general preset-driven
 bet-builder job (`docs/superpowers/specs/2026-11-12-wop-check-design.md`).
 `pp_most` reads Paddy's most-corners / most-cards three-ways (written from
-the 29 Oct 2026 capture; see its docstring). Team Casino (`teamcasino`) has no
-parser yet: nobody has seen its members page logged in. A `teamcasino` job
-with no parser keeps its page open, signed in, and reads nothing; learn the
-page with `look` (below), then write the parser from what it saved.
+the 29 Oct 2026 capture; see its docstring).
+`tc_reload` reads Team Casino's reload-offers dashboard
+(`https://www.teamcasino.com/reload-offers-dashboard`, signed in; written from
+the page `look` saved on 13 Nov 2026, 121 offers). One row per offer: its id
+(`data-offer-id`, the id Team Casino's own `?offerid=` links use), casino
+(the page's "Select casino site" name for the block's `data-casino-id`; the
+block's `data-casino-name` is wrong on every offer), section ("Low Risk"),
+title, EV, EV per hour, bankroll, minutes, expiry (the text as shown, and
+`data-offer-expires`: 00:00 UTC of the last day it is listed for), the game
+plan as steps in the page's own words, the note boxes, every link in the
+plan and GO TO OFFER, the games named in bold with an RTP in brackets, a
+promo code where the plan says "promo code", and the flags the page shows
+(hidden, pending, avoid, favourite). It reads the page's HTML and clicks
+nothing: every control on that page changes Callum's account. Hidden,
+pending and avoided offers are rows with their flag. A page still loading,
+or with no offers, gives no rows and says why; when the page's "Offers
+available" count differs from the rows read the job's log says so. Where
+its rows go is not decided yet, so a `teamcasino` job runs it with no
+`post`: the rows are read and counted (the job's status detail: "121 rows
+read, sent nowhere (no post)"), kept in `data/latest/<job>.json` like every
+job's last parse, and handed to nobody.
 
 ## What it will and won't do
 - Opens pages on `paddypower.com`, `bookiebashing.net`, `teamcasino.com` and
@@ -558,7 +575,10 @@ Targets are of these kinds:
   until the time the parser gave, as outside a `window`; `bb_saves` does so
   when no game kicks off within `games.within_h` hours (the catalogue's value:
   a parser is handed its page, not its job, so a `within_h` on `bb-saves`
-  is not read).
+  is not read). With a parser and no `post` its rows go nowhere: its status
+  detail says how many the last parse read, and a line a parser hands back
+  about its page (`parsers/rows.py`) is shown there too and written to the
+  job's log when it changes.
 - **fetch**: a `generic` Finder source, loaded, parsed once and closed
   (above).
 

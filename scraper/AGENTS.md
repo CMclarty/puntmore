@@ -65,7 +65,14 @@ prices are `scraper_prices` files that the Hub posts to Render.
 - `parsers/` - one module per page kind; rows only from what the page shows.
   `bb_builder` keeps the Bookie Bashing bet builder up and reads nothing
   (`bb_saves.bring_up`, shared): a page to `look` at, the start of the
-  preset-driven bet-builder job.
+  preset-driven bet-builder job. `tc_reload` reads Team Casino's
+  reload-offers dashboard, one row per offer, from the page's HTML; it
+  clicks nothing (every control there changes Callum's account). `dom.py`
+  is a small DOM over a page's HTML (the standard library's html.parser),
+  so such a parser's tests need no browser. A parser may return
+  `rows.Rows` (a list with `said`): a line about the page, which the runner
+  shows in the job's status and logs when it changes (`_said_read`; a job
+  with no `post` also shows how many rows it read).
 - `targets.py` - the only writer of targets.toml (CLI, Console, HubAI).
 - `config.py` - settings and target validation (`_target`, the clamps).
 - `behaviour.py` - how the Scraper behaves, as one catalogue (`SETTINGS`): each
@@ -180,8 +187,9 @@ prices are `scraper_prices` files that the Hub posts to Render.
   (above; a Bookie Bashing job like any Callum adds, `docs/decisions.md`); `pp_most` reads Paddy's most-corners /
   most-cards three-ways (written from the 29 Oct 2026 capture); `pp_listing`
   reads the kick-off times off a Paddy listing (written from the 12 Nov 2026
-  dump). Team Casino has no parser yet: nobody has seen its members page
-  logged in, so a `teamcasino` job keeps the page open and reads nothing
-  until it is learned with `look`. Every job that reads games reads only those kicking off within 48
+  dump); `tc_reload` reads Team Casino's reload-offers dashboard (written
+  from the signed-in page `look` saved on 13 Nov 2026). Where its rows go is
+  not decided (Callum's design is open), so a `teamcasino` job runs it with
+  no `post`: rows read and counted, sent nowhere. Every job that reads games reads only those kicking off within 48
   hours (`games.within_h`, or a job's own `within_h`; 0 is no limit): with
   none that near it rests (`rest.py`; Callum, 11 and 12 Nov 2026).

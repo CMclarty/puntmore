@@ -204,6 +204,9 @@ class Runner:
         # A matches job's listing read (_window_links): what it last said about
         # its kick-offs, shown as its status detail (UNREAD_KICKOFFS).
         self.listing_said: dict[str, str] = {}
+        # What a job's last parse read (_said_read): its row count when it has
+        # no `post`, and its parser's line about the page; its status detail.
+        self.read_said: dict[str, str] = {}
         # Each job's failing and no-rows alerts (standing.py), kept in data/alerted.json.
         self.job_alerts = standing.JobAlerts(settings.data_dir, alerts)
         self.job_alerts.keep_only(names)
@@ -623,6 +626,7 @@ class Runner:
             self._close(key)
         self.parser_said.pop(t.name, None)
         self.listing_said.pop(t.name, None)
+        self.read_said.pop(t.name, None)
         self.job_alerts.reading(t.name)                # a rest clears a failing alert
         self.rest_said.add(t.name)
         self._say(t.name, _rest_detail(self.resting[t.name]))
@@ -809,6 +813,7 @@ class Runner:
                 self.parser_said.pop(name, None)
                 self.delivery_said.pop(name, None)
                 self.listing_said.pop(name, None)
+                self.read_said.pop(name, None)
                 self._end_rest(name)
             if name not in new:
                 self.retired_targets[name] = t
@@ -892,6 +897,22 @@ class Runner:
             msg = f"healthy again ({len(rows)} rows)"
             self.alerts.send(f"{t.name}: {msg}")
             joblog.write(self.s.data_dir, t.name, msg)
+
+    def _said_read(self, t, rows):
+        """What a parse read, for the job's status detail and its log: a job
+        with no `post` (its rows go nowhere yet) says how many rows it read,
+        and a parser may hand back a line about its page (`Rows.said`,
+        parsers/rows.py). Logged when the line changes, not every parse."""
+        said = getattr(rows, "said", None)
+        n = len(rows)
+        count = None if t.post or not n else f"{n} row{'s' if n != 1 else ''} read, sent nowhere (no post)"
+        line = "; ".join(x for x in (count, said) if x)
+        if line and line != self.read_said.get(t.name):
+            self._say(t.name, line)
+        if line:
+            self.read_said[t.name] = line
+        else:
+            self.read_said.pop(t.name, None)
 
     def _deliver(self, t, rows, now) -> int:
         """Hand the rows to the sink and return how many it took (0: none). A
@@ -1125,6 +1146,7 @@ class Runner:
                 self._say(t.name, f"parser failed: {exc}")
             self.parser_said[t.name] = said
             self.failure_said[t.name] = first
+            self.read_said.pop(t.name, None)
             self.job_alerts.failed(t.name, first, now)
             return
         self.parser_said.pop(t.name, None)
@@ -1134,6 +1156,7 @@ class Runner:
         if k is not None:
             self.next_kickoff[t.name] = k
         self._check_rows(t, rows, now)
+        self._said_read(t, rows)
         out = self.s.data_dir / "latest" / f"{_safe(t.name)}.json"
         out.write_text(json.dumps({"at": now, "url": tab.url, "rows": rows}, indent=1))
         if rows:
@@ -1184,6 +1207,7 @@ class Runner:
         return "running", "; ".join(x for x in (f"{n} tab{'s' if n != 1 else ''} open",
                                                 market_tabs_said(mine),
                                                 self.listing_said.get(t.name),
+                                                self.read_said.get(t.name),
                                                 self.parser_said.get(t.name)) if x)
 
     def _report(self, now):
