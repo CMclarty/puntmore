@@ -588,13 +588,20 @@ Targets are of these kinds:
 - **fetch**: a `generic` Finder source (above), or any job whose page needs
   no keeping open (the Team Casino dashboard): loaded, parsed once (after
   `wait_for` shows, up to 20 s) and closed, every `every_min`
-  (`fetch.default_min` without one). Its next run is drawn from its last
-  load in the guard's record, so a restart does not load it early, and no
-  recycle touches it: nothing is open. A load that finds the site logged out
-  signs in there as a kept-open page does (once per logout, counted and
-  capped, `login.py`) and is due again at once: the visit, the sign-in's own
-  navigation and the visit again that reads, 3 loads. A load that fails
-  otherwise tries again after `fetch.retry_s`.
+  (`fetch.default_min` without one). No recycle touches it: nothing is
+  open. A load that fails tries again after `fetch.retry_s`. A load that finds the site logged out signs in there as
+  a kept-open page does (once per logout, counted and capped, `login.py`)
+  and gets one load at once: the visit, the sign-in's own navigation and the
+  visit again that reads, 3 loads; if that load fails it waits
+  `fetch.retry_s` like any other. A restart is not a load: each job's last
+  good read (a parse that read rows) is kept in `data/fetched.json`, and
+  after a restart its next run is that read plus its interval, but never
+  sooner than `fetch.retry_s` after its last load of any kind (the guard's
+  record), so a restart after a failed load, an empty read or a sign-in
+  tries again on `fetch.retry_s`. Anything else that stops a fetch job runs
+  it at once when it may run again: its window opening, a rest ending (or
+  `wake`), the job added, enabled or changed (any field but the timings);
+  a timing change redraws its next run, after a restart too.
 
 Timings are clamped to the floors in `config._target`, and the site budgets
 (`behaviour.py`) stay the ceiling whatever the file says.

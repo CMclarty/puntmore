@@ -55,6 +55,9 @@ prices are `scraper_prices` files that the Hub posts to Render.
   to a minute..a week), shows it `paused` with the reason, and keeps it in
   `data/resting.json` across restarts; a changed or removed target loses it
   (and a change to its `within_h`), `python -m scraper wake <target>` ends it.
+- `fetched.py` - each fetch job's last good read (a parse that read rows),
+  `data/fetched.json`, written atomically: what a restart draws the job's
+  next run from (`Runner._fetch_due`), so a restart is not a load.
 - `joblog.py` - one log per job, `data/logs/<name>.log` (JSON lines; past
   512 KB cut to its newest lines in 256 KB, 1000 at most); the runner
   writes it through `Runner._say`, `targets log` reads it. A write never
@@ -193,9 +196,11 @@ prices are `scraper_prices` files that the Hub posts to Render.
   not decided (Callum's design is open), so a `teamcasino` job runs it with
   no `post`: rows read and counted, sent nowhere. That job is `mode =
   "fetch"` (load, read, close, `every_min` inside a `window`, `wait_for` the
-  offers): kept open, the page cost ~29 of Team Casino's 30 loads a day. A
-  fetch job's next run is drawn from its last load in the guard's record
-  (`Runner._fetch_due`), so a restart does not load it early; a fetch load
-  that signs in is due again at once. Every job that reads games reads only those kicking off within 48
+  offers): kept open, the page cost ~29 of Team Casino's 30 loads a day.
+  After a restart a fetch job's next run is its last good read
+  (`fetched.py`) plus its interval, never sooner than `fetch.retry_s` after
+  its last load (`Runner._fetch_due`); its window opening, `wake`, being
+  added, enabled or changed run it at once; a fetch load that signs in gets
+  one load at once, then `fetch.retry_s`. Every job that reads games reads only those kicking off within 48
   hours (`games.within_h`, or a job's own `within_h`; 0 is no limit): with
   none that near it rests (`rest.py`; Callum, 11 and 12 Nov 2026).
