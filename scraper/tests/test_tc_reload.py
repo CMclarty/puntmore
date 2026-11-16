@@ -366,3 +366,51 @@ def test_a_teamcasino_job_with_no_post_reads_counts_and_hands_nothing_over(tmp_p
     said = [x["msg"] for x in joblog.read(tmp_path, "tc", n=50)
             if "the page says" in x["msg"]]
     assert said == ["12 rows read, sent nowhere (no post); the page says 121 offers available, 12 read"]
+
+
+def test_a_promo_code_is_read_on_its_own_line_only():
+    """"...use promo code" ending one line and "FREE SPINS..." starting the
+    next is no code."""
+    html = _edit_block(PP25, "<b>Opt in&nbsp;</b>through the link below.",
+                       "Opt in and use promo code</p><p>FREE SPINS come later.")
+    row = _by_id(_read(html))[PP25]
+    assert "Opt in and use promo code\nFREE SPINS come later." in row["plan_text"]
+    assert "promo_code" not in row
+
+
+def test_an_attribute_that_is_not_plain_digits_loses_that_field_only():
+    """"²" passes str.isdigit and int() refuses it; a 5000-digit number is
+    past int()'s limit. Each costs its own field, never the page."""
+    html = _edit_block(PP25, 'data-casino-id="37"', 'data-casino-id="²"')
+    html = _edit_block(BEAT, 'data-offer-expires="1794528000"', 'data-offer-expires="²"', html)
+    html = _edit_block(SPINUMO, 'data-offer-expires="1794528000"',
+                       'data-offer-expires="' + "9" * 5000 + '"', html)
+    html = _edit_block("8z3HBF179uq9Gse2uIi4oW", 'data-casino-id="753"',
+                       'data-casino-id="' + "7" * 5000 + '"', html)
+    rows = _read(html.replace('<span class="offers-total-count">121</span>',
+                              '<span class="offers-total-count">1²</span>'))
+    by = _by_id(rows)
+    assert len(rows) == 12 and rows.said is None              # the count is unreadable: no line
+    assert "casino_id" not in by[PP25] and "casino" not in by[PP25] and by[PP25]["ev"] == 4.88
+    assert "expires_at" not in by[BEAT] and by[BEAT]["expires_text"] == "Daily Until Further Notice"
+    assert "expires_at" not in by[SPINUMO]
+    assert "casino_id" not in by["8z3HBF179uq9Gse2uIi4oW"]
+    assert by["j3N1PsOgiOruV59UTuJTuV"]["casino_id"] == 759   # the rest untouched
+    huge = PAGE.replace('<span class="offers-total-count">121</span>',
+                        '<span class="offers-total-count">' + "1" * 5000 + "</span>")
+    assert len(_read(huge)) == 12
+
+
+def test_a_casino_id_listed_twice_takes_the_first_name():
+    second = '<option data-casino-id="37" value="/x.png">Somebody Else</option>'
+    html = PAGE.replace("</select>", second + "\n</select>", 1)
+    assert _by_id(_read(html))[PP25]["casino"] == "Paddy Power Games"
+
+
+def test_with_no_casino_list_each_row_keeps_its_casino_id_and_has_no_name():
+    start = PAGE.index('<select id="add-custom-offer-image"')
+    end = PAGE.index("</select>", start) + len("</select>")
+    rows = _read(PAGE[:start] + PAGE[end:])
+    assert len(rows) == 12
+    assert all("casino" not in r for r in rows)
+    assert _by_id(rows)[PP25]["casino_id"] == 37

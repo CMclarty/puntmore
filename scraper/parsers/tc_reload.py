@@ -124,9 +124,14 @@ RUN = re.compile(ON + "([^" + ON + OFF + "]*)" + OFF)
 ADJACENT_RUNS = re.compile(OFF + r"(\s*)" + ON)        # bold, a space, bold: one bold run
 RUN_JUST_BEFORE = re.compile(ON + "([^" + ON + OFF + "]*)" + OFF + r"\s*$")
 LEADING_JOIN = re.compile(r"^(?:(?:or|and|&)\s+)+", re.I)
-PROMO = re.compile(r"(?i:\b(?:promo|bonus) code)\s*:?\s+([A-Z0-9]{3,20})\b")
-EXPIRES_DAY = re.compile(r"^Expires:\s*(Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)\b")
+PROMO = re.compile(r"(?i:\b(?:promo|bonus) code)[ \t]*:?[ \t]+([A-Z0-9]{3,20})\b")   # one line
+EXPIRES_DAY = re.compile(r"^Expires:\s*(Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\.?\s+([0-9]{1,2})(?:st|nd|rd|th)\b")
 EMPTY_HEADING = re.compile(r"^\d+\)$")
+# Whole numbers in an attribute or the counter: ASCII digits only (str.isdigit
+# also takes "²", which int() refuses) and no longer than any sane value.
+CASINO_ID = re.compile(r"[0-9]{1,9}")
+COUNT = re.compile(r"[0-9]{1,6}")
+EPOCH = re.compile(r"[0-9]{1,10}")
 
 
 def tc_reload(page, capture) -> Rows:
@@ -203,7 +208,7 @@ def _sections(root: Node) -> dict[str, str]:
 def _count(root: Node) -> int | None:
     el = root.find(lambda n: n.has_class("offers-total-count"))
     text = _collapse(_raw_text(el)) if el is not None else ""
-    return int(text) if text.isdigit() else None
+    return int(text) if COUNT.fullmatch(text) else None
 
 
 # --- one offer --------------------------------------------------------------
@@ -214,7 +219,7 @@ def _row(table: Node, casinos, sections, base) -> dict | None:
         return None
     row: dict = {}
     cid = (table.get("data-casino-id") or "").strip()
-    if cid.isdigit():
+    if CASINO_ID.fullmatch(cid):
         row["casino_id"] = int(cid)
         if cid in casinos:
             row["casino"] = casinos[cid]
@@ -258,7 +263,7 @@ def _number(v) -> float | None:
 
 def _expires_at(v, text: str) -> int | None:
     v = (v or "").strip()
-    if not v.isdigit() or not EARLIEST <= int(v) < LATEST:
+    if not EPOCH.fullmatch(v) or not EARLIEST <= int(v) < LATEST:
         return None
     at = int(v)
     m = EXPIRES_DAY.match(text)
