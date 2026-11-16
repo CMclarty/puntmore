@@ -86,6 +86,12 @@ class Guard:
         self.db.execute("DELETE FROM loads WHERE ts < ?", (now - 2 * 24 * HOUR,))
         self.db.commit()
 
+    def last_load(self, site, url) -> float | None:
+        """When `url` was last loaded for `site` (kept two days), or None."""
+        row = self.db.execute("SELECT MAX(ts) FROM loads WHERE site = ? AND url = ?",
+                              (site, url)).fetchone()
+        return row[0] if row else None
+
     def spent(self, site, now=None):
         now = now or time.time()
         return self._count(site, now - HOUR), self._count(site, now - 24 * HOUR)

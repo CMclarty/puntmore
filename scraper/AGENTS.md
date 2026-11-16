@@ -55,6 +55,9 @@ prices are `scraper_prices` files that the Hub posts to Render.
   to a minute..a week), shows it `paused` with the reason, and keeps it in
   `data/resting.json` across restarts; a changed or removed target loses it
   (and a change to its `within_h`), `python -m scraper wake <target>` ends it.
+- `fetched.py` - each fetch job's last good read (a parse that read rows),
+  `data/fetched.json`, written atomically: what a restart draws the job's
+  next run from (`Runner._fetch_due`), so a restart is not a load.
 - `joblog.py` - one log per job, `data/logs/<name>.log` (JSON lines; past
   512 KB cut to its newest lines in 256 KB, 1000 at most); the runner
   writes it through `Runner._say`, `targets log` reads it. A write never
@@ -65,7 +68,14 @@ prices are `scraper_prices` files that the Hub posts to Render.
 - `parsers/` - one module per page kind; rows only from what the page shows.
   `bb_builder` keeps the Bookie Bashing bet builder up and reads nothing
   (`bb_saves.bring_up`, shared): a page to `look` at, the start of the
-  preset-driven bet-builder job.
+  preset-driven bet-builder job. `tc_reload` reads Team Casino's
+  reload-offers dashboard, one row per offer, from the page's HTML; it
+  clicks nothing (every control there changes Callum's account). `dom.py`
+  is a small DOM over a page's HTML (the standard library's html.parser),
+  so such a parser's tests need no browser. A parser may return
+  `rows.Rows` (a list with `said`): a line about the page, which the runner
+  shows in the job's status and logs when it changes (`_said_read`; a job
+  with no `post` also shows how many rows it read).
 - `targets.py` - the only writer of targets.toml (CLI, Console, HubAI).
 - `config.py` - settings and target validation (`_target`, the clamps).
 - `behaviour.py` - how the Scraper behaves, as one catalogue (`SETTINGS`): each
@@ -84,7 +94,8 @@ prices are `scraper_prices` files that the Hub posts to Render.
   login, what marks a logged-out page where the url does not (Team Casino's
   login form, or the reset form shown in its place), Paddy's market-list url (its limits are in `behaviour.py`).
 - `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite);
-  built from `behaviour.py`'s limits, which it keeps a copy of (`use`).
+  built from `behaviour.py`'s limits, which it keeps a copy of (`use`). Its
+  record of loads (two days) also gives a fetch job's last load (`last_load`).
 - `look.py` - `python -m scraper look <job> '<steps>'`: a few plain steps
   (click a named control with `browser.click`, set a select, type in a
   field, wait, save) on a job's open page, answered by `Runner._look` from
@@ -180,8 +191,16 @@ prices are `scraper_prices` files that the Hub posts to Render.
   (above; a Bookie Bashing job like any Callum adds, `docs/decisions.md`); `pp_most` reads Paddy's most-corners /
   most-cards three-ways (written from the 29 Oct 2026 capture); `pp_listing`
   reads the kick-off times off a Paddy listing (written from the 12 Nov 2026
-  dump). Team Casino has no parser yet: nobody has seen its members page
-  logged in, so a `teamcasino` job keeps the page open and reads nothing
-  until it is learned with `look`. Every job that reads games reads only those kicking off within 48
+  dump); `tc_reload` reads Team Casino's reload-offers dashboard (written
+  from the signed-in page `look` saved on 13 Nov 2026). Where its rows go is
+  not decided (Callum's design is open), so a `teamcasino` job runs it with
+  no `post`: rows read and counted, sent nowhere. That job is `mode =
+  "fetch"` (load, read, close, `every_min` inside a `window`, `wait_for` the
+  offers): kept open, the page cost ~29 of Team Casino's 30 loads a day.
+  After a restart a fetch job's next run is its last good read
+  (`fetched.py`) plus its interval, never sooner than `fetch.retry_s` after
+  its last load (`Runner._fetch_due`); its window opening, `wake`, being
+  added, enabled or changed run it at once; a fetch load that signs in gets
+  one load at once, then `fetch.retry_s`. Every job that reads games reads only those kicking off within 48
   hours (`games.within_h`, or a job's own `within_h`; 0 is no limit): with
   none that near it rests (`rest.py`; Callum, 11 and 12 Nov 2026).

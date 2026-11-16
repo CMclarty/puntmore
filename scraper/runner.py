@@ -66,6 +66,7 @@ from urllib.parse import urlparse
 from . import behaviour
 from . import browser
 from . import config
+from . import fetched
 from . import guard as guard_mod
 from . import joblog
 from . import login
@@ -176,6 +177,14 @@ class Runner:
         # state the Hub is told about (min_rows breaches, blocks) so it only
         # wakes HubAI on a change.
         self.next_fetch: dict[str, float] = {}
+        # A fetch job whose next run was dropped on purpose (outside its
+        # window, resting, added, changed) runs at once, not from its last
+        # read (_fetch_due); one whose sign-in was just sent gets one load
+        # at once, then fetch.retry_s; and each job's last good read
+        # (fetched.py, data/fetched.json), what a restart draws its next run from.
+        self.fetch_now: set[str] = set()
+        self.fetch_follow_up: dict[str, float] = {}   # job -> the sign-in (its time) it was given one for
+        self.fetched: dict[str, dict] = fetched.load(settings.data_dir)
         self.health_said: dict[str, str] = {}
         self.sinks = Sinks(settings)
         self.outside: dict[str, str] = {}              # inactive targets -> why (schedule.inactive)
@@ -204,6 +213,9 @@ class Runner:
         # A matches job's listing read (_window_links): what it last said about
         # its kick-offs, shown as its status detail (UNREAD_KICKOFFS).
         self.listing_said: dict[str, str] = {}
+        # What a job's last parse read (_said_read): its row count when it has
+        # no `post`, and its parser's line about the page; its status detail.
+        self.read_said: dict[str, str] = {}
         # Each job's failing and no-rows alerts (standing.py), kept in data/alerted.json.
         self.job_alerts = standing.JobAlerts(settings.data_dir, alerts)
         self.job_alerts.keep_only(names)
@@ -573,7 +585,8 @@ class Runner:
         """A target that is not active (`why`, from schedule.inactive: off its
         days, past its until, outside its window) is treated like quiet
         hours: its tabs close and nothing loads. A fetch target forgets its
-        next run, so it runs when it is active again. Said once per change of
+        next run, so it runs as soon as it is active again (when its window
+        opens, say), whenever it last read. Said once per change of
         reason. A reason new to this process that the job's log already ends
         with (the line before a restart) is printed but not logged again."""
         if self.outside.get(t.name) != why:
@@ -586,13 +599,14 @@ class Runner:
                 self._say(t.name, msg)
         for key in [k for k, tab in self.tabs.items() if tab.target.name == t.name]:
             self._close(key)
-        self.next_fetch.pop(t.name, None)
+        self._fetch_at_once(t.name)
         self.wanting_since.pop(t.name, None)
 
     def _resting(self, t, now) -> bool:
         """A job resting (its parser raised rest.Rest) is skipped like one
         outside its window: its tabs close and nothing loads. Once `until` has
-        passed the rest is forgotten and the job runs in this same tick. A
+        passed (or `wake` ends it) the rest is forgotten and the job runs in
+        this same tick; a fetch job at once, whenever it last read. A
         rest this process has not said yet (one from before a restart) is
         printed, not logged again."""
         r = self.resting.get(t.name)
@@ -609,7 +623,7 @@ class Runner:
             print(f"{t.name}: {_rest_detail(r)}", flush=True)
         for key in [k for k, tab in self.tabs.items() if tab.target.name == t.name]:
             self._close(key)
-        self.next_fetch.pop(t.name, None)
+        self._fetch_at_once(t.name)
         self.wanting_since.pop(t.name, None)
         return True
 
@@ -623,6 +637,7 @@ class Runner:
             self._close(key)
         self.parser_said.pop(t.name, None)
         self.listing_said.pop(t.name, None)
+        self.read_said.pop(t.name, None)
         self.job_alerts.reading(t.name)                # a rest clears a failing alert
         self.rest_said.add(t.name)
         self._say(t.name, _rest_detail(self.resting[t.name]))
@@ -655,9 +670,7 @@ class Runner:
             for tab in self.tabs.values():
                 if tab.target.name == t.name:
                     tab.due_at = None
-            last = self.last_load_at.get(t.name)
-            if t.mode == "fetch" and t.name in self.next_fetch and last is not None:
-                self.next_fetch[t.name] = schedule.next_fetch_at(last, every)
+            self._redraw_fetch(t, every, now)
 
     def _every(self, t, now):
         """The reload interval in force for `t` now (the near window or not)."""
@@ -686,7 +699,7 @@ class Runner:
         """Would this target load something if it were given the next slot?
         Asks only what is already known: no page is read."""
         if t.mode == "fetch":
-            due = self.next_fetch.get(t.name)
+            due = self._fetch_due(t, now)
             return due is None or now >= due
         if not t.matches:
             tab = self.tabs.get(t.name)
@@ -809,11 +822,17 @@ class Runner:
                 self.parser_said.pop(name, None)
                 self.delivery_said.pop(name, None)
                 self.listing_said.pop(name, None)
+                self.read_said.pop(name, None)
                 self._end_rest(name)
+                self._fetch_at_once(name)              # if it comes back, or as its new self
+                if self.fetched.pop(name, None) is not None:
+                    fetched.save(self.s.data_dir, self.fetched)
             if name not in new:
                 self.retired_targets[name] = t
         for name in new:
             self.retired_targets.pop(name, None)
+        for name in set(new) - set(old):
+            self._fetch_at_once(name)
         self.job_alerts.keep_only(new)
         added = sorted(set(new) - set(old))
         removed = sorted(set(old) - set(new))
@@ -836,9 +855,7 @@ class Runner:
                     tab.due_at = None
                 tab.target = t
         self.near.discard(t.name)              # re-entered on the next tick with the new fields
-        last = self.last_load_at.get(t.name)
-        if t.name in self.next_fetch and last is not None:
-            self.next_fetch[t.name] = schedule.next_fetch_at(last, t.every_min)
+        self._redraw_fetch(t, t.every_min, time.time())
 
     def _tick_page(self, t, key, url, now):
         tab = self.tabs.get(key)
@@ -849,20 +866,34 @@ class Runner:
             self._load(t, key, url, now)
 
     def _tick_fetch(self, t, now):
-        """A fetch target (a Finder source): load the page, parse it once, close it. Nothing
-        is kept open, so each run is one load against its site's budget. The
-        next run is scheduled before parsing, so a broken parser can never turn
-        into a reload loop; a load that fails backs off five minutes."""
-        due = self.next_fetch.get(t.name)
+        """A fetch target (a Finder source, or a Team Casino job): load the page, parse it
+        once, close it. Nothing is kept open, so each run is one load against its site's
+        budget, and no recycle or restart reloads it (_fetch_due). The next run is
+        scheduled before parsing, so a broken parser can never turn into a reload loop;
+        a load that fails backs off fetch.retry_s. One that found the site logged out
+        and sent a sign-in is due again at once, once per sign-in (3 loads in all: the
+        visit, the sign-in's own navigation, the visit again, which reads). A parse
+        that read rows is the job's last good read (fetched.py), for a restart."""
+        due = self._fetch_due(t, now)
         if due is not None and now < due:
             return
         ok, _why = self.guard.can_load(t.site, now, quiet_applies=_quiet_applies(t.site))
         if not ok or not self._may_load(t.site, now):
             return                                  # budget or spacing: try next tick
         key = f"fetch:{t.name}"
+        self.fetch_now.discard(t.name)
         tab = self._load(t, key, t.url, now)
         if tab is None:
-            self.next_fetch[t.name] = now + behaviour.get("fetch.retry_s")
+            # A sign-in was sent from this page (login.py): its tab stays
+            # open and the job is due again at once, as a kept-open page's
+            # reload is, so the next load says whether it took and reads.
+            # Once per sign-in: that load failing too waits fetch.retry_s.
+            sent = self.login_pending.get(t.site)
+            if sent is not None and key in self.tabs and self.fetch_follow_up.get(t.name) != sent:
+                self.fetch_follow_up[t.name] = sent
+                self.next_fetch[t.name] = now
+            else:
+                self.next_fetch[t.name] = now + behaviour.get("fetch.retry_s")
             return
         self.next_fetch[t.name] = schedule.next_fetch_at(now, self._every(t, now))
         try:
@@ -871,9 +902,52 @@ class Runner:
                     tab.page.wait_for_selector(t.wait_for, timeout=20_000)
                 except Exception:
                     self._say(t.name, f"wait_for {t.wait_for!r} not seen")
-            self._parse(tab, now, force=True)
+            if self._parse(tab, now, force=True):
+                self.fetched[t.name] = {"at": now, "url": t.url}
+                fetched.save(self.s.data_dir, self.fetched)
         finally:
             self._close(key)
+
+    def _fetch_at_once(self, name):
+        """Drop a fetch job's next run on purpose: it runs as soon as it may."""
+        self.next_fetch.pop(name, None)
+        self.fetch_now.add(name)
+
+    def _fetch_due(self, t, now) -> float | None:
+        """When a fetch target runs next; None: now. With none drawn by this
+        process and none dropped on purpose (_fetch_at_once), the process
+        has just started: drawn from the job's last good read (fetched.py)
+        and its last load (the guard's record), so a restart is not a load."""
+        due = self.next_fetch.get(t.name)
+        if due is None and t.name not in self.fetch_now:
+            due = self._fetch_drawn(t, self._every(t, now))
+            if due is not None:
+                self.next_fetch[t.name] = due
+        return due
+
+    def _fetch_drawn(self, t, every) -> float | None:
+        """The last good read of this url plus `every` (jittered), and never
+        sooner than fetch.retry_s after its last load of any kind (a failed
+        one, one that read nothing, a sign-in); None with neither known."""
+        times = []
+        note = self.fetched.get(t.name)
+        if note and note["url"] == t.url:
+            times.append(schedule.next_fetch_at(note["at"], every))
+        last = self.guard.last_load(t.site, t.url)
+        if last is not None:
+            times.append(last + behaviour.get("fetch.retry_s"))
+        return max(times) if times else None
+
+    def _redraw_fetch(self, t, every, now):
+        """A fetch job's next run, redrawn for a new interval (a timing edit,
+        the near window): from its last load in this process, or, after a
+        restart, as _fetch_due draws it. A run dropped on purpose stays due now."""
+        if t.mode != "fetch" or t.name not in self.next_fetch:
+            return
+        last = self.last_load_at.get(t.name)
+        due = schedule.next_fetch_at(last, every) if last is not None else self._fetch_drawn(t, every)
+        if due is not None:
+            self.next_fetch[t.name] = due
 
     def _check_rows(self, t, rows, now):
         """Row-count health for fetch targets: fewer than min_rows is a suspected
@@ -892,6 +966,22 @@ class Runner:
             msg = f"healthy again ({len(rows)} rows)"
             self.alerts.send(f"{t.name}: {msg}")
             joblog.write(self.s.data_dir, t.name, msg)
+
+    def _said_read(self, t, rows):
+        """What a parse read, for the job's status detail and its log: a job
+        with no `post` (its rows go nowhere yet) says how many rows it read,
+        and a parser may hand back a line about its page (`Rows.said`,
+        parsers/rows.py). Logged when the line changes, not every parse."""
+        said = getattr(rows, "said", None)
+        n = len(rows)
+        count = None if t.post or not n else f"{n} row{'s' if n != 1 else ''} read, sent nowhere (no post)"
+        line = "; ".join(x for x in (count, said) if x)
+        if line and line != self.read_said.get(t.name):
+            self._say(t.name, line)
+        if line:
+            self.read_said[t.name] = line
+        else:
+            self.read_said.pop(t.name, None)
 
     def _deliver(self, t, rows, now) -> int:
         """Hand the rows to the sink and return how many it took (0: none). A
@@ -1125,6 +1215,7 @@ class Runner:
                 self._say(t.name, f"parser failed: {exc}")
             self.parser_said[t.name] = said
             self.failure_said[t.name] = first
+            self.read_said.pop(t.name, None)
             self.job_alerts.failed(t.name, first, now)
             return
         self.parser_said.pop(t.name, None)
@@ -1134,6 +1225,7 @@ class Runner:
         if k is not None:
             self.next_kickoff[t.name] = k
         self._check_rows(t, rows, now)
+        self._said_read(t, rows)
         out = self.s.data_dir / "latest" / f"{_safe(t.name)}.json"
         out.write_text(json.dumps({"at": now, "url": tab.url, "rows": rows}, indent=1))
         if rows:
@@ -1143,6 +1235,7 @@ class Runner:
             if handed:
                 self.rows_posted[t.name] = self.rows_posted.get(t.name, 0) + handed
                 self.job_alerts.delivered(t.name, now)
+        return rows
 
     # --- status, for the Hub and `python -m scraper status` ---------------------------
     def status(self, now) -> dict:
@@ -1184,6 +1277,7 @@ class Runner:
         return "running", "; ".join(x for x in (f"{n} tab{'s' if n != 1 else ''} open",
                                                 market_tabs_said(mine),
                                                 self.listing_said.get(t.name),
+                                                self.read_said.get(t.name),
                                                 self.parser_said.get(t.name)) if x)
 
     def _report(self, now):
