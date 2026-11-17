@@ -696,12 +696,17 @@ boards the Paddy sweep already holds (`OddsPapiPaddySource.boards`). The design,
 feed carried when it was read, is `docs/superpowers/specs/2026-11-17-player-props-design.md`.
 - **It sends no odds request.** Its one request is `/players` for names, cached a day, sent
   only when a matched player's price carries no name, and a failure is held 10 minutes
-  (a failed call is billed).
+  (a failed call is billed). The catalogue is read from the client's cache
+  (`OddsPapiClient.cached_catalogue`), never fetched: a failed `/markets` must not be re-sent
+  on every poll of the page. A props read sweeps only when the source has never swept (the
+  first read after boot); after that it reads what the 2-minute `cards_sweep` job leaves, so
+  with `ENABLE_CARDS` off the board is the one from boot.
 - **Every quote becomes one statement**, `at_least(stat, n)` or `fewer(stat, n)`, whichever
   catalogue shape it came in (`players-<stat>` with "N+", "0", "Yes"; `playertotals-<stat>`
   Over/Under at an x.5 line). The fair needs BOTH of Pinnacle's sides at the same player,
   statistic and n, power de-vigged. One side, another number or another player prices
-  nothing and is counted (`no_fair_player`, `no_fair_line`, `fair_one_sided`): never estimate
+  nothing and is counted (`no_fair_player`, `no_fair_line`, `fair_one_sided`), as is a pair
+  whose raw margin is zero or less (`fair_crossed`, stale or crossed quotes): never estimate
   across lines to make rows appear (the register).
 - **The join is OddsPapi's fixture id and player id.** No name matching.
 - **Pinnacle's player-prop shape had not been seen live when this was written**: its plan

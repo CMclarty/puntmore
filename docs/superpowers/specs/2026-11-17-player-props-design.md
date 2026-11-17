@@ -86,7 +86,8 @@ kept and the clash is counted.
   be carded", "Declan Rice 1+ assists". A player with no known name is left out and counted.
 - **Diagnostics.** `GET /api/props/diagnostics`: per stat, how many Paddy selections, how many
   Pinnacle selections with both sides, how many matched, and why the rest did not
-  (`no_fair_player`, `no_fair_line`, `fair_one_sided`, `unnamed`), plus a one-line verdict.
+  (`no_fair_player`, `no_fair_line`, `fair_one_sided`, `fair_crossed` for a Pinnacle pair
+  with no margin, `unnamed`), plus a one-line verdict.
   "Pinnacle is posting no player markets" must be readable there in one request: it is the
   state the tool launches in.
 - **Refusals.** A selection that cannot be priced exactly is left out and counted, never
