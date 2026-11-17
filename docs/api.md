@@ -175,6 +175,7 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 | P&L (`pnl`) | `GET/POST /pnl/{dogs\|virtuals}/bets`, `GET /pnl/{c}/bets.csv`, `DELETE /pnl/{c}/bets/{id}` | per-caller ledger |
 | AW 26 (`aw26`) | `GET /aw26/summary`, `GET /aw26/slips`, `POST /aw26/slips/record`, `PATCH /aw26/slips/{id}`, `DELETE /aw26/slips/{id}`, `GET /aw26/slips/{id}/image`, `POST /aw26/selections/{leg_id}/result` | Callum's slips: a day's figures and selections, a day's slips, record one, correct one or set its legs' results, delete one, a slip's photo, one result for a selection on every slip |
 | AW 26 photos (`aw26`) | `POST /aw26/photos`, `GET /aw26/photos`, `POST /aw26/photos/{id}/take`, `/fail`, `/resend`, `GET /aw26/photos/{id}/image`, `DELETE /aw26/photos/{id}` | the queue of slip photos waiting for the Hub |
+| Props (`props`) | `GET /props/feed?min_edge=`, `GET /props/diagnostics` | Callum's player props list (17 Nov 2026): Paddy Power's player lines priced against Pinnacle's two sides for the same player, statistic and number. One item per fixture, soonest first: `{event_id, match, home, away, commence_time, priced_at, best_value, bets: [{player, player_id, stat, n, pick, odds, fair, value, pinnacle_margin}]}`, `n` meaning "`n` or more". `diagnostics` counts, per statistic, Paddy's selections, Pinnacle's two-sided ones, the matched and why the rest were not (`no_fair_player`, `no_fair_line`, `fair_one_sided`, `unnamed`), with a one-line `verdict`. No API client is granted it |
 | shop (`shop`) | `GET /shop`, `POST /shop/visits`, `DELETE /shop/visits[/{id}]` | per-caller route |
 | diagnostics (`*`, or `state`) | `GET/DELETE /diagnostics/errors` | error ring buffer |
 | — | `GET /health`, `GET /ready` | probes, unauthenticated |
@@ -411,6 +412,7 @@ decides otherwise.
 | API clients table / CLI | `render/api/app/models.py::ApiClient`, `render/api/app/apikeys.py` |
 | value feed | `render/api/app/value/service.py`, `render/api/app/routers/value.py` |
 | Finder | `render/api/app/finder/rows.py`, `render/api/app/routers/finder.py` |
+| Props | `render/api/app/props/` (`model.py`, `service.py`), `render/api/app/routers/props.py` |
 | AW 26 | `render/api/app/aw26/` (`offers.py`, `photos.py`, `record.py`, `selections.py`, `service.py`), `render/api/app/routers/aw26.py` |
 | per-tool services | `render/api/app/cards/feed.py`, `render/api/app/twoup/feed.py`, `render/api/app/coupons/service.py`, `render/api/app/pnl/service.py`, `render/api/app/shop/service.py` (+ the existing `cards/`, `goalscorers/` packages) |
 | response models | `render/api/app/schemas.py` |

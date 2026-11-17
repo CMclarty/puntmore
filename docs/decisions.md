@@ -409,6 +409,18 @@ The older product decisions, settled while the coupon tracker was built.
 - **Never call external APIs from core logic**: everything goes through the
   seams (`OCRProvider`, `OddsProvider`, `NotificationProvider`).
 
+- **Props: player props, Paddy Power against Pinnacle, Callum's alone** (17 Nov 2026).
+  Callum: "I've added player props to the paddy power oddspapi feed. Go through and catalogue
+  what pinnacle offer, then match it to Paddy and create a new personal value tracker just for
+  me", "Match only", "Just do a bet tool similar to the main paddy", "Don't worry about
+  results", "Have it on render but only for me". Both books come from OddsPapi, off the boards
+  the Paddy sweep already fetches. The fair is Pinnacle's two sides for the same player, the
+  same statistic and the same number, de-vigged; a Paddy line Pinnacle does not price at that
+  number is left out, never estimated from a neighbouring line. No results, settling or bet
+  log. A `me` tool behind the `props` grant, held by Callum's account and by no API client.
+  Built before Pinnacle's props reached the feed (Callum: "assume they will and carry on"), so
+  its diagnostics say so in one line while that lasts.
+
 ### Design
 
 - **Paper theme.** `--paper #FCFBF8`, `--zebra #F4F2EC`, `--ink #1A1A18`,

@@ -690,6 +690,27 @@ Pinnacle's fair reference, joined on the same fixture id.
   flag — but the map must keep dropping bets that fall off the sweep, or it is
   the same unbounded-dict leak `ttl_cache.py` exists to prevent.
 
+### Props (`app/props/`) — OddsPapi player props (17 Nov 2026)
+Callum's player props list: Paddy Power's player lines against Pinnacle's, read off the raw
+boards the Paddy sweep already holds (`OddsPapiPaddySource.boards`). The design, with what the
+feed carried when it was read, is `docs/superpowers/specs/2026-11-17-player-props-design.md`.
+- **It sends no odds request.** Its one request is `/players` for names, cached a day, sent
+  only when a matched player's price carries no name, and a failure is held 10 minutes
+  (a failed call is billed).
+- **Every quote becomes one statement**, `at_least(stat, n)` or `fewer(stat, n)`, whichever
+  catalogue shape it came in (`players-<stat>` with "N+", "0", "Yes"; `playertotals-<stat>`
+  Over/Under at an x.5 line). The fair needs BOTH of Pinnacle's sides at the same player,
+  statistic and n, power de-vigged. One side, another number or another player prices
+  nothing and is counted (`no_fair_player`, `no_fair_line`, `fair_one_sided`): never estimate
+  across lines to make rows appear (the register).
+- **The join is OddsPapi's fixture id and player id.** No name matching.
+- **Pinnacle's player-prop shape had not been seen live when this was written**: its plan
+  slug (`pinnacle+30`) carried none on 17 Nov 2026. `GET /api/props/diagnostics` says what
+  each book is posting; `GET /api/paddy/oddspapi-probe?what=book` shows the raw markets.
+  Check both the first time Pinnacle's props arrive, before trusting a price.
+- **Pinnacle is 30 minutes delayed.** Around line-ups a Paddy price can look like value
+  against a Pinnacle price that has since moved. Nothing guards this yet.
+
 ### Hills (`cards/oddsapinet.py`) — odds-api.net
 William Hill's corners, cards and goals lines with Pinnacle's as the fair side, from
 **odds-api.net**, Puntmore's second odds provider (the register, 11 Nov 2026). Design:

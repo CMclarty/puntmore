@@ -45,6 +45,11 @@ the main domain.
   `boost.js::verdictFor`) above the result keys, and the switch follows the call until tapped.
   A boosted bet stores the model's EV in pounds (`bets.ev`). `/boost` and `/pnl/virtuals`
   redirect there; an account granted `boost` without `pnl` gets the calculator (`BoostPage`).
+- **Props** (`/props` on `me`, API `/api/props/*`, `props` grant, `ENABLE_PROPS`, package
+  `app/props/`): Paddy Power's player props (goals, assists, cards, fouls, shots, shots on
+  target and the rest) against Pinnacle's, both from OddsPapi off the Paddy sweep's boards:
+  one list of every bet at 103% of fair or better. Identical lines only; no results, no log.
+  Callum's alone.
 - **P&L** (Dogs), **Kelly**, **the shop**: on `me`.
 - **AW 26** (`/aw26` on `me`, `aw26` grant, `app/aw26/`): Callum's slips from the Paddy
   terminal, a page over the stored rows with two screens: a Summary (the all-time profit, the
