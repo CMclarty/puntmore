@@ -59,7 +59,11 @@ class Client:
     def cached_catalogue(self):
         return CATALOGUE
 
+    resolves = 0
+
     def resolve_book(self, wanted):
+        # The sweep resolves the fair book (/account); a props read never does.
+        self.resolves += 1
         return self._fair_slug
 
     def players(self):
@@ -99,7 +103,9 @@ class Source:
             # Listed at the sweep but kicked off since.
             {"id": "f0", "home": "Leeds", "away": "Hull", "start": NOW - timedelta(minutes=1)},
         ]
-        self.last_sweep = {"source": "oddspapi", "fair_source": "oddspapi:pinnacle+30",
+        fair = self._client._fair_slug
+        self.last_sweep = {"source": "oddspapi",
+                           "fair_source": f"oddspapi:{fair}" if fair else None,
                            "errors": [], "failed": 0}
         return []
 
@@ -199,6 +205,17 @@ def test_the_diagnostics_count_per_stat_and_give_a_verdict():
 def test_the_fair_book_is_read_under_its_variant_slug_either_way(granted, key):
     src = Source(pinnacle_key=key, client=Client(fair_slug=granted))
     assert sum(len(i["bets"]) for i in get("/props/feed?min_edge=-0.5", src).json()) == 6
+    # The slug is the one the sweep resolved: a read sends no /account.
+    diag = get("/props/diagnostics", src).json()
+    assert diag["books"]["fair"] == granted and src._client.resolves == 0
+
+
+def test_no_fair_book_on_the_sweep_means_no_fair_side():
+    src = Source(client=Client(fair_slug=None))
+    assert get("/props/feed", src).json() == []
+    diag = get("/props/diagnostics", src).json()
+    assert diag["books"]["fair"] is None and diag["verdict"].startswith("No fair book")
+    assert src._client.resolves == 0
 
 
 def test_the_grant_guards_both_routes():
@@ -308,3 +325,60 @@ def test_an_unauthenticated_request_is_401():
     finally:
         app.dependency_overrides[user_permissions] = lambda: "*"
         app.dependency_overrides[require_user] = lambda: "testuser"
+
+
+def test_a_failed_sweep_lists_nothing_until_a_good_one(monkeypatch):
+    """The source keeps the last good boards after a failed sweep (Hills' bet
+    log reads them); props must not list them as current."""
+    from app.cards.oddspapi import OddsPapiClient, OddsPapiPaddySource
+    from app.config import settings
+    monkeypatch.setattr(settings, "oddspapi_tournament_ids", "17")
+    monkeypatch.setattr(settings, "oddspapi_fair_book", "pinnacle")
+    client = OddsPapiClient("x", ttl=0)
+    start = (NOW + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    books = {"paddypower": PADDY, "pinnacle+30": PINNACLE}
+    state = {"names_fail": False}
+    resolves = []
+
+    def send(path, **params):
+        if path == "/markets":
+            return CATALOGUE
+        if path == "/participants":
+            if state["names_fail"]:
+                raise RuntimeError("OddsPapi /participants: HTTP 503")
+            return []
+        if path == "/odds-by-tournaments":
+            slug = params["bookmakers"]
+            return [{"fixtureId": "f1", "participant1Name": "Chelsea", "participant2Name": "Spurs",
+                     "startTime": start, "tournamentId": 17,
+                     "bookmakerOdds": {slug: books[slug]}}]
+        raise AssertionError(path)
+
+    def resolve(wanted):
+        resolves.append(wanted)
+        return "pinnacle+30" if wanted == "pinnacle" else wanted
+
+    monkeypatch.setattr(client, "get", send)
+    monkeypatch.setattr(client, "players", lambda: PLAYERS)
+    monkeypatch.setattr(client, "resolve_book", resolve)
+    src = OddsPapiPaddySource(client)
+
+    src.get_events()                                  # a good sweep
+    assert len(get("/props/feed", src).json()) == 1
+
+    client._ref.clear()                               # the day's reference data lapses ...
+    state["names_fail"] = True
+    src.get_events()                                  # ... the catalogue comes back, the
+                                                      # team names fail, the sweep fails
+    assert client.cached_catalogue() is not None
+    assert src.boards and src.last_sweep.get("error")  # the old board is kept for Hills
+    assert get("/props/feed", src).json() == []
+    diag = get("/props/diagnostics", src).json()
+    assert diag["verdict"].startswith("The last Paddy sweep failed")
+    assert "HTTP 503" in diag["verdict"]
+
+    state["names_fail"] = False
+    src.get_events()                                  # a good sweep again
+    assert len(get("/props/feed", src).json()) == 1
+    # Only the sweeps resolved the fair book; props reads asked nothing.
+    assert len(resolves) == 2

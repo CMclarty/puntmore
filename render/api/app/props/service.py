@@ -20,7 +20,6 @@ from datetime import datetime, timezone
 import logging
 
 from ..cards.oddspapi import FAILED_HOLD, _as_list, _first
-from ..config import settings
 from ..schemas import PropsBetOut, PropsFeedItem
 from ..ttl_cache import MISS, TTLCache
 from . import model
@@ -100,15 +99,14 @@ class Names:
 
 
 def fair_slug(source) -> str | None:
-    """The fair book's slug as the Paddy sweep resolves it (`pinnacle+30` on a
-    delayed plan), or None when ODDSPAPI_FAIR_BOOK is blank."""
-    wanted = (settings.oddspapi_fair_book or "").strip()
-    if not wanted:
+    """The fair book's slug as the last Paddy sweep resolved it (`pinnacle+30`
+    on a delayed plan), read off `last_sweep["fair_source"]` ("oddspapi:<slug>",
+    None when ODDSPAPI_FAIR_BOOK is blank). Never a request: resolving it again
+    would ask /account on the request thread."""
+    named = (getattr(source, "last_sweep", None) or {}).get("fair_source")
+    if not named:
         return None
-    try:
-        return source._client.resolve_book(wanted)
-    except Exception:
-        return wanted
+    return str(named).split(":", 1)[-1].strip() or None
 
 
 class Board:
@@ -141,14 +139,18 @@ def build(source, now: datetime | None = None) -> Board:
             source.get_events()
         except Exception as exc:          # the sweep logs and records its own failures
             logger.warning("props: the Paddy sweep failed: %s", exc)
+    board.paddy_slug = getattr(source, "priced_book", None) or getattr(source, "book", None)
+    board.fair_slug = fair_slug(source)
+    board.names = Names(source._client)
+    if (getattr(source, "last_sweep", None) or {}).get("error"):
+        # The sweep failed before pricing and left the last good board in place
+        # (Hills' bet log reads it): that board is not current, so nothing is listed.
+        return board
     now = now or datetime.now(timezone.utc)
     board.priced_at = getattr(source, "priced_at", None)
     board.fixtures = {str(f["id"]): f for f in getattr(source, "fixtures", None) or []
                       if f.get("start") is not None and f["start"] > now}
     boards = getattr(source, "boards", None) or {}
-    board.paddy_slug = getattr(source, "priced_book", None) or getattr(source, "book", None)
-    board.fair_slug = fair_slug(source)
-    board.names = Names(source._client)
     # The sweep's own catalogue, as the client cached it; None until a sweep
     # has read it. Never fetched here.
     reader = getattr(source._client, "cached_catalogue", None)
@@ -223,14 +225,13 @@ def _verdict(source, board: Board, total: dict[str, int]) -> str:
     if source is None or not hasattr(source, "boards"):
         return ("OddsPapi is not configured: set ODDSPAPI_API_KEY. Neither book's "
                 "prices are fetched.")
-    if not getattr(source, "boards", None) and sweep.get("error"):
-        return f"The Paddy sweep failed before any board arrived: {sweep['error']}"
+    if sweep.get("error"):
+        return f"The last Paddy sweep failed, so nothing is listed: {sweep['error']}"
     if not sweep and not getattr(source, "boards", None):
         return "No Paddy sweep has run yet. Open the feed again in a minute."
     if not board.catalogue_read:
         return ("The market catalogue has not been read yet: the Paddy sweep reads it, "
-                "and nothing is priced until it has."
-                + (f" Its last attempt failed: {sweep['error']}" if sweep.get("error") else ""))
+                "and nothing is priced until it has.")
     if not fixtures:
         return "No fixture on the Paddy board is still to kick off, so there is nothing to price."
     if not board.read_markets:
