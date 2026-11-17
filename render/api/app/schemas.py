@@ -680,3 +680,39 @@ class FinderFeedOut(BaseModel):
 class FinderBoardOut(BaseModel):
     generated_at: datetime
     rows: list[FinderRowOut]                           # every status, newest first
+
+
+# --- Props (app/props/, docs/superpowers/specs/2026-11-17-player-props-design.md)
+
+class PropsBetOut(BaseModel):
+    """One Paddy Power player selection priced against Pinnacle's two sides at
+    the same (player, stat, n). `value` = odds / fair - 1."""
+    player: str                      # "Erling Haaland"
+    player_id: str                   # OddsPapi's player id
+    stat: str                        # goals | assists | cards | foulscommitted | offsides |
+                                     # saves | shots | shotsongoal | tackles
+    n: int                           # the player records n or more
+    pick: str                        # "Erling Haaland 2+ shots on target"
+    odds: float                      # Paddy Power's price
+    fair: float                      # Pinnacle de-vigged (power)
+    value: float
+    pinnacle_margin: float           # Pinnacle's overround on the two sides
+
+
+class PropsFeedItem(BaseModel):
+    event_id: str                    # OddsPapi's fixture id
+    match: str
+    home: str
+    away: str
+    commence_time: str
+    # When Paddy Power's prices behind the board were fetched (the oldest chunk).
+    priced_at: Optional[datetime] = None
+    best_value: float
+    bets: list[PropsBetOut]
+
+
+class PropsDiagnosticsOut(OpenModel):
+    """Why the props page shows what it shows. OPEN."""
+    verdict: Optional[str] = None
+    stats: dict[str, dict[str, int]] = Field(default_factory=dict)
+    totals: dict[str, int] = Field(default_factory=dict)

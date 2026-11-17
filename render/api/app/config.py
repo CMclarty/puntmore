@@ -205,6 +205,11 @@ class Settings(BaseSettings):
     # a page, never prices a tip, never places a bet. Off = no router, no jobs,
     # no `finder` tool in the nav.
     enable_finder: bool = True
+    # --- Props (app/props/) ----------------------------------------------------
+    # Paddy Power's player props against Pinnacle, Callum's alone (`props`
+    # grant). Reads the Paddy sweep's boards; its only request is /players for
+    # names. Off = no router and no `props` tool in the nav.
+    enable_props: bool = True
     # Global kill switch: GET /api/2up/feed returns no rows (status.killed)
     # and the `2up` source of /api/value returns none (errors["2up"] says
     # killed); /api/2up/diagnostics reports it. An .env change, no code

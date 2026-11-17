@@ -661,6 +661,11 @@ class OddsPapiClient:
     def tournaments(self):
         return self._cached(self._ref, "tournaments", "/tournaments", sportId=SOCCER)
 
+    def players(self):
+        """Football player names (billable), cached a day: the props tool's
+        one request of its own (app/props/service.py)."""
+        return self._cached(self._ref, "players", "/players", sportId=SOCCER)
+
     def resolve_book(self, wanted: str) -> str:
         """The slug this plan actually grants for `wanted`. A plan lists
         e.g. "pinnacle+30" (Pinnacle on a delay), and asking for plain
