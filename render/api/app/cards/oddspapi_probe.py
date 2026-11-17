@@ -9,7 +9,8 @@ daily budget like the sweep's own. Nothing here prices or stores anything.
     what=book&book=pinnacle&tournament=17,8
                                          what that book prices there, by market
                                          type: player props apart, one raw sample
-                                         each (1, cached as the sweep's)
+                                         each, its players cut to three (1, cached
+                                         as the sweep's)
     what=raw&path=/players&params=a=1    a listed endpoint's answer, cut to `limit`
 """
 import json
@@ -61,6 +62,24 @@ def catalogue_summary(catalogue, sport: int | None, player_only: bool) -> dict:
 
 def _full_index(catalogue) -> dict[str, dict]:
     return {str(_first(m, "marketId", "id", "_id")): m for m in _as_list(catalogue)}
+
+
+# A sample market keeps this many players per outcome: a scorer market lists
+# every squad member, which made the whole sample too large to show.
+SAMPLE_PLAYERS = 3
+
+
+def _cut_players(market: dict) -> dict:
+    """A copy of one raw market with each outcome's `players` cut to its first
+    SAMPLE_PLAYERS entries. The board itself is never touched."""
+    outcomes = {}
+    for oid, outcome in ((market or {}).get("outcomes") or {}).items():
+        players = (outcome or {}).get("players")
+        if isinstance(players, dict) and len(players) > SAMPLE_PLAYERS:
+            outcome = {**outcome, "players": dict(list(players.items())[:SAMPLE_PLAYERS]),
+                       "players_cut_from": len(players)}
+        outcomes[oid] = outcome
+    return {**(market or {}), "outcomes": outcomes}
 
 
 def book_summary(fixtures, catalogue, slug: str) -> dict:
@@ -115,7 +134,7 @@ def book_summary(fixtures, catalogue, slug: str) -> dict:
             g["sides_priced"][str(priced)] = g["sides_priced"].get(str(priced), 0) + 1
             if g["sample"] is None and priced:
                 g["sample"] = {"fixtureId": _first(fx, "fixtureId", "id"), "marketId": mid,
-                               "catalogue": info, "market": market}
+                               "catalogue": info, "market": _cut_players(market)}
     report = []
     for (t, p, pp), g in sorted(groups.items(), key=lambda kv: (not kv[0][2], kv[0])):
         report.append({
@@ -123,6 +142,7 @@ def book_summary(fixtures, catalogue, slug: str) -> dict:
             "markets": g["markets"], "names": sorted(g["names"])[:6],
             "lines": sorted(g["lines"], key=float)[:40], "outcomes": sorted(g["outcomes"])[:12],
             "players": len(g["players"]), "sides_priced": g["sides_priced"],
+            # Players are cut already; the size guard is the last resort.
             "sample": (g["sample"] if len(json.dumps(g["sample"], default=str)) <= 20000
                        else "sample too large"),
         })

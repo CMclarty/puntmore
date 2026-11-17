@@ -26,9 +26,10 @@ from .time_utils import utcnow
 # `finder` (Nov 2026) is Callum's tips board on `me` (docs/finder-spec.md):
 # Callum's only, so a key or account issued to anyone but
 # Callum never carries "*", only named grants. `aw26` is Callum's ledger of
-# slips, also on `me`.
+# slips, also on `me`. `props` (Nov 2026) is Callum's player props board, on
+# `me`, granted to no one else and to no API client.
 ALL_TOOLS = ("coupons", "accabonus", "cards", "hills", "goalscorers", "pnl", "kelly", "boost", "shop",
-             "aw26", "finder")
+             "aw26", "finder", "props")
 
 # Grants that name no page — they exist for machine callers. `value` reads the
 # cross-tool value feed (GET /api/value); `state` is the whole-app snapshot
@@ -291,6 +292,10 @@ def enabled_tools() -> list[str]:
     # ENABLE_FINDER switches the routes, jobs and page off together.
     if settings.enable_finder:
         tools.append("finder")
+    # Props (Callum's player props, on `me`): reads the Paddy sweep's boards;
+    # ENABLE_PROPS switches the routes and the page off together.
+    if settings.enable_props:
+        tools.append("props")
     return tools
 
 

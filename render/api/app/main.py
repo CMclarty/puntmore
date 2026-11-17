@@ -47,6 +47,7 @@ from .routers import diagnostics as diagnostics_router
 from .routers import value as value_router
 from .routers import twoup as twoup_router
 from .routers import finder as finder_router
+from .routers import props as props_router
 from . import diagnostics
 
 logger = logging.getLogger("uvicorn.error")
@@ -371,6 +372,10 @@ if settings.enable_twoup:
 # `finder` grant, each on the route itself.
 if settings.enable_finder:
     app.include_router(finder_router.router)
+# Props, Callum's player props (app/props/): Paddy's boards read again for
+# player markets, no odds request of its own. Grant and flag both gate it.
+if settings.enable_props:
+    app.include_router(props_router.router, dependencies=[Depends(require_tool("props"))])
 
 # The cross-tool value feed: `value` grant sees every source, a tool grant its
 # own rows (routers/value.py resolves that itself, through user_permissions).

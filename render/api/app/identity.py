@@ -31,6 +31,9 @@ IDENTITIES = [
     (lambda p: p.startswith("/365") or p == "/accabonus", "Puntmore — 365", "accabonus", None),
     (lambda p: p.startswith("/paddy") or p == "/cards", "Puntmore — Paddy", "paddy", None),
     (lambda p: p.startswith("/hills"), "Puntmore — Hills", "hills", None),
+    # Paddy's icon (the same book's prices), its own manifest so a home-screen
+    # shortcut opens /props.
+    (lambda p: p == "/props", "Puntmore — Props", "paddy", "props"),
 ]
 DEFAULT = ("Puntmore", "puntmore", None)
 DEFAULTS = {PUNTMORE: DEFAULT, ME: ("Me", "me", None)}

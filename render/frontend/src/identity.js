@@ -34,6 +34,7 @@ const IDENTITIES = [
   { match: (p) => p.startsWith('/365') || p === '/accabonus', title: 'Puntmore — 365', icon: 'accabonus' },
   { match: (p) => p.startsWith('/paddy') || p === '/cards', title: 'Puntmore — Paddy', icon: 'paddy' },
   { match: (p) => p.startsWith('/hills'), title: 'Puntmore — Hills', icon: 'hills' },
+  { match: (p) => p === '/props', title: 'Puntmore — Props', icon: 'paddy', manifest: 'props' },
 ]
 
 const DEFAULTS = {

@@ -17,6 +17,10 @@ def test_each_tool_gets_its_own_manifest_icon_and_title():
     }
     assert identity_for("/")["manifest"] == "/manifests/coupons.webmanifest"
     assert identity_for("/virtuals")["manifest"] == "/manifests/virtuals.webmanifest"
+    assert identity_for("/props") == {
+        "title": "Puntmore — Props", "svg": "/icons/paddy.svg", "png": "/icons/paddy-180.png",
+        "manifest": "/manifests/props.webmanifest",
+    }
     assert identity_for("/365/scorers")["png"] == "/icons/goalscorers-180.png"
     assert identity_for("/login") == {
         "title": "Puntmore", "svg": "/icon.svg", "png": "/icons/puntmore-180.png",
@@ -43,7 +47,7 @@ def test_server_table_mirrors_the_frontends():
     assert js_icons == py_icons
     for path in ("/", "/t/abc", "/upload", "/pnl/dogs", "/virtuals", "/kelly", "/aw26", "/shop",
                  "/365/scorers", "/365/acca", "/accabonus", "/paddy", "/paddy/acca", "/cards",
-                 "/login", "/nope"):
+                 "/props", "/login", "/nope"):
         ident = identity_for(path)
         # Every file the server names exists in the built public set.
         for key in ("svg", "png", "manifest"):
@@ -87,7 +91,7 @@ def test_every_tool_belongs_to_the_main_site_or_me(monkeypatch):
     from app.security import ALL_TOOLS
     monkeypatch.setattr(settings, "me_host", "me.puntmore.com")
     assert not hasattr(site, "SHALGO") and not hasattr(site, "SHALGO_TOOLS")
-    assert site.ME_TOOLS == ("finder", "pnl", "kelly", "boost", "shop", "aw26")
+    assert site.ME_TOOLS == ("finder", "pnl", "kelly", "boost", "shop", "aw26", "props")
     for tool in ALL_TOOLS:
         assert site.tool_site(tool) == (site.ME if tool in site.ME_TOOLS else site.PUNTMORE), tool
     assert {site.tool_site(t) for t in ("coupons", "cards", "hills", "accabonus", "goalscorers")} == {site.PUNTMORE}

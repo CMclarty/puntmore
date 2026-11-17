@@ -263,6 +263,10 @@ export const logHillsBet = (legs, note) => post('/hills/bets', { legs, note })
 export const settleHillsBet = (id, result) => patch(`/hills/bets/${id}`, { result })
 export const removeHillsBet = (id) => del(`/hills/bets/${id}`)
 
+// Props (me): Paddy's player props against Pinnacle, soonest kick-off first.
+export const getPropsFeed = (minEdge = 0) => get(`/props/feed?min_edge=${minEdge}`)
+export const getPropsDiagnostics = () => get('/props/diagnostics')
+
 // First-goalscorer value (bet365 vs de-vigged Pinnacle). Rows are produced by
 // the scheduler near kickoff and stored, so this just reads the current set.
 export const getGoalscorerFeed = () => get('/goalscorers/feed')

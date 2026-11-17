@@ -83,6 +83,16 @@ const TOOLS = [
     ),
   },
   {
+    // Props: on Me, or the main domain while there is no Me (site.js).
+    tool: 'props', name: 'Props', to: '/props', sub: 'Players', priv: true,
+    matches: (p) => p.startsWith('/props'),
+    icon: (
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="11" cy="7" r="3.5"/><path d="M4 19c0-3.9 3.1-6.5 7-6.5s7 2.6 7 6.5"/>
+      </svg>
+    ),
+  },
+  {
     // Finder: on Me, or the main domain while there is no Me (site.js).
     tool: 'finder', name: 'Finder', to: '/finder', sub: 'Tips', priv: true,
     matches: (p) => p.startsWith('/finder'),

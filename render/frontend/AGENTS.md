@@ -69,6 +69,12 @@ homage to the bookmaker. What Callum asked for, piece by piece; keep it:
 - The tool switcher takes the book's colour while the page is open
   (`--tool-band`, `--dock-bg` set by the page).
 
+## Props (`pages/PropsPage.jsx`, Callum, 17 Nov 2026)
+"A bet tool similar to the main paddy": the Paddy board's band, pills and columns by importing
+`CardsPage.module.css`, band name `PROPS`. One list, every bet at 103% of fair or better
+(`props.js::VALUE_FLOOR`), with pills for the statistic, the kick-off window and max odds. No
+offer switch, no bet log, no results: none was asked for.
+
 ## AW 26's look (`pages/Aw26Page.jsx`, Callum, 9 Nov 2026)
 - It carries the Paddy board's styling by importing `CardsPage.module.css`.
 - The headline is profit, not EV: "an all time profit", because "I need to

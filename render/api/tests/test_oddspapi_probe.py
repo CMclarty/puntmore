@@ -72,6 +72,21 @@ def test_a_book_summary_counts_players_and_sides_under_a_variant_slug():
     assert (totals["type"], totals["players"], totals["sides_priced"]) == ("totals", 0, {"2": 1})
 
 
+def test_a_sample_keeps_three_players_per_outcome_instead_of_being_dropped():
+    many = {str(i): {"price": 2.0 + i / 100, "active": True, "playerName": "x" * 200}
+            for i in range(1, 400)}
+    fixtures = [{"fixtureId": "f1", "bookmakerOdds": {"pinnacle": {"markets": {
+        "50": {"outcomes": {"50": {"players": many}, "51": {"players": {"7": {"price": 1.5}}}}},
+    }}}}]
+    sample = book_summary(fixtures, CATALOGUE, "pinnacle")["market_types"][0]["sample"]
+    first = sample["market"]["outcomes"]["50"]
+    assert list(first["players"]) == ["1", "2", "3"] and first["players_cut_from"] == 399
+    assert sample["market"]["outcomes"]["51"] == {"players": {"7": {"price": 1.5}}}
+    # The board itself is untouched.
+    assert len(fixtures[0]["bookmakerOdds"]["pinnacle"]["markets"]["50"]["outcomes"]["50"]
+               ["players"]) == 399
+
+
 def test_probe_reads_tournaments_a_book_and_only_listed_raw_paths():
     c = Client()
     assert probe(c, "tournaments", sport=11, find="nba")["rows"] == [

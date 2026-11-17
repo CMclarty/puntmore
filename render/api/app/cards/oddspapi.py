@@ -655,11 +655,22 @@ class OddsPapiClient:
     def catalogue(self):
         return self._cached(self._ref, "markets", "/markets")
 
+    def cached_catalogue(self):
+        """The catalogue a request has already fetched, or None. Sends nothing:
+        a reader that must add no request reads this (app/props/service.py)."""
+        hit = self._ref.get("markets")
+        return None if hit is MISS else hit
+
     def participants(self):
         return self._cached(self._ref, "participants", "/participants", sportId=SOCCER)
 
     def tournaments(self):
         return self._cached(self._ref, "tournaments", "/tournaments", sportId=SOCCER)
+
+    def players(self):
+        """Football player names (billable), cached a day: the props tool's
+        one request of its own (app/props/service.py)."""
+        return self._cached(self._ref, "players", "/players", sportId=SOCCER)
 
     def resolve_book(self, wanted: str) -> str:
         """The slug this plan actually grants for `wanted`. A plan lists

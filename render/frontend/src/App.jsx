@@ -24,6 +24,7 @@ const Three65Page = lazy(() => import('./pages/Three65Page'))
 const TwoUpPage = lazy(() => import('./pages/TwoUpPage'))
 const FinderPage = lazy(() => import('./pages/FinderPage'))
 const CardsPage = lazy(() => import('./pages/CardsPage'))
+const PropsPage = lazy(() => import('./pages/PropsPage'))
 
 // The path the app was FIRST loaded at, captured once before the router starts
 // navigating. A direct (hard) load of a focused route — e.g. saving /pnl to the
@@ -126,6 +127,8 @@ export default function App() {
           <Route path="/finder" element={protectTool(<FinderPage />, 'finder')} />
           {/* AW 26, Callum's slips: on me, or the main domain while there is no me (site.js). */}
           <Route path="/aw26" element={protectTool(<Aw26Page />, 'aw26')} />
+          {/* Props, Paddy's player props: on me, or the main domain while there is no me (site.js). */}
+          <Route path="/props" element={protectTool(<PropsPage />, 'props')} />
           {/* 365: the bet365 offers, a tab each. The acca boost tab returns on
               OddsPapi (PLAN.md item 11); its old addresses land on the tool. */}
           <Route path="/365" element={<Three65Page tools={user?.tools} />}>
