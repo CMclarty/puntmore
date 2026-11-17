@@ -155,7 +155,8 @@ export default function PropsPage() {
           {list.length ? list.map(b => (
             <div className={f.row} key={b.key}>
               <span className={f.what}>
-                <span className={f.pick}>{b.pick}</span>
+                {/* A player pick is longer than Paddy's and its end is the bet: it wraps, never cuts. */}
+                <span className={f.pick} style={{ whiteSpace: 'normal' }}>{b.pick}</span>
                 <span className={f.match}>{b.match}</span>
               </span>
               <Ko iso={b.commence_time} now={now} />
