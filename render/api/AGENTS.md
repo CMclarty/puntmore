@@ -608,7 +608,10 @@ Pinnacle's fair reference, joined on the same fixture id.
   (Oct 2026) capped at 3,000/day. The catalogue and participants field names were NOT verifiable
   when written (host blocked) — parsed tolerantly, and
   `/api/cards/oddspapi-check` shows what the live catalogue calls each corner
-  and card market. Read it before trusting a price. It emits TheOddsApi-shaped
+  and card market. Read it before trusting a price. For a market no code
+  prices yet, `/api/paddy/oddspapi-probe` (`cards/oddspapi_probe.py`, 17 Nov
+  2026) reads the sports, tournaments, the catalogue by type and what one
+  book prices in a tournament, player props apart; it prices nothing. It emits TheOddsApi-shaped
   events, so the Pinnacle join, the pricing model and the diagnostics are
   unchanged. The TheOddsApi path behind it is gone.
 - **Pinnacle's side comes from OddsPapi too** (`oddspapi_fair_book`, default

@@ -144,6 +144,29 @@ def oddspapi_check(request: Request, book: str | None = None, tournament: int = 
     return out
 
 
+def oddspapi_probe(request: Request, what: str = "catalogue", sport: int | None = None,
+                   find: str = "", book: str = "paddypower", tournament: str = "",
+                   path: str = "", params: str = "",
+                   limit: int = Query(default=50, ge=1, le=500), player_only: bool = True):
+    """A read-only look at what OddsPapi carries: its sports, tournaments, the
+    market catalogue by type, and what one book prices in named tournaments,
+    player props apart (cards/oddspapi_probe.py). Billable calls are counted
+    and stopped by the daily budget like the sweep's."""
+    from ..cards.oddspapi import OddsPapiPaddySource
+    from ..cards.oddspapi_probe import probe
+    cards = _client(request)
+    if not isinstance(cards, OddsPapiPaddySource):
+        return {"error": "OddsPapi is not configured — set ODDSPAPI_API_KEY."}
+    try:
+        out = probe(cards._client, what, sport=sport, find=find, book=book,
+                    tournament=tournament, path=path, params=params, limit=limit,
+                    player_only=player_only)
+    except Exception as exc:
+        out = {"error": str(exc)}
+    out["requests_today"] = cards._client.requests_today
+    return out
+
+
 def get_cards_diagnostics(request: Request):
     """One request that says why the screen looks the way it does."""
     return diagnose(_client(request))
@@ -175,6 +198,7 @@ def make_router(client_attr: str = "cards_client") -> APIRouter:
     if client_attr == "cards_client":
         # Paddy's board is the one kept (cards/history.py); Hills' is not.
         routes.append(("/board-at", get_board_at, list[CardFeedItem]))
+        routes.append(("/oddspapi-probe", oddspapi_probe, OpenModel))
     for path, endpoint, model in routes:
         r.add_api_route(path, endpoint, methods=["GET"], response_model=model)
     return r
