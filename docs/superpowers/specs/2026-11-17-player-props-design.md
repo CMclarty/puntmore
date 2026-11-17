@@ -76,7 +76,9 @@ kept and the clash is counted.
 
 - **Source.** `app/props/` reads the raw boards the Paddy sweep already holds
   (`OddsPapiPaddySource.boards`, both books merged per fixture, and `.fixtures` for names and
-  kick-offs). It makes **no odds request of its own**. Its one request is `/players` for
+  kick-offs). It makes **no odds request of its own**, with one exception: a read before the
+  source has ever swept (the first after boot) runs the Paddy sweep, as the Paddy feed does.
+  A board whose last sweep failed is not shown. Its one request is `/players` for
   names, cached a day by the client.
 - **Feed.** `GET /api/props/feed?min_edge=` (default 0.0, bounds -0.5..0.5): one item per
   fixture still to kick off, soonest first, each with its bets best value first:
@@ -99,8 +101,10 @@ kept and the clash is counted.
   One list: every bet at or above 103% of fair (Callum agreed the 3% start), best first. Each
   row: the pick, the match (short team names) and kick-off, Paddy's odds, the value % with
   Paddy's tiers, the fair. No Refund, Boost or Free bet switch, no bet log.
-- **Only Callum.** `props` is a new grant in `ALL_TOOLS` and `ME_TOOLS`; only Callum's coded
-  account (`app/users.py`) gets it. No API client is granted it.
+- **Only Callum.** `props` is a new grant in `ALL_TOOLS` and `ME_TOOLS`. Callum's account is
+  not in code: it comes from `AUTH_USERS` on Render and holds `*`, which carries every tool.
+  No coded account and no API client is granted `props`; any other account holding `*`
+  would see it.
 
 ## Not in this build
 
@@ -128,8 +132,8 @@ has already moved. The page shows the age of the prices; nothing else guards thi
 
 1. **Backend.** `app/props/model.py` (catalogue to statements, boards to quotes, the join and
    value, pure), `app/props/service.py` (reads the source, names, feed and diagnostics),
-   `routers/props.py`, schemas, `ENABLE_PROPS`, the `props` grant in `security.py`, `site.py`
-   and `users.py`, `identity.py`, mounted in `main.py`. Tests for every table row above, both
+   `routers/props.py`, schemas, `ENABLE_PROPS`, the `props` grant in `security.py` and
+   `site.py`, `identity.py`, mounted in `main.py`. Tests for every table row above, both
    shapes on the fair side, the one-sided refusal, a suspended price, an x.0 line, the
    duplicate statement, the unnamed player, the empty Pinnacle side.
 2. **Frontend.** `pages/PropsPage.jsx`, route, nav entry, `site.js`, `identity.js`, `api.js`,
