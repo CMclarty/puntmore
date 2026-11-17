@@ -4,9 +4,13 @@ already holds (`app.state.cards_client`, an `OddsPapiPaddySource`).
 NO ODDS REQUEST OF ITS OWN. Both books' raw boards (`.boards`, merged per
 fixture) and the fixture list (`.fixtures`) come from the Paddy sweep, which
 asks OddsPapi for each book's whole board per tournament chunk, player markets
-included. Like the Paddy feed (`cards/feed.py::build_feed`), a read first calls
-`get_events()`, which reads through the shared client's cache and waits for a
-sweep already running, so the tool is never read off an empty board at boot.
+included, every 2 minutes (the `cards_sweep` job). Only when the source has
+never swept (a read at boot, before the job's first tick) does a read call
+`get_events()` itself, as the Paddy feed does, so the tool is never read off an
+empty board; after that it reads what the job left, and a sweep that failed
+is the job's to retry, never a props read's. The market catalogue is the one
+the sweep fetched, read from the client's cache without sending anything
+(`cached_catalogue`): a failed /markets is never re-sent from here.
 The one request this tool adds is `/players` for names, cached a day by the
 client and asked only when a priced selection's player has no name on its
 price; a failure there is held 10 minutes (every attempt is billed) and costs
@@ -121,21 +125,22 @@ class Board:
         self.fair_slug: str | None = None
         self.names: Names | None = None
         self.read_markets = 0
-        self.catalogue_error: str | None = None
+        self.catalogue_read = False
         self.priced_at = None
 
 
 def build(source, now: datetime | None = None) -> Board:
-    """Price the props board off `source`'s last sweep (running one first, as
-    the Paddy feed does). Never raises for a vendor failure: the board comes
-    back empty and the diagnostics name why."""
+    """Price the props board off `source`'s last sweep (running one first only
+    when it has never swept). Never raises for a vendor failure: the board
+    comes back empty and the diagnostics name why."""
     board = Board()
     if source is None or not hasattr(source, "boards"):
         return board
-    try:
-        source.get_events()
-    except Exception as exc:              # the sweep logs and records its own failures
-        logger.warning("props: the Paddy sweep failed: %s", exc)
+    if not getattr(source, "last_sweep", None):
+        try:
+            source.get_events()
+        except Exception as exc:          # the sweep logs and records its own failures
+            logger.warning("props: the Paddy sweep failed: %s", exc)
     now = now or datetime.now(timezone.utc)
     board.priced_at = getattr(source, "priced_at", None)
     board.fixtures = {str(f["id"]): f for f in getattr(source, "fixtures", None) or []
@@ -144,13 +149,12 @@ def build(source, now: datetime | None = None) -> Board:
     board.paddy_slug = getattr(source, "priced_book", None) or getattr(source, "book", None)
     board.fair_slug = fair_slug(source)
     board.names = Names(source._client)
-    if not board.fixtures or not boards:
-        return board
-    try:
-        # The sweep's own catalogue, cached a day by the client.
-        catalogue = source._client.catalogue()
-    except Exception as exc:
-        board.catalogue_error = str(exc)[:300]
+    # The sweep's own catalogue, as the client cached it; None until a sweep
+    # has read it. Never fetched here.
+    reader = getattr(source._client, "cached_catalogue", None)
+    catalogue = reader() if reader is not None else None
+    board.catalogue_read = catalogue is not None
+    if catalogue is None or not board.fixtures or not boards:
         return board
     index = model.statements(catalogue)
     props = model.player_market_ids(catalogue)
@@ -223,10 +227,12 @@ def _verdict(source, board: Board, total: dict[str, int]) -> str:
         return f"The Paddy sweep failed before any board arrived: {sweep['error']}"
     if not sweep and not getattr(source, "boards", None):
         return "No Paddy sweep has run yet. Open the feed again in a minute."
+    if not board.catalogue_read:
+        return ("The market catalogue has not been read yet: the Paddy sweep reads it, "
+                "and nothing is priced until it has."
+                + (f" Its last attempt failed: {sweep['error']}" if sweep.get("error") else ""))
     if not fixtures:
         return "No fixture on the Paddy board is still to kick off, so there is nothing to price."
-    if board.catalogue_error:
-        return f"The market catalogue could not be read: {board.catalogue_error}"
     if not board.read_markets:
         return "The catalogue lists no football player market this tool reads."
     if not paddy:
@@ -247,6 +253,10 @@ def _verdict(source, board: Board, total: dict[str, int]) -> str:
     if not board.fair.quotes:
         return (f"Pinnacle posts {board.fair.player_markets} player market(s), none in a "
                 f"shape this tool reads.")
+    if board.names is not None and board.names.error and total["unnamed"]:
+        return (f"The player names request failed, so {total['unnamed']} priced "
+                f"selection(s) are left out unnamed ({matched} of {paddy} listed): "
+                f"{board.names.error}")
     if not matched:
         return (f"Pinnacle prices players, but none of Paddy's {paddy} selection(s) at the "
                 f"same line with both sides: {_reasons(total)}.")
@@ -268,7 +278,7 @@ def diagnose(source, now: datetime | None = None) -> dict:
         "books": {"paddy": board.paddy_slug, "fair": board.fair_slug},
         "fixtures_to_kick_off": len(board.fixtures),
         "priced_at": board.priced_at,
-        "catalogue": {"markets_read": board.read_markets, "error": board.catalogue_error},
+        "catalogue": {"read": board.catalogue_read, "markets_read": board.read_markets},
         "player_markets_posted": {"paddy": board.paddy.player_markets,
                                   "pinnacle": board.fair.player_markets},
         "names": {

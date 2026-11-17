@@ -56,6 +56,9 @@ class Client:
     def catalogue(self):
         return CATALOGUE
 
+    def cached_catalogue(self):
+        return CATALOGUE
+
     def resolve_book(self, wanted):
         return self._fair_slug
 
@@ -161,6 +164,9 @@ def test_names_come_flat_too_and_a_names_failure_leaves_those_players_out():
     diag = get("/props/diagnostics", broken).json()
     assert diag["totals"]["unnamed"] == 6 and diag["totals"]["matched"] == 0
     assert "HTTP 500" in diag["names"]["error"]
+    # The verdict blames the names request, not Pinnacle's lines.
+    assert diag["verdict"].startswith("The player names request failed")
+    assert "HTTP 500" in diag["verdict"] and "Pinnacle" not in diag["verdict"]
     # The failure is held: not re-sent on the next read (each attempt is billed).
     assert broken._client.player_calls == 1
 
@@ -183,7 +189,7 @@ def test_the_diagnostics_count_per_stat_and_give_a_verdict():
     assert diag["stats"]["shotsongoal"]["matched"] == 2
     assert diag["stats"]["goals"] == {
         "paddy": 4, "pinnacle_two_sided": 4, "matched": 4, "no_fair_player": 0,
-        "no_fair_line": 0, "fair_one_sided": 0, "unnamed": 0,
+        "no_fair_line": 0, "fair_one_sided": 0, "unnamed": 0, "fair_crossed": 0,
         "duplicates_paddy": 0, "duplicates_pinnacle": 0}
     assert diag["verdict"].startswith("6 of 6 Paddy selection(s) priced against Pinnacle")
 
@@ -232,3 +238,73 @@ def test_player_names_are_read_tolerantly():
         "9": "Declan Rice"}
     assert service.player_names({"players": {"5": {"playerName": "Rodri"}}}) == {"5": "Rodri"}
     assert service.player_names(None) == {}
+
+
+def test_a_failing_catalogue_is_never_re_sent_by_props(monkeypatch):
+    """Props reads only the catalogue a sweep already fetched: three polls
+    after the sweep's /markets failed send nothing more."""
+    from app.cards.oddspapi import OddsPapiClient, OddsPapiPaddySource
+    client = OddsPapiClient("x")
+    sent = []
+
+    def send(path, **params):
+        sent.append(path)
+        raise RuntimeError(f"OddsPapi {path}: HTTP 500")
+
+    monkeypatch.setattr(client, "get", send)
+    monkeypatch.setattr(client, "resolve_book", lambda wanted: wanted)
+    src = OddsPapiPaddySource(client)
+    src.get_events()                          # the scheduler's sweep: fails on /markets
+    before = list(sent)
+    assert "/markets" in before and src.last_sweep.get("error")
+    for _ in range(3):
+        assert get("/props/feed", src).json() == []
+    diag = get("/props/diagnostics", src).json()
+    assert sent == before                     # props sent nothing at all
+    assert "catalogue" in diag["verdict"] or "sweep failed" in diag["verdict"]
+    assert diag["catalogue"]["read"] is False
+
+
+def test_with_no_catalogue_read_yet_the_feed_is_empty_and_says_so():
+    class NoCatalogue(Client):
+        def catalogue(self):
+            raise AssertionError("props must not fetch the catalogue")
+
+        def cached_catalogue(self):
+            return None
+
+    src = Source(client=NoCatalogue())
+    assert get("/props/feed", src).json() == []
+    diag = get("/props/diagnostics", src).json()
+    assert diag["verdict"].startswith("The market catalogue has not been read yet")
+    assert diag["catalogue"] == {"read": False, "markets_read": 0}
+
+
+def test_names_on_the_prices_send_no_players_request():
+    named = {"markets": {
+        "130": {"outcomes": {"1300": {"players": {
+            "7": {"price": 2.2, "active": True, "playerName": "Haaland, Erling"}}}}},
+    }}
+
+    class NamedSource(Source):
+        def get_events(self):
+            super().get_events()
+            for fx in self.boards.values():
+                fx["bookmakerOdds"] = {**fx["bookmakerOdds"], "paddypower": named}
+
+    src = NamedSource()
+    picks = [b["pick"] for i in get("/props/feed", src).json() for b in i["bets"]]
+    assert picks == ["Erling Haaland to score", "Erling Haaland to score"]
+    assert src._client.player_calls == 0
+
+
+def test_an_unauthenticated_request_is_401():
+    from app.security import require_user
+    app.dependency_overrides.pop(user_permissions, None)
+    app.dependency_overrides.pop(require_user, None)
+    try:
+        assert get("/props/feed", Source()).status_code == 401
+        assert get("/props/diagnostics", Source()).status_code == 401
+    finally:
+        app.dependency_overrides[user_permissions] = lambda: "*"
+        app.dependency_overrides[require_user] = lambda: "testuser"

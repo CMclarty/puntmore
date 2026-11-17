@@ -655,6 +655,12 @@ class OddsPapiClient:
     def catalogue(self):
         return self._cached(self._ref, "markets", "/markets")
 
+    def cached_catalogue(self):
+        """The catalogue a request has already fetched, or None. Sends nothing:
+        a reader that must add no request reads this (app/props/service.py)."""
+        hit = self._ref.get("markets")
+        return None if hit is MISS else hit
+
     def participants(self):
         return self._cached(self._ref, "participants", "/participants", sportId=SOCCER)
 

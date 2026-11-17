@@ -20,6 +20,7 @@ neighbouring one: the selection is refused and counted.
 The join is on OddsPapi's own fixture and player ids. No name matching.
 """
 from dataclasses import dataclass, field
+import math
 import re
 
 from ..cards.oddspapi import SOCCER, _as_list, _first, _price
@@ -40,7 +41,9 @@ LABELS = {
 # Both mean the whole match; halves and anything else are not read.
 PERIODS = ("result", "fulltime")
 # The reasons a Paddy selection is left out, every one counted per stat.
-REASONS = ("no_fair_player", "no_fair_line", "fair_one_sided", "unnamed")
+# `fair_crossed`: Pinnacle's two sides carry no margin (2.5 / 2.5), so there is
+# nothing to remove and the pair is not a market to trust.
+REASONS = ("no_fair_player", "no_fair_line", "fair_one_sided", "unnamed", "fair_crossed")
 
 _AT_LEAST_RE = re.compile(r"^(\d+)\+$")
 
@@ -70,6 +73,8 @@ def _statement(market_type: str, line, outcome: str) -> tuple[str, str, int] | N
             line = float(line)
         except (TypeError, ValueError):
             return None
+        if not math.isfinite(line):
+            return None
         twice = line * 2
         # x.5 only: a whole-number line can push, and is not the same bet.
         if stat not in STATS or line <= 0 or abs(twice - round(twice)) > 1e-9 \
@@ -91,8 +96,8 @@ def display_name(raw) -> str | None:
     return name.strip(", ") or None
 
 
-def _is_football_prop(m: dict) -> bool:
-    return bool(m.get("playerProp")) and str(_first(m, "sportId", "sport_id")) == str(SOCCER)
+def _is_football_prop(m) -> bool:
+    return isinstance(m, dict) and bool(m.get("playerProp")) and str(_first(m, "sportId", "sport_id")) == str(SOCCER)
 
 
 def statements(catalogue) -> dict[str, dict[str, tuple[str, str, int]]]:
@@ -273,7 +278,11 @@ def join(paddy: BookQuotes, fair: BookQuotes, names: dict[str, str]
             # One side alone cannot have its margin removed.
             row["fair_one_sided"] += 1
             continue
-        name = names.get(pid) or paddy.names.get(pid) or fair.names.get(pid)
+        if 1 / have[AT_LEAST] + 1 / have[FEWER] - 1 <= 0:
+            row["fair_crossed"] += 1
+            continue
+        # A name on the price first: `names` may send /players when asked.
+        name = paddy.names.get(pid) or fair.names.get(pid) or names.get(pid)
         if not name:
             row["unnamed"] += 1
             continue

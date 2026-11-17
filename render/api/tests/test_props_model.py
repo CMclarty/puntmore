@@ -215,3 +215,61 @@ def test_the_fair_book_is_found_under_a_variant_slug_either_way():
 ])
 def test_pick_wording(stat, n, want):
     assert model.pick("Declan Rice", stat, n) == want
+
+
+def test_a_crossed_fair_pair_is_refused_and_counted():
+    # 2.5 / 2.5: the two sides imply 80%, a negative margin; 2.0 / 2.0 none at all.
+    for under in (2.5, 2.0):
+        bets, counts, _, _ = run({
+            PADDY: {"100": {"1003": {"7": entry(3.6)}}},
+            PIN: {"200": {"2000": {"7": entry(2.5 if under == 2.5 else 2.0)},
+                          "2001": {"7": entry(under)}}},
+        })
+        c = counts["shotsongoal"]
+        assert bets == [] and c["fair_crossed"] == 1 and c["matched"] == 0
+        assert sum(c[r] for r in model.REASONS) + c["matched"] == c["paddy"]
+
+
+def test_a_suspended_market_is_skipped():
+    boards = {"f1": board({
+        PADDY: {"100": {"1003": {"7": entry(3.6)}}},
+        PIN: {"200": {"2000": {"7": entry(3.0)}, "2001": {"7": entry(1.38)}}},
+    })}
+    boards["f1"]["bookmakerOdds"][PIN]["markets"]["200"]["marketActive"] = False
+    fair = model.quotes(boards, IDX, PIN)
+    assert fair.quotes == {}
+    boards["f1"]["bookmakerOdds"][PIN]["markets"]["200"]["marketActive"] = True
+    assert len(model.quotes(boards, IDX, PIN).quotes) == 1
+
+
+def test_a_malformed_catalogue_entry_is_skipped_never_raised():
+    bad = ["not a market", None, 5, ["x"],
+           market(1, "playertotals-shots", [(1, "Over"), (2, "Under")], line=float("nan")),
+           market(2, "playertotals-shots", [(3, "Over"), (4, "Under")], line=float("inf")),
+           market(3, "playertotals-shots", [(5, "Over"), (6, "Under")], line="1.5x"),
+           market(4, "playertotals-shots", [(7, "Over"), (8, "Under")], line=None),
+           {**market(5, "players-shots", [(9, "1+")]), "outcomes": ["junk", None, {"outcomeId": 10, "outcomeName": "2+"}]},
+           market(6, "playertotals-shots", [(11, "Over"), (12, "Under")], line="2.5")]
+    idx = model.statements(bad)
+    assert idx == {"5": {"10": (AT_LEAST, "shots", 2)},
+                   "6": {"11": (AT_LEAST, "shots", 3), "12": (FEWER, "shots", 3)}}
+    assert model.player_market_ids(bad) == {"1", "2", "3", "4", "5", "6"}
+
+
+class CountingNames(dict):
+    def __init__(self, *a):
+        super().__init__(*a)
+        self.asked = 0
+
+    def get(self, key, default=None):
+        self.asked += 1
+        return super().get(key, default)
+
+
+def test_a_name_on_the_price_is_used_without_asking_for_names():
+    names = CountingNames({"7": "Someone Else"})
+    bets, _, _, _ = run({
+        PADDY: {"100": {"1003": {"7": entry(3.6, playerName="Haaland, Erling")}}},
+        PIN: {"200": {"2000": {"7": entry(3.0)}, "2001": {"7": entry(1.38)}}},
+    }, names=names)
+    assert [b.player for b in bets] == ["Erling Haaland"] and names.asked == 0
