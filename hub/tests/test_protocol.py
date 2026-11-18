@@ -37,10 +37,11 @@ def _prices(**body):
             "ts": "2026-11-06T09:30:00+00:00", "body": {**base, **body}}
 
 
-def test_a_prices_drop_names_one_of_the_two_paddy_routes():
+def test_a_prices_drop_names_a_paddy_route_or_2ups_bookie_bashing_route():
     validator.validate(_prices())
     validator.validate(_prices(route="/api/paddy/saves-fair"))
-    for bad in ("/api/finder/rows", "/api/paddy/feed", "hub:tips", ""):
+    validator.validate(_prices(route="/api/2up/bb"))
+    for bad in ("/api/finder/rows", "/api/paddy/feed", "/api/2up/feed", "hub:tips", ""):
         with pytest.raises(ValidationError):
             validator.validate(_prices(route=bad))
 

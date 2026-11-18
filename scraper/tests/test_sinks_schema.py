@@ -101,6 +101,20 @@ def test_bb_saves_rows_take_the_same_path_unchanged(tmp_path):
     assert env["body"]["route"] == "/api/paddy/saves-fair" and env["body"]["rows"] == rows
 
 
+def test_bb_2up_rows_take_the_same_path_to_their_own_route(tmp_path):
+    t = config._target({"name": "bb-2up", "site": "bookiebashing",
+                        "url": "https://www.bookiebashing.net/trackers/early-payout-tracker/#/",
+                        "parser": "bb_2up", "post": "/api/2up/bb"})
+    rows = [{"bookmaker": "bet365", "event": "Real Madrid v PSV", "home": "Real Madrid", "away": "PSV",
+             "selection": "PSV", "side": "away", "book_odds": 13.0, "lay": 15.0, "rating": 108.86,
+             "n_odds": 11.95, "kickoff": "2026-11-24T20:00:00Z", "updated_s": 60,
+             "seen_at": "2026-11-18T12:10:39Z"}]
+    assert deliver_prices(tmp_path, t, rows, time.time())
+    env = _only(tmp_path / "hub" / "prices")
+    SCHEMA.validate(env)
+    assert env["body"]["route"] == "/api/2up/bb" and env["body"]["rows"] == rows
+
+
 def test_two_tabs_of_one_target_in_one_tick_make_two_files(tmp_path):
     t, now = _price_target(), time.time()
     other = [{**MOST[0], "home": "Arsenal", "away": "Spurs"}]

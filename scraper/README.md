@@ -3,7 +3,8 @@
 The Scraper service: the one real Chrome on the Hub, on its own virtual screen. It reads every
 page any tool needs and fills what OddsPapi lacks: Paddy Power pages kept
 **open** (it listens to what they receive), Finder's sources loaded and
-closed, and Bookie Bashing's bet builder for its jobs (`bb-saves` the first). After
+closed, Bookie Bashing's bet builder for its jobs (`bb-saves` the first) and its
+Early Payout Tracker for 2-Up (`bb-2up`). After
 the first load the site's own scripts keep each page fresh, so most targets
 cost no further requests. Runs as the user service `puntmore-scraper` on its
 own virtual screen, the user service `puntmore-screen` (below), updated by
@@ -61,6 +62,65 @@ whole 30. As a fetch job, `every_min = 100` inside `window = "08:00-23:00"`
 is 8-10 loads a day, with `wait_for = "#offers-main-wrap table[data-offer-id]"`
 so it reads the offers, not the "Searching for most profitable offers.."
 notice (`targets.example.toml`, `tc-reload-offers`).
+`bb_2up` reads Bookie Bashing's Early Payout Tracker
+(`https://www.bookiebashing.net/trackers/early-payout-tracker/#/`, signed in)
+for 2-Up. Written from what the `bb-2up` job held on 18 Nov 2026: two saved
+pages (194 rows each) and the payloads the page received. The page fetches a
+ratings payload when it loads and about once a minute, and draws the table
+from it; the table's "Last update" and "last refresh" text is written when
+the table is drawn and never ticks. So the rows come from the newest ratings
+payload in the capture (known by its shape, never by its url), and the table
+is the check that the page drew it. One row per selection: the book
+("bet365"), the event and its two teams, the selection and whether it is the
+home or away team, the book odds and the lay as the payload has them (2.625,
+where the table shows 2.63), the EV rating (100 is break-even) and N.Odds to
+two places, the kick-off in UTC, the seconds since the record last changed
+(now less its `changed`), and when it was read. Only games kicking off within
+`games.within_h` hours (48 by default, the "Games" setting every job that
+reads games follows) are rows. When the tracker is read cleanly and no game
+on it is that near (midweek, usually), the job rests as `bb-saves` does:
+its page is closed and nothing loads until 48 hours before the earliest game
+the tracker lists, or a day (`games.look_again_s`), whichever is sooner; a
+tracker with no selections rests 30 minutes, as an empty answer may pass. `status` shows it `paused` with the
+reason; `wake bb-2up` ends the rest by hand. It clicks nothing: the page refreshes itself,
+and its filters are Callum's saved settings on Bookie Bashing. Those other
+than the three below (Competition, EV min, KO window, Odds above and below)
+narrow the table and so the board: that is deliberate, the job reads the
+tracker as Callum has it set, and it costs bets, never a wrong price.
+
+Each parse that reads rows (once a minute) is one `scraper_prices` file for
+`/api/2up/bb`: every selection on the tracker inside the window, which the
+Hub posts within about 10 s, so Render can replace what it held. It posts
+nothing, and the job's log says why, when no ratings payload has arrived yet,
+when the newest is more than 3 minutes old (the page has stopped
+refreshing), when the settings are not the ones the rows are read for
+(Metric lay, Book bet365 alone, the fixed-trigger 2-up model, as the payload
+shows them; a record with no lay rating to confirm the model by counts as
+changed), when the page fetched fewer selections than the tracker has
+(the payload's limit), when the table, its "N/M shown" line and the payload
+disagree, when there is no tracker table (logged out, still loading) or its
+header has changed, or when more than a tenth of the records cannot be read.
+A record it cannot read is skipped and counted, never guessed.
+
+A page that has stopped refreshing receives nothing, so its capture goes
+quiet and the runner reloads it once it has been quiet for the job's
+`stale_min` and loaded that long ago. 10 minutes is the floor
+(`config._target`). With no `every_min` the page is otherwise reloaded only
+by `recycle.hours` (a fresh page about every 30 minutes, about 2 loads an
+hour and 48 a day of Bookie Bashing's 8 an hour and 120 a day); a page that
+stays stuck is reloaded at most every 10 minutes, 6 an hour, and the guard
+refuses any load past the budget. A rest pauses the job's no-rows alert
+(`alerts.no_rows_min`, 60 minutes), so a quiet midweek raises none; it still
+fires for a page that stays up and posts nothing for an hour (a stuck page,
+changed settings, a short table). `min_rows` is left unset: a resting job
+reads no rows by design. The job (`targets.example.toml`, `bb-2up`):
+
+```sh
+python -m scraper targets add --name bb-2up --site bookiebashing \
+    --url 'https://www.bookiebashing.net/trackers/early-payout-tracker/#/' \
+    --parser bb_2up --post /api/2up/bb --stale-min 10
+python -m scraper targets set bb-2up --post /api/2up/bb --every-min none --stale-min 10   # the capture-only job, posting
+```
 
 ## What it will and won't do
 - Opens pages on `paddypower.com`, `bookiebashing.net`, `teamcasino.com` and

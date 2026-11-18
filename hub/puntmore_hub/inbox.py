@@ -16,8 +16,8 @@ Each file is one envelope (`schemas/protocol.schema.json`, type `scraper_tips`,
 `scraper_event` or `scraper_prices`); this reads its `body`. A file written before the envelope
 (a bare body) is read as it is, so an update never strands what is already on disk.
 
-The inbox also posts the Scraper's Paddy price drops (`<scraper data>/hub/prices/`, one file
-per parse) to Render, the one thing in the inbox that crosses a network (`post_prices`). That
+The inbox also posts the Scraper's price drops (`<scraper data>/hub/prices/`, one file
+per parse: Paddy's prices, and Bookie Bashing's Early Payout Tracker for 2-Up) to Render, the one thing in the inbox that crosses a network (`post_prices`). That
 pass runs after the tips and events, so a slow Render never delays them, and holds a
 non-blocking lock on `prices/.lock` so two passes never post the same file. Files go oldest
 first, each as `{"prices": rows}` to its `route` through `finder.post_json` (the Hub's Render
@@ -50,7 +50,7 @@ PRICE_MIN, PRICE_MAX = 1.01, 1000.0
 KEEP_DONE = 300
 _TIP_ID = re.compile(r"^[0-9a-f]{16,40}$")
 # The Render routes a price drop may name: the schema's enum (`scraper_prices`), kept here too.
-PRICE_ROUTES = ("/api/paddy/saves-fair", "/api/paddy/most-prices")
+PRICE_ROUTES = ("/api/paddy/saves-fair", "/api/paddy/most-prices", "/api/2up/bb")
 PRICE_MAX_AGE_S = 900            # a price drop older than this is moved aside unsent
 PRICE_COUNT_KEYS = ("price_files", "price_rows", "price_dropped", "price_waiting")
 # Why the pass's last file was moved aside, and why files wait (None when nothing was): short
