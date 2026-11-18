@@ -65,6 +65,19 @@ every_min = 10
 parser = "bb_saves"
 post = "/api/paddy/saves-fair"
 
+# Bookie Bashing's Early Payout Tracker for 2-Up: a page kept open that
+# refreshes itself. parsers/bb_2up.py reads the whole table once a minute,
+# clicks nothing, and its rows go to Render's /api/2up/bb through the Hub.
+# min_rows: fewer is a layout change or a logout, alerted.
+[[target]]
+name = "bb-2up"
+site = "bookiebashing"
+url = "https://www.bookiebashing.net/trackers/early-payout-tracker/#/"
+every_min = 600
+parser = "bb_2up"
+post = "/api/2up/bb"
+min_rows = 10
+
 [[target]]
 name = "pp-epl-most"
 site = "paddypower"

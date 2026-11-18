@@ -70,7 +70,9 @@ prices are `scraper_prices` files that the Hub posts to Render.
   (`bb_saves.bring_up`, shared): a page to `look` at, the start of the
   preset-driven bet-builder job. `tc_reload` reads Team Casino's
   reload-offers dashboard, one row per offer, from the page's HTML; it
-  clicks nothing (every control there changes Callum's account). `dom.py`
+  clicks nothing (every control there changes Callum's account). `bb_2up`
+  reads Bookie Bashing's Early Payout Tracker the same way, one row per
+  table row, for `/api/2up/bb` (the whole table each parse). `dom.py`
   is a small DOM over a page's HTML (the standard library's html.parser),
   so such a parser's tests need no browser. A parser may return
   `rows.Rows` (a list with `said`): a line about the page, which the runner
@@ -192,7 +194,9 @@ prices are `scraper_prices` files that the Hub posts to Render.
   most-cards three-ways (written from the 29 Oct 2026 capture); `pp_listing`
   reads the kick-off times off a Paddy listing (written from the 12 Nov 2026
   dump); `tc_reload` reads Team Casino's reload-offers dashboard (written
-  from the signed-in page `look` saved on 13 Nov 2026). Where its rows go is
+  from the signed-in page `look` saved on 13 Nov 2026); `bb_2up` reads Bookie
+  Bashing's Early Payout Tracker for 2-Up (written from the `bb-2up` job's
+  dumps of 18 Nov 2026; kept open, posted to `/api/2up/bb`). Where `tc_reload`'s rows go is
   not decided (Callum's design is open), so a `teamcasino` job runs it with
   no `post`: rows read and counted, sent nowhere. That job is `mode =
   "fetch"` (load, read, close, `every_min` inside a `window`, `wait_for` the

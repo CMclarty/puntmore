@@ -3,7 +3,8 @@
 The Scraper service: the one real Chrome on the Hub, on its own virtual screen. It reads every
 page any tool needs and fills what OddsPapi lacks: Paddy Power pages kept
 **open** (it listens to what they receive), Finder's sources loaded and
-closed, and Bookie Bashing's bet builder for its jobs (`bb-saves` the first). After
+closed, Bookie Bashing's bet builder for its jobs (`bb-saves` the first) and its
+Early Payout Tracker for 2-Up (`bb-2up`). After
 the first load the site's own scripts keep each page fresh, so most targets
 cost no further requests. Runs as the user service `puntmore-scraper` on its
 own virtual screen, the user service `puntmore-screen` (below), updated by
@@ -61,6 +62,35 @@ whole 30. As a fetch job, `every_min = 100` inside `window = "08:00-23:00"`
 is 8-10 loads a day, with `wait_for = "#offers-main-wrap table[data-offer-id]"`
 so it reads the offers, not the "Searching for most profitable offers.."
 notice (`targets.example.toml`, `tc-reload-offers`).
+`bb_2up` reads Bookie Bashing's Early Payout Tracker
+(`https://www.bookiebashing.net/trackers/early-payout-tracker/#/`, signed in;
+written from the two pages the `bb-2up` job saved on 18 Nov 2026, 194 rows
+each) for 2-Up. One row per row of its table: the book (the badge's title,
+"bet365"), the event and its two teams, the selection and whether it is the
+home or away team, the book odds, the lay, the EV rating (100 is
+break-even), N.Odds, the kick-off (the page prints London time; sent as UTC),
+how long ago the row was updated, in seconds, and when it was read. The
+table is found by its header texts; a different header, or no table (logged
+out, still loading), gives no rows and the job's log says which. A row with
+a cell it cannot read is skipped and counted in the log, never guessed;
+"Last update" text it does not know is null. It reads the page's HTML and
+clicks nothing: the page refreshes itself, and its filters are Callum's
+saved settings on Bookie Bashing (the saved HTML does not carry what they
+hold, so they are not read). The job is a page kept open: every minute the
+whole table as shown is one `scraper_prices` file for `/api/2up/bb`, which
+the Hub posts within about 10 s, so Render can replace what it held. While
+some row was updated in the last 5 minutes the page counts as active; when
+none was, the job's log says so and the page is left to the stale reload
+(`stale_min`). Every game in the table is read: the page is one load
+whatever it lists, so the 48-hour window has nothing to save there.
+The job (`targets.example.toml`, `bb-2up`):
+
+```sh
+python -m scraper targets add --name bb-2up --site bookiebashing \
+    --url 'https://www.bookiebashing.net/trackers/early-payout-tracker/#/' \
+    --parser bb_2up --post /api/2up/bb --every-min 600 --min-rows 10
+python -m scraper targets set bb-2up --post /api/2up/bb --min-rows 10   # the capture-only job, posting
+```
 
 ## What it will and won't do
 - Opens pages on `paddypower.com`, `bookiebashing.net`, `teamcasino.com` and
