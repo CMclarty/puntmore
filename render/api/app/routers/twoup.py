@@ -138,7 +138,7 @@ class TrackerRowIn(BaseModel):
     rating: float = Field(gt=0, lt=1000)       # BB's EV rating, 100 = break-even
     n_odds: float = Field(gt=1, lt=1000)       # BB's fair odds for the 2-up bet
     kickoff: UTCDatetime                       # UTC if no offset
-    updated_s: Optional[int] = Field(ge=0)     # the data's true age at seen_at; null: unknown, the row is not used
+    updated_s: Optional[int] = Field(ge=0, le=31_536_000)     # the data's true age at seen_at; null: unknown, the row is not used
     seen_at: UTCDatetime                       # when the Scraper read the row
 
 
