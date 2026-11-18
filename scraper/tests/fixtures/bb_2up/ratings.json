@@ -1,0 +1,1136 @@
+{
+ "count": 24,
+ "metric": "lay",
+ "limit": 500,
+ "offset": 0,
+ "records": [
+  {
+   "id": 1649038867,
+   "unid": "7_58_31563",
+   "bookid": 58,
+   "competitionId": 7,
+   "selectionId": 31563,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Real Madrid v PSV",
+   "selectionName": "PSV",
+   "ko": 1795550400,
+   "eventId": "36288652",
+   "homeAway": false,
+   "marketId": "1.265194437",
+   "bfSelectionId": "48451",
+   "compName": "UEFA Champions League",
+   "bfexCompId": 228,
+   "bookPrice": 13,
+   "fairOdds": 15,
+   "score": 108.85854102651645,
+   "evPound": 8.858541026516448,
+   "nOdds": 11.952191235059763,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 108.85854102651645,
+     "rating": 166.4390576988734,
+     "fair_odds": 15,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 118.48817065614607,
+     "rating": 599.180607715943,
+     "fair_odds": 13.5,
+     "trigger_odds": 58.58
+    },
+    "dam_lay": {
+     "ev": 98.96696078431373,
+     "rating": 92.25220588235295,
+     "fair_odds": 15,
+     "trigger_odds": 105.68852968604291
+    },
+    "dam_last_trade": {
+     "ev": 108.59659041394335,
+     "rating": 332.10794117647004,
+     "fair_odds": 13.5,
+     "trigger_odds": 105.68852968604291
+    },
+    "book_price": 13
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1496169319,
+   "unid": "16_58_31111",
+   "bookid": 58,
+   "competitionId": 16,
+   "selectionId": 31111,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Chesterfield v Shrewsbury",
+   "selectionName": "Shrewsbury",
+   "ko": 1795273200,
+   "eventId": "36320477",
+   "homeAway": false,
+   "marketId": "1.265560525",
+   "bfSelectionId": "148735",
+   "compName": "England - League 2",
+   "bfexCompId": 37,
+   "bookPrice": 5.5,
+   "fairOdds": 5.6,
+   "score": 107.60315563576063,
+   "evPound": 7.603155635760629,
+   "nOdds": 5.113221329437546,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 107.60315563576063,
+     "rating": 525.7767156025972,
+     "fair_odds": 5.6,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 109.3888699214749,
+     "rating": 9999,
+     "fair_odds": 5.5,
+     "trigger_odds": 58.58
+    },
+    "book_price": 5.5
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1464166819,
+   "unid": "11_58_31046",
+   "bookid": 58,
+   "competitionId": 11,
+   "selectionId": 31046,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Parma v Roma",
+   "selectionName": "Parma",
+   "ko": 1795280400,
+   "eventId": "36293561",
+   "homeAway": true,
+   "marketId": "1.265237023",
+   "bfSelectionId": "191607",
+   "compName": "Italian Serie A",
+   "bfexCompId": 81,
+   "bookPrice": 11,
+   "fairOdds": 12.5,
+   "score": 106.77773984294981,
+   "evPound": 6.7777398429498135,
+   "nOdds": 10.309278350515465,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 106.77773984294981,
+     "rating": 156.48116535791513,
+     "fair_odds": 12.5,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 110.44440650961648,
+     "rating": 225.3328781153979,
+     "fair_odds": 12,
+     "trigger_odds": 58.58
+    },
+    "dam_lay": {
+     "ev": 99.0584375,
+     "rating": 92.15364583333334,
+     "fair_odds": 12.5,
+     "trigger_odds": 99.47155735156979
+    },
+    "dam_last_trade": {
+     "ev": 102.72510416666667,
+     "rating": 132.70125000000007,
+     "fair_odds": 12,
+     "trigger_odds": 99.47155735156979
+    },
+    "book_price": 11
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1459790634,
+   "unid": "5_58_30989",
+   "bookid": 58,
+   "competitionId": 5,
+   "selectionId": 30989,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "West Ham v Preston",
+   "selectionName": "Preston",
+   "ko": 1795273200,
+   "eventId": "36294822",
+   "homeAway": false,
+   "marketId": "1.265253922",
+   "bfSelectionId": "56295",
+   "compName": "English Sky Bet Championship",
+   "bfexCompId": 7129730,
+   "bookPrice": 13,
+   "fairOdds": 15.5,
+   "score": 106.06284210178526,
+   "evPound": 6.0628421017852645,
+   "nOdds": 12.267510882469331,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 106.06284210178526,
+     "rating": 137.58962103106867,
+     "fair_odds": 15.5,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 122.19187435984978,
+     "rating": 9999,
+     "fair_odds": 13,
+     "trigger_odds": 58.58
+    },
+    "book_price": 13
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1504606439,
+   "unid": "13_58_31155",
+   "bookid": 58,
+   "competitionId": 13,
+   "selectionId": 31155,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Barcelona v Villarreal",
+   "selectionName": "Villarreal",
+   "ko": 1795352400,
+   "eventId": "36296466",
+   "homeAway": false,
+   "marketId": "1.265269357",
+   "bfSelectionId": "28191",
+   "compName": "Spanish La Liga",
+   "bfexCompId": 117,
+   "bookPrice": 13,
+   "fairOdds": 15.5,
+   "score": 106.06284210178526,
+   "evPound": 6.0628421017852645,
+   "nOdds": 12.267510882469331,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 106.06284210178526,
+     "rating": 137.58962103106867,
+     "fair_odds": 15.5,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 115.04901721699264,
+     "rating": 310.6862410378971,
+     "fair_odds": 14,
+     "trigger_odds": 58.58
+    },
+    "dam_lay": {
+     "ev": 97.81130107526882,
+     "rating": 86.43006666666669,
+     "fair_odds": 15.5,
+     "trigger_odds": 93.25458501709667
+    },
+    "dam_last_trade": {
+     "ev": 106.79747619047619,
+     "rating": 195.1646666666668,
+     "fair_odds": 14,
+     "trigger_odds": 93.25458501709667
+    },
+    "book_price": 13
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1454751410,
+   "unid": "5_58_30931",
+   "bookid": 58,
+   "competitionId": 5,
+   "selectionId": 30931,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Norwich v Cardiff",
+   "selectionName": "Cardiff",
+   "ko": 1795264200,
+   "eventId": "36294823",
+   "homeAway": false,
+   "marketId": "1.265253702",
+   "bfSelectionId": "79343",
+   "compName": "English Sky Bet Championship",
+   "bfexCompId": 7129730,
+   "bookPrice": 4.2,
+   "fairOdds": 4.3,
+   "score": 104.8441010901411,
+   "evPound": 4.844101090141095,
+   "nOdds": 4.007082284968782,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 104.8441010901411,
+     "rating": 308.2963468760673,
+     "fair_odds": 4.3,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 104.8441010901411,
+     "rating": 308.2963468760673,
+     "fair_odds": 4.3,
+     "trigger_odds": 58.58
+    },
+    "book_price": 4.2
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1470779421,
+   "unid": "13_58_31095",
+   "bookid": 58,
+   "competitionId": 13,
+   "selectionId": 31095,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Real Madrid v Celta Vigo",
+   "selectionName": "Celta Vigo",
+   "ko": 1795291200,
+   "eventId": "36293717",
+   "homeAway": false,
+   "marketId": "1.265238532",
+   "bfSelectionId": "66483",
+   "compName": "Spanish La Liga",
+   "bfexCompId": 117,
+   "bookPrice": 15,
+   "fairOdds": 19,
+   "score": 104.55337729780237,
+   "evPound": 4.5533772978023705,
+   "nOdds": 14.36130007558579,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 104.55337729780237,
+     "rating": 121.6285421645613,
+     "fair_odds": 19,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 108.93934221008307,
+     "rating": 153.63605326049844,
+     "fair_odds": 18,
+     "trigger_odds": 58.58
+    },
+    "dam_lay": {
+     "ev": 91.01111842105263,
+     "rating": 57.30281249999999,
+     "fair_odds": 19,
+     "trigger_odds": 124.33944668946225
+    },
+    "dam_last_trade": {
+     "ev": 95.39708333333333,
+     "rating": 72.38249999999996,
+     "fair_odds": 18,
+     "trigger_odds": 124.33944668946225
+    },
+    "book_price": 15
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1459789102,
+   "unid": "2_58_30979",
+   "bookid": 58,
+   "competitionId": 2,
+   "selectionId": 30979,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Tottenham v Ipswich",
+   "selectionName": "Ipswich",
+   "ko": 1795273200,
+   "eventId": "36293779",
+   "homeAway": false,
+   "marketId": "1.265238976",
+   "bfSelectionId": "48324",
+   "compName": "English Premier League",
+   "bfexCompId": 10932509,
+   "bookPrice": 6,
+   "fairOdds": 6.4,
+   "score": 103.99240355069989,
+   "evPound": 3.9924035506998905,
+   "nOdds": 5.772005772005772,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 103.99240355069989,
+     "rating": 163.87845681119836,
+     "fair_odds": 6.4,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 103.99240355069989,
+     "rating": 163.87845681119836,
+     "fair_odds": 6.4,
+     "trigger_odds": 58.58
+    },
+    "dam_lay": {
+     "ev": 103.401,
+     "rating": 154.41599999999997,
+     "fair_odds": 6.4,
+     "trigger_odds": 62.169723344731125
+    },
+    "dam_last_trade": {
+     "ev": 103.401,
+     "rating": 154.41599999999997,
+     "fair_odds": 6.4,
+     "trigger_odds": 62.169723344731125
+    },
+    "book_price": 6
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1465252515,
+   "unid": "2_58_31052",
+   "bookid": 58,
+   "competitionId": 2,
+   "selectionId": 31052,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Newcastle v Arsenal",
+   "selectionName": "Newcastle",
+   "ko": 1795282200,
+   "eventId": "36293556",
+   "homeAway": true,
+   "marketId": "1.265237204",
+   "bfSelectionId": "25422",
+   "compName": "English Premier League",
+   "bfexCompId": 10932509,
+   "bookPrice": 6,
+   "fairOdds": 6.4,
+   "score": 103.99240355069989,
+   "evPound": 3.9924035506998905,
+   "nOdds": 5.772005772005772,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 103.99240355069989,
+     "rating": 163.87845681119836,
+     "fair_odds": 6.4,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 103.99240355069989,
+     "rating": 163.87845681119836,
+     "fair_odds": 6.4,
+     "trigger_odds": 58.58
+    },
+    "dam_lay": {
+     "ev": 102.94142857142857,
+     "rating": 147.06285714285713,
+     "fair_odds": 6.4,
+     "trigger_odds": 65.27820951196767
+    },
+    "dam_last_trade": {
+     "ev": 102.94142857142857,
+     "rating": 147.06285714285713,
+     "fair_odds": 6.4,
+     "trigger_odds": 65.27820951196767
+    },
+    "book_price": 6
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1648512704,
+   "unid": "20_58_31552",
+   "bookid": 58,
+   "competitionId": 20,
+   "selectionId": 31552,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Hibernian v Dundee",
+   "selectionName": "Hibernian",
+   "ko": 1795549500,
+   "eventId": "36329200",
+   "homeAway": true,
+   "marketId": "1.265683578",
+   "bfSelectionId": "9166",
+   "compName": "Scotland - Premiership",
+   "bfexCompId": 105,
+   "bookPrice": 1.833,
+   "fairOdds": 1.83,
+   "score": 103.2929887109683,
+   "evPound": 3.2929887109683023,
+   "nOdds": 1.7747863952439604,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 103.2929887109683,
+     "rating": 9999,
+     "fair_odds": 1.83,
+     "trigger_odds": 58.58
+    },
+    "book_price": 1.833
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1459789100,
+   "unid": "2_58_30977",
+   "bookid": 58,
+   "competitionId": 2,
+   "selectionId": 30977,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Bournemouth v Nottm Forest",
+   "selectionName": "Nottm Forest",
+   "ko": 1795273200,
+   "eventId": "36292923",
+   "homeAway": false,
+   "marketId": "1.265235024",
+   "bfSelectionId": "39674645",
+   "compName": "English Premier League",
+   "bfexCompId": 10932509,
+   "bookPrice": 4,
+   "fairOdds": 4.2,
+   "score": 102.06636427189517,
+   "evPound": 2.066364271895168,
+   "nOdds": 3.920104536120964,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 102.06636427189517,
+     "rating": 143.39364970979864,
+     "fair_odds": 4.2,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 104.38924464355603,
+     "rating": 279.95903038579735,
+     "fair_odds": 4.1,
+     "trigger_odds": 58.58
+    },
+    "dam_lay": {
+     "ev": 102.5912380952381,
+     "rating": 154.41600000000005,
+     "fair_odds": 4.2,
+     "trigger_odds": 54.39850792663973
+    },
+    "dam_last_trade": {
+     "ev": 104.91411846689896,
+     "rating": 301.4788571428573,
+     "fair_odds": 4.1,
+     "trigger_odds": 54.39850792663973
+    },
+    "book_price": 4
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1507008374,
+   "unid": "2_58_31166",
+   "bookid": 58,
+   "competitionId": 2,
+   "selectionId": 31166,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Hull v Brighton",
+   "selectionName": "Hull",
+   "ko": 1795356000,
+   "eventId": "36296140",
+   "homeAway": true,
+   "marketId": "1.265261732",
+   "bfSelectionId": "70385",
+   "compName": "English Premier League",
+   "bfexCompId": 10932509,
+   "bookPrice": 6.5,
+   "fairOdds": 7.2,
+   "score": 101.37371495770266,
+   "evPound": 1.37371495770266,
+   "nOdds": 6.414825374198147,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 101.37371495770266,
+     "rating": 114.12963956494164,
+     "fair_odds": 7.2,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 106.68417247404254,
+     "rating": 251.50790941163112,
+     "fair_odds": 6.8,
+     "trigger_odds": 58.58
+    },
+    "dam_lay": {
+     "ev": 99.7825505050505,
+     "rating": 97.76337662337657,
+     "fair_odds": 7.2,
+     "trigger_odds": 68.38669567920422
+    },
+    "dam_last_trade": {
+     "ev": 105.09300802139038,
+     "rating": 215.44151515151543,
+     "fair_odds": 6.8,
+     "trigger_odds": 68.38669567920422
+    },
+    "book_price": 6.5
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1459789105,
+   "unid": "2_58_30982",
+   "bookid": 58,
+   "competitionId": 2,
+   "selectionId": 30982,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Chelsea v Leeds",
+   "selectionName": "Chelsea",
+   "ko": 1795273200,
+   "eventId": "36294873",
+   "homeAway": true,
+   "marketId": "1.265254613",
+   "bfSelectionId": "55190",
+   "compName": "English Premier League",
+   "bfexCompId": 10932509,
+   "bookPrice": 1.85,
+   "fairOdds": 1.97,
+   "score": 97.06670386975684,
+   "evPound": -2.933296130243164,
+   "nOdds": 1.9061626140552883,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 97.06670386975684,
+     "rating": 51.84505519517474,
+     "fair_odds": 1.97,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 97.54582953017328,
+     "rating": 56.27114435581486,
+     "fair_odds": 1.96,
+     "trigger_odds": 58.58
+    },
+    "dam_lay": {
+     "ev": 97.40948238280085,
+     "rating": 57.47233578431376,
+     "fair_odds": 1.97,
+     "trigger_odds": 52.844264843021456
+    },
+    "dam_last_trade": {
+     "ev": 97.88860804321729,
+     "rating": 62.37883422459889,
+     "fair_odds": 1.96,
+     "trigger_odds": 52.844264843021456
+    },
+    "book_price": 1.85
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1649038858,
+   "unid": "7_58_31554",
+   "bookid": 58,
+   "competitionId": 7,
+   "selectionId": 31554,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Arsenal v Dortmund",
+   "selectionName": "Arsenal",
+   "ko": 1795550400,
+   "eventId": "36288642",
+   "homeAway": true,
+   "marketId": "1.265194851",
+   "bfSelectionId": "1096",
+   "compName": "UEFA Champions League",
+   "bfexCompId": 228,
+   "bookPrice": 1.364,
+   "fairOdds": 1.44,
+   "score": 97.05066196274801,
+   "evPound": -2.949338037251991,
+   "nOdds": 1.405591129158207,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 97.05066196274801,
+     "rating": 44.11780560996214,
+     "fair_odds": 1.44,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 98.3847777686948,
+     "rating": 59.042579134760906,
+     "fair_odds": 1.42,
+     "trigger_odds": 58.58
+    },
+    "dam_lay": {
+     "ev": 96.09346847222223,
+     "rating": 25.981507894736872,
+     "fair_odds": 1.44,
+     "trigger_odds": 99.47155735156979
+    },
+    "dam_last_trade": {
+     "ev": 97.42758427816902,
+     "rating": 34.770887053571506,
+     "fair_odds": 1.42,
+     "trigger_odds": 99.47155735156979
+    },
+    "book_price": 1.364
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1459792746,
+   "unid": "20_58_31005",
+   "bookid": 58,
+   "competitionId": 20,
+   "selectionId": 31005,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Celtic v St Mirren",
+   "selectionName": "St Mirren",
+   "ko": 1795273200,
+   "eventId": "36304505",
+   "homeAway": false,
+   "marketId": "1.265334815",
+   "bfSelectionId": "674748",
+   "compName": "Scotland - Premiership",
+   "bfexCompId": 105,
+   "bookPrice": 12,
+   "fairOdds": 18,
+   "score": 87.15147376806647,
+   "evPound": -12.848526231933533,
+   "nOdds": 13.782542113323123,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 87.15147376806647,
+     "rating": 61.4544213041994,
+     "fair_odds": 18,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 91.07304239551745,
+     "rating": 69.6483441447593,
+     "fair_odds": 17,
+     "trigger_odds": 58.58
+    },
+    "dam_lay": {
+     "ev": 76.31766666666667,
+     "rating": 28.953,
+     "fair_odds": 18,
+     "trigger_odds": 124.33944668946225
+    },
+    "dam_last_trade": {
+     "ev": 80.23923529411765,
+     "rating": 32.8134,
+     "fair_odds": 17,
+     "trigger_odds": 124.33944668946225
+    },
+    "book_price": 12
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1562520151,
+   "unid": "6_58_31321",
+   "bookid": 58,
+   "competitionId": 6,
+   "selectionId": 31321,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Reading v Bromley",
+   "selectionName": "Bromley",
+   "ko": 1795264200,
+   "eventId": "36323618",
+   "homeAway": false,
+   "marketId": "1.265598260",
+   "bfSelectionId": "1282856",
+   "compName": "English Sky Bet League 1",
+   "bfexCompId": 35,
+   "bookPrice": 8,
+   "fairOdds": 11,
+   "score": 86.3838107948726,
+   "evPound": -13.616189205127398,
+   "nOdds": 9.267059814658804,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 86.3838107948726,
+     "rating": 50.07397291453285,
+     "fair_odds": 11,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 118.91969596233672,
+     "rating": 9999,
+     "fair_odds": 7.6,
+     "trigger_odds": 58.58
+    },
+    "book_price": 8
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1461573230,
+   "unid": "16_58_31033",
+   "bookid": 58,
+   "competitionId": 16,
+   "selectionId": 31033,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Newport County v Swindon",
+   "selectionName": "Swindon",
+   "ko": 1795264200,
+   "eventId": "36320168",
+   "homeAway": false,
+   "marketId": "1.265554292",
+   "bfSelectionId": "18570",
+   "compName": "England - League 2",
+   "bfexCompId": 37,
+   "bookPrice": 3.8,
+   "fairOdds": 4.8,
+   "score": 85.65352224877661,
+   "evPound": -14.34647775122339,
+   "nOdds": 4.437869822485207,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 85.65352224877661,
+     "rating": 31.1369067941277,
+     "fair_odds": 4.8,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 94.85894860536575,
+     "rating": 55.78695800614545,
+     "fair_odds": 4.3,
+     "trigger_odds": 58.58
+    },
+    "book_price": 3.8
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1459790642,
+   "unid": "5_58_30997",
+   "bookid": 58,
+   "competitionId": 5,
+   "selectionId": 30997,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Sheff Utd v Watford",
+   "selectionName": "Watford",
+   "ko": 1795273200,
+   "eventId": "36293925",
+   "homeAway": false,
+   "marketId": "1.265246591",
+   "bfSelectionId": "56301",
+   "compName": "English Sky Bet Championship",
+   "bfexCompId": 7129730,
+   "bookPrice": 5,
+   "fairOdds": 6.6,
+   "score": 84.29291204982567,
+   "evPound": -15.707087950174326,
+   "nOdds": 5.934184499190792,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 84.29291204982567,
+     "rating": 35.20826220553091,
+     "fair_odds": 6.6,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 101.1279288848425,
+     "rating": 115.22703994537369,
+     "fair_odds": 5.4,
+     "trigger_odds": 58.58
+    },
+    "book_price": 5
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1649038865,
+   "unid": "7_58_31561",
+   "bookid": 58,
+   "competitionId": 7,
+   "selectionId": 31561,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Como v AEK Athens",
+   "selectionName": "AEK Athens",
+   "ko": 1795550400,
+   "eventId": "36288648",
+   "homeAway": false,
+   "marketId": "1.265194575",
+   "bfSelectionId": "10758",
+   "compName": "UEFA Champions League",
+   "bfexCompId": 228,
+   "bookPrice": 7.5,
+   "fairOdds": 10.5,
+   "score": 84.2315758669463,
+   "evPound": -15.7684241330537,
+   "nOdds": 8.909630886720407,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 84.2315758669463,
+     "rating": 44.81051553431206,
+     "fair_odds": 10.5,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 90.92800443837487,
+     "rating": 58.5280202897137,
+     "fair_odds": 9.6,
+     "trigger_odds": 58.58
+    },
+    "dam_lay": {
+     "ev": 81.48169642857142,
+     "rating": 35.185937499999994,
+     "fair_odds": 10.5,
+     "trigger_odds": 74.60366801367735
+    },
+    "dam_last_trade": {
+     "ev": 88.178125,
+     "rating": 45.957142857142856,
+     "fair_odds": 9.6,
+     "trigger_odds": 74.60366801367735
+    },
+    "book_price": 7.5
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1569721955,
+   "unid": "6_58_31349",
+   "bookid": 58,
+   "competitionId": 6,
+   "selectionId": 31349,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Huddersfield v Leicester",
+   "selectionName": "Leicester",
+   "ko": 1795273200,
+   "eventId": "36323621",
+   "homeAway": false,
+   "marketId": "1.265598044",
+   "bfSelectionId": "48461",
+   "compName": "English Sky Bet League 1",
+   "bfexCompId": 35,
+   "bookPrice": 3.4,
+   "fairOdds": 4.4,
+   "score": 83.07675595145722,
+   "evPound": -16.923244048542784,
+   "nOdds": 4.093784890212133,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 83.07675595145722,
+     "rating": 25.537726186411735,
+     "fair_odds": 4.4,
+     "trigger_odds": 58.58
+    },
+    "book_price": 3.4
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1496169329,
+   "unid": "16_58_31121",
+   "bookid": 58,
+   "competitionId": 16,
+   "selectionId": 31121,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Northampton v Rochdale",
+   "selectionName": "Rochdale",
+   "ko": 1795273200,
+   "eventId": "36320482",
+   "homeAway": false,
+   "marketId": "1.265560415",
+   "bfSelectionId": "256383",
+   "compName": "England - League 2",
+   "bfexCompId": 37,
+   "bookPrice": 4.5,
+   "fairOdds": 6,
+   "score": 82.68180266302492,
+   "evPound": -17.318197336975075,
+   "nOdds": 5.44464609800363,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 82.68180266302492,
+     "rating": 30.727210652099696,
+     "fair_odds": 6,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 91.01513599635825,
+     "rating": 46.09081597814953,
+     "fair_odds": 5.4,
+     "trigger_odds": 58.58
+    },
+    "book_price": 4.5
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1470779620,
+   "unid": "20_58_31096",
+   "bookid": 58,
+   "competitionId": 20,
+   "selectionId": 31096,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Motherwell v Rangers",
+   "selectionName": "Motherwell",
+   "ko": 1795291200,
+   "eventId": "36303883",
+   "homeAway": true,
+   "marketId": "1.265329221",
+   "bfSelectionId": "10707",
+   "compName": "Scotland - Premiership",
+   "bfexCompId": 105,
+   "bookPrice": 4.75,
+   "fairOdds": 6.4,
+   "score": 82.32731947763742,
+   "evPound": -17.672680522362583,
+   "nOdds": 5.772005772005772,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 82.32731947763742,
+     "rating": 31.451421004169383,
+     "fair_odds": 6.4,
+     "trigger_odds": 58.58
+    },
+    "dam_lay": {
+     "ev": 80.86255434782609,
+     "rating": 25.769907773386038,
+     "fair_odds": 6.4,
+     "trigger_odds": 71.49518184644079
+    },
+    "book_price": 4.75
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1459958744,
+   "unid": "20_58_31009",
+   "bookid": 58,
+   "competitionId": 20,
+   "selectionId": 31009,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Falkirk v St Johnstone",
+   "selectionName": "St Johnstone",
+   "ko": 1795273200,
+   "eventId": "36296199",
+   "homeAway": false,
+   "marketId": "1.265262038",
+   "bfSelectionId": "57425",
+   "compName": "Scotland - Premiership",
+   "bfexCompId": 105,
+   "bookPrice": 4.1,
+   "fairOdds": 5.5,
+   "score": 81.54443030509947,
+   "evPound": -18.455569694900532,
+   "nOdds": 5.029721079103796,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 81.54443030509947,
+     "rating": 27.495976198605064,
+     "fair_odds": 5.5,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 106.99897575964494,
+     "rating": 9999,
+     "fair_odds": 4.1,
+     "trigger_odds": 58.58
+    },
+    "book_price": 4.1
+   },
+   "bookName": "Bet365"
+  },
+  {
+   "id": 1507011687,
+   "unid": "10_58_31169",
+   "bookid": 58,
+   "competitionId": 10,
+   "selectionId": 31169,
+   "status": 1,
+   "changed": 1795003702,
+   "adminHidden": false,
+   "eventName": "Paris FC v Angers",
+   "selectionName": "Angers",
+   "ko": 1795356000,
+   "eventId": "36297462",
+   "homeAway": false,
+   "marketId": "1.265277509",
+   "bfSelectionId": "473963",
+   "compName": "French Ligue 1",
+   "bfexCompId": 55,
+   "bookPrice": 8,
+   "fairOdds": 12,
+   "score": 80.32320473426654,
+   "evPound": -19.67679526573346,
+   "nOdds": 9.966777408637874,
+   "metric": "lay",
+   "ratings": {
+    "lay": {
+     "ev": 80.32320473426654,
+     "rating": 40.9696142027996,
+     "fair_odds": 12,
+     "trigger_odds": 58.58
+    },
+    "last_trade": {
+     "ev": 96.98987140093321,
+     "rating": 81.93922840559922,
+     "fair_odds": 9.6,
+     "trigger_odds": 58.58
+    },
+    "dam_lay": {
+     "ev": 75.24533333333335,
+     "rating": 25.736000000000004,
+     "fair_odds": 12,
+     "trigger_odds": 93.25458501709667
+    },
+    "dam_last_trade": {
+     "ev": 91.912,
+     "rating": 51.47200000000003,
+     "fair_odds": 9.6,
+     "trigger_odds": 93.25458501709667
+    },
+    "book_price": 8
+   },
+   "bookName": "Bet365"
+  }
+ ]
+}

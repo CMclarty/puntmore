@@ -63,33 +63,53 @@ is 8-10 loads a day, with `wait_for = "#offers-main-wrap table[data-offer-id]"`
 so it reads the offers, not the "Searching for most profitable offers.."
 notice (`targets.example.toml`, `tc-reload-offers`).
 `bb_2up` reads Bookie Bashing's Early Payout Tracker
-(`https://www.bookiebashing.net/trackers/early-payout-tracker/#/`, signed in;
-written from the two pages the `bb-2up` job saved on 18 Nov 2026, 194 rows
-each) for 2-Up. One row per row of its table: the book (the badge's title,
-"bet365"), the event and its two teams, the selection and whether it is the
-home or away team, the book odds, the lay, the EV rating (100 is
-break-even), N.Odds, the kick-off (the page prints London time; sent as UTC),
-how long ago the row was updated, in seconds, and when it was read. The
-table is found by its header texts; a different header, or no table (logged
-out, still loading), gives no rows and the job's log says which. A row with
-a cell it cannot read is skipped and counted in the log, never guessed;
-"Last update" text it does not know is null. It reads the page's HTML and
-clicks nothing: the page refreshes itself, and its filters are Callum's
-saved settings on Bookie Bashing (the saved HTML does not carry what they
-hold, so they are not read). The job is a page kept open: every minute the
-whole table as shown is one `scraper_prices` file for `/api/2up/bb`, which
-the Hub posts within about 10 s, so Render can replace what it held. While
-some row was updated in the last 5 minutes the page counts as active; when
-none was, the job's log says so and the page is left to the stale reload
-(`stale_min`). Every game in the table is read: the page is one load
-whatever it lists, so the 48-hour window has nothing to save there.
-The job (`targets.example.toml`, `bb-2up`):
+(`https://www.bookiebashing.net/trackers/early-payout-tracker/#/`, signed in)
+for 2-Up. Written from what the `bb-2up` job held on 18 Nov 2026: two saved
+pages (194 rows each) and the payloads the page received. The page fetches a
+ratings payload when it loads and about once a minute, and draws the table
+from it; the table's "Last update" and "last refresh" text is written when
+the table is drawn and never ticks. So the rows come from the newest ratings
+payload in the capture (known by its shape, never by its url), and the table
+is the check that the page drew it. One row per selection: the book
+("bet365"), the event and its two teams, the selection and whether it is the
+home or away team, the book odds and the lay as the payload has them (2.625,
+where the table shows 2.63), the EV rating (100 is break-even) and N.Odds to
+two places, the kick-off in UTC, the seconds since the record last changed
+(now less its `changed`), and when it was read. Only games kicking off within
+`games.within_h` hours (48 by default, the "Games" setting every job that
+reads games follows) are rows. It clicks nothing: the page refreshes itself,
+and its filters are Callum's saved settings on Bookie Bashing.
+
+Each parse that reads rows (once a minute) is one `scraper_prices` file for
+`/api/2up/bb`: every selection on the tracker inside the window, which the
+Hub posts within about 10 s, so Render can replace what it held. It posts
+nothing, and the job's log says why, when no ratings payload has arrived yet,
+when the newest is more than 3 minutes old (the page has stopped
+refreshing), when the settings are not the ones the rows are read for
+(Metric lay, Book bet365 alone, the fixed-trigger 2-up model, as the payload
+shows them), when the page fetched fewer selections than the tracker has
+(the payload's limit), when the table, its "N/M shown" line and the payload
+disagree, when there is no tracker table (logged out, still loading) or its
+header has changed, or when more than a tenth of the records cannot be read.
+A record it cannot read is skipped and counted, never guessed.
+
+A page that has stopped refreshing receives nothing, so its capture goes
+quiet and the runner reloads it once it has been quiet for the job's
+`stale_min` and loaded that long ago. 10 minutes is the floor
+(`config._target`). With no `every_min` the page is otherwise reloaded only
+by `recycle.hours` (a fresh page about every 30 minutes, about 2 loads an
+hour and 48 a day of Bookie Bashing's 8 an hour and 120 a day); a page that
+stays stuck is reloaded at most every 10 minutes, 6 an hour, and the guard
+refuses any load past the budget. On a day with no game within 48 hours the
+job posts nothing, so its no-rows alert (`alerts.no_rows_min`, 60 minutes)
+fires once and clears at the next delivery; `min_rows` is left unset for the
+same reason. The job (`targets.example.toml`, `bb-2up`):
 
 ```sh
 python -m scraper targets add --name bb-2up --site bookiebashing \
     --url 'https://www.bookiebashing.net/trackers/early-payout-tracker/#/' \
-    --parser bb_2up --post /api/2up/bb --every-min 600 --min-rows 10
-python -m scraper targets set bb-2up --post /api/2up/bb --min-rows 10   # the capture-only job, posting
+    --parser bb_2up --post /api/2up/bb --stale-min 10
+python -m scraper targets set bb-2up --post /api/2up/bb --every-min none --stale-min 10   # the capture-only job, posting
 ```
 
 ## What it will and won't do

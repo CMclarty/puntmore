@@ -54,9 +54,11 @@ for 36 h as if it were current. A backlog posted after an outage would put old P
 board as fresh ones; 15 min is `pp_most`'s own freshness limit.
 
 `/api/2up/bb` takes the rows of Bookie Bashing's Early Payout Tracker (the `bb-2up` job, parser
-`bb_2up`; `scraper/README.md`). Each file is the whole table as the page showed it at one parse,
-one parse a minute while the page reads, so each post can replace what Render held from the last.
-A parse that reads no row writes no file, so Render keeps its last table until the next one.
+`bb_2up`; `scraper/README.md`). Each file is every selection on the tracker kicking off within
+`games.within_h` hours, from one ratings payload the page received, one parse a minute while the
+page reads, so each post can replace what Render held from the last. When the board would be wrong
+(a page that has stopped refreshing, changed settings, a short table) or has no row, no file is
+written, so Render keeps its last board until the next one.
 
 `done/prices/` keeps its newest 300 files, apart from the tips' and events' `done/`. The rows pass
 through unfiltered: the Scraper's sink and the inbox check only the file's shape, and Render's
