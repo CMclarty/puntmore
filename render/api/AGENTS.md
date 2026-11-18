@@ -24,9 +24,11 @@ The main domain serves every public tool; `me` serves Callum's personal tools
   app installed from shalgo on its old worker for good.
 
 ## Odds sources
-**OddsPapi prices Paddy, 2-Up and the coupon tracker; odds-api.net prices
-Hills** (the register; Callum, 11 Nov 2026: "update the planning documents
-with the 2nd providor", "Oddspapi is a subscription"). The coupon tracker
+**OddsPapi prices Paddy, the coupon tracker and 2-Up's Pinnacle side;
+odds-api.net prices Hills** (the register; Callum, 11 Nov 2026: "update the
+planning documents with the 2nd providor", "Oddspapi is a subscription").
+2-Up's bet365 price comes from Bookie Bashing's Early Payout Tracker, posted by
+the Hub (the register, 18 Nov 2026; below, "2-Up"). The coupon tracker
 prices on `OddsPapiCouponProvider` (`providers/oddspapi_coupon.py`,
 `COUPON_ODDS_SOURCE=oddspapi`, the default), the Paddy tool on
 `cards/oddspapi.py`, 2-Up on `twoup/feed.py`. Hills prices on
@@ -130,31 +132,88 @@ Both live behind their seams. Core logic never calls a vendor API directly.
 - **The 2-up edge is proven** (Callum, 5 Nov 2026). Do not re-litigate it,
   model it from scratch, or gate the build on a literature review.
 - **The rescue model is fine-tuned during testing against Bookie Bashing's
-  2-up tracker.** By hand: BB's terms ban automated access
-  (`docs/decisions.md`, "Scraping conduct"), so neither the engine nor
-  the Hub's Scraper ever fetches the tracker. The comparison is a
-  user-triggered step and its results are recorded in the tool's notes.
+  2-up tracker**, by hand: `tools/twoup_backtest.py` over an exported CSV, a
+  user-triggered step whose results are recorded in the tool's notes. Since
+  18 Nov 2026 the Hub's Scraper also reads the tracker live and the Hub posts
+  it here (`POST /api/2up/bb`); Render itself never loads it.
 - 2-Up is a board: a one-way HTTP feed of current value bets
   (`docs/2up-engine-spec.md`). Sizing, placing and the books are the Bet
   Placer's (`docs/placer-spec.md`): nothing in `api/` places a bet or keeps an
   account.
 
 ### 2-Up (`app/twoup/`, Nov 2026)
-Router `routers/twoup.py` at `/api/2up/*` (`feed`, `diagnostics`; both
-read-only), behind the `accabonus` grant and its own flag `ENABLE_TWOUP`.
-Settings are `twoup_*` in `config.py`, each with a default and a reason.
+Router `routers/twoup.py` at `/api/2up/*`: `feed` and `diagnostics`, both
+read-only, behind the `accabonus` grant (`router`); `POST /2up/bb`, the
+tracker's ingest, on the `ingest` grant on the route like
+`/paddy/saves-fair` (`ingest_router`, no router-level grant). All behind its
+own flag `ENABLE_TWOUP`. Settings are `twoup_*` in `config.py`, each with a
+default and a reason.
+- **bet365's price comes from Bookie Bashing's Early Payout Tracker**
+  (`TWOUP_BET365_SOURCE=bb`, the default; the register, 18 Nov 2026).
+  OddsPapi answers bet365 with HTTP 403 "Restricted bookmakers: bet365" on
+  Callum's plan, so in `bb` the feed sends NO OddsPapi request for bet365:
+  per refresh it asks for Pinnacle alone, the same chunks as before, so the
+  same cache tiers and no new spend. `oddspapi` is the behaviour before,
+  kept intact and pinned by `tests/test_twoup_routes.py`.
+- **The tracker snapshot** (`twoup/tracker.py`): each `POST /api/2up/bb` is
+  the whole table and REPLACES the one held (bet365's home and away rows; the
+  rest counted). Validated strictly (unknown or missing key, value out of
+  range: 422 for the whole post). Held in memory on `app.state.twoup_tracker`
+  (the feed's `tracker`), never in a table: a restart loses it and the board
+  says `not_yet_refreshed` until the next post. A post whose newest `seen_at`
+  is older than the held one's is a 409, so a delayed post never puts older
+  prices back. Unusable after `twoup_bb_max_age_s` (300): the feed serves no
+  rows and `cannot_price` starts "ALL — the Bookie Bashing tracker snapshot
+  is Ns old". A row with `updated_s` over `twoup_bb_row_max_age_s` (600) is
+  dropped and counted.
+- **Two modes over the tracker's rows** (`model.flagged_by`), each row's
+  `sources` saying which flagged it: `bb`, BB's rating at or above
+  `twoup_bb_min_rating` (101), taken as given; `pinnacle`, the rescue model
+  unchanged with the tracker's bet365 price against Pinnacle's 1X2. `value` =
+  either, inside the price band; the horizon and minimum lead apply to both.
+  The competition list cannot filter a row only BB priced (the tracker posts
+  no competition); it still decides which fixtures Pinnacle's half fetches.
+  Where Pinnacle priced a row the model fields are its and BB's figures are
+  `bb_rating`, `bb_fair`; on a row only BB priced `p_win` and `rescue` are
+  None, `fair_price` is BB's `n_odds`, `ev` is rating/100 - 1 and `edge` is
+  ev/price (probability units, P(pays) - 1/price).
+- **The join is never a guess** (`tracker.match_fixture`): the Paddy board's
+  matcher for the Scraper's saves prices (`cards/saves.py`:
+  `team_similarity` at 0.80 on both names, home to home, away to away, within
+  `KICKOFF_TOLERANCE_HOURS`, 12). No fixture passing is `unmatched`; more than
+  one is `ambiguous` unless exactly one is an exact match of both normalised
+  names. Either way the row has no `pinnacle` verdict and is counted. Known
+  weaknesses: a team name the alias table does not fold (an abbreviation
+  BB prints and OddsPapi does not) leaves a row unmatched; containment
+  scores 0.90, so "Madrid" against "Real Madrid" and "Atletico Madrid" is
+  ambiguous rather than either.
+- **`event_id` is the tracker row's**, `bb:<home>|<away>|<yyyy-mm-dd>`
+  (`normalise_team` names, the kick-off's UTC date), never the OddsPapi
+  fixture id: the Bet Placer's bet id is `event_id` + `side`, and a join that
+  comes and goes between passes must never make one selection two bets.
+- **Composed, never fetched, on a request.** The `twoup_refresh` job fetches
+  Pinnacle's half and composes the board with the snapshot; each tracker post
+  composes it again from the Pinnacle half already held (no request to
+  OddsPapi), under one lock so an older composition never lands after a
+  newer. Pinnacle or OddsPapi failing while the tracker is fresh leaves the
+  `bb` mode serving: `cannot_price` names "pinnacle mode: ..." (never ALL)
+  and `stale` stays false, so the Bet Placer's reader takes it as partly
+  priced. A row's `priced_at` is when bet365's price was read (`seen_at` less
+  `updated_s`), or the earlier of that and Pinnacle's fetch when Pinnacle
+  priced it.
 - `model.py` — pure: Pinnacle 1X2 de-vigged with `devigd_multi` (power),
   rescue rate from `rescue_table.json` by fair-P(win) bucket, edge =
   P(win) + P(two up, fails to win) − 1/bet365 price, and the filters (price
   band, edge floor, minimum lead). `Candidate` lives here; every row carries
   `priced_at`, when the prices behind it were fetched.
-- `feed.py` — OddsPapi only, through the SHARED `OddsPapiClient` (budget,
-  spacing, quota guard, tiered cache unchanged). Both books via
-  `resolve_book`. The default competition list chunks into the same Pinnacle
-  requests the coupon tracker makes, so bet365 is the only new spend. One log
-  line per pass. Also a `ValueSelection` source (`source="2up"`,
+- `feed.py`: through the SHARED `OddsPapiClient` (budget, spacing, quota
+  guard, tiered cache unchanged). Books via `resolve_book`. The default
+  competition list chunks into the same Pinnacle requests the coupon tracker
+  makes, so in the `oddspapi` source bet365 is the only new spend, and in the
+  `bb` source there is none. One log line per pass. Also a `ValueSelection` source (`source="2up"`,
   `bookmaker="bet365"`, `edge` = EV per pound there, `basis="2up"`).
-- **A served board, refreshed by a job, never by a request.** The scheduler
+- **A served board, refreshed by a job, never fetched by a request** (in the
+  `bb` source a tracker post also composes it, from what is held). The scheduler
   job `twoup_refresh` (`scheduler.refresh_twoup`, every `twoup_feed_ttl`
   seconds, first run at start, registered only when `ENABLE_TWOUP` is on and
   there is an OddsPapi client) calls `TwoUpFeed.refresh()`, which prices a
@@ -163,14 +222,16 @@ Settings are `twoup_*` in `config.py`, each with a default and a reason.
   and the `2up` source of `/api/value`, read only `served()`. A row still
   drops out at `twoup_min_lead_minutes` before kick-off while its board is
   served.
-- **Last good board on failure.** A pass with errors that priced nothing
+- **Last good board on failure** (the `oddspapi` source; in `bb` only a
+  compose that raises keeps the old board, stale). A pass with errors that priced nothing
   (every request failed, reference data down, no configured tournament
   resolved, or the pass itself raised — `refresh` catches it and records
   `pass failed: ...`) leaves the served board as it was, with its old
   `priced_at` and `generated_at`, and sets `status.stale: true`; an honest
   empty pass (no errors) replaces the board. The next good pass replaces it
   and clears `stale`. Before the first pass the list is empty and
-  `status.not_yet_refreshed` is true. A pass where one chunk's request failed
+  `status.not_yet_refreshed` is true (in `bb`, also until the first tracker
+  post). A pass where one chunk's request failed
   but another priced replaces the board and names each failed request in
   `cannot_price` (`<book> chunk [ids]: <error>`), so it is degraded; the failed
   chunk's rows are not carried forward.
@@ -181,9 +242,12 @@ Settings are `twoup_*` in `config.py`, each with a default and a reason.
   gap named, beside its rows) are named in `/api/value`'s `errors["2up"]`
   (stale beside the last good rows).
 - `status()` (`/api/ready` → `providers.twoup_detail`, the feed's `status`,
-  and `diagnostics.feed`) reports `provider`, `degraded`, `cannot_price`,
-  `stale`, `served_at`, `not_yet_refreshed` and `last_pass`; a deploy that
-  cannot price 2-Up never looks healthy. `/api/2up/feed` adds `killed`.
+  and `diagnostics.feed`) reports `provider`, `bet365_source`, `degraded`,
+  `cannot_price`, `stale`, `served_at`, `not_yet_refreshed` and `last_pass`;
+  a deploy that cannot price 2-Up never looks healthy. `/api/2up/feed` adds
+  `killed`; `/api/2up/diagnostics` adds `tracker` (`feed.tracker_status`:
+  the snapshot's age, rows received, bet365 rows, matched, unmatched,
+  ambiguous, dropped by reason) and the mode settings.
 
 Invariants — do not relax:
 - **Kill switch** (global `TWOUP_KILL_SWITCH`, read per request): the feed
@@ -196,7 +260,8 @@ Invariants — do not relax:
   tables are dead and left on the disk, not dropped; the ORM classes are gone.
 - The rescue table is tuned BY HAND (`tools/twoup_backtest.py` over a CSV
   you exported from Bookie Bashing's tracker; `--merge` writes a new table).
-  Nothing here or on the Hub ever fetches the tracker.
+  Render never loads the tracker; the Hub's Scraper reads it and the Hub
+  posts it (`POST /api/2up/bb`).
 
 ## Finder (`app/finder/`, Nov 2026)
 Callum's tips, on `me` (the main domain while `ME_HOST` is blank; `docs/finder-spec.md`; the register's "Tips on Finder are
@@ -678,9 +743,9 @@ Pinnacle's fair reference, joined on the same fixture id.
   means fewer than N, not the standard line. The builder lists a game only
   when some bookmaker has posted a saves line for it (the Premier League is
   often empty until a day or two before kickoff). Its docstring has the rest.
-  This BB target (`bb-saves`, driven after the Scraper signs in) predates the rule
-  that BB is never automated and is its single named exception
-  (`docs/decisions.md`, "Scraping conduct").
+  This BB target is `bb-saves`, driven after the Scraper signs in; the
+  Scraper may run Bookie Bashing jobs (`docs/decisions.md`, "Scraping
+  conduct", 12 Nov 2026), the Early Payout Tracker for 2-Up among them.
 - `cards/oddspapi.py` returns **RAW** prices. De-vigging lives in
   `cards/value.py`; handing it fair prices would de-vig them twice.
 - `merge_books` (`cards/oddspapi.py`) joins the books into one event on the

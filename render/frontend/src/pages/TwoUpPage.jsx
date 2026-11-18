@@ -72,7 +72,7 @@ export default function TwoUpPage() {
             </div>
             <div className={styles.cardRow}>
               <span className={styles.sub}>
-                fair {c.fair_price != null ? c.fair_price.toFixed(2) : '—'} · rescue {(c.rescue * 100).toFixed(1)}%
+                fair {c.fair_price != null ? c.fair_price.toFixed(2) : '—'} · rescue {c.rescue != null ? `${(c.rescue * 100).toFixed(1)}%` : '—'}
                 {' · '}priced {timeLabel(c.priced_at)}
               </span>
             </div>

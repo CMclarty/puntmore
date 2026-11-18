@@ -292,9 +292,9 @@ names and no other; older names appear only in `docs/retired.md`.
 
 ## 2-Up and the Bet Placer
 
-- **2-Up is a one-way feed of current value bets and nothing else.** It prices
-  bet365's early-payout match-result markets against Pinnacle plus the rescue
-  and serves the rows that beat fair, over HTTP, to two readers: the Bet Placer
+- **2-Up is a one-way feed of current value bets and nothing else.** It judges
+  bet365's early-payout match-result prices (in two modes since 18 Nov 2026,
+  below) and serves the rows that are value, over HTTP, to two readers: the Bet Placer
   and the 2-Up tab as the manual backup. No account and no ledger on Render:
   nothing is reported back and Render keeps no log of bets. The global
   `TWOUP_KILL_SWITCH` empties the feed. (6 Nov 2026, Callum;
@@ -302,6 +302,25 @@ names and no other; older names appear only in `docs/retired.md`.
 - **The 2-Up edge is proven. Do not spend effort questioning it.** The rescue
   table is tuned by hand against BB's tracker as part of testing. (5 Nov 2026,
   Callum)
+- **2-Up feeds two modes over Bookie Bashing's Early Payout Tracker.** Callum:
+  "the 2up feeds two modes, with one being a passive scrape of the bookie
+  bashing feed https://www.bookiebashing.net/trackers/early-payout-tracker/#/"
+  and "the dynamic will be that bookie bashing is a 'trusted' source, but
+  pinnacle feeds will sometimes capture much more rapid movement, which will
+  show value. both are valid". bet365's price now comes from the tracker: the
+  Hub's Scraper reads it and the Hub posts the whole table to Render
+  (`POST /api/2up/bb`), which holds it in memory; OddsPapi is asked for
+  Pinnacle only (it refuses bet365 on the current plan), and
+  `TWOUP_BET365_SOURCE=oddspapi` puts back the old source. The `bb` mode takes
+  BB's rating as given; the `pinnacle` mode prices the tracker's bet365 price
+  with the rescue model against Pinnacle's 1X2, joined to the fixture by team
+  names and kick-off and never guessed. A row flagged by either is value, and
+  says which. The defaults, Callum's to change on Render: a rating of 101 or
+  more (`TWOUP_BB_MIN_RATING`); the existing price band (`TWOUP_MIN_PRICE`
+  1.25 to `TWOUP_MAX_PRICE` 8.0) for both modes; a tracker snapshot unusable
+  after 300 seconds (`TWOUP_BB_MAX_AGE_S`) and a row Bookie Bashing last saw
+  more than 600 seconds ago dropped (`TWOUP_BB_ROW_MAX_AGE_S`). (18 Nov 2026,
+  Callum; `docs/2up-engine-spec.md`)
 - **The Bet Placer is a black box for now.** Its outside is fixed: it reads the
   three feeds, sizes, places, keeps the only book and posts `placed` / `gone`
   to Finder. Inside it are a **phone interface** and a **staking logic**,

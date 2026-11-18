@@ -35,7 +35,9 @@ the main domain.
   (`ODDSAPINET_API_KEY`), OddsPapi without it.
 - **365** (`/365/<tab>`, `accabonus` grant): bet365's offers, one tool. Tabs: `2up`, **2-Up**
   (`app/twoup/`, `ENABLE_TWOUP`), a board whose one-way feed is `GET /api/2up/feed`, the page
-  showing the same rows; `acca`, the acca boost, removed and returning on OddsPapi; `scorers`,
+  showing the same rows: bet365's prices from Bookie Bashing's Early Payout Tracker (posted by
+  the Hub to `POST /api/2up/bb`), judged in two modes, Bookie Bashing's rating and Pinnacle's
+  1X2 from OddsPapi; `acca`, the acca boost, removed and returning on OddsPapi; `scorers`,
   goalscorers (`goalscorers` grant), parked behind `ENABLE_GOALSCORERS=false`. `/accabonus`,
   `/tennis` and `/goalscorers` redirect into it; don't add new code under `/tennis`.
 - **Finder** (`/finder` on `me`, `finder` grant, `app/finder/`): Callum's tips, judged on the Hub

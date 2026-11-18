@@ -27,6 +27,9 @@ def world(monkeypatch):
         finally:
             s.close()
     app.dependency_overrides[get_db] = _db
+    # These tests pin the `oddspapi` source, today's behaviour before 18 Nov
+    # 2026, unchanged; the `bb` source's are tests/test_twoup_bb.py.
+    monkeypatch.setattr(settings, "twoup_bet365_source", "oddspapi")
     monkeypatch.setattr(settings, "twoup_tournament_ids", "17,18")
     monkeypatch.setattr(settings, "oddspapi_fair_book", "pinnacle")
     yield

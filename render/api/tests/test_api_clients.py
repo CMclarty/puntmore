@@ -133,6 +133,20 @@ def test_a_client_can_hold_the_ingest_grant(monkeypatch):
     assert api.post("/paddy/saves-fair", json=EMPTY, headers={"X-API-Key": "x"}).status_code == 503
 
 
+def test_the_2up_tracker_post_takes_the_ingest_grant_not_the_365_one(monkeypatch):
+    monkeypatch.setattr(settings, "saves_ingest_key", "")
+    app.state.twoup_feed = None
+    app.state.twoup_tracker = None
+    ingest = _client("hub", tools="ingest")
+    reader = _client("placer", tools="accabonus")
+    api = TestClient(app)
+    assert api.post("/2up/bb", json=EMPTY, headers=bearer(ingest)).status_code == 200
+    assert api.post("/2up/bb", json=EMPTY, headers=bearer(reader)).status_code == 403
+    assert api.get("/2up/feed", headers=bearer(reader)).status_code == 200
+    assert api.get("/2up/feed", headers=bearer(ingest)).status_code == 403
+    app.state.twoup_tracker = None
+
+
 def test_a_client_can_hold_the_state_grant(monkeypatch):
     monkeypatch.setattr(settings, "state_api_key", "")
     key = _client("dash", tools="state")

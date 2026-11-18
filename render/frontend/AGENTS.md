@@ -91,7 +91,9 @@ row's **priced** time. A line in the error style says when the board is stale
 (an older board kept while OddsPapi is not answering), stopped by the kill
 switch (`TWOUP_KILL_SWITCH`, global, `.env`) or not yet refreshed since boot.
 An older API mid-deploy may send no `generated_at`, `priced_at` or `status`
-keys: the page shows "—" and never throws. Nothing on it places a bet, keeps
+keys: the page shows "—" and never throws. A row only Bookie Bashing's tracker
+priced (18 Nov 2026) has no `rescue`: the page shows "—" for it and adds
+nothing for the new `sources`, `bb_rating` and `bb_fair` fields. Nothing on it places a bet, keeps
 an account or configures the feed: the dials are `.env` on Render. Helpers in
 `twoup.js`, pinned by `twoup.test.js`.
 
