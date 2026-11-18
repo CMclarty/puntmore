@@ -12,9 +12,13 @@ One pass (`read_once`, run by `puntmore placer 2up` and, when switched on, the d
    unreachable Render is said plainly in the result, never raised.
 3. The board's verdict, the spec's rules 2 and 3: no bet on any row when `available` is false or
    the status says `killed`, `not_yet_refreshed`, `stale` or `cannot_price`. One exception: a
-   board that is partly priced (a failed request beside ones that priced) keeps its priced rows,
-   as Render's own value view does; a gap naming ALL, or an unreadable rescue table (every row
-   priced on the flat fallback rescue), is no-bet. A status that is not an object is no-bet.
+   board that is partly priced (a failed request beside ones that priced, or Pinnacle's half
+   missing while Bookie Bashing's tracker rows stand, a "pinnacle mode: ..." gap) keeps its
+   priced rows, as Render's own value view does; a gap naming ALL is no-bet. An unreadable rescue
+   table (rows priced on the flat fallback rescue) is no-bet for the rows that needed it: a row
+   whose `sources` name `bb` (Bookie Bashing's rating flags it, no rescue table involved) may
+   still be bet, every other row is skipped (`needs_rescue_table`), and a board with no such row
+   is no-bet as before. A status that is not an object is no-bet.
 4. Each row: skipped when it is not value, its `priced_at` is missing or older than
    `PUNTMORE_PLACER_2UP_MAX_AGE_S` (3900 s: Render's slowest price tier plus the feed's own
    5 min), its kick-off has passed, its bet is already recorded or it repeats a selection
@@ -52,6 +56,23 @@ log = logging.getLogger("puntmore.placement.twoup")
 FEED_PATH = "/api/2up/feed?value_only=true"
 # The order a no-bet board is judged in; the first one seen is the verdict.
 NO_BET_FLAGS = ("killed", "not_yet_refreshed", "stale")
+# How Render's status names an unreadable rescue table in `cannot_price`.
+RESCUE_GONE = "rescue table unreadable"
+
+
+def _needs_no_rescue_table(row: dict) -> bool:
+    """A row Bookie Bashing's rating flags (`sources` names `bb`): its value does not rest on the
+    rescue table. A row with no `sources` (an older Render) is taken to need it."""
+    sources = row.get("sources")
+    return isinstance(sources, list) and "bb" in sources
+
+
+def rescue_table_gone(feed: dict) -> bool:
+    """Whether the board's status names an unreadable rescue table."""
+    status = feed.get("status")
+    raw = status.get("cannot_price") if isinstance(status, dict) else None
+    cannot = [str(x) for x in raw] if isinstance(raw, list) else ([str(raw)] if raw else [])
+    return any(c.startswith(RESCUE_GONE) for c in cannot)
 
 
 def bet_id_for(event_id: str, side: str) -> str:
@@ -104,9 +125,14 @@ def board_verdict(feed: dict) -> tuple[str, str | None]:
     if cannot:
         last = status.get("last_pass")
         priced = (last.get("priced_fixtures") or 0) if isinstance(last, dict) else 0
-        whole = [c for c in cannot if c.startswith("ALL") or c.startswith("rescue table unreadable")]
-        if priced and not whole:
-            return "partly priced", "cannot_price: " + "; ".join(cannot)
+        whole = [c for c in cannot if c.startswith("ALL") or c.startswith(RESCUE_GONE)]
+        if priced and not any(c.startswith("ALL") for c in cannot):
+            raw_rows = feed.get("candidates")
+            rows = [r for r in raw_rows if isinstance(r, dict)] if isinstance(raw_rows, list) else []
+            # An unreadable rescue table leaves only the rows that never needed it.
+            if not any(c.startswith(RESCUE_GONE) for c in cannot) or any(
+                    _needs_no_rescue_table(r) for r in rows):
+                return "partly priced", "cannot_price: " + "; ".join(cannot)
         return "no-bet", "cannot_price: " + "; ".join(whole or cannot)
     if status.get("degraded"):
         return "no-bet", "degraded, with no reason given in cannot_price"
@@ -143,8 +169,10 @@ def _when(value: Any) -> datetime | None:
         return None
 
 
-def _row_bet(cfg: Settings, row: dict, store: Store, now: datetime) -> tuple[str | None, Bet | str]:
-    """(bet id or None, the Bet, or the reason the row is skipped)."""
+def _row_bet(cfg: Settings, row: dict, store: Store, now: datetime,
+             rescue_gone: bool = False) -> tuple[str | None, Bet | str]:
+    """(bet id or None, the Bet, or the reason the row is skipped). `rescue_gone`: the board's
+    rescue table is unreadable, so only a row Bookie Bashing's rating flags may be bet."""
     event_id, side = str(row.get("event_id") or ""), str(row.get("side") or "")
     try:
         price = float(row.get("price"))
@@ -158,6 +186,8 @@ def _row_bet(cfg: Settings, row: dict, store: Store, now: datetime) -> tuple[str
         return bid, "already_recorded"
     if row.get("value") is not True:
         return bid, "not_value"
+    if rescue_gone and not _needs_no_rescue_table(row):
+        return bid, "needs_rescue_table"
     priced_at = _when(row.get("priced_at"))
     if priced_at is None:
         return bid, "no_priced_at"
@@ -199,8 +229,9 @@ def read_once(cfg: Settings, store: Store, *, opener: aw26.Opener | None = None,
         return _result("no-bet", why, board=board, seen=len(rows))
     skipped: Counter = Counter()
     shown, bets, ids = [], [], set()
+    rescue_gone = rescue_table_gone(feed)
     for row in rows:
-        bid, got = _row_bet(cfg, row, store, now)
+        bid, got = _row_bet(cfg, row, store, now, rescue_gone)
         if not isinstance(got, str):
             if bid in ids:
                 got = "repeated_in_feed"

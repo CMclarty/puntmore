@@ -70,7 +70,8 @@ files.
   and `PUNTMORE_RENDER_HTTP` and `PUNTMORE_RENDER_API_KEY` are set (the key granted
   `accabonus`), its last pass under `placer_2up` in `daemon-status.json`. It reads
   `GET /api/2up/feed?value_only=true`, bets on no row of a board that is unavailable, killed,
-  not yet refreshed, stale or cannot price (a partly priced board keeps its priced rows), skips
+  not yet refreshed, stale or cannot price (a partly priced board keeps its priced rows; an
+  unreadable rescue table leaves only the rows whose `sources` name `bb`), skips
   a row that is not value, priced over `PUNTMORE_PLACER_2UP_MAX_AGE_S` (3900 s: Render's slowest
   price tier plus the feed's 5 min) ago or past kick-off, and hands the rest to the engine one at
   a time as singles (`2up:<event_id>:<side>`) at the flat test stake

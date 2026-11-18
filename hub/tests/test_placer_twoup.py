@@ -169,6 +169,68 @@ def test_a_partly_priced_board_keeps_its_priced_rows(pcfg, store):
     assert "bet365 chunk" in r["detail"]
 
 
+# ---- Bookie Bashing's tracker as bet365's source (Render's `bb` source, 18 Nov 2026) ----------
+
+def bb_row(event_id="bb:arsenal|chelsea|2026-11-18", side="home", sources=("bb",), **kw):
+    """A row as Render serves one only the tracker priced: no Pinnacle model fields."""
+    out = {**row(event_id=event_id, side=side, **kw), "sources": list(sources),
+           "bb_rating": 104.0, "bb_fair": 2.4}
+    if "pinnacle" not in sources:
+        out.update({"p_win": None, "rescue": None, "fair_price": 2.4, "edge": 0.016, "ev": 0.04})
+    return out
+
+
+def bb_feed(rows=(), **status):
+    return feed(rows, provider="bookiebashing+oddspapi", bet365_source="bb", **status)
+
+
+def test_a_bb_only_board_is_bet_while_pinnacle_is_down(pcfg, store):
+    body = bb_feed([bb_row(), bb_row(event_id="bb:leeds|hull|2026-11-18", side="away")],
+                   degraded=True, last_pass={"priced_fixtures": 2},
+                   cannot_price=["pinnacle mode: every OddsPapi odds request for Pinnacle failed"])
+    r = run(pcfg, store, body)
+    assert (r["outcome"], r["board"], r["recorded"]) == ("done", "partly priced", 2)
+    assert "pinnacle mode" in r["detail"]
+    assert [b["bet_id"] for b in bets(store)] == ["2up:bb:arsenal|chelsea|2026-11-18:home",
+                                                  "2up:bb:leeds|hull|2026-11-18:away"]
+    # The same selection in the next pass, now joined to Pinnacle: the same bet id, not a second bet.
+    again = run(pcfg, store, bb_feed([bb_row(sources=("bb", "pinnacle"))]))
+    assert again["recorded"] == 0 and again["skipped"] == {"already_recorded": 1}
+
+
+@pytest.mark.parametrize("body, says", [
+    (bb_feed([], not_yet_refreshed=True, degraded=True,
+             cannot_price=["ALL — no Bookie Bashing tracker snapshot since boot (POST /api/2up/bb)"]),
+     "not_yet_refreshed"),
+    (bb_feed([], degraded=True, last_pass={"priced_fixtures": 2},
+             cannot_price=["ALL — the Bookie Bashing tracker snapshot is 400s old (limit 300s)"]),
+     "cannot_price: ALL — the Bookie Bashing tracker snapshot"),
+])
+def test_a_bb_board_with_no_usable_tracker_is_no_bet(pcfg, store, body, says):
+    r = run(pcfg, store, body)
+    assert (r["outcome"], r["board"]) == ("no-bet", "no-bet")
+    assert r["detail"].startswith(says) and bets(store) == []
+
+
+def test_an_unreadable_rescue_table_leaves_only_the_rows_bb_flags(pcfg, store):
+    body = bb_feed([bb_row(), bb_row(event_id="bb:leeds|hull|2026-11-18", sources=("bb", "pinnacle")),
+                    {**row(event_id="bb:wigan|bolton|2026-11-18"), "sources": ["pinnacle"]}],
+                   degraded=True, cannot_price=["rescue table unreadable: /x.json"])
+    r = run(pcfg, store, body)
+    assert (r["outcome"], r["board"], r["recorded"]) == ("done", "partly priced", 2)
+    assert r["skipped"] == {"needs_rescue_table": 1}
+    assert [b["bet_id"] for b in bets(store)] == ["2up:bb:arsenal|chelsea|2026-11-18:home",
+                                                  "2up:bb:leeds|hull|2026-11-18:home"]
+
+
+def test_an_unreadable_rescue_table_with_no_bb_row_is_still_no_bet(pcfg, store):
+    body = bb_feed([{**row(), "sources": ["pinnacle"]}], degraded=True,
+                   cannot_price=["rescue table unreadable: /x.json"])
+    r = run(pcfg, store, body)
+    assert (r["outcome"], r["board"]) == ("no-bet", "no-bet")
+    assert r["detail"].startswith("cannot_price: rescue table unreadable")
+
+
 # ---- the rows --------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("bad, reason", [
