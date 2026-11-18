@@ -25,6 +25,19 @@ export const BOOST_DEFAULTS = {
   refOdds: 1.25,     // neutral partners a single leg is scored against
 }
 
+// William Hill's Football Acca Boost (help.williamhill.com, terms from 26 May
+// 2026, ends 30 May 2027; Callum, 18 Nov 2026): 2+ legs, each 1/5 or longer,
+// on 90 Mins, 2 Up, BTTS or O/U Goals only. 20 legs or more is 200%; the
+// table stops at 20 here, so a longer acca is not scored. Of the Hills
+// board's markets only match goals qualify (`markets`).
+export const HILLS_BOOST = {
+  tiers: { 2: 0.03, 3: 0.04, 4: 0.05, 5: 0.075, 6: 0.10, 7: 0.15, 8: 0.20, 9: 0.25, 10: 0.30,
+    11: 0.35, 12: 0.40, 13: 0.45, 14: 0.50, 15: 1.00, 16: 1.10, 17: 1.25, 18: 1.50, 19: 1.75, 20: 2.00 },
+  minOdds: 1.2,
+  refOdds: 1.25,
+  markets: ['goals'],
+}
+
 /** Evaluate one boosted acca from offered odds and true win probabilities. */
 export function boostEval(odds, probs, cfg = {}) {
   const c = { ...BOOST_DEFAULTS, ...cfg }

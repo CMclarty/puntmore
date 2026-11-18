@@ -5,7 +5,7 @@ import MarketIcon from '../components/MarketIcon'
 import useAutoRefresh from '../hooks/useAutoRefresh'
 import { shortTeams } from '../teams'
 import { DEFAULTS as ACCA_DEFAULTS, evaluate, legScore, trueProb } from '../accaInsurance'
-import { boostEval, boostLegScore } from '../accaBoost'
+import { boostEval, boostLegScore, HILLS_BOOST } from '../accaBoost'
 import HillsBuilder from './HillsBuilder'
 import { age, kickoff } from '../paddy'
 
@@ -31,7 +31,10 @@ import { age, kickoff } from '../paddy'
  * (/hills), its own remembered filters and no "most" rows (those are read off
  * Paddy's terminal). Its offers are Value · BB Boost · Boost: BB Boost (in
  * Refund's place) is William Hill's boosted bet builder on the team's target
- * match (HillsBuilder.jsx); Value and Boost are Paddy's, over every match.
+ * match (HillsBuilder.jsx); Value is Paddy's, over every match; Boost is
+ * William Hill's own Football Acca Boost (accaBoost.js::HILLS_BOOST: 3% on
+ * 2 legs up to 200% on 20, legs 1.20+, match goals only of this board's
+ * markets).
  */
 
 // One fetch serves all three offers: down to 95% of fair (min_edge -0.05),
@@ -183,7 +186,7 @@ const BOOKS = {
     filterKey: 'paddy.filters', offers: OFFERS, markets: MARKETS },
   hills: { feed: getHillsFeed, why: getHillsDiagnostics, offerKey: 'hills.tab',
     filterKey: 'hills.filters', offers: [['value', 'Value'], ['bb', 'BB Boost'], ['boost', 'Boost']],
-    markets: MARKETS.filter(m => !FAIR_ONLY.includes(m)) },
+    markets: MARKETS.filter(m => !FAIR_ONLY.includes(m)), boost: HILLS_BOOST },
 }
 
 export default function CardsPage({ book = 'paddy' }) {
@@ -272,8 +275,10 @@ export default function CardsPage({ book = 'paddy' }) {
   const list = singles
     ? bets.filter(b => b.value != null && b.value >= 0)  // no Paddy price = hidden (Callum, 8 Nov 2026)
       .map(b => ({ b, s: offer === 'freebet' ? freeBetScore(b) : b.value ?? -Infinity }))
-    : bets.filter(b => b.odds >= ACCA_FLOOR)
-      .map(b => ({ b, s: refund ? legScore(b, ACCA_DEFAULTS) : boostLegScore(b).growth }))
+    : bets.filter(b => b.odds >= ACCA_FLOOR
+        // A book's boost may take only some markets (William Hill's: goals).
+        && (refund || !cfg.boost?.markets || cfg.boost.markets.includes(b.market)))
+      .map(b => ({ b, s: refund ? legScore(b, ACCA_DEFAULTS) : boostLegScore(b, cfg.boost).growth }))
   // Refund / Boost: one selection per match — the highest-scoring one.
   if (!singles && fl.onePerMatch) list.splice(0, list.length, ...bestPerMatch(list))
   list.sort(
@@ -286,7 +291,7 @@ export default function CardsPage({ book = 'paddy' }) {
     const picks = bestPerMatch(list).sort((a, b) => b.s - a.s).slice(0, 5).map(x => x.b)
     if (picks.length === 5) {
       const odds = picks.map(b => b.odds), probs = picks.map(trueProb)
-      top5 = (refund ? evaluate({ odds, probs }, ACCA_DEFAULTS) : boostEval(odds, probs)).evPct
+      top5 = (refund ? evaluate({ odds, probs }, ACCA_DEFAULTS) : boostEval(odds, probs, cfg.boost)).evPct
     }
   }
 
