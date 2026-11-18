@@ -20,9 +20,12 @@ One pass (`read_once`, run by `puntmore placer 2up` and, when switched on, the d
    still be bet, every other row is skipped (`needs_rescue_table`), and a board with no such row
    is no-bet as before. A status that is not an object is no-bet.
 4. Each row: skipped when it is not value, its `priced_at` is missing or older than
-   `PUNTMORE_PLACER_2UP_MAX_AGE_S` (3900 s: Render's slowest price tier plus the feed's own
-   5 min), its kick-off has passed, its bet is already recorded or it repeats a selection
-   earlier in the same feed; otherwise a single at the row's price, the flat stake
+   `PUNTMORE_PLACER_2UP_MAX_AGE_S` (5700 s: Render's slowest price tier, Pinnacle's 30-minute
+   plan delay and the feed's own 5 min), its bet365 price (`bet365_priced_at`, else `priced_at`)
+   is older than `PUNTMORE_PLACER_2UP_BET365_MAX_AGE_S` (900 s), its kick-off has passed, its bet
+   is already recorded, it repeats a selection earlier in the same feed, or a 2-Up bet is already
+   recorded for the same selection under another bet id (same home, away and side, folded, kick-off
+   within 12 hours: an `event_id` that drifted); otherwise a single at the row's price, the flat stake
    `PUNTMORE_PLACER_FLAT_STAKE` (a test setting, not the staking logic), `not_after` the
    kick-off, bet id `2up:<event_id>:<side>`. The engine's idempotence on bet id keeps one
    record per selection however many passes see it.
@@ -40,8 +43,10 @@ from __future__ import annotations
 import http.client
 import json
 import logging
+import re
+import unicodedata
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .. import aw26
@@ -58,6 +63,40 @@ FEED_PATH = "/api/2up/feed?value_only=true"
 NO_BET_FLAGS = ("killed", "not_yet_refreshed", "stale")
 # How Render's status names an unreadable rescue table in `cannot_price`.
 RESCUE_GONE = "rescue table unreadable"
+# One bet per selection: a recorded 2-Up bet on the same teams and side with a kick-off this close
+# is the same selection, whatever its bet id.
+SAME_SELECTION_WINDOW = timedelta(hours=12)
+_NOT_WORD = re.compile(r"[^a-z0-9]+")
+
+
+def _fold(name: Any) -> str:
+    """A team name folded for comparing: accents off, lower case, punctuation and spaces as one."""
+    text = unicodedata.normalize("NFKD", str(name or "")).encode("ascii", "ignore").decode()
+    return _NOT_WORD.sub(" ", text.lower()).strip()
+
+
+def _selection_key(home: Any, away: Any, side: Any, kickoff: datetime | None):
+    if kickoff is None or not _fold(home) or not _fold(away):
+        return None
+    return (_fold(home), _fold(away), str(side or ""), kickoff)
+
+
+def _same_selection(key, held: list) -> bool:
+    return key is not None and any(
+        k[:3] == key[:3] and abs(k[3] - key[3]) <= SAME_SELECTION_WINDOW for k in held)
+
+
+def recorded_selections(store: Store) -> list:
+    """The selection of every 2-Up bet recorded, from what each bet's body keeps (`meta`)."""
+    out = []
+    for body in store.bet_bodies("2up:"):
+        meta = body.get("meta") if isinstance(body, dict) else None
+        if isinstance(meta, dict):
+            key = _selection_key(meta.get("home"), meta.get("away"), meta.get("side"),
+                                 _when(meta.get("kickoff")))
+            if key is not None:
+                out.append(key)
+    return out
 
 
 def _needs_no_rescue_table(row: dict) -> bool:
@@ -193,6 +232,9 @@ def _row_bet(cfg: Settings, row: dict, store: Store, now: datetime,
         return bid, "no_priced_at"
     if (now - priced_at).total_seconds() > cfg.placer_2up_max_age_s:
         return bid, "stale_price"
+    bet365_at = _when(row.get("bet365_priced_at")) or priced_at
+    if (now - bet365_at).total_seconds() > cfg.placer_2up_bet365_max_age_s:
+        return bid, "stale_bet365_price"
     if kickoff <= now:
         return bid, "kicked_off"
     return bid, Bet(
@@ -200,7 +242,11 @@ def _row_bet(cfg: Settings, row: dict, store: Store, now: datetime,
         legs=[BetLeg(event_id=event_id, market=str(row.get("market") or "Match Result"),
                      selection=str(row["selection"]), price=price)],
         stake=float(cfg.placer_flat_stake), expected_price=price, bet_type="single",
-        not_after=kickoff.isoformat(timespec="seconds"))
+        not_after=kickoff.isoformat(timespec="seconds"),
+        meta={"home": row.get("home"), "away": row.get("away"), "side": side,
+              "kickoff": row.get("kickoff"), "sources": row.get("sources"),
+              "bb_rating": row.get("bb_rating"), "bet365_priced_at": row.get("bet365_priced_at"),
+              "fair_priced_at": row.get("fair_priced_at"), "priced_at": row.get("priced_at")})
 
 
 def read_once(cfg: Settings, store: Store, *, opener: aw26.Opener | None = None,
@@ -230,11 +276,18 @@ def read_once(cfg: Settings, store: Store, *, opener: aw26.Opener | None = None,
     skipped: Counter = Counter()
     shown, bets, ids = [], [], set()
     rescue_gone = rescue_table_gone(feed)
+    held = recorded_selections(store)
     for row in rows:
         bid, got = _row_bet(cfg, row, store, now, rescue_gone)
         if not isinstance(got, str):
+            key = _selection_key(row.get("home"), row.get("away"), row.get("side"),
+                                 _when(row.get("kickoff")))
             if bid in ids:
                 got = "repeated_in_feed"
+            elif _same_selection(key, held):
+                got = "same_selection_recorded"
+            elif key is not None:
+                held.append(key)
             ids.add(bid)
         fate = got if isinstance(got, str) else "new"
         if isinstance(got, str):
