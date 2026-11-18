@@ -18,6 +18,7 @@ import pytest
 from scraper import behaviour
 from scraper.parsers import PARSERS
 from scraper.parsers.bb_2up import bb_2up, latest_ratings, read
+from scraper.rest import Rest
 
 FIX = pathlib.Path(__file__).parent / "fixtures" / "bb_2up"
 PAGE = (FIX / "tracker.html").read_text(encoding="utf-8")
@@ -241,13 +242,18 @@ def test_a_selection_that_is_neither_team_is_skipped_and_quoted():
     assert len(rows) == 23 and rows.said == "1 of 24 records skipped: 1 selection is neither team (first: 'Draw')"
 
 
-def test_an_empty_tracker_posts_nothing():
+def _empty_tracker():
     start, end = PAGE.index("<tbody"), PAGE.index("</tbody>")
     html = PAGE[:PAGE.index(">", start) + 1] + PAGE[end:]
-    html = _edit("24/24 shown", "0/0 shown", html)
-    p = {**_payload(), "count": 0, "records": []}
-    rows = _read(html, p)
-    assert rows == [] and rows.said == "the tracker lists no selections"
+    return _edit("24/24 shown", "0/0 shown", html), {**_payload(), "count": 0, "records": []}
+
+
+@pytest.mark.parametrize("within_h", [0, 48])
+def test_an_empty_tracker_rests_for_look_again_s(within_h):
+    html, p = _empty_tracker()
+    with pytest.raises(Rest) as exc:
+        read(html, (ARRIVED, p), NOW, within_h, look_again_s=86400)
+    assert exc.value.until == NOW + 86400 and exc.value.why == "the tracker lists no selections"
 
 
 # --- the page ----------------------------------------------------------------
@@ -296,8 +302,6 @@ def test_only_games_within_the_window_are_rows():
     rows = _read(within_h=73)
     assert [r["event"] for r in rows] == ["Norwich v Cardiff", "Reading v Bromley", "Newport County v Swindon"]
     assert rows.said == "21 kicking off outside the next 73 hours left out"
-    rows = _read(within_h=48)
-    assert rows == [] and rows.said == "24 kicking off outside the next 48 hours left out"
 
 
 def test_outside_the_window_is_not_a_skip():
@@ -324,5 +328,82 @@ def test_the_window_is_the_games_setting(tmp_path):
     finally:
         behaviour.load(tmp_path / "none")
     assert len(rows) == 3
-    rows = bb_2up(_Page(PAGE), _capture((ARRIVED, _payload())), now=NOW)      # the default, 48
-    assert rows == [] and "outside the next 48 hours" in rows.said
+    with pytest.raises(Rest):                                                  # the default, 48
+        bb_2up(_Page(PAGE), _capture((ARRIVED, _payload())), now=NOW)
+
+
+# --- the rest ----------------------------------------------------------------
+NEXT_KO = datetime(2026, 11, 21, 12, 30, tzinfo=timezone.utc).timestamp()     # Norwich v Cardiff, the earliest
+
+
+def test_no_game_within_48_hours_rests_until_48_hours_before_the_earliest():
+    with pytest.raises(Rest) as exc:
+        read(PAGE, (ARRIVED, _payload()), NOW, 48, look_again_s=2 * 86400)
+    assert exc.value.until == NEXT_KO - 48 * 3600                # Thu 19 Nov 12:30 UTC, inside two days
+    assert exc.value.why == ("no game on the tracker kicks off within 48 hours - "
+                             "next is Norwich v Cardiff, Sat 21 Nov 12:30")
+
+
+def test_the_rest_is_capped_by_look_again_s():
+    with pytest.raises(Rest) as exc:
+        read(PAGE, (ARRIVED, _payload()), NOW, 24, look_again_s=3600)
+    assert exc.value.until == NOW + 3600                         # 48 h before Sat 12:30 is two days off
+
+
+def test_the_rest_reads_look_again_s_from_the_games_setting(tmp_path):
+    behaviour.set_(tmp_path, "games.look_again_s", 7200)
+    behaviour.load(tmp_path)
+    try:
+        with pytest.raises(Rest) as exc:
+            bb_2up(_Page(PAGE), _capture((ARRIVED, _payload())), now=NOW)     # games.within_h 48
+    finally:
+        behaviour.load(tmp_path / "none")
+    assert exc.value.until == NOW + 7200
+
+
+def test_every_game_already_under_way_rests_for_look_again_s():
+    p = _payload()
+    for rec in p["records"]:
+        rec["ko"] = int(NOW) - 600
+    with pytest.raises(Rest) as exc:
+        read(PAGE, (ARRIVED, p), NOW, 48, look_again_s=86400)
+    assert exc.value.until == NOW + 86400 and exc.value.why == "no game on the tracker kicks off within 48 hours"
+
+
+def test_one_game_inside_the_window_is_no_rest():
+    p = _payload()
+    p["records"][23]["ko"] = int(NOW) + 3600                     # Paris FC v Angers in an hour
+    rows = read(PAGE, (ARRIVED, p), NOW, 48, look_again_s=86400)
+    assert [r["event"] for r in rows] == ["Paris FC v Angers"]
+
+
+def test_no_window_is_no_rest():
+    assert len(read(PAGE, (ARRIVED, _payload()), NOW, 0, look_again_s=86400)) == 24
+
+
+def _unhealthy():
+    stale = (PAGE, (NOW - 181, _payload()))
+    p = _payload()
+    p["metric"] = "last_trade"
+    guard = (PAGE, (ARRIVED, p))
+    p = _payload()
+    p["records"][3]["selectionName"] = "Burnley"
+    p["records"][3]["eventName"] = "West Ham v Burnley"
+    mismatch = (PAGE, (ARRIVED, p))
+    p = _payload()
+    p["count"] = 30
+    short = (PAGE, (ARRIVED, p))
+    p = _payload()
+    for i in (0, 5, 9):
+        p["records"][i]["fairOdds"] = 0
+    unreadable = (PAGE, (ARRIVED, p))
+    header = (_edit('<th data-v-01949c02="">Lay</th>', '<th data-v-01949c02="">Back</th>'), (ARRIVED, _payload()))
+    return {"stale": stale, "guard": guard, "mismatch": mismatch, "short": short,
+            "unreadable": unreadable, "header": header, "no payload": (PAGE, None)}
+
+
+@pytest.mark.parametrize("case", sorted(_unhealthy()))
+def test_an_unhealthy_read_never_rests(case):
+    html, ratings = _unhealthy()[case]
+    rows = read(html, ratings, NOW, 48, look_again_s=86400)     # nothing within 48 h: healthy would rest
+    assert rows == [] and rows.said

@@ -74,7 +74,9 @@ prices are `scraper_prices` files that the Hub posts to Render.
   reads Bookie Bashing's Early Payout Tracker for `/api/2up/bb`: the rows
   from the newest ratings payload the page received (known by its shape),
   the table as the check that the page drew it; it posts nothing when the
-  payload is over 3 minutes old, the settings changed, or the board is short. `dom.py`
+  payload is over 3 minutes old, the settings changed, or the board is short,
+  and on a healthy read with no game within `games.within_h` it rests as
+  `bb_saves` does. `dom.py`
   is a small DOM over a page's HTML (the standard library's html.parser),
   so such a parser's tests need no browser. A parser may return
   `rows.Rows` (a list with `said`): a line about the page, which the runner

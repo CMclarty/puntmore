@@ -77,7 +77,12 @@ where the table shows 2.63), the EV rating (100 is break-even) and N.Odds to
 two places, the kick-off in UTC, the seconds since the record last changed
 (now less its `changed`), and when it was read. Only games kicking off within
 `games.within_h` hours (48 by default, the "Games" setting every job that
-reads games follows) are rows. It clicks nothing: the page refreshes itself,
+reads games follows) are rows. When the tracker is read cleanly and no game
+on it is that near (midweek, usually), the job rests as `bb-saves` does:
+its page is closed and nothing loads until 48 hours before the earliest game
+the tracker lists, or a day (`games.look_again_s`), whichever is sooner; a
+tracker with no selections rests a day. `status` shows it `paused` with the
+reason; `wake bb-2up` ends the rest by hand. It clicks nothing: the page refreshes itself,
 and its filters are Callum's saved settings on Bookie Bashing.
 
 Each parse that reads rows (once a minute) is one `scraper_prices` file for
@@ -100,10 +105,11 @@ quiet and the runner reloads it once it has been quiet for the job's
 by `recycle.hours` (a fresh page about every 30 minutes, about 2 loads an
 hour and 48 a day of Bookie Bashing's 8 an hour and 120 a day); a page that
 stays stuck is reloaded at most every 10 minutes, 6 an hour, and the guard
-refuses any load past the budget. On a day with no game within 48 hours the
-job posts nothing, so its no-rows alert (`alerts.no_rows_min`, 60 minutes)
-fires once and clears at the next delivery; `min_rows` is left unset for the
-same reason. The job (`targets.example.toml`, `bb-2up`):
+refuses any load past the budget. A rest pauses the job's no-rows alert
+(`alerts.no_rows_min`, 60 minutes), so a quiet midweek raises none; it still
+fires for a page that stays up and posts nothing for an hour (a stuck page,
+changed settings, a short table). `min_rows` is left unset: a resting job
+reads no rows by design. The job (`targets.example.toml`, `bb-2up`):
 
 ```sh
 python -m scraper targets add --name bb-2up --site bookiebashing \

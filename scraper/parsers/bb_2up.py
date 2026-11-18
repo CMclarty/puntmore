@@ -86,6 +86,19 @@ A record with a field that cannot be read as its type is skipped and
 counted, never guessed. Only games kicking off within `games.within_h`
 hours are rows (the "Games" setting every job that reads games follows; 0
 is no limit; a game under way is out); the others are not skips.
+
+THE REST, as bb_saves rests (`_rest`; the register, 12 Nov 2026). On a
+healthy read (a fresh payload, the settings as above, the table and the
+payload agreeing, no more than a tenth unreadable) with no game inside the
+window, the parser raises rest.Rest: until `games.within_h` hours before
+the earliest game the tracker lists beyond it, or `games.look_again_s`
+(a day) from now, whichever is sooner; with no such game (every one under
+way), or no selection at all, `games.look_again_s`. The runner closes the
+page and loads nothing for the job until then, so it neither sits open
+posting nothing nor trips the no-rows alert; `python -m scraper wake
+bb-2up` ends a rest by hand. An unhealthy read never rests: the page stays
+up and `said` says why. Like bb_saves, it reads the games setting, not a
+job's own `within_h` (a parser is handed its page and capture only).
 """
 import json
 import math
@@ -95,6 +108,7 @@ import unicodedata
 from datetime import datetime, timezone
 
 from .. import behaviour
+from ..rest import Rest, when
 from .dom import Node, parse
 from .rows import Rows
 
@@ -144,7 +158,10 @@ def _is_ratings(body) -> bool:
 
 
 # --- the parse --------------------------------------------------------------
-def read(html: str, ratings: tuple[float, dict] | None, now: float, within_h: float = 0) -> Rows:
+def read(html: str, ratings: tuple[float, dict] | None, now: float, within_h: float = 0,
+         look_again_s: float | None = None) -> Rows:
+    """The rows; raises Rest when the read is healthy and nothing is to be
+    posted for a while (_rest). look_again_s: games.look_again_s when None."""
     if ratings is None:
         return Rows([], "no ratings payload received yet: nothing posted until the page has fetched one")
     at, body = ratings
@@ -182,11 +199,11 @@ def read(html: str, ratings: tuple[float, dict] | None, now: float, within_h: fl
     if drawn != fetched:
         return Rows([], "the table is not the newest payload's selections (not drawn yet?); nothing posted")
     if not records:
-        return Rows([], "the tracker lists no selections")
+        raise _rest(now, None, within_h, look_again_s, empty=True)
 
     seen_at = _iso(now)
     horizon = now + within_h * 3600 if within_h else None
-    rows, skipped, first_odd, outside = [], {}, None, 0
+    rows, skipped, first_odd, outside, later = [], {}, None, 0, None
     for rec in records:
         row, why = _row(rec, now, seen_at)
         if row is None:
@@ -196,6 +213,8 @@ def read(html: str, ratings: tuple[float, dict] | None, now: float, within_h: fl
             continue
         if horizon is not None and not now < rec["ko"] <= horizon:
             outside += 1
+            if rec["ko"] > horizon and (later is None or rec["ko"] < later[0]):
+                later = (rec["ko"], row["event"])
             continue
         rows.append(row)
     said = []
@@ -206,9 +225,28 @@ def read(html: str, ratings: tuple[float, dict] | None, now: float, within_h: fl
         said.append(f"{n} of {len(records)} records skipped: " + ", ".join(parts))
         if n > MAX_SKIPPED * len(records):
             return Rows([], "; ".join(said) + f" - over {MAX_SKIPPED:.0%}, nothing posted")
+    if not rows and horizon is not None:
+        raise _rest(now, later, within_h, look_again_s)
     if outside:
         said.append(f"{outside} kicking off outside the next {within_h:g} hours left out")
     return Rows(rows, "; ".join(said) or None)
+
+
+def _rest(now: float, later: tuple[float, str] | None, within_h: float, look_again_s: float | None,
+          empty: bool = False) -> Rest:
+    """Nothing to post on a healthy read: rest until within_h hours before
+    the earliest game listed beyond the window, or games.look_again_s,
+    whichever is sooner (bb_saves._rest); with no such game,
+    games.look_again_s. The runner closes the page until then; `python -m
+    scraper wake bb-2up` ends it."""
+    look_again = now + (behaviour.get("games.look_again_s") if look_again_s is None else look_again_s)
+    if later is None:
+        why = ("the tracker lists no selections" if empty
+               else f"no game on the tracker kicks off within {within_h:g} hours")
+        return Rest(look_again, why)
+    kickoff, event = later
+    return Rest(min(kickoff - within_h * 3600, look_again),
+                f"no game on the tracker kicks off within {within_h:g} hours - next is {event}, {when(kickoff)}")
 
 
 def _settings(body: dict) -> str | None:

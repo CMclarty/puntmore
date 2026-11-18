@@ -70,8 +70,10 @@ post = "/api/paddy/saves-fair"
 # selection kicking off within games.within_h from the newest of them, clicks
 # nothing, and the rows go to Render's /api/2up/bb through the Hub. No
 # every_min: a page that stops fetching goes quiet and is reloaded after
-# stale_min (10, the floor); otherwise only recycle.hours reloads it. No
-# min_rows: a day with no game within 48 hours rightly has no rows.
+# stale_min (10, the floor); otherwise only recycle.hours reloads it. With
+# no game within games.within_h it rests (page closed) until 48 hours before
+# the next one, or a day; `python -m scraper wake bb-2up` ends a rest. No
+# min_rows: a resting job reads no rows by design.
 [[target]]
 name = "bb-2up"
 site = "bookiebashing"
