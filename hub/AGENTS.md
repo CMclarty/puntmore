@@ -3,9 +3,9 @@
 `hub/` is the Hub's program apart from the Scraper service (`scraper/`): Scraper control's
 intake (the daemon's inbox of the Scraper's drop files, which posts the Scraper's Paddy prices
 on to Render, and its tipster-mailbox poll), HubAI's side (escalations, the Finder CLI and the
-reading of AW 26's slip photos), the placement engine the Bet Placer starts from, and the
-Console. It runs on Callum's box, never on Render, and is not part of the Render deploy
-(`.github/workflows/hub-tests.yml` only tests it).
+reading of AW 26's slip photos), the placement engine the Bet Placer starts from with its first
+stage (the 2-Up reader, dry-run), and the Console. It runs on Callum's box, never on Render,
+and is not part of the Render deploy (`.github/workflows/hub-tests.yml` only tests it).
 `docs/decisions.md` is read first and wins; the repo's `CLAUDE.md` applies here too. Read this
 directory's `README.md` before changing anything, and `PROTOCOL.md` before touching the drop
 files.
@@ -62,7 +62,23 @@ files.
   lives here: dry-run is on by default (`PUNTMORE_DRY_RUN`) and only Callum switches it off,
   after two weeks of clean dry-run; the kill switch is the file `data/KILL` (`puntmore kill on`;
   anyone may turn it on, only Callum turns it off); no auto-retry and no re-routing of a failed
-  bet, which is recorded and escalated to HubAI; every bet is idempotent on `bet_id`.
+  bet, which is recorded and escalated to HubAI; every bet is idempotent on `bet_id`. A `bets`
+  row's `dry_run` column is 1 when the dry-run adapter handled it.
+- **The Bet Placer's 2-Up reader is stage 1, dry-run only** (`placement/twoup.py`;
+  `docs/placer-spec.md`, "What exists"). `puntmore placer 2up [--show]` runs one pass; the
+  daemon runs one every `PUNTMORE_PLACER_2UP_EVERY_S` (120 s) only when `PUNTMORE_PLACER_2UP=1`
+  and `PUNTMORE_RENDER_HTTP` and `PUNTMORE_RENDER_API_KEY` are set (the key granted
+  `accabonus`), its last pass under `placer_2up` in `daemon-status.json`. It reads
+  `GET /api/2up/feed?value_only=true`, bets on no row of a board that is unavailable, killed,
+  not yet refreshed, stale or cannot price (a partly priced board keeps its priced rows), skips
+  a row that is not value, priced over `PUNTMORE_PLACER_2UP_MAX_AGE_S` (3900 s: Render's slowest
+  price tier plus the feed's 5 min) ago or past kick-off, and hands the rest to the engine one at
+  a time as singles (`2up:<event_id>:<side>`) at the flat test stake
+  `PUNTMORE_PLACER_FLAT_STAKE` on the account `PUNTMORE_PLACER_2UP_ACCOUNT`. It gives
+  the engine no adapter, so nothing is placed whatever `PUNTMORE_DRY_RUN` says. With no usable
+  account or the kill switch on, a pass does nothing and says so; it never escalates per row,
+  and a pass stops between bets if either goes while it runs.
+  What it recorded is on the Console's Placement tab.
 - Secrets go in `.env` (git-ignored). Never commit tokens, account details or `sub_clients.yaml`.
 
 ## Where to change what
@@ -77,6 +93,7 @@ files.
 | Change where the drop files are read from | `.env` (`PUNTMORE_SCRAPER_DATA`; the old `PUNTMORE_WORKER_DATA` is still read) |
 | Change the drop files | `PROTOCOL.md`, the schema, an example, `scraper/sinks.py`, `puntmore_hub/inbox.py`, in one pull request |
 | Add a bookmaker account | `sub_clients.yaml` (see `sub_clients.example.yaml`); the Bet Placer's phone interface will replace it |
+| Change what the 2-Up reader bets on | `puntmore_hub/placement/twoup.py` and `docs/placer-spec.md` in one pull request; its settings in `.env` (`PUNTMORE_PLACER_*`) |
 | Implement real placement | the Bet Placer's phone interface through DeviceFarmer (`docs/placer-spec.md`); today's stub is `puntmore_hub/placement/adapters/phone.py` |
 | See what the Hub is doing | the Console at http://127.0.0.1:8090 (`puntmore web`, unit `puntmore-web`; code in `puntmore_hub/web/`) |
 | Get a merged change onto the box | nothing: it arrives within 10 minutes via `puntmore-update.timer`; `hub/deploy/update.sh` by hand (README, "Updating the Hub") |
@@ -89,6 +106,7 @@ puntmore health                             # exit 1 = Scraper down, a source bl
 puntmore inbox                              # one pass over the drop files, then posts waiting price drops (the daemon: every 30 s, prices every 10 s)
 puntmore mail --dry-run                     # what the tipster parsers would read; stores nothing
 puntmore aw26 photos                        # AW 26's photo queue on Render: each photo's state, tries and reason
+puntmore placer 2up --show                  # one 2-Up reader pass: the board's verdict, each row and what became of it
 ```
 
 Directory ownership when several agents work at once: `render/` (Render) and `hub/` + `scraper/`

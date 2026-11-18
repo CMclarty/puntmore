@@ -3,15 +3,18 @@
 The placement engine here is where the Bet Placer starts (`docs/placer-spec.md`, which holds
 everything else: what it reads, how it sizes, its open work). The engine is real and tested; the
 part that touches a bookmaker account is a stub (`adapters/phone.py`) that refuses every bet, so
-the Hub runs in dry-run. **Nothing calls the engine yet**: it has no caller in production until
-the Bet Placer exists to read the feeds and hand it bets; only the tests drive it today.
+the Hub runs in dry-run. **Its one caller is the 2-Up reader** (`twoup.py`, stage 1 of the Bet
+Placer: `puntmore placer 2up`, and the daemon when `PUNTMORE_PLACER_2UP=1`), which hands it
+singles from Render's 2-Up feed at a flat test stake and gives it no adapter, so every bet is
+recorded through the dry-run adapter.
 
 ## The engine
 
 `engine.py::ClientEngine` owns the rules and never changes for a new adapter: idempotency on
-`bet_id`, the kill switch (`data/KILL`), dry-run (`PUNTMORE_DRY_RUN`, on by default), the
-placement window, the account lookup, the record in the `bets` table, and escalation to HubAI on
-failure. It takes one bet at a time:
+`bet_id` (one insert claims the id, so of two callers with one id only one reaches the adapter), the kill switch (`data/KILL`), dry-run (`PUNTMORE_DRY_RUN`, on by default), the
+account lookup, the record in the `bets` table (its `dry_run` column 1 when the dry-run adapter
+handled the bet), and escalation to HubAI on failure. It does not check `not_before` /
+`not_after` yet; the caller drops a bet that is past. It takes one bet at a time:
 
 ```json
 {"bet_id": "2026-11-05-00123", "account_id": "acc-phone-1",

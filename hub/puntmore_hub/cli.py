@@ -2,7 +2,8 @@
 
 Scraping is the Scraper's (`python -m scraper ...` in `scraper/`); this CLI reads what the
 Scraper drops and reports, polls the tipster mailbox, runs the daemon, hands tips to Finder on
-Render for HubAI, and owns placement and escalations.
+Render for HubAI, owns placement and escalations, and runs the Bet Placer's 2-Up reader
+(`puntmore placer 2up`).
 """
 from __future__ import annotations
 
@@ -214,6 +215,30 @@ def cmd_aw26(a):
     print(json.dumps(out))
 
 
+def cmd_placer(a):
+    """The Bet Placer's 2-Up reader (placement/twoup.py): one pass over Render's 2-Up feed, the
+    bets it would place recorded in dry-run. `--show` lists the rows the pass looked at (none on
+    a no-bet board, which is not looked at row by row). Exit 1 when the feed could not be read
+    (not configured, refused, unreachable); 0 otherwise, a no-bet board, no account and the
+    kill switch included."""
+    from .placement import twoup
+    st = _store()
+    try:
+        r = twoup.read_once(settings, st)
+    finally:
+        st.close()
+    print(f"2up: {r['outcome']}: {r['detail']}")
+    if r["outcome"] in ("done", "stopped", "no-bet"):
+        skipped = ", ".join(f"{k} {v}" for k, v in sorted(r["skipped"].items())) or "none"
+        statuses = ", ".join(f"{k} {v}" for k, v in sorted(r["statuses"].items())) or "none"
+        print(f"rows seen {r['seen']}; skipped {sum(r['skipped'].values())} ({skipped}); "
+              f"recorded {r['recorded']} ({statuses}); dry_run={r['dry_run']}")
+    if a.show and r["rows"]:
+        _print_rows(r["rows"], ["bet_id", "event", "selection", "price", "priced_at", "kickoff", "fate"])
+    if r["outcome"] in ("not configured", "refused", "unreachable"):
+        sys.exit(1)
+
+
 def cmd_web(a):
     """Run the Hub Console: what every Hub component is doing, live, and the kill switch."""
     from .web.app import serve
@@ -268,6 +293,9 @@ def build_parser() -> argparse.ArgumentParser:
     ab.add_argument("--at", required=True); ab.add_argument("--match"); ab.set_defaults(fn=cmd_aw26)
     ar = aw.add_parser("record", help="record a slip (a JSON file, or - for stdin)")
     ar.add_argument("file"); ar.add_argument("--dry-run", action="store_true", help="print the body; send nothing"); ar.set_defaults(fn=cmd_aw26)
+    pl = sub.add_parser("placer", help="the Bet Placer: the 2-Up reader (dry-run)").add_subparsers(dest="which", required=True)
+    p2 = pl.add_parser("2up", help="one pass over Render's 2-Up feed; records in dry-run what it would place")
+    p2.add_argument("--show", action="store_true", help="one line per row, with what became of it"); p2.set_defaults(fn=cmd_placer)
     sub.add_parser("heartbeat", help="send the daily summary").set_defaults(fn=cmd_heartbeat)
     sub.add_parser("daemon", help="run the daemon: inbox every 30 s, prices every 10 s, tipster mailbox on its own thread").set_defaults(fn=cmd_daemon)
     sub.add_parser("link", help="the same as `daemon` (the name puntmore-link.service runs)").set_defaults(fn=cmd_daemon)

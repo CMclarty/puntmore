@@ -223,7 +223,8 @@ const RENDER = {
       ["account", "account"], ["open exposure", (r) => num(r.open_exposure, 2), "n"], ["latest balance", (r) => num(r.balance, 2), "n"],
     ], d.accounts, "no accounts seen yet"));
     fill(sec, "bets", table([
-      ["bet_id", "bet_id", "mono"], ["account", "account"], ["status", "status"], ["stake", (r) => num(r.stake, 2), "n"],
+      ["bet_id", "bet_id", "mono"], ["account", "account"], ["status", "status"],
+      ["dry-run", (r) => (r.dry_run === null || r.dry_run === undefined ? "?" : r.dry_run ? "yes" : "no")], ["stake", (r) => num(r.stake, 2), "n"],
       ["price", (r) => num(r.price, 2), "n"], ["actual", (r) => num(r.actual_price, 2), "n"], ["updated", (r) => when(r.updated, skew)],
     ], d.bets, "no bets yet"));
   },

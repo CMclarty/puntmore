@@ -251,7 +251,8 @@ def placement(cfg: Settings, store: Store) -> dict[str, Any]:
                 body = {}
             bets.append({"bet_id": r["bet_id"], "account": r["account_id"], "status": r["status"],
                          "stake": body.get("stake"), "price": body.get("expected_price"),
-                         "actual_price": r["actual_price"], "updated": r["updated"]})
+                         "actual_price": r["actual_price"], "updated": r["updated"],
+                         "dry_run": None if r["dry_run"] is None else bool(r["dry_run"])})
         accounts = [{"account": a, "open_exposure": store.open_exposure(a), "balance": store.latest_balance(a)}
                     for a in store.accounts()]
         failed = store.summary_since(utcnow() - timedelta(hours=24))["bets_failed"]
