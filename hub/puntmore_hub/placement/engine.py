@@ -49,14 +49,21 @@ class ClientEngine:
             statuses.append(self.handle_bet(bet))
         return statuses
 
+    def effective_adapter(self) -> PlacementAdapter:
+        """The adapter a bet goes to now: the dry-run one whenever dry-run is on."""
+        if self.cfg.dry_run and not isinstance(self.adapter, DryRunAdapter):
+            return DryRunAdapter()
+        return self.adapter
+
     def handle_bet(self, bet: Bet) -> str:
-        if self.store.bet_exists(bet.bet_id):
-            log.info("bet %s already seen; ignoring duplicate", bet.bet_id)
-            return "duplicate"
-        adapter = self.adapter if not self.cfg.dry_run else (self.adapter if isinstance(self.adapter, DryRunAdapter) else DryRunAdapter())
+        adapter = self.effective_adapter()
         # The record says whether a bookmaker could have been touched: the adapter, not the setting.
         dry = isinstance(adapter, DryRunAdapter)
-        self.store.upsert_bet(bet.bet_id, bet.account_id, bet.to_dict(), "received", dry_run=dry)
+        # One insert claims the bet id: a second caller with the same id, now or concurrently,
+        # loses the claim and never reaches the adapter.
+        if not self.store.claim_bet(bet.bet_id, bet.account_id, bet.to_dict(), dry_run=dry):
+            log.info("bet %s already seen; ignoring duplicate", bet.bet_id)
+            return "duplicate"
 
         if self.cfg.kill_switch_on():
             return self._fail(bet, "kill switch on", escalate_kind="kill_switch")

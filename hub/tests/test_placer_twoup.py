@@ -174,7 +174,7 @@ def test_a_partly_priced_board_keeps_its_priced_rows(pcfg, store):
 @pytest.mark.parametrize("bad, reason", [
     (row(value=False), "not_value"),
     (row(priced_ago=None), "no_priced_at"),
-    (row(priced_ago=301), "stale_price"),
+    (row(priced_ago=3901), "stale_price"),
     (row(kickoff_in=-1), "kicked_off"),
     ({**row(), "event_id": ""}, "bad_row"),
 ])
@@ -289,7 +289,7 @@ def test_the_2up_reader_is_off_unless_switched_on(tmp_path):
             "print(s.placer_2up, s.placer_2up_every_s, s.placer_flat_stake, s.placer_2up_max_age_s, "
             "repr(s.placer_2up_account), s.dry_run)"]
     out = subprocess.run(read, env={**env, "PYTHONPATH": str(hub)}, cwd=hub, capture_output=True, text=True, check=True)
-    assert out.stdout == "False 120 10.0 300 '' True\n"
+    assert out.stdout == "False 120 10.0 3900 '' True\n"
     on = {**env, "PYTHONPATH": str(hub), "PUNTMORE_PLACER_2UP": "1"}
     assert subprocess.run(read, env=on, cwd=hub, capture_output=True, text=True, check=True).stdout.startswith("True ")
 
@@ -358,3 +358,187 @@ def test_a_failing_2up_pass_never_stops_the_loop(pcfg, monkeypatch):
     daemon._placer_2up_loop(pcfg.with_overrides(placer_2up=True), stop)
     assert len(calls) == 2
     assert daemon.last_status(pcfg)["placer_2up"]["counts"]["outcome"] == "no-bet"
+
+
+# ---- review fixes (18 Nov 2026) --------------------------------------------------------------
+
+from puntmore_hub.placement.adapters.base import PlacementFailed  # noqa: E402
+from puntmore_hub.placement.adapters.dry_run import DryRunAdapter  # noqa: E402
+
+
+def test_a_migration_another_process_already_ran_is_not_an_error(tmp_path, monkeypatch):
+    """Two processes opening an old database together: the loser of the ALTER carries on."""
+    import sqlite3
+    path = tmp_path / "old.sqlite"
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE bets(bet_id TEXT PRIMARY KEY, account_id TEXT, body TEXT, received TEXT,"
+                " status TEXT, actual_price REAL, updated TEXT)")
+    con.execute("CREATE TABLE finder_posted(tip_id TEXT PRIMARY KEY, status TEXT, ts TEXT)")
+    con.commit(); con.close()
+    st = Store.__new__(Store)
+    st.conn = sqlite3.connect(path)
+    st.conn.row_factory = sqlite3.Row
+    real = st.conn
+    other = sqlite3.connect(path)               # the other process, adding both columns first
+    other.execute("ALTER TABLE bets ADD COLUMN dry_run INTEGER")
+    other.execute("ALTER TABLE finder_posted ADD COLUMN reason TEXT")
+    other.commit(); other.close()
+
+    class Stale:                                 # PRAGMA answered before the other process won
+        def __init__(self, conn):
+            self._c = conn
+
+        def execute(self, sql, *a):
+            if sql.startswith("PRAGMA"):
+                return real.execute("SELECT 'x', 'x' WHERE 0")
+            return real.execute(sql, *a)
+
+        def commit(self):
+            real.commit()
+    st.conn = Stale(real)
+    st._migrate()                                # no "duplicate column name"
+    cols = {r[1] for r in real.execute("PRAGMA table_info(bets)").fetchall()}
+    assert "dry_run" in cols
+
+
+def test_claiming_a_bet_id_twice_loses_the_second_time(store):
+    assert store.claim_bet("b1", "acc", {"stake": 1.0}, dry_run=True) is True
+    store.set_bet_status("b1", "placing")
+    assert store.claim_bet("b1", "acc", {"stake": 9.0}, dry_run=False) is False
+    row = dict(store.conn.execute("SELECT * FROM bets").fetchone())
+    assert (row["status"], row["dry_run"], json.loads(row["body"])["stake"]) == ("placing", 1, 1.0)
+
+
+def test_an_engine_that_loses_the_claim_never_runs_the_adapter(pcfg, store, monkeypatch):
+    calls = []
+
+    class Counting(DryRunAdapter):
+        def place(self, bet, account):
+            calls.append(bet.bet_id)
+            return super().place(bet, account)
+    b = Bet("x", "test-2up", [BetLeg("e", "m", "s", 2.0)], 1.0, 2.0, "single")
+    store.claim_bet("x", "test-2up", b.to_dict(), dry_run=True)      # another caller got there first
+    store.set_bet_status("x", "placing")
+    monkeypatch.setattr(store, "bet_exists", lambda bid: False)      # it had not when we looked
+    eng = ClientEngine(store, pcfg, adapter=Counting(), notify=False)
+    assert eng.handle_bet(b) == "duplicate"
+    assert calls == [] and bets(store)[0]["status"] == "placing"
+
+
+class _Flip(DryRunAdapter):
+    """Places the first bet, then does `flip` (the kill switch, the account) before the next."""
+    def __init__(self, flip):
+        self.flip, self.n = flip, 0
+
+    def place(self, bet, account):
+        self.n += 1
+        if self.n == 1:
+            self.flip()
+        return super().place(bet, account)
+
+
+@pytest.mark.parametrize("what", ["kill", "disable", "remove"])
+def test_a_mid_pass_flip_stops_the_pass_without_a_failed_row(pcfg, store, what):
+    def flip():
+        if what == "kill":
+            pcfg.kill_switch_file.write_text("x")
+        elif what == "disable":
+            pcfg.sub_clients_file.write_text("sub_clients:\n  - account_id: test-2up\n    enabled: false\n")
+        else:
+            pcfg.sub_clients_file.write_text("sub_clients: []\n")
+    eng = ClientEngine(store, pcfg, adapter=_Flip(flip), notify=False)
+    body = feed([row(event_id="a"), row(event_id="b"), row(event_id="c")])
+    r = twoup.read_once(pcfg, store, opener=serve(body), now=NOW, engine=eng)
+    assert r["outcome"] == "stopped" and r["recorded"] == 1
+    assert [b["status"] for b in bets(store)] == ["placed"]
+    assert store.open_escalations() == []
+    assert [x["fate"] for x in r["rows"]] == ["placed", "not handed", "not handed"]
+
+
+def test_read_once_logs_nothing_at_info(pcfg, store, caplog):
+    caplog.set_level(logging.INFO, logger="puntmore.placement.twoup")
+    run(pcfg, store, feed([row()]))
+    run(pcfg, store, feed([], stale=True))
+    assert [r for r in caplog.records if r.name == "puntmore.placement.twoup"] == []
+
+
+def test_the_price_age_limit_defaults_to_the_slowest_tier_plus_the_feed(tmp_path):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PUNTMORE_PLACER")}
+    hub = Path(__file__).resolve().parents[1]
+    env.update(PUNTMORE_HUB_ROOT=str(tmp_path), PYTHONPATH=str(hub))
+    read = [sys.executable, "-c", "from puntmore_hub.config import Settings; print(Settings().placer_2up_max_age_s)"]
+    assert subprocess.run(read, env=env, cwd=hub, capture_output=True, text=True, check=True).stdout == "3900\n"
+
+
+def test_with_dry_run_off_the_reader_still_records_through_the_dry_run_adapter(pcfg, store):
+    r = run(pcfg.with_overrides(dry_run=False), store, feed([row()]))
+    assert r["dry_run"] is True and r["recorded"] == 1
+    assert bets(store)[0]["dry_run"] == 1
+
+
+def test_a_failed_bet_is_not_retried_on_the_next_pass(pcfg, store):
+    class Broken(DryRunAdapter):
+        def place(self, bet, account):
+            raise PlacementFailed("slip would not open")
+    eng = ClientEngine(store, pcfg, adapter=Broken(), notify=False)
+    first = twoup.read_once(pcfg, store, opener=serve(feed([row()])), now=NOW, engine=eng)
+    assert first["statuses"] == {"failed": 1} and len(store.open_escalations()) == 1
+    second = run(pcfg, store, feed([row()]))
+    assert second["skipped"] == {"already_recorded": 1} and second["recorded"] == 0
+    assert bets(store)[0]["status"] == "failed" and len(store.open_escalations()) == 1
+
+
+def test_the_same_selection_twice_in_one_feed_is_recorded_once(pcfg, store):
+    r = run(pcfg, store, feed([row(), row(price=2.6)]))
+    assert r["recorded"] == 1 and r["skipped"] == {"repeated_in_feed": 1}
+    assert len(bets(store)) == 1 and r["statuses"] == {"placed": 1}
+
+
+@pytest.mark.parametrize("fmt", [
+    lambda dt: dt.isoformat().replace("+00:00", "Z"),
+    lambda dt: dt.replace(tzinfo=None).isoformat(),                                   # naive = UTC
+    lambda dt: dt.astimezone(timezone(timedelta(hours=1))).isoformat(),             # +01:00
+])
+def test_times_with_z_no_offset_or_an_offset_are_read_alike(pcfg, store, fmt):
+    fresh = {**row(event_id="fresh"), "priced_at": fmt(NOW - timedelta(seconds=60)),
+             "kickoff": fmt(NOW + timedelta(minutes=30))}
+    old = {**row(event_id="old"), "priced_at": fmt(NOW - timedelta(seconds=4000))}
+    gone = {**row(event_id="gone"), "kickoff": fmt(NOW - timedelta(minutes=1))}
+    r = run(pcfg, store, feed([fresh, old, gone]))
+    assert r["skipped"] == {"stale_price": 1, "kicked_off": 1}
+    assert [b["bet_id"] for b in bets(store)] == ["2up:fresh:home"]
+
+
+def test_stale_and_partly_priced_together_is_no_bet(pcfg, store):
+    body = feed([row()], stale=True, degraded=True, cannot_price=["bet365 chunk [17]: HTTP 500"])
+    r = run(pcfg, store, body)
+    assert r["outcome"] == "no-bet" and r["detail"].startswith("stale") and bets(store) == []
+
+
+@pytest.mark.parametrize("status", [None, "ok", ["killed"]])
+def test_an_unreadable_status_is_no_bet_not_an_error(pcfg, store, status):
+    body = {**feed([row()]), "status": status}
+    r = run(pcfg, store, body)
+    assert r["outcome"] == "no-bet" and "status" in r["detail"] and bets(store) == []
+
+
+@pytest.mark.parametrize("text", [
+    "sub_clients:\n  - bookmaker: bet365\n",           # no account_id
+    "sub_clients: [unclosed\n",                         # not YAML
+    "- just a list\n",                                  # not a mapping
+])
+def test_a_malformed_sub_clients_file_is_a_plain_result(pcfg, store, text):
+    pcfg.sub_clients_file.write_text(text)
+    for _ in range(2):
+        r = twoup.read_once(pcfg, store, opener=never, now=NOW)
+        assert r["outcome"] == "no account" and "could not be read" in r["detail"]
+    assert bets(store) == [] and store.open_escalations() == []
+
+
+def test_the_cli_prints_whether_the_pass_was_dry_not_the_setting(pcfg, monkeypatch, capsys):
+    live = pcfg.with_overrides(dry_run=False)
+    monkeypatch.setattr(cli, "settings", live)
+    monkeypatch.setattr(twoup.aw26, "_open", serve(feed([row()])))
+    monkeypatch.setattr(twoup, "datetime", type("D", (), {"now": staticmethod(lambda tz=None: NOW)}))
+    cli.main(["placer", "2up"])
+    assert "dry_run=True" in capsys.readouterr().out

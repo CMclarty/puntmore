@@ -71,11 +71,13 @@ files.
   `accabonus`), its last pass under `placer_2up` in `daemon-status.json`. It reads
   `GET /api/2up/feed?value_only=true`, bets on no row of a board that is unavailable, killed,
   not yet refreshed, stale or cannot price (a partly priced board keeps its priced rows), skips
-  a row that is not value, priced over `PUNTMORE_PLACER_2UP_MAX_AGE_S` (300 s) ago or past
-  kick-off, and hands the rest to the engine as singles (`2up:<event_id>:<side>`) at the flat
-  test stake `PUNTMORE_PLACER_FLAT_STAKE` on the account `PUNTMORE_PLACER_2UP_ACCOUNT`. It gives
+  a row that is not value, priced over `PUNTMORE_PLACER_2UP_MAX_AGE_S` (3900 s: Render's slowest
+  price tier plus the feed's 5 min) ago or past kick-off, and hands the rest to the engine one at
+  a time as singles (`2up:<event_id>:<side>`) at the flat test stake
+  `PUNTMORE_PLACER_FLAT_STAKE` on the account `PUNTMORE_PLACER_2UP_ACCOUNT`. It gives
   the engine no adapter, so nothing is placed whatever `PUNTMORE_DRY_RUN` says. With no usable
-  account or the kill switch on, a pass does nothing and says so; it never escalates per row.
+  account or the kill switch on, a pass does nothing and says so; it never escalates per row,
+  and a pass stops between bets if either goes while it runs.
   What it recorded is on the Console's Placement tab.
 - Secrets go in `.env` (git-ignored). Never commit tokens, account details or `sub_clients.yaml`.
 

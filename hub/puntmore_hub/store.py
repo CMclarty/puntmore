@@ -140,6 +140,18 @@ class Store:
             (bet_id, account_id, json.dumps(body), now, status, now, None if dry_run is None else int(dry_run)))
         self.conn.commit()
 
+    def claim_bet(self, bet_id: str, account_id: str, body: dict, *, dry_run: bool) -> bool:
+        """Record a new bet as `received`, or nothing if its id is already there: True when this
+        call made the row. One insert, so of two callers with one id exactly one wins; the
+        loser changes nothing (the placement engine's record-once)."""
+        now = iso(utcnow())
+        cur = self.conn.execute(
+            """INSERT INTO bets(bet_id, account_id, body, received, status, updated, dry_run)
+               VALUES(?,?,?,?,?,?,?) ON CONFLICT(bet_id) DO NOTHING""",
+            (bet_id, account_id, json.dumps(body), now, "received", now, int(dry_run)))
+        self.conn.commit()
+        return cur.rowcount == 1
+
     def set_bet_status(self, bet_id: str, status: str, actual_price: float | None = None) -> None:
         self.conn.execute("UPDATE bets SET status=?, actual_price=COALESCE(?, actual_price), updated=? WHERE bet_id=?",
                           (status, actual_price, iso(utcnow()), bet_id))
@@ -153,14 +165,22 @@ class Store:
 
     def _migrate(self) -> None:
         """Columns added after a database was first created."""
-        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(finder_posted)").fetchall()}
-        if "reason" not in cols:
-            self.conn.execute("ALTER TABLE finder_posted ADD COLUMN reason TEXT")
+        self._add_column("finder_posted", "reason", "TEXT")
+        self._add_column("bets", "dry_run", "INTEGER")
+
+    def _add_column(self, table: str, column: str, kind: str) -> None:
+        """Add `column` unless the table has it. Another process opening the same database at the
+        same moment may add it between the look and the ALTER; its "duplicate column name" is
+        that, not an error."""
+        cols = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column in cols:
+            return
+        try:
+            self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
             self.conn.commit()
-        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(bets)").fetchall()}
-        if "dry_run" not in cols:
-            self.conn.execute("ALTER TABLE bets ADD COLUMN dry_run INTEGER")
-            self.conn.commit()
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc):
+                raise
 
     # ---- mail ------------------------------------------------------------------------------------
     # The mailbox's \Seen flag only says the Hub downloaded a message; this table says it was

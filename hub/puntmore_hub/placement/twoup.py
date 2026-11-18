@@ -4,8 +4,9 @@ have been placed recorded in the `bets` table (docs/placer-spec.md, "What it rea
 One pass (`read_once`, run by `puntmore placer 2up` and, when switched on, the daemon):
 
 1. Nothing at all when the kill switch is on, or when no account is set
-   (`PUNTMORE_PLACER_2UP_ACCOUNT`), or the account is not an enabled entry in sub_clients.yaml.
-   The result says which, once; no bet is recorded and nothing is escalated.
+   (`PUNTMORE_PLACER_2UP_ACCOUNT`), or the account is not an enabled entry in sub_clients.yaml,
+   or that file cannot be read. The result says which, once; no bet is recorded and nothing is
+   escalated.
 2. `GET /api/2up/feed?value_only=true` on `PUNTMORE_RENDER_HTTP` with `PUNTMORE_RENDER_API_KEY`
    as a Bearer key (the `accabonus` grant), through `aw26.request`. A refused key or an
    unreachable Render is said plainly in the result, never raised.
@@ -13,13 +14,19 @@ One pass (`read_once`, run by `puntmore placer 2up` and, when switched on, the d
    the status says `killed`, `not_yet_refreshed`, `stale` or `cannot_price`. One exception: a
    board that is partly priced (a failed request beside ones that priced) keeps its priced rows,
    as Render's own value view does; a gap naming ALL, or an unreadable rescue table (every row
-   priced on the flat fallback rescue), is no-bet.
+   priced on the flat fallback rescue), is no-bet. A status that is not an object is no-bet.
 4. Each row: skipped when it is not value, its `priced_at` is missing or older than
-   `PUNTMORE_PLACER_2UP_MAX_AGE_S`, its kick-off has passed, or its bet is already recorded;
-   otherwise a single at the row's price, the flat stake `PUNTMORE_PLACER_FLAT_STAKE` (a test
-   setting, not the staking logic), `not_after` the kick-off, bet id `2up:<event_id>:<side>`,
-   handed to `ClientEngine.handle_bets`. The engine's idempotence on bet id keeps one record
-   per selection however many passes see it.
+   `PUNTMORE_PLACER_2UP_MAX_AGE_S` (3900 s: Render's slowest price tier plus the feed's own
+   5 min), its kick-off has passed, its bet is already recorded or it repeats a selection
+   earlier in the same feed; otherwise a single at the row's price, the flat stake
+   `PUNTMORE_PLACER_FLAT_STAKE` (a test setting, not the staking logic), `not_after` the
+   kick-off, bet id `2up:<event_id>:<side>`. The engine's idempotence on bet id keeps one
+   record per selection however many passes see it.
+5. The bets go to the engine one at a time. Before each, the kill switch and the account
+   (sub_clients.yaml read again) are checked; if either has gone, the pass stops there
+   ("stopped"), so a flip mid-pass never makes a failed row and an escalation per bet left.
+
+Logging is at DEBUG only: the daemon's loop logs a pass when what it says changes.
 
 Nothing here retries, and nothing here places: the engine is given no adapter, so it uses the
 dry-run one whatever `PUNTMORE_DRY_RUN` says.
@@ -37,6 +44,7 @@ from .. import aw26
 from ..config import Settings
 from ..schemas import Bet, BetLeg
 from ..store import Store, parse_iso
+from .adapters.dry_run import DryRunAdapter
 from .engine import ClientEngine, load_sub_clients
 
 log = logging.getLogger("puntmore.placement.twoup")
@@ -52,8 +60,19 @@ def bet_id_for(event_id: str, side: str) -> str:
 
 
 def _result(outcome: str, detail: str, **kw) -> dict:
+    # `dry_run`: the engine this reader builds is given no adapter, so the dry-run one.
     return {"outcome": outcome, "detail": detail, "board": None, "seen": 0, "skipped": {},
-            "recorded": 0, "statuses": {}, "rows": [], **kw}
+            "recorded": 0, "statuses": {}, "dry_run": True, "rows": [], **kw}
+
+
+def accounts_or_problem(cfg: Settings) -> tuple[dict[str, dict], str | None]:
+    """sub_clients.yaml read, and why the configured account cannot be used (or None)."""
+    try:
+        accounts = load_sub_clients(cfg.sub_clients_file)
+    except Exception as exc:  # noqa: BLE001 - a bad file is said, never a traceback every pass
+        return {}, (f"{cfg.sub_clients_file.name} could not be read ({cfg.sub_clients_file}): "
+                    f"{exc.__class__.__name__}: {exc}")[:300]
+    return accounts, account_problem(cfg, accounts)
 
 
 def account_problem(cfg: Settings, accounts: dict[str, dict]) -> str | None:
@@ -71,8 +90,11 @@ def account_problem(cfg: Settings, accounts: dict[str, dict]) -> str | None:
 
 def board_verdict(feed: dict) -> tuple[str, str | None]:
     """("ok" | "partly priced" | "no-bet", why). `why` names the status seen."""
-    status = feed.get("status") or {}
-    cannot = [str(x) for x in (status.get("cannot_price") or [])]
+    status = feed.get("status")
+    if not isinstance(status, dict):
+        return "no-bet", f"status unreadable ({type(status).__name__})"
+    raw = status.get("cannot_price") or []
+    cannot = [str(x) for x in raw] if isinstance(raw, list) else [str(raw)]
     if not feed.get("available", False):
         return "no-bet", "available: false" + (f" ({cannot[0]})" if cannot else "")
     for flag in NO_BET_FLAGS:
@@ -80,7 +102,8 @@ def board_verdict(feed: dict) -> tuple[str, str | None]:
             extra = f" (served_at {status.get('served_at')})" if flag == "stale" else ""
             return "no-bet", flag + extra
     if cannot:
-        priced = ((status.get("last_pass") or {}).get("priced_fixtures") or 0)
+        last = status.get("last_pass")
+        priced = (last.get("priced_fixtures") or 0) if isinstance(last, dict) else 0
         whole = [c for c in cannot if c.startswith("ALL") or c.startswith("rescue table unreadable")]
         if priced and not whole:
             return "partly priced", "cannot_price: " + "; ".join(cannot)
@@ -153,13 +176,14 @@ def _row_bet(cfg: Settings, row: dict, store: Store, now: datetime) -> tuple[str
 def read_once(cfg: Settings, store: Store, *, opener: aw26.Opener | None = None,
               now: datetime | None = None, engine: ClientEngine | None = None) -> dict:
     """One pass. {"outcome", "detail", "board", "seen", "skipped": {reason: n}, "recorded",
-    "statuses": {engine status: n}, "rows": [...]}. The outcome is one of "kill switch",
-    "no account", "not configured", "refused", "unreachable", "no-bet" or "done"."""
+    "statuses": {engine status: n}, "dry_run", "rows": [...]}. The outcome is one of "kill
+    switch", "no account", "not configured", "refused", "unreachable", "no-bet", "stopped" (the
+    kill switch or the account went mid-pass) or "done". `dry_run` is whether the engine's
+    adapter is the dry-run one (always, in this stage)."""
     now = now or datetime.now(timezone.utc)
     if cfg.kill_switch_on():
         return _result("kill switch", f"kill switch on ({cfg.kill_switch_file}): nothing read, nothing recorded")
-    accounts = engine.sub_clients if engine is not None else load_sub_clients(cfg.sub_clients_file)
-    problem = account_problem(cfg, accounts)
+    accounts, problem = accounts_or_problem(cfg)
     if problem:
         return _result("no account", problem + ": nothing read, nothing recorded")
     if not aw26.configured(cfg):
@@ -168,14 +192,19 @@ def read_once(cfg: Settings, store: Store, *, opener: aw26.Opener | None = None,
     if feed is None:
         return _result(outcome, detail)
     board, why = board_verdict(feed)
-    rows = [r for r in (feed.get("candidates") or []) if isinstance(r, dict)]
+    raw = feed.get("candidates")
+    rows = [r for r in raw if isinstance(r, dict)] if isinstance(raw, list) else []
     if board == "no-bet":
-        log.info("2up: no-bet board: %s (%d row(s) not looked at)", why, len(rows))
+        log.debug("2up: no-bet board: %s (%d row(s) not looked at)", why, len(rows))
         return _result("no-bet", why, board=board, seen=len(rows))
     skipped: Counter = Counter()
-    shown, bets = [], []
+    shown, bets, ids = [], [], set()
     for row in rows:
         bid, got = _row_bet(cfg, row, store, now)
+        if not isinstance(got, str):
+            if bid in ids:
+                got = "repeated_in_feed"
+            ids.add(bid)
         fate = got if isinstance(got, str) else "new"
         if isinstance(got, str):
             skipped[got] += 1
@@ -185,19 +214,36 @@ def read_once(cfg: Settings, store: Store, *, opener: aw26.Opener | None = None,
                       "price": row.get("price"), "priced_at": row.get("priced_at"),
                       "kickoff": row.get("kickoff"), "fate": fate})
     statuses: Counter = Counter()
-    if bets:
-        eng = engine or ClientEngine(store, cfg, sub_clients=accounts)
-        fates = dict(zip((b.bet_id for b in bets), eng.handle_bets(bets)))
-        statuses.update(fates.values())
-        for r in shown:
-            if r["fate"] == "new":
-                r["fate"] = fates[r["bet_id"]]
+    fates: dict[str, str] = {}
+    stopped = None
+    eng = engine or ClientEngine(store, cfg, sub_clients=accounts)
+    for bet in bets:
+        # Between bets: the kill switch, and the account as sub_clients.yaml has it now.
+        if cfg.kill_switch_on():
+            stopped = f"kill switch came on ({cfg.kill_switch_file})"
+        else:
+            eng.sub_clients, problem = accounts_or_problem(cfg)
+            stopped = problem
+        if stopped:
+            break
+        fates[bet.bet_id] = eng.handle_bet(bet)
+    statuses.update(fates.values())
+    for r in shown:
+        if r["fate"] == "new":
+            r["fate"] = fates.get(r["bet_id"], "not handed")
     recorded = sum(n for s, n in statuses.items() if s != "duplicate")
     detail = (why if board == "partly priced" else "board ok")
-    log.info("2up: %s; %d row(s), %d skipped %s, %d recorded %s", detail, len(rows),
+    dry = isinstance(eng.effective_adapter(), DryRunAdapter)
+    if stopped:
+        left = len(bets) - len(fates)
+        log.debug("2up: pass stopped: %s; %d bet(s) not handed", stopped, left)
+        return _result("stopped", f"{stopped}: stopped with {left} bet(s) not handed; {detail}",
+                       board=board, seen=len(rows), skipped=dict(skipped), recorded=recorded,
+                       statuses=dict(statuses), dry_run=dry, rows=shown)
+    log.debug("2up: %s; %d row(s), %d skipped %s, %d recorded %s", detail, len(rows),
              sum(skipped.values()), dict(skipped), recorded, dict(statuses))
     return _result("done", detail, board=board, seen=len(rows), skipped=dict(skipped),
-                   recorded=recorded, statuses=dict(statuses), rows=shown)
+                   recorded=recorded, statuses=dict(statuses), dry_run=dry, rows=shown)
 
 
 def summary(result: dict) -> dict:

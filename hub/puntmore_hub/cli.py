@@ -217,7 +217,10 @@ def cmd_aw26(a):
 
 def cmd_placer(a):
     """The Bet Placer's 2-Up reader (placement/twoup.py): one pass over Render's 2-Up feed, the
-    bets it would place recorded in dry-run. Exit 1 when the feed could not be read."""
+    bets it would place recorded in dry-run. `--show` lists the rows the pass looked at (none on
+    a no-bet board, which is not looked at row by row). Exit 1 when the feed could not be read
+    (not configured, refused, unreachable); 0 otherwise, a no-bet board, no account and the
+    kill switch included."""
     from .placement import twoup
     st = _store()
     try:
@@ -225,11 +228,11 @@ def cmd_placer(a):
     finally:
         st.close()
     print(f"2up: {r['outcome']}: {r['detail']}")
-    if r["outcome"] in ("done", "no-bet"):
+    if r["outcome"] in ("done", "stopped", "no-bet"):
         skipped = ", ".join(f"{k} {v}" for k, v in sorted(r["skipped"].items())) or "none"
         statuses = ", ".join(f"{k} {v}" for k, v in sorted(r["statuses"].items())) or "none"
         print(f"rows seen {r['seen']}; skipped {sum(r['skipped'].values())} ({skipped}); "
-              f"recorded {r['recorded']} ({statuses}); dry_run={settings.dry_run}")
+              f"recorded {r['recorded']} ({statuses}); dry_run={r['dry_run']}")
     if a.show and r["rows"]:
         _print_rows(r["rows"], ["bet_id", "event", "selection", "price", "priced_at", "kickoff", "fate"])
     if r["outcome"] in ("not configured", "refused", "unreachable"):

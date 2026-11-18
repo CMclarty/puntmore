@@ -11,7 +11,7 @@ recorded through the dry-run adapter.
 ## The engine
 
 `engine.py::ClientEngine` owns the rules and never changes for a new adapter: idempotency on
-`bet_id`, the kill switch (`data/KILL`), dry-run (`PUNTMORE_DRY_RUN`, on by default), the
+`bet_id` (one insert claims the id, so of two callers with one id only one reaches the adapter), the kill switch (`data/KILL`), dry-run (`PUNTMORE_DRY_RUN`, on by default), the
 account lookup, the record in the `bets` table (its `dry_run` column 1 when the dry-run adapter
 handled the bet), and escalation to HubAI on failure. It does not check `not_before` /
 `not_after` yet; the caller drops a bet that is past. It takes one bet at a time:
