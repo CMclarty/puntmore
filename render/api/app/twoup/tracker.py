@@ -39,6 +39,9 @@ from ..normalise import normalise_team, team_similarity
 
 BET365 = "bet365"
 SIDES = ("home", "away")
+# A row read further ahead of Render's clock than this is refused at ingest:
+# the Hub's clock is wrong, and its prices would otherwise look fresh for ever.
+SEEN_AT_FUTURE_S = 120
 
 
 @dataclass(frozen=True)
@@ -55,13 +58,16 @@ class TrackerRow:
     rating: float                  # BB's EV rating for the 2-up bet, 100 = break-even
     n_odds: float                  # BB's fair odds for the 2-up bet
     kickoff: datetime              # aware, UTC
-    updated_s: int | None          # how long before `seen_at` BB last saw the price
+    updated_s: int | None          # the data's age at `seen_at`: seen_at less BB's change time
     seen_at: datetime              # when the Scraper read the row, aware, UTC
 
     @property
-    def priced_at(self) -> datetime:
-        """When bet365's price on the row was read: `seen_at` less `updated_s`."""
-        return self.seen_at - timedelta(seconds=self.updated_s or 0)
+    def bet365_priced_at(self) -> datetime | None:
+        """When bet365's price on the row was true: `seen_at` less `updated_s`.
+        None when the tracker gave no age: the row's age is unknown."""
+        if self.updated_s is None:
+            return None
+        return self.seen_at - timedelta(seconds=self.updated_s)
 
     @property
     def event_id(self) -> str:
@@ -78,7 +84,13 @@ class Snapshot:
     dropped: dict = field(default_factory=dict)   # reason -> rows not kept
 
     def age_s(self, now: datetime) -> float:
-        return (now - self.received_at).total_seconds()
+        """The snapshot's age: since it was received, or since its newest row
+        was read, whichever is older, so a post delivered late is as old as
+        what it carries."""
+        ages = [(now - self.received_at).total_seconds()]
+        if self.newest_seen_at is not None:
+            ages.append((now - self.newest_seen_at).total_seconds())
+        return max(ages)
 
 
 def event_id_for(home: str, away: str, kickoff: datetime) -> str:
@@ -126,21 +138,47 @@ class Fixture:
     start: datetime
     pinnacle: tuple | None         # (home, draw, away) raw prices; None: not all three
     competition: str = ""
-    priced_at: datetime | None = None
+    fair_priced_at: datetime | None = None   # when Pinnacle's price was true: fetched less the delay
+
+
+def selection_agrees(selection: str, side: str, home: str, away: str) -> bool:
+    """Whether a row's `selection` is the team on its `side`: it must clear
+    `MIN_TEAM_SIMILARITY` against that team and score strictly higher
+    against it than against the other, by the join's own similarity."""
+    own, other = (home, away) if side == "home" else (away, home)
+    s_own, s_other = team_similarity(selection, own), team_similarity(selection, other)
+    return s_own >= MIN_TEAM_SIMILARITY and s_own > s_other
 
 
 def match_fixture(row: TrackerRow, fixtures: list[Fixture]) -> tuple[Fixture | None, str]:
-    """(the fixture, "matched") or (None, "unmatched" | "ambiguous")."""
+    """(the fixture, "matched") or (None, "unmatched" | "ambiguous").
+
+    A fixture whose names also clear the floor the other way round (row home
+    against fixture away and row away against fixture home) is never joined:
+    beside a straight match it makes the row ambiguous, alone it leaves the
+    row unmatched. A derby of two similar names ("Manchester United v
+    Manchester City") is therefore never priced against Pinnacle."""
     window = KICKOFF_TOLERANCE_HOURS * 3600
     hits: dict[str, tuple[float, Fixture]] = {}
+    swapped = False
     for fx in fixtures:
         if abs((fx.start - row.kickoff).total_seconds()) > window:
             continue
         score = min(team_similarity(row.home, fx.home), team_similarity(row.away, fx.away))
+        if min(team_similarity(row.home, fx.away),
+               team_similarity(row.away, fx.home)) >= MIN_TEAM_SIMILARITY:
+            # Either way round: this fixture can never be joined, and a straight
+            # match on it means the row cannot be told from its reverse.
+            swapped = True
+            if score >= MIN_TEAM_SIMILARITY:
+                return None, "ambiguous"
+            continue
         if score < MIN_TEAM_SIMILARITY:
             continue
         if fx.fixture_id not in hits or score > hits[fx.fixture_id][0]:
             hits[fx.fixture_id] = (score, fx)
+    if swapped:
+        return None, "ambiguous" if hits else "unmatched"
     if not hits:
         return None, "unmatched"
     if len(hits) == 1:

@@ -82,34 +82,70 @@ results source.
 Callum, 18 Nov 2026: "the 2up feeds two modes, with one being a passive scrape of the bookie
 bashing feed https://www.bookiebashing.net/trackers/early-payout-tracker/#/" and "the dynamic will
 be that bookie bashing is a 'trusted' source, but pinnacle feeds will sometimes capture much more
-rapid movement, which will show value. both are valid". The register removed the rule that Bookie
-Bashing is never automated on 12 Nov 2026; the tracker is read like any other Scraper job.
+rapid movement, which will show value. both are valid". The register records that, that the two
+modes are Bookie Bashing's and Pinnacle's, and that bet365's price comes from the tracker. The
+register removed the rule that Bookie Bashing is never automated on 12 Nov 2026; the tracker is
+read like any other Scraper job.
 
-- **Where the prices come from.** The Hub's Scraper reads the tracker on its own screen and the
-  Hub posts the whole table to `POST /api/2up/bb` on the ingest key; each post replaces the
-  snapshot Render holds. Render never loads the tracker. bet365's price on every row is the
+Everything below marked *call* is the author's (Claude's and the coordinating agent's), a
+default Callum has not decided; each is a setting or a line of code he can change.
+
+- **Where the prices come from.** The Hub's Scraper reads the tracker's own data on its own
+  screen, only games kicking off within 48 hours, and posts nothing from a hung or short page;
+  the Hub posts the whole table to `POST /api/2up/bb` on the ingest key, and each post replaces
+  the snapshot Render holds. Render never loads the tracker. bet365's price on every row is the
   tracker's (`book_odds`); the feed asks OddsPapi for Pinnacle only (OddsPapi refuses bet365 on
-  the current plan). `TWOUP_BET365_SOURCE=oddspapi` puts back the behaviour before 18 Nov 2026:
-  bet365's 1X2 from OddsPapi and the Pinnacle mode alone.
+  the current plan).
+- *call:* **The snapshot is held in memory**, never in a table: a deploy or restart loses it and
+  the board says `not_yet_refreshed` until the next post. A post whose newest `seen_at` is older
+  than the held one's is refused (409).
+- *call:* **`TWOUP_BET365_SOURCE=oddspapi`** puts back the behaviour before 18 Nov 2026: bet365's
+  1X2 from OddsPapi and the Pinnacle mode alone.
 - **`bb` mode, trusted as given.** A row is flagged when Bookie Bashing's rating (its EV for the
-  2-up bet, 100 = break-even) is at or above `twoup_bb_min_rating`, 101 by default. Its fair is
+  2-up bet, 100 = break-even) is at or above *call:* `twoup_bb_min_rating`, 101. Its fair is
   BB's `n_odds`; on a row only BB priced, `ev` = rating/100 − 1 and `edge` = ev/price, the same
   probability units as the model's edge.
 - **`pinnacle` mode.** The rescue model above, unchanged, with bet365's price from the tracker row
-  and Pinnacle's 1X2 de-vigged. The row is joined to an OddsPapi fixture by team names and
+  and Pinnacle's 1X2 de-vigged. *call:* The row is joined to an OddsPapi fixture by team names and
   kick-off with the matcher the Paddy board uses for the Scraper's saves prices (both names at
-  0.80 similarity or better, within 12 hours); a row that joins none, or more than one where no
-  single one is exact, is never guessed: it has no `pinnacle` verdict and is counted.
-- **Both are valid.** A row flagged by either mode is value (inside the price band, the horizon
-  and the minimum lead); `sources` says which. Where both priced a row the model fields are
-  Pinnacle's and BB's sit in `bb_rating` and `bb_fair`.
-- **Freshness.** A snapshot older than `twoup_bb_max_age_s` (300 s) serves nothing from either
-  mode. A row Bookie Bashing last saw more than `twoup_bb_row_max_age_s` (600 s) ago is dropped and
-  counted. A row's `priced_at` is when bet365's price was read (the row's `seen_at` less
-  `updated_s`), or the earlier of that and Pinnacle's fetch where Pinnacle priced it.
+  0.80 similarity or better, home to home and away to away, within 12 hours). It is never
+  guessed: a row that joins no fixture, more than one where no single one is exact, or a fixture
+  whose names also match the other way round (a derby of two similar names) has no `pinnacle`
+  verdict and is counted. A youth, reserve or women's side never joins a senior fixture.
+- *call:* **Both are valid, so a row flagged by either mode is value**, inside the price band
+  (`twoup_min_price`..`twoup_max_price`, which applies to both modes), the horizon and the
+  minimum lead; `sources` says which. Where both priced a row the model fields are Pinnacle's and
+  BB's sit in `bb_rating` and `bb_fair`. Rows the modes disagree on strongly (the Pinnacle mode
+  flags a row Bookie Bashing rates below 100) are counted (`modes_disagree`) and left as value:
+  whether that should change is Callum's call.
+- *call:* **On this plan Pinnacle is the SLOWER side, by 30 minutes.** OddsPapi grants Pinnacle as
+  `pinnacle+30`: its prices are 30 minutes behind, so the delay is subtracted when saying when a
+  Pinnacle price was true (`fair_priced_at`). Callum's "pinnacle feeds will sometimes capture much
+  more rapid movement" holds for Pinnacle's own market, not for the copy this plan receives: a
+  `pinnacle`-only flag shortly after late team news can be a stale line that bet365 and Bookie
+  Bashing have already moved past. A row whose Pinnacle price is older than
+  `twoup_pinnacle_max_age_s`, 5700 s (the client's slowest cache tier of an hour, the 30-minute
+  delay and the feed's 5 minutes), gets no `pinnacle` verdict and is counted; a Pinnacle refresh
+  that has stalled past that limit is said in `cannot_price` ("pinnacle mode: ...") however
+  recently a tracker post composed the board.
+- *call:* **Freshness by the price's own time.** Each row carries `bet365_priced_at` (the row's
+  `seen_at` less `updated_s`, the data's true age), `fair_priced_at` (Pinnacle's fetch less the
+  delay, null without a Pinnacle side) and `priced_at`, the older of the two. A row whose bet365
+  price is older than `twoup_bb_row_max_age_s`, 600 s, is dropped and counted; a row with no age
+  (`updated_s` null) is dropped and counted. 600 s stays because the Scraper agent saw the
+  tracker's data change about every one to two minutes, so 600 s is five to ten missed changes,
+  a stalled tracker rather than a quiet one; a larger sample may move it. A snapshot older than
+  `twoup_bb_max_age_s`, 300 s, by when it was received or by its newest row, serves nothing from
+  either mode. A row read more than 120 s ahead of Render's clock is refused at the post.
+- *call:* **A row whose `selection` is not the team on its `side`** (by the join's own similarity,
+  and better than the other team) is dropped at the post and counted.
+- *call:* **A snapshot with no usable bet365 row is not a quiet board.** An empty post, a post
+  with no bet365 home or away row, or one whose every bet365 row has an unknown or too old price,
+  is an "ALL" gap in `cannot_price`. Only usable rows that all kick off outside the horizon make
+  an honest empty board. When no game is within 48 hours the Scraper's job rests and posts
+  nothing, so the snapshot ages and the board says so: a rest and a broken reader look the same
+  from Render.
 - **What cannot apply.** The tracker posts no competition, so the competition list
   (`twoup_tournament_ids`) cannot filter a row only BB priced; the tracker lists only early-payout
   offers, so it is taken as the list. The list still decides which fixtures Pinnacle's half
   fetches, and so which rows the `pinnacle` mode can join.
-- **The defaults are Callum's to change**: the rating threshold, the price band (which applies to
-  both modes) and the two ages are settings on Render.

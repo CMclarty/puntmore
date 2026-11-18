@@ -6,7 +6,7 @@ grant (`router`), the feed and its diagnostics; and the tracker's ingest
 `/api/paddy/saves-fair`: the Hub posts Bookie Bashing's Early Payout Tracker
 as the Scraper read it. Nothing here places a bet or keeps an account.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -16,7 +16,8 @@ from ..config import settings
 from ..schemas import (TwoUpCandidateOut, TwoUpDiagnosticsOut, TwoUpFeedOut,
                        TwoUpTrackerIngestOut, UTCDatetime)
 from ..twoup import model
-from ..twoup.tracker import BET365, SIDES, TrackerRow, TrackerStore
+from ..twoup.tracker import (BET365, SEEN_AT_FUTURE_S, SIDES, TrackerRow, TrackerStore,
+                             selection_agrees)
 from .saves_ingest import require_ingest_key
 
 router = APIRouter(prefix="/2up", tags=["2up"])
@@ -27,7 +28,7 @@ _DIAGNOSTIC_DIALS = (
     "twoup_min_edge", "twoup_min_price", "twoup_max_price", "twoup_min_lead_minutes",
     "twoup_tournament_ids", "twoup_feed_ttl", "twoup_horizon_hours",
     "twoup_bet365_source", "twoup_bb_min_rating", "twoup_bb_max_age_s",
-    "twoup_bb_row_max_age_s",
+    "twoup_bb_row_max_age_s", "twoup_pinnacle_max_age_s",
 )
 
 
@@ -79,6 +80,7 @@ def get_feed(request: Request, value_only: bool = Query(default=False)):
             price=c.price, p_win=None if c.p_win is None else round(c.p_win, 6),
             rescue=c.rescue, fair_price=c.fair_price, edge=round(c.edge, 6),
             ev=round(c.ev, 6), value=ok, priced_at=c.priced_at,
+            bet365_priced_at=c.bet365_priced_at, fair_priced_at=c.fair_priced_at,
             sources=model.flagged_by(c, feed.params),
             bb_rating=c.bb_rating, bb_fair=c.bb_fair,
         ))
@@ -136,7 +138,7 @@ class TrackerRowIn(BaseModel):
     rating: float = Field(gt=0, lt=1000)       # BB's EV rating, 100 = break-even
     n_odds: float = Field(gt=1, lt=1000)       # BB's fair odds for the 2-up bet
     kickoff: UTCDatetime                       # UTC if no offset
-    updated_s: Optional[int] = Field(ge=0)     # null: the tracker did not say
+    updated_s: Optional[int] = Field(ge=0)     # the data's true age at seen_at; null: unknown, the row is not used
     seen_at: UTCDatetime                       # when the Scraper read the row
 
 
@@ -150,29 +152,44 @@ class TrackerIn(BaseModel):
                     dependencies=[Depends(require_ingest_key)])
 def post_tracker(request: Request, batch: TrackerIn):
     """Replace the held tracker snapshot with this post: the whole table as
-    the Scraper read it. Only bet365's home and away rows are kept; the rest
-    are counted. Held in memory: a restart loses it and the next post refills
-    it. A post older than the one held (its newest `seen_at` earlier) is
-    refused with 409, so a delayed post never puts older prices back."""
+    the Scraper read it. Only bet365's home and away rows whose `selection`
+    is the team on their `side` are kept; the rest are counted. A row read
+    more than SEEN_AT_FUTURE_S (120 s) ahead of Render's clock is dropped and
+    counted, and a post where every row is is a 422, so one post from a
+    wrong clock cannot wedge the route against the next. Held in memory: a
+    restart loses it and the next post refills it. A post older than the one
+    held (its newest `seen_at` earlier) is refused with 409, so a delayed post
+    never puts older prices back."""
     now = datetime.now(timezone.utc)
-    kept, not_kept = [], {"not bet365": 0, "draw": 0}
+    ahead = now + timedelta(seconds=SEEN_AT_FUTURE_S)
+    kept = []
+    not_kept = {"seen_at in the future": 0, "not bet365": 0, "draw": 0,
+                "selection does not match side": 0}
     for p in batch.prices:
-        if p.bookmaker.strip().lower() != BET365:
+        if p.seen_at > ahead:
+            not_kept["seen_at in the future"] += 1
+        elif p.bookmaker.strip().lower() != BET365:
             not_kept["not bet365"] += 1
         elif p.side not in SIDES:
             not_kept["draw"] += 1
+        elif not selection_agrees(p.selection, p.side, p.home, p.away):
+            not_kept["selection does not match side"] += 1
         else:
             kept.append(TrackerRow(
                 bookmaker=BET365, event=p.event, home=p.home, away=p.away,
                 selection=p.selection, side=p.side, book_odds=p.book_odds, lay=p.lay,
                 rating=p.rating, n_odds=p.n_odds, kickoff=p.kickoff, updated_s=p.updated_s,
                 seen_at=p.seen_at))
+    if batch.prices and not_kept["seen_at in the future"] == len(batch.prices):
+        raise HTTPException(status_code=422, detail=(
+            f"every row's seen_at is more than {SEEN_AT_FUTURE_S}s ahead of Render's clock "
+            f"({now.isoformat()}): check the Hub's clock; nothing was kept"))
     feed = _feed(request)
     if feed is not None:
-        snap, why = feed.take_tracker(kept, len(batch.prices), not_kept, now)
+        snap, why = feed.take_tracker(kept, len(batch.prices), not_kept)
     else:
         snap, why = _tracker(request).put(kept, len(batch.prices), not_kept, now)
     if snap is None:
         raise HTTPException(status_code=409, detail=why)
     return TwoUpTrackerIngestOut(received=len(batch.prices), kept=len(kept),
-                                 not_kept=not_kept, received_at=now)
+                                 not_kept=not_kept, received_at=snap.received_at)

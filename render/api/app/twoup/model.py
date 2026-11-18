@@ -92,7 +92,9 @@ class Candidate:
     competition: str = ""
     fair_price: float | None = None   # 1 / p_win; BB's fair odds on a BB-only row
     source: str = "2up"
-    priced_at: datetime | None = None # when the prices behind the row were fetched
+    priced_at: datetime | None = None # the older of the two times below: the stalest price behind the row
+    bet365_priced_at: datetime | None = None  # when bet365's price was true
+    fair_priced_at: datetime | None = None    # when Pinnacle's price was true (fetch less the plan's delay)
     bb_rating: float | None = None    # Bookie Bashing's rating (100 = break-even)
     bb_fair: float | None = None      # Bookie Bashing's fair odds for the 2-up bet
     extra: dict = field(default_factory=dict, compare=False, hash=False)
@@ -233,7 +235,9 @@ def edge(p_win: float, rescue: float, price: float) -> float:
 def price_fixture(*, event_id: str, home: str, away: str, kickoff: datetime,
                   pinnacle: tuple[float, float, float], bet365: tuple[float, float, float],
                   table: RescueTable, competition: str = "",
-                  priced_at: datetime | None = None) -> list[Candidate]:
+                  priced_at: datetime | None = None,
+                  bet365_priced_at: datetime | None = None,
+                  fair_priced_at: datetime | None = None) -> list[Candidate]:
     """Both sides of one fixture priced as 2-up candidates (the draw has no
     2-up and is never one). Returns [] when Pinnacle's 1X2 is incomplete.
     Every side is returned whatever its edge; filtering is the caller's."""
@@ -241,6 +245,9 @@ def price_fixture(*, event_id: str, home: str, away: str, kickoff: datetime,
     if fair is None:
         return []
     p_home, _p_draw, p_away = fair
+    if priced_at is None:
+        # The stalest price behind the row.
+        priced_at = min((t for t in (bet365_priced_at, fair_priced_at) if t is not None), default=None)
     out = []
     for side, team, p, price in (("home", home, p_home, bet365[0]),
                                  ("away", away, p_away, bet365[2])):
@@ -252,13 +259,14 @@ def price_fixture(*, event_id: str, home: str, away: str, kickoff: datetime,
             kickoff=kickoff, selection=team, side=side, price=float(price),
             p_win=p, rescue=r, edge=edge(p, r, price), competition=competition,
             fair_price=1.0 / p if p > 0 else None, priced_at=priced_at,
+            bet365_priced_at=bet365_priced_at, fair_priced_at=fair_priced_at,
         ))
     return out
 
 
 def bb_only(*, event_id: str, home: str, away: str, kickoff: datetime, selection: str,
             side: str, price: float, rating: float, fair: float, competition: str = "",
-            priced_at: datetime | None = None) -> Candidate:
+            bet365_priced_at: datetime | None = None) -> Candidate:
     """A row only Bookie Bashing's tracker priced, taken as given: no
     Pinnacle model fields, BB's fair as `fair_price`, BB's rating as the
     edge in probability units, (rating/100 - 1) / price."""
@@ -266,7 +274,8 @@ def bb_only(*, event_id: str, home: str, away: str, kickoff: datetime, selection
         event_id=event_id, event=f"{home} v {away}", home=home, away=away, kickoff=kickoff,
         selection=selection, side=side, price=float(price), p_win=None, rescue=None,
         edge=(rating / 100.0 - 1.0) / price, competition=competition, fair_price=fair,
-        priced_at=priced_at, bb_rating=rating, bb_fair=fair,
+        priced_at=bet365_priced_at, bet365_priced_at=bet365_priced_at,
+        bb_rating=rating, bb_fair=fair,
     )
 
 

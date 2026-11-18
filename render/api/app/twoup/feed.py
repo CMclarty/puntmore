@@ -20,6 +20,13 @@ failing leaves the `bb` mode serving (a "pinnacle mode: ..." gap, never ALL);
 no snapshot, or one older than `twoup_bb_max_age_s`, serves nothing (an
 "ALL ..." gap).
 
+HONEST AGES (both sources). The plan grants Pinnacle as `pinnacle+30`, 30
+minutes behind: the delay is read off the resolved slug (`slug_delay_s`) and
+subtracted from the fetch time, so `fair_priced_at` says when Pinnacle's price
+was true. Every row carries `bet365_priced_at`, `fair_priced_at` and
+`priced_at`, the older of the two. A Pinnacle price older than
+`twoup_pinnacle_max_age_s` gives no `pinnacle` verdict and is counted.
+
 THE `oddspapi` SOURCE (before 18 Nov 2026; OddsPapi refuses bet365 on the
 current plan). Per refresh: for each chunk of the qualifying competitions
 (`twoup_tournament_ids`, `oddspapi_tournaments_per_request` a request), ONE
@@ -53,6 +60,7 @@ carry-forward.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -70,7 +78,16 @@ from .tracker import Fixture, Snapshot, TrackerRow, TrackerStore, match_fixture
 logger = logging.getLogger("uvicorn.error")
 
 BET365 = "bet365"
+_DELAY_RE = re.compile(r"\+(\d+)$")
 _ROLE_TO_INDEX = {1: 0, 0: 1, 2: 2}      # coupon_markets roles -> (home, draw, away)
+
+
+def slug_delay_s(slug: str | None) -> int:
+    """The delay a plan's bookmaker slug names, in seconds: OddsPapi grants a
+    delayed feed as `<book>+<minutes>` (`pinnacle+30`: 30 minutes behind).
+    A plain slug is live: 0."""
+    m = _DELAY_RE.search(slug or "")
+    return int(m.group(1)) * 60 if m else 0
 
 
 def _entries() -> list[str]:
@@ -125,11 +142,15 @@ class TwoUpFeed:
         self._stale = False
         # `bb` source: the tracker snapshot the Hub posts, and the Pinnacle
         # half the refresh job last fetched, (fixtures, what it saw). A board
-        # is composed from the two by the job and by each tracker post; the
-        # compose lock keeps an older composition from landing after a newer.
+        # is composed from the two by the job and by each tracker post, one
+        # at a time under the compose lock, each reading the data and the
+        # clock inside it, so the board that lands last is the newest.
         self.tracker = tracker or TrackerStore()
         self._pin: tuple[list[Fixture], dict] | None = None
         self._compose_lock = threading.Lock()
+        # The resolved Pinnacle slug's delay (`pinnacle+30`: 1800 s), learnt
+        # on each pass; a Pinnacle price was true this long before its fetch.
+        self.pinnacle_delay_s = 0
 
     @staticmethod
     def source() -> str:
@@ -153,9 +174,10 @@ class TwoUpFeed:
         down, no tournament resolved, the pass itself raising) leaves the
         served board as it was and marks it stale; any other pass, an honest
         empty one included, replaces it."""
+        explicit = now
         now = now or datetime.now(timezone.utc)
         if self.source() == "bb":
-            return self._refresh_bb(now)
+            return self._refresh_bb(now, compose_at=explicit)
         try:
             rows, lp = self._refresh(now)
         except Exception as exc:
@@ -211,11 +233,16 @@ class TwoUpFeed:
         cannot = list(lp.get("cannot_price") or [])
         bb = self.source() == "bb"
         not_yet = not lp
+        pinnacle = self._pinnacle_status(now)
         if bb:
             gap = self._tracker_gap(now)
             if gap is not None:
                 cannot.insert(0, gap)
             not_yet = not_yet or self.tracker.snapshot() is None
+            # Read now, never from the last composition: a tracker post
+            # composing a new board must not hide that Pinnacle has stalled.
+            if pinnacle.get("stalled"):
+                cannot.append(pinnacle["stalled"])
         return {
             "provider": "bookiebashing+oddspapi" if bb else "oddspapi",
             "bet365_source": self.source(),
@@ -225,8 +252,34 @@ class TwoUpFeed:
             "stale": stale,
             "served_at": at.isoformat() if at is not None else None,
             "not_yet_refreshed": not_yet,
+            "pinnacle": {k: v for k, v in pinnacle.items() if k != "stalled"},
             "last_pass": lp or None,
         }
+
+    def _pinnacle_status(self, now: datetime) -> dict:
+        """The Pinnacle side's delay and ages, read now. In the `bb` source
+        from the Pinnacle data held (`stalled`: a "pinnacle mode: ..." gap
+        when even its freshest price is older than the limit); in the
+        `oddspapi` source from the board served."""
+        limit = settings.twoup_pinnacle_max_age_s
+        if self.source() == "bb":
+            held = self._pin                 # swapped whole, so one read is consistent
+            fixtures, info = held if held is not None else ([], None)
+            times = [f.fair_priced_at for f in fixtures if f.fair_priced_at is not None]
+            book = (info or {}).get("book")
+        else:
+            with self._lock:
+                rows = self._served[1]
+            times = [c.fair_priced_at for c in rows if c.fair_priced_at is not None]
+            book = (self.last_pass.get("books") or {}).get("fair")
+        out = {"book": book, "delay_s": self.pinnacle_delay_s, "max_age_s": limit,
+               "oldest_fair_priced_at": min(times).isoformat() if times else None,
+               "oldest_age_s": round((now - min(times)).total_seconds()) if times else None,
+               "newest_age_s": round((now - max(times)).total_seconds()) if times else None}
+        if times and (now - max(times)).total_seconds() > limit:
+            out["stalled"] = (f"pinnacle mode: the freshest Pinnacle price held is "
+                              f"{out['newest_age_s']}s old (limit {limit}s): its refresh has stalled")
+        return out
 
     def tracker_status(self, now: datetime | None = None) -> dict:
         """The held tracker snapshot and what the last composed board made of
@@ -237,6 +290,8 @@ class TwoUpFeed:
             lp = self.last_pass
         out = {
             "received_at": snap.received_at.isoformat() if snap else None,
+            "newest_seen_at": (snap.newest_seen_at.isoformat()
+                               if snap and snap.newest_seen_at else None),
             "age_s": round(snap.age_s(now), 1) if snap else None,
             "fresh": snap is not None and snap.age_s(now) <= settings.twoup_bb_max_age_s,
             "rows_received": snap.received if snap else 0,
@@ -246,7 +301,7 @@ class TwoUpFeed:
         if lp.get("bet365_source") == "bb":
             out.update({k: lp.get(k, 0) for k in (
                 "matched", "unmatched", "ambiguous", "no_pinnacle_board", "no_pinnacle",
-                "pinnacle_priced")})
+                "pinnacle_too_old", "pinnacle_priced", "modes_disagree")})
             out["dropped"] = dict(lp.get("dropped") or {})
         return out
 
@@ -256,15 +311,18 @@ class TwoUpFeed:
                      now: datetime | None = None) -> tuple[Snapshot | None, str | None]:
         """A tracker post: replace the snapshot and, in `bb` source, compose
         the board again from it and the Pinnacle half already held. Never
-        fetches. (snapshot, None), or (None, why) when the post was refused."""
-        now = now or datetime.now(timezone.utc)
-        snap, why = self.tracker.put(rows, received, dropped, now)
+        fetches. (snapshot, None), or (None, why) when the post was refused.
+        `now` is for tests; the route leaves it out, so the composition takes
+        its time inside the compose lock."""
+        snap, why = self.tracker.put(rows, received, dropped, now or datetime.now(timezone.utc))
         if snap is not None and self.source() == "bb":
             self.recompose(now)
         return snap, why
 
     def _tracker_gap(self, now: datetime) -> str | None:
-        """The "ALL — ..." reason the tracker cannot be used, or None."""
+        """The "ALL — ..." reason the tracker cannot be used, or None. Its age
+        is the older of since it was received and since its newest row was
+        read, so a post delivered late is as old as what it carries."""
         snap = self.tracker.snapshot()
         if snap is None:
             return "ALL — no Bookie Bashing tracker snapshot since boot (POST /api/2up/bb)"
@@ -274,7 +332,7 @@ class TwoUpFeed:
                     f"(limit {settings.twoup_bb_max_age_s}s)")
         return None
 
-    def _refresh_bb(self, now: datetime) -> list[Candidate]:
+    def _refresh_bb(self, now: datetime, compose_at: datetime | None = None) -> list[Candidate]:
         """The job's pass in `bb` source: Pinnacle's half from OddsPapi (no
         bet365 request), then the board composed with the tracker."""
         try:
@@ -288,7 +346,7 @@ class TwoUpFeed:
             half = ([], info)
         with self._compose_lock:
             self._pin = half
-        return self.recompose(now)
+        return self.recompose(compose_at)
 
     @staticmethod
     def _new_half(now: datetime) -> dict:
@@ -307,8 +365,10 @@ class TwoUpFeed:
         info.pop("cannot_price", None)
         ml, names, known, ids = ref
         pin = self._client.resolve_book((settings.oddspapi_fair_book or "pinnacle").strip())
-        info["book"] = pin
-        boards, priced_at, fetched, failed = self._fetch_chunks(info, ids, (pin,), now)
+        self.pinnacle_delay_s = slug_delay_s(pin)
+        delay = timedelta(seconds=self.pinnacle_delay_s)
+        info["book"], info["delay_s"] = pin, self.pinnacle_delay_s
+        boards, times, fetched, failed = self._fetch_chunks(info, ids, (pin,), now)
         if fetched == 0:
             info["gaps"].append("every OddsPapi odds request for Pinnacle failed")
             return [], info
@@ -332,17 +392,20 @@ class TwoUpFeed:
                 fixture_id=str(_first(fx, "fixtureId", "id")), home=str(home), away=str(away),
                 start=start, pinnacle=p,
                 competition=known.get(tid, "") if tid is not None else "",
-                priced_at=priced_at.get(tid) or min(priced_at.values(), default=now),
+                fair_priced_at=_time_for(times[pin], tid, now) - delay,
             ))
         info["fixtures"] = len(fixtures)
         return fixtures, info
 
     def recompose(self, now: datetime | None = None) -> list[Candidate]:
         """Compose the `bb` source's board from the held tracker snapshot and
-        Pinnacle half, and serve it. A compose that raises keeps the board
-        being served and marks it stale."""
-        now = now or datetime.now(timezone.utc)
+        Pinnacle half, and serve it. The snapshot, the Pinnacle half and the
+        time (unless a test passes one) are all taken inside the compose lock,
+        so of two compositions the one that lands last is built from the
+        newest data and carries the later time. A compose that raises keeps
+        the board being served and marks it stale."""
         with self._compose_lock:
+            now = now or datetime.now(timezone.utc)
             try:
                 rows, lp = self._compose(now)
             except Exception as exc:
@@ -367,9 +430,11 @@ class TwoUpFeed:
         lp = {"at": now.isoformat(), "bet365_source": "bb",
               "tracker_received_at": snap.received_at.isoformat() if snap else None,
               "tracker_rows": len(snap.rows) if snap else 0,
-              "dropped": {"row_too_old": 0, "out_of_horizon": 0, "duplicate": 0},
+              "dropped": {"unknown_age": 0, "row_too_old": 0, "out_of_horizon": 0,
+                          "duplicate": 0},
               "matched": 0, "unmatched": 0, "ambiguous": 0, "no_pinnacle_board": 0,
-              "no_pinnacle": 0, "pinnacle_priced": 0, "priced_fixtures": 0,
+              "no_pinnacle": 0, "pinnacle_too_old": 0, "pinnacle_priced": 0,
+              "modes_disagree": 0, "priced_fixtures": 0,
               "candidates": 0, "value": 0, "errors": [], "cannot_price": [],
               "pinnacle": {k: v for k, v in (half or {}).items() if k != "gaps"} or None}
         if half is None:
@@ -381,11 +446,18 @@ class TwoUpFeed:
         if snap is not None:
             horizon = timedelta(hours=settings.twoup_horizon_hours)
             lead = timedelta(minutes=self.params.min_lead_minutes)
+            max_age = settings.twoup_bb_row_max_age_s
             kept: dict[tuple[str, str], TrackerRow] = {}
+            usable = 0                  # rows of a known, fresh enough price
             for r in snap.rows:
-                if r.updated_s is not None and r.updated_s > settings.twoup_bb_row_max_age_s:
+                at = r.bet365_priced_at
+                if at is None:
+                    lp["dropped"]["unknown_age"] += 1
+                    continue
+                if (now - at).total_seconds() > max_age:
                     lp["dropped"]["row_too_old"] += 1
                     continue
+                usable += 1
                 if not (lead <= r.kickoff - now <= horizon):
                     lp["dropped"]["out_of_horizon"] += 1
                     continue
@@ -393,32 +465,54 @@ class TwoUpFeed:
                 if key in kept:
                     # The same selection listed twice: the fresher price stands.
                     lp["dropped"]["duplicate"] += 1
-                    if r.priced_at > kept[key].priced_at:
+                    if at > kept[key].bet365_priced_at:
                         kept[key] = r
                     continue
                 kept[key] = r
             for r in kept.values():
-                rows.append(self._tracker_row(r, fixtures, lp))
+                rows.append(self._tracker_row(r, fixtures, lp, now))
+            # A post with nothing usable is not a quiet board. Only rows that
+            # were usable and merely outside the horizon make an honest empty one.
+            if not usable:
+                lp["cannot_price"].insert(0, self._unusable(snap, lp["dropped"]))
         lp["candidates"] = len(rows)
         lp["priced_fixtures"] = len({c.event_id for c in rows})
         lp["value"] = sum(1 for c in rows if model.passes_filters(c, self.params) is None)
+        # The modes disagreeing strongly: the Pinnacle model flags a row Bookie
+        # Bashing rates below break-even. Counted for Callum; changes nothing.
+        lp["modes_disagree"] = sum(
+            1 for c in rows if c.bb_rating is not None and c.bb_rating < 100
+            and "pinnacle" in model.flagged_by(c, self.params))
         if rows and fixtures and not lp["pinnacle_priced"] and half and not half.get("gaps"):
             lp["cannot_price"].append(
                 f"pinnacle mode: no tracker row priced against Pinnacle ({lp['unmatched']} "
                 f"unmatched, {lp['ambiguous']} ambiguous, {lp['no_pinnacle']} without "
-                "Pinnacle's 1X2)")
+                f"Pinnacle's 1X2, {lp['pinnacle_too_old']} too old)")
         log = logger.warning if (lp["errors"] or lp["cannot_price"]) else logger.info
         log("2up feed (bb): %d tracker row(s), %d candidate(s), %d value; matched=%d "
-            "unmatched=%d ambiguous=%d pinnacle_priced=%d dropped=%s; %d error(s)%s",
+            "unmatched=%d ambiguous=%d pinnacle_priced=%d pinnacle_too_old=%d "
+            "modes_disagree=%d dropped=%s; %d error(s)%s",
             lp["tracker_rows"], lp["candidates"], lp["value"], lp["matched"], lp["unmatched"],
-            lp["ambiguous"], lp["pinnacle_priced"], lp["dropped"], len(lp["errors"]),
+            lp["ambiguous"], lp["pinnacle_priced"], lp["pinnacle_too_old"],
+            lp["modes_disagree"], lp["dropped"], len(lp["errors"]),
             (" — cannot price: " + "; ".join(lp["cannot_price"])) if lp["cannot_price"] else "")
         lp["requests_today"] = getattr(self._client, "requests_today", None)
         return rows, lp
 
-    def _tracker_row(self, r: TrackerRow, fixtures: list[Fixture], lp: dict) -> Candidate:
+    @staticmethod
+    def _unusable(snap: Snapshot, dropped: dict) -> str:
+        """The ALL gap for a snapshot with no usable bet365 row, and why."""
+        why = {**{k: v for k, v in snap.dropped.items() if v},
+               **{k: dropped[k] for k in ("unknown_age", "row_too_old") if dropped.get(k)}}
+        detail = ", ".join(f"{k} {v}" for k, v in why.items()) or "none"
+        return (f"ALL — the Bookie Bashing tracker snapshot has no usable bet365 row "
+                f"({snap.received} received; not used: {detail})")
+
+    def _tracker_row(self, r: TrackerRow, fixtures: list[Fixture], lp: dict,
+                     now: datetime) -> Candidate:
         """One tracker row as a candidate: BB's figures always, the Pinnacle
-        model's beside them when the row joins a fixture with Pinnacle's 1X2."""
+        model's beside them when the row joins a fixture with Pinnacle's 1X2
+        no older than `twoup_pinnacle_max_age_s`."""
         if fixtures:
             fx, how = match_fixture(r, fixtures)
             lp[how] += 1
@@ -428,23 +522,28 @@ class TwoUpFeed:
         bb = model.bb_only(
             event_id=r.event_id, home=r.home, away=r.away, kickoff=r.kickoff,
             selection=r.selection, side=r.side, price=r.book_odds, rating=r.rating,
-            fair=r.n_odds, competition=fx.competition if fx else "", priced_at=r.priced_at)
+            fair=r.n_odds, competition=fx.competition if fx else "",
+            bet365_priced_at=r.bet365_priced_at)
         if fx is None:
             return bb
-        priced = None
-        if fx.pinnacle is not None:
-            book = (r.book_odds, None, None) if r.side == "home" else (None, None, r.book_odds)
-            priced = model.price_fixture(
-                event_id=r.event_id, home=r.home, away=r.away, kickoff=r.kickoff,
-                pinnacle=fx.pinnacle, bet365=book, table=self.table)
+        if fx.pinnacle is None:
+            lp["no_pinnacle"] += 1
+            return bb
+        if (fx.fair_priced_at is None or (now - fx.fair_priced_at).total_seconds()
+                > settings.twoup_pinnacle_max_age_s):
+            lp["pinnacle_too_old"] += 1
+            return bb
+        book = (r.book_odds, None, None) if r.side == "home" else (None, None, r.book_odds)
+        priced = model.price_fixture(
+            event_id=r.event_id, home=r.home, away=r.away, kickoff=r.kickoff,
+            pinnacle=fx.pinnacle, bet365=book, table=self.table,
+            bet365_priced_at=r.bet365_priced_at, fair_priced_at=fx.fair_priced_at)
         if not priced:
             lp["no_pinnacle"] += 1
             return bb
         lp["pinnacle_priced"] += 1
-        # Both books' prices stand behind the row: its priced_at is the staler.
-        at = min(r.priced_at, fx.priced_at) if fx.priced_at else r.priced_at
         return replace(priced[0], selection=r.selection, competition=fx.competition,
-                       priced_at=at, bb_rating=r.rating, bb_fair=r.n_odds)
+                       bb_rating=r.rating, bb_fair=r.n_odds)
 
     # --- the pass -------------------------------------------------------------
 
@@ -458,7 +557,8 @@ class TwoUpFeed:
     def _new_pass(now: datetime) -> dict:
         """An empty pass record: what `last_pass` holds."""
         return {"at": now.isoformat(), "fixtures_listed": 0, "in_horizon": 0,
-                "no_pinnacle": 0, "no_bet365": 0, "unnamed": 0, "priced_fixtures": 0,
+                "no_pinnacle": 0, "no_bet365": 0, "unnamed": 0, "pinnacle_too_old": 0,
+                "priced_fixtures": 0,
                 "candidates": 0, "value": 0, "errors": [], "cannot_price": []}
 
     def _reference(self, lp: dict):
@@ -492,17 +592,16 @@ class TwoUpFeed:
 
     def _fetch_chunks(self, lp: dict, ids: list[int], books: tuple[str, ...], now: datetime):
         """One `odds-by-tournaments` request per book per chunk, through the
-        shared client. (boards by book, tournamentId -> when its chunk's
-        prices were fetched (the EARLIEST of the books', the stalest price
-        behind a row), requests that answered, the failed requests named)."""
+        shared client. (boards by book, book -> tournamentId -> when that
+        book's chunk was fetched, requests that answered, the failed requests
+        named)."""
         per = max(1, settings.oddspapi_tournaments_per_request)
         boards: dict[str, list] = {book: [] for book in books}
         fetched = 0
         failed: list[str] = []      # "<book> chunk [ids]: <error>", one per failed request
-        priced_at: dict[int, datetime] = {}
+        times: dict[str, dict[int, datetime]] = {book: {} for book in books}
         for i in range(0, len(ids), per):
             chunk = ids[i:i + per]
-            times = []
             for book in books:
                 try:
                     boards[book].extend(_as_list(self._client.odds_by_tournaments(chunk, bookmaker=book)))
@@ -513,10 +612,9 @@ class TwoUpFeed:
                     continue
                 # Read right after this book's own call, so another thread's
                 # later fetch of the same chunk cannot make it look newer.
-                times.append(self._book_fetched_at(chunk, book, now))
-            at = min(times, default=now)
-            priced_at.update({tid: at for tid in chunk})
-        return boards, priced_at, fetched, failed
+                at = self._book_fetched_at(chunk, book, now)
+                times[book].update({tid: at for tid in chunk})
+        return boards, times, fetched, failed
 
     def _refresh(self, now: datetime) -> tuple[list[Candidate], dict]:
         """One pass: (rows, what it saw). Touches no shared state; `refresh`
@@ -529,7 +627,9 @@ class TwoUpFeed:
         pin = self._client.resolve_book((settings.oddspapi_fair_book or "pinnacle").strip())
         b365 = self._client.resolve_book(BET365)
         lp["books"] = {"fair": pin, "priced": b365}
-        boards, priced_at, fetched, failed = self._fetch_chunks(lp, ids, (pin, b365), now)
+        self.pinnacle_delay_s = lp["pinnacle_delay_s"] = slug_delay_s(pin)
+        delay = timedelta(seconds=self.pinnacle_delay_s)
+        boards, times, fetched, failed = self._fetch_chunks(lp, ids, (pin, b365), now)
         if fetched == 0:
             lp["cannot_price"].append("ALL — every OddsPapi odds request failed")
             return self._finish(lp, [])
@@ -557,13 +657,16 @@ class TwoUpFeed:
                 lp["no_bet365"] += 1
                 continue
             tid = fx.get("tournamentId")
+            # Pinnacle's price was true the plan's delay before it was fetched.
+            fair_at = _time_for(times[pin], tid, now) - delay
+            if (now - fair_at).total_seconds() > settings.twoup_pinnacle_max_age_s:
+                lp["pinnacle_too_old"] += 1
+                continue
             priced = model.price_fixture(
                 event_id=str(_first(fx, "fixtureId", "id")), home=str(home), away=str(away),
                 kickoff=start, pinnacle=p, bet365=b, table=self.table,
                 competition=known.get(tid, "") if tid is not None else "",
-                # A fixture whose tournament is not one asked for (or absent):
-                # the stalest chunk, never a fresher time than any price had.
-                priced_at=priced_at.get(tid) or min(priced_at.values(), default=now),
+                bet365_priced_at=_time_for(times[b365], tid, now), fair_priced_at=fair_at,
             )
             if priced:
                 lp["priced_fixtures"] += 1
@@ -579,6 +682,10 @@ class TwoUpFeed:
                     f"is '{b365}' on the OddsPapi plan?")
             if lp["no_pinnacle"]:
                 lp["cannot_price"].append(f"Pinnacle 1X2 missing on {lp['no_pinnacle']} fixture(s)")
+            if lp["pinnacle_too_old"]:
+                lp["cannot_price"].append(
+                    f"Pinnacle 1X2 older than {settings.twoup_pinnacle_max_age_s}s on "
+                    f"{lp['pinnacle_too_old']} fixture(s)")
         # Some requests failed but others priced: the board is replaced, and
         # what the failed chunks would have carried is named — degraded, so a
         # missing competition never looks like a quiet one.
@@ -609,6 +716,13 @@ class TwoUpFeed:
             lp.get("unnamed", 0), len(lp["errors"]),
             (" — cannot price: " + "; ".join(lp["cannot_price"])) if lp["cannot_price"] else "")
         return rows, lp
+
+
+def _time_for(times: dict[int, datetime], tid, now: datetime) -> datetime:
+    """When a book's chunk holding tournament `tid` was fetched. A fixture
+    whose tournament is not one asked for (or absent): the stalest chunk,
+    never a fresher time than any price had."""
+    return times.get(tid) or min(times.values(), default=now)
 
 
 def value_rows(feed: TwoUpFeed | None, floor: float,

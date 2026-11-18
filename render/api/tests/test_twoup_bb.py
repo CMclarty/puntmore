@@ -2,7 +2,8 @@
 `bb` source, the register 18 Nov 2026): the ingest route, the two modes over
 the tracker's rows, the join to OddsPapi's fixtures, freshness and status.
 OddsPapi is a stub (never live); the tracker is posted as the Hub would."""
-from datetime import timedelta
+import threading
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,6 +22,7 @@ from tests.twoup_helpers import NOW, FakeOddsPapi, Session, engine, fixture
 KEY = "ingest-key"
 KO = NOW + timedelta(hours=5)
 DAY = KO.date().isoformat()
+DELAY = timedelta(minutes=30)        # the fake plan's `pinnacle+30`
 
 
 @pytest.fixture(autouse=True)
@@ -84,8 +86,15 @@ def _rows(feed, rows, now=NOW):
 
 
 def model_dt(s):
-    from datetime import datetime
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def live_row(*args, **kw):
+    """A row as the route sees one now: the route reads Render's real clock."""
+    now = datetime.now(timezone.utc)
+    kw.setdefault("seen_at", now)
+    kw.setdefault("kickoff", now + timedelta(hours=5))
+    return row(*args, **kw)
 
 
 def by_key(rows):
@@ -181,9 +190,12 @@ def test_draws_and_other_bookmakers_are_not_kept():
     api = TestClient(app)
     feed, _ = _feed()
     app.state.twoup_feed = feed
-    r = post(api, [row(), row(side="draw", book_odds=3.5), row(bookmaker="Paddy Power")])
+    r = post(api, [live_row(), live_row(side="draw", book_odds=3.5),
+                   live_row(bookmaker="Paddy Power")])
     assert r.status_code == 200
-    assert r.json()["kept"] == 1 and r.json()["not_kept"] == {"not bet365": 1, "draw": 1}
+    assert r.json()["kept"] == 1
+    assert r.json()["not_kept"] == {"not bet365": 1, "draw": 1, "seen_at in the future": 0,
+                                    "selection does not match side": 0}
 
 
 # --- the join ---------------------------------------------------------------------------
@@ -224,7 +236,8 @@ def test_no_row_joining_a_healthy_pinnacle_board_is_named_not_all():
     feed.refresh(NOW)
     st = feed.status(NOW)
     assert st["cannot_price"] == ["pinnacle mode: no tracker row priced against Pinnacle "
-                                  "(1 unmatched, 0 ambiguous, 0 without Pinnacle's 1X2)"]
+                                  "(1 unmatched, 0 ambiguous, 0 without Pinnacle's 1X2, "
+                                  "0 too old)"]
     assert feed.served(NOW)[1]
 
 
@@ -241,25 +254,35 @@ def test_event_id_is_the_tracker_rows_whatever_the_join_does():
 
 # --- freshness --------------------------------------------------------------------------
 
-def test_a_row_bb_last_saw_too_long_ago_is_dropped_and_counted():
+def test_a_row_is_dropped_by_its_prices_own_age_and_an_unknown_age_is_dropped():
     feed, _ = _feed()
-    _rows(feed, [row(updated_s=601), row("Leeds", "Hull", updated_s=None)])
+    _rows(feed, [row(updated_s=601),                                         # 601 s old when read
+                 row("Real Betis", "Sevilla", updated_s=200,
+                     seen_at=NOW - timedelta(seconds=401)),                    # 601 s old now
+                 row("Wigan", "Bolton", updated_s=None),                       # age unknown
+                 row("Leeds", "Hull", updated_s=599)])
     rows = feed.refresh(NOW)
     assert [c.home for c in rows] == ["Leeds"]
-    assert feed.last_pass["dropped"]["row_too_old"] == 1
+    assert feed.last_pass["dropped"]["row_too_old"] == 2
+    assert feed.last_pass["dropped"]["unknown_age"] == 1
 
 
-def test_priced_at_is_when_bet365s_price_was_read():
+def test_priced_at_is_the_staler_of_when_each_side_was_true():
     feed, client = _feed()
     _rows(feed, [row("Real Betis", "Sevilla", updated_s=90, seen_at=NOW)])
     [c] = feed.refresh(NOW)
-    assert c.priced_at == NOW - timedelta(seconds=90)
-    # A row Pinnacle priced as well: the staler of the two books' times.
+    assert c.bet365_priced_at == c.priced_at == NOW - timedelta(seconds=90)
+    assert c.fair_priced_at is None                          # no Pinnacle side
+    # A row Pinnacle priced as well: its price was true 30 minutes before it was
+    # fetched (`pinnacle+30`), and the row is as old as its staler side.
     old = NOW - timedelta(minutes=40)
     client.fetched_at = lambda ids, book: old
-    _rows(feed, [row(updated_s=30, seen_at=NOW + timedelta(seconds=1))], NOW + timedelta(seconds=1))
-    [c] = feed.refresh(NOW + timedelta(seconds=1))
-    assert c.p_win is not None and c.priced_at == old
+    later = NOW + timedelta(seconds=1)
+    _rows(feed, [row(updated_s=30, seen_at=later)], later)
+    [c] = feed.refresh(later)
+    assert c.p_win is not None and c.bet365_priced_at == later - timedelta(seconds=30)
+    assert c.fair_priced_at == old - DELAY == c.priced_at
+    assert feed.status(later)["pinnacle"]["delay_s"] == 1800
 
 
 def test_a_snapshot_too_old_serves_nothing_from_either_mode():
@@ -339,11 +362,11 @@ def test_rescue_table_unreadable_is_named_beside_the_bb_rows():
 def test_the_post_needs_the_ingest_key(monkeypatch):
     api = TestClient(app)
     app.state.twoup_feed, _ = _feed()
-    assert post(api, [row()], key=None).status_code == 401
-    assert post(api, [row()], key="wrong").status_code == 401
-    assert post(api, [row()]).status_code == 200
+    assert post(api, [live_row()], key=None).status_code == 401
+    assert post(api, [live_row()], key="wrong").status_code == 401
+    assert post(api, [live_row()]).status_code == 200
     monkeypatch.setattr(settings, "saves_ingest_key", "")
-    assert post(api, [row()], key="anything").status_code == 503
+    assert post(api, [live_row()], key="anything").status_code == 503
 
 
 @pytest.mark.parametrize("bad", [
@@ -375,15 +398,16 @@ def test_a_missing_key_422s():
 def test_a_post_older_than_the_held_one_is_409():
     api = TestClient(app)
     app.state.twoup_feed, _ = _feed()
-    assert post(api, [row(seen_at=NOW)]).status_code == 200
-    assert post(api, [row(seen_at=NOW - timedelta(minutes=1))]).status_code == 409
+    now = datetime.now(timezone.utc)
+    assert post(api, [live_row(seen_at=now)]).status_code == 200
+    assert post(api, [live_row(seen_at=now - timedelta(minutes=1))]).status_code == 409
 
 
 def test_the_post_is_taken_with_no_feed_on_the_deploy():
     api = TestClient(app)
     app.state.twoup_feed = None
     app.state.twoup_tracker = None
-    assert post(api, [row()]).status_code == 200
+    assert post(api, [live_row()]).status_code == 200
     diag = api.get("/2up/diagnostics").json()
     assert diag["tracker"]["bet365_rows"] == 1
 
@@ -410,6 +434,9 @@ def test_feed_route_serves_bb_rows_with_null_model_fields(monkeypatch):
     assert bb["fair_price"] == 2.857 and bb["ev"] == pytest.approx(0.05)
     assert bb["event_id"] == event_id_for("Real Betis", "Sevilla", ko)
     assert bb["event_id"].startswith("bb:real betis|") and bb["event_id"].endswith(ko.date().isoformat())
+    assert bb["bet365_priced_at"] is not None and bb["fair_priced_at"] is None
+    assert both["fair_priced_at"] is not None
+    assert both["priced_at"] == min(both["bet365_priced_at"], both["fair_priced_at"])
     assert body["status"]["bet365_source"] == "bb" and body["status"]["degraded"] is False
 
 
@@ -448,7 +475,8 @@ def test_diagnostics_report_the_tracker_and_the_mode_settings():
     assert t["fresh"] is True and t["age_s"] is not None
     s = diag["settings"]
     assert (s["twoup_bet365_source"], s["twoup_bb_min_rating"], s["twoup_bb_max_age_s"],
-            s["twoup_bb_row_max_age_s"]) == ("bb", 101.0, 300, 600)
+            s["twoup_bb_row_max_age_s"], s["twoup_pinnacle_max_age_s"]) == ("bb", 101.0, 300, 600, 5700)
+    assert diag["feed"]["pinnacle"]["delay_s"] == 1800 and "modes_disagree" in t
 
 
 def test_the_value_source_carries_a_bb_row():
@@ -477,3 +505,156 @@ def test_routes_the_365_grant_cannot_post():
         assert TestClient(app).post("/2up/bb", json={"prices": []}).status_code == 401
     finally:
         app.dependency_overrides[user_permissions] = lambda: "*"
+
+
+# --- review fixes, 18 Nov 2026 ------------------------------------------------------------
+
+def test_a_row_whose_selection_is_not_its_side_is_dropped_and_counted():
+    api = TestClient(app)
+    feed, _ = _feed()
+    app.state.twoup_feed = feed
+    r = post(api, [live_row(selection="Chelsea"),                       # side home, Chelsea away
+                   live_row(side="away", selection="Arsenal"),
+                   live_row(selection="Madrid", home="Real Madrid", away="Atletico Madrid"),
+                   live_row("Leeds", "Hull")])
+    assert r.status_code == 200
+    assert r.json()["kept"] == 1 and r.json()["not_kept"]["selection does not match side"] == 3
+    assert [x.home for x in feed.tracker.snapshot().rows] == ["Leeds"]
+
+
+def test_a_row_read_ahead_of_renders_clock_is_dropped_and_a_post_of_only_those_is_422():
+    api = TestClient(app)
+    feed, _ = _feed()
+    app.state.twoup_feed = feed
+    ahead = datetime.now(timezone.utc) + timedelta(seconds=180)
+    r = post(api, [live_row(seen_at=ahead), live_row("Leeds", "Hull")])
+    assert r.status_code == 200 and r.json()["not_kept"]["seen_at in the future"] == 1
+    assert r.json()["kept"] == 1
+    bad = post(api, [live_row(seen_at=ahead), live_row("Leeds", "Hull", seen_at=ahead)])
+    assert bad.status_code == 422 and "ahead of Render's clock" in bad.json()["detail"]
+    # The good post stands, and the next honest post is not wedged behind the bad one.
+    assert post(api, [live_row("Wigan", "Bolton")]).status_code == 200
+
+
+def test_a_reversed_fixture_is_never_joined():
+    feed, _ = _feed({"pinnacle+30": [
+        fixture("f1", "Chelsea", "Arsenal", KO, (1.90, 3.70, 4.40), "pinnacle+30")]})
+    _rows(feed, [row()])
+    [c] = feed.refresh(NOW)
+    assert c.p_win is None and feed.last_pass["unmatched"] == 1
+
+
+def test_a_fixture_matching_both_ways_round_is_ambiguous():
+    feed, _ = _feed({"pinnacle+30": [
+        fixture("f1", "Manchester United", "Manchester City", KO, (2.4, 3.5, 2.9), "pinnacle+30")]})
+    _rows(feed, [row("Man Utd", "Man City", book_odds=2.6, rating=102.0)])
+    [c] = feed.refresh(NOW)
+    assert c.p_win is None and feed.last_pass["ambiguous"] == 1
+
+
+def test_youth_and_womens_sides_never_join_the_senior_fixture():
+    feed, _ = _feed(pinnacle_board(
+        fixture("f7", "Arsenal U21", "Chelsea U21", KO, (2.2, 3.6, 3.0), "pinnacle+30")))
+    _rows(feed, [row("Arsenal Women", "Chelsea Women", rating=102.0),
+                 row("Arsenal", "Chelsea", rating=102.0)])
+    rows = {c.home: c for c in feed.refresh(NOW)}
+    assert rows["Arsenal Women"].p_win is None
+    assert rows["Arsenal"].p_win == pytest.approx(model.fair_1x2(1.90, 3.70, 4.40)[0])
+    assert (feed.last_pass["matched"], feed.last_pass["unmatched"]) == (1, 1)
+
+
+def test_a_snapshot_delivered_late_is_as_old_as_what_it_carries():
+    feed, _ = _feed()
+    _rows(feed, [row(seen_at=NOW - timedelta(seconds=400), updated_s=0)], NOW)   # received now
+    feed.refresh(NOW)
+    st = feed.status(NOW)
+    assert st["cannot_price"][0].startswith("ALL — the Bookie Bashing tracker snapshot is 400s old")
+    assert feed.served(NOW)[1] == []
+
+
+def test_a_pinnacle_side_too_old_gives_no_pinnacle_verdict_and_is_counted():
+    feed, client = _feed()
+    client.fetched_at = lambda ids, book: NOW - timedelta(minutes=66)   # true 96 minutes ago
+    _rows(feed, [row(rating=104.0)])
+    [c] = feed.refresh(NOW)
+    assert c.p_win is None and c.fair_priced_at is None
+    assert model.flagged_by(c, feed.params) == ["bb"]
+    assert feed.last_pass["pinnacle_too_old"] == 1
+
+
+def test_a_stalled_pinnacle_refresh_is_said_even_after_a_post_composes_the_board():
+    feed, _ = _feed()
+    _rows(feed, [row()])
+    feed.refresh(NOW)                                   # Pinnacle true at NOW - 30 min
+    later = NOW + timedelta(minutes=70)                 # no refresh since: 100 minutes
+    _rows(feed, [row(seen_at=later)], later)            # a post composes a fresh board
+    st = feed.status(later)
+    assert st["served_at"] == later.isoformat()
+    stalled = [c for c in st["cannot_price"] if "refresh has stalled" in c]
+    assert stalled and stalled[0].startswith("pinnacle mode: ")
+    assert not any(c.startswith("ALL") for c in st["cannot_price"])
+    assert st["pinnacle"]["newest_age_s"] == 6000
+    [c] = feed.served(later)[1]
+    assert c.p_win is None                              # no verdict off the stale line
+
+
+def test_rows_the_modes_disagree_on_are_counted_and_left_as_they_are():
+    feed, _ = _feed()
+    _rows(feed, [row(rating=98.0)])                     # Pinnacle flags it, BB rates it below 100
+    [c] = feed.refresh(NOW)
+    assert model.flagged_by(c, feed.params) == ["pinnacle"]
+    assert model.passes_filters(c, feed.params) is None  # still value: Callum's call
+    assert feed.last_pass["modes_disagree"] == 1
+    assert feed.tracker_status(NOW)["modes_disagree"] == 1
+
+
+@pytest.mark.parametrize("rows, says", [
+    ([], "0 received"),
+    ([row(updated_s=None), row("Leeds", "Hull", updated_s=None)], "unknown_age 2"),
+    ([row(updated_s=900)], "row_too_old 1"),
+])
+def test_a_snapshot_with_no_usable_bet365_row_is_an_all_gap(rows, says):
+    feed, _ = _feed()
+    _rows(feed, rows)
+    feed.refresh(NOW)
+    st = feed.status(NOW)
+    assert st["cannot_price"][0].startswith("ALL — the Bookie Bashing tracker snapshot has no "
+                                            "usable bet365 row")
+    assert says in st["cannot_price"][0] and st["degraded"] is True
+
+
+def test_usable_rows_all_outside_the_horizon_are_an_honest_quiet_board():
+    feed, _ = _feed()
+    _rows(feed, [row(kickoff=NOW + timedelta(hours=30))])
+    assert feed.refresh(NOW) == []
+    st = feed.status(NOW)
+    assert not any(c.startswith("ALL") for c in st["cannot_price"])
+    assert feed.last_pass["dropped"]["out_of_horizon"] == 1
+
+
+def test_a_post_racing_a_refresh_lands_in_the_board_and_time_never_goes_back():
+    """A post arrives while the job is fetching Pinnacle. Both compose under one
+    lock, each reading the snapshot and the clock inside it, so the board left
+    holds the post's row and its time is the later one."""
+    now = datetime.now(timezone.utc)
+    ko = now + timedelta(hours=5)
+    feed, client = _feed({"pinnacle+30": [
+        fixture("f1", "Arsenal", "Chelsea", ko, (1.90, 3.70, 4.40), "pinnacle+30")]})
+    client.fetched_at = lambda ids, book: now
+    real = client.odds_by_tournaments
+    posted = []
+
+    def fetch_with_a_post_arriving(ids, bookmaker="x"):
+        t = threading.Thread(target=lambda: posted.append(
+            _rows(feed, [row(kickoff=ko, seen_at=datetime.now(timezone.utc))], None)))
+        t.start()
+        t.join()
+        return real(ids, bookmaker=bookmaker)
+    client.odds_by_tournaments = fetch_with_a_post_arriving
+    feed.refresh()                                      # the job's call: no explicit time
+    first_at = feed.served()[0]
+    [c] = feed.served()[1]
+    assert posted and posted[0][0] is not None
+    assert c.p_win is not None                          # the post's row, priced by the refresh
+    feed.recompose()
+    assert feed.served()[0] >= first_at

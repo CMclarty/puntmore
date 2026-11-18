@@ -261,6 +261,13 @@ class Settings(BaseSettings):
     # A tracker row whose own `updated_s` (how long ago BB saw that price) is
     # above this is dropped and counted.
     twoup_bb_row_max_age_s: int = 600
+    # The oldest a Pinnacle price may be for the `pinnacle` mode to judge a row
+    # by it, measured from when the price was TRUE: OddsPapi's fetch time less
+    # the plan's delay (`pinnacle+30` is 30 minutes behind). 5700 = the
+    # client's slowest cache tier (3600, games more than six hours out) + the
+    # plan's delay (1800) + the feed's refresh interval (300). An older one
+    # gives the row no `pinnacle` verdict, and the row is counted.
+    twoup_pinnacle_max_age_s: int = 5700
 
     # Session cookie signing key. If blank, a random key is generated at startup
     # (sessions reset on restart — fine for dev; set a fixed value in prod).

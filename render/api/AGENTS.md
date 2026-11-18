@@ -162,27 +162,45 @@ default and a reason.
   (the feed's `tracker`), never in a table: a restart loses it and the board
   says `not_yet_refreshed` until the next post. A post whose newest `seen_at`
   is older than the held one's is a 409, so a delayed post never puts older
-  prices back. Unusable after `twoup_bb_max_age_s` (300): the feed serves no
-  rows and `cannot_price` starts "ALL — the Bookie Bashing tracker snapshot
-  is Ns old". A row with `updated_s` over `twoup_bb_row_max_age_s` (600) is
-  dropped and counted.
+  prices back. A row whose `selection` is not the team on its `side`
+  (`tracker.selection_agrees`) or whose `seen_at` is more than
+  `SEEN_AT_FUTURE_S` (120) ahead of Render's clock is dropped and counted; a
+  post of only future rows is a 422, so a wrong clock cannot wedge the route.
+  Unusable after `twoup_bb_max_age_s` (300) by when it was received OR by its
+  newest row (a post delivered late is as old as what it carries): the feed
+  serves no rows and `cannot_price` starts "ALL — the Bookie Bashing tracker
+  snapshot is Ns old". A row is judged by its price's own time
+  (`bet365_priced_at` = `seen_at` - `updated_s`, the data's true age): older
+  than `twoup_bb_row_max_age_s` (600) at composition, or with `updated_s`
+  null (age unknown), it is dropped and counted. A snapshot with no usable
+  bet365 row is an "ALL — ... has no usable bet365 row" gap; only usable rows
+  all outside the horizon make an honest empty board.
 - **Two modes over the tracker's rows** (`model.flagged_by`), each row's
   `sources` saying which flagged it: `bb`, BB's rating at or above
   `twoup_bb_min_rating` (101), taken as given; `pinnacle`, the rescue model
   unchanged with the tracker's bet365 price against Pinnacle's 1X2. `value` =
   either, inside the price band; the horizon and minimum lead apply to both.
+  `modes_disagree` counts rows the Pinnacle mode flags while BB rates them
+  below 100; it changes nothing (Callum's call).
   The competition list cannot filter a row only BB priced (the tracker posts
   no competition); it still decides which fixtures Pinnacle's half fetches.
   Where Pinnacle priced a row the model fields are its and BB's figures are
   `bb_rating`, `bb_fair`; on a row only BB priced `p_win` and `rescue` are
   None, `fair_price` is BB's `n_odds`, `ev` is rating/100 - 1 and `edge` is
-  ev/price (probability units, P(pays) - 1/price).
+  ev/price (probability units, P(pays) - 1/price). **`p_win` and `rescue`
+  null is a breaking change** to a field that was always a number: kept
+  because it is honest, recorded in `docs/api.md` as an exception to "changes
+  are additive only" awaiting Callum's confirmation, not settled.
 - **The join is never a guess** (`tracker.match_fixture`): the Paddy board's
   matcher for the Scraper's saves prices (`cards/saves.py`:
   `team_similarity` at 0.80 on both names, home to home, away to away, within
   `KICKOFF_TOLERANCE_HOURS`, 12). No fixture passing is `unmatched`; more than
   one is `ambiguous` unless exactly one is an exact match of both normalised
-  names. Either way the row has no `pinnacle` verdict and is counted. Known
+  names; a fixture that also matches the other way round (row home against
+  fixture away, row away against fixture home) is never joined: beside a
+  straight match ambiguous, alone unmatched, so a derby of two similar names
+  is never priced against Pinnacle. Either way the row has no `pinnacle`
+  verdict and is counted. Known
   weaknesses: a team name the alias table does not fold (an abbreviation
   BB prints and OddsPapi does not) leaves a row unmatched; containment
   scores 0.90, so "Madrid" against "Real Madrid" and "Atletico Madrid" is
@@ -194,13 +212,28 @@ default and a reason.
 - **Composed, never fetched, on a request.** The `twoup_refresh` job fetches
   Pinnacle's half and composes the board with the snapshot; each tracker post
   composes it again from the Pinnacle half already held (no request to
-  OddsPapi), under one lock so an older composition never lands after a
-  newer. Pinnacle or OddsPapi failing while the tracker is fresh leaves the
-  `bb` mode serving: `cannot_price` names "pinnacle mode: ..." (never ALL)
-  and `stale` stays false, so the Bet Placer's reader takes it as partly
-  priced. A row's `priced_at` is when bet365's price was read (`seen_at` less
-  `updated_s`), or the earlier of that and Pinnacle's fetch when Pinnacle
-  priced it.
+  OddsPapi). Both compose under one lock and read the snapshot, the Pinnacle
+  half and the clock inside it (`recompose`; a test may pass a time), so the
+  composition that lands last is built from the newest data and carries the
+  later time. Pinnacle or OddsPapi failing while the tracker is fresh leaves
+  the `bb` mode serving: `cannot_price` names "pinnacle mode: ..." (never
+  ALL) and `stale` stays false, so the Bet Placer's reader takes it as partly
+  priced.
+- **Honest ages; on this plan Pinnacle is the SLOWER side.** The plan grants
+  `pinnacle+30`, 30 minutes behind: `slug_delay_s` reads the delay off the
+  resolved slug and it is subtracted from OddsPapi's fetch time to give
+  `fair_priced_at`, when Pinnacle's price was true. Every row carries
+  `bet365_priced_at`, `fair_priced_at` (null without a Pinnacle side) and
+  `priced_at`, the older of the two, in both sources. A Pinnacle price older
+  than `twoup_pinnacle_max_age_s` (5700 = the slowest cache tier 3600 + the
+  delay 1800 + the feed's 300) gives no `pinnacle` verdict and is counted
+  (`pinnacle_too_old`; in the `oddspapi` source the fixture is not priced).
+  `status.pinnacle` reports the slug, delay and the held prices' oldest and
+  newest ages, read when asked; in `bb`, Pinnacle data whose freshest price
+  is past the limit (a stalled refresh) is a "pinnacle mode: ..." entry in
+  `cannot_price` however recently a tracker post composed the board. A
+  `pinnacle`-only flag soon after late team news can be a stale line
+  (`docs/2up-engine-spec.md`).
 - `model.py` — pure: Pinnacle 1X2 de-vigged with `devigd_multi` (power),
   rescue rate from `rescue_table.json` by fair-P(win) bucket, edge =
   P(win) + P(two up, fails to win) − 1/bet365 price, and the filters (price

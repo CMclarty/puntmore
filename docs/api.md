@@ -119,9 +119,11 @@ Response (`ValueFeedOut`):
 empty list is never ambiguous. It also names a source answering but not
 fresh: `2up` is `"killed: TWOUP_KILL_SWITCH is on"` (no rows), `"not yet
 refreshed"` (no rows; in the `bb` source also before the first tracker post)
-or `"stale: prices from HH:MM UTC — OddsPapi not answering"` (HH:MM the oldest
-price behind the board) beside the last good board's rows, each with `seen_at`
-= when its prices were fetched. `"cannot price: <reason>"` (no rows) is a
+or `"stale: prices from HH:MM UTC — OddsPapi not answering"` (the `oddspapi`
+source; in the `bb` source, where only a composition that raised leaves a board
+stale, `"stale: prices from HH:MM UTC — the board could not be composed"`)
+(HH:MM the oldest price behind the board) beside the last good board's rows,
+each with `seen_at` = its `priced_at`. `"cannot price: <reason>"` (no rows) is a
 deploy where every pass since boot failed or raised, or a tracker snapshot too
 old; `"partly priced: <gap>; <gap>"` sits beside the rows of a board where part
 of the pass failed (in the `bb` source, Pinnacle's half). Selections are sorted by edge, best first.
@@ -210,6 +212,10 @@ route only reads it, and no request ever fetches from OddsPapi.
     "stale": false,             // the last pass failed; an older board is being served
     "served_at": "...",         // ISO time of the served board, null before the first pass
     "not_yet_refreshed": false, // no pass since boot (bb: or no tracker post since boot): the list is empty
+    "pinnacle": {               // the Pinnacle side, read now (added 18 Nov 2026)
+      "book", "delay_s",        // the plan's slug and its delay ("pinnacle+30": 1800)
+      "max_age_s", "oldest_fair_priced_at", "oldest_age_s", "newest_age_s"
+    },
     "last_pass": {...},         // counts, errors and cannot_price of the last pass
     "killed": false             // TWOUP_KILL_SWITCH: candidates is empty
   },
@@ -219,7 +225,9 @@ route only reads it, and no request ever fetches from OddsPapi.
     "market", "price",          // bet365's decimal price at priced_at
     "p_win", "rescue",          // the Pinnacle model's; null when Pinnacle did not price the row
     "fair_price", "edge", "ev", "value",
-    "priced_at",                // when the prices behind this row were read
+    "priced_at",                // the older of the two below: the stalest price behind the row
+    "bet365_priced_at",         // when bet365's price was true (added 18 Nov 2026)
+    "fair_priced_at",           // when Pinnacle's price was true: fetched less the plan's delay; null without a Pinnacle side
     "sources",                  // the modes that flag it: [], ["bb"], ["pinnacle"], ["bb", "pinnacle"]
     "bb_rating", "bb_fair"      // Bookie Bashing's rating and fair odds; null when the tracker did not carry it
   }]
@@ -248,9 +256,20 @@ is `ev / price`, the same probability units as the model's edge
 `event_id` is `bb:<home>|<away>|<yyyy-mm-dd>` in the `bb` source (normalised
 team names, the kick-off's UTC date), the same whether or not the row joined a
 fixture in that pass; OddsPapi's fixture id in the `oddspapi` source.
-`priced_at` is when bet365's price was read (the row's `seen_at` less
-`updated_s`), or the earlier of that and Pinnacle's fetch when Pinnacle priced
-the row.
+`bet365_priced_at` is when bet365's price was true (in the `bb` source the
+row's `seen_at` less `updated_s`, the data's true age; in the `oddspapi` source
+when bet365's chunk was fetched). `fair_priced_at` is when Pinnacle's price was
+true: OddsPapi's fetch less the delay the plan's slug names (`pinnacle+30` is 30
+minutes behind), null on a row without a Pinnacle side. `priced_at` is the
+older of the two. A Pinnacle price older than `TWOUP_PINNACLE_MAX_AGE_S` (5700:
+the slowest cache tier of an hour, the 30-minute delay and the feed's 5
+minutes) gives no `pinnacle` verdict and is counted (`pinnacle_too_old`).
+
+**`p_win` and `rescue` may be null: a breaking change, not yet confirmed.**
+Before 18 Nov 2026 they were always numbers. A null is honest (Pinnacle did not
+price the row) and the 2-Up tab and the Hub's reader take it, but a reader that
+assumes a number breaks. This is a noted exception to "changes are additive
+only", awaiting Callum's confirmation; until he confirms, it is not settled.
 
 On a failed pass in the `oddspapi` source (every request failed, reference
 data down, no configured tournament resolved, or the pass itself raised) the
@@ -263,7 +282,15 @@ boot"`; a snapshot older than `TWOUP_BB_MAX_AGE_S` (300) serves no rows from
 either mode, `"ALL — the Bookie Bashing tracker snapshot is Ns old"` first in
 `cannot_price`; OddsPapi or Pinnacle failing while the tracker is fresh leaves
 the `bb` mode serving, with `"pinnacle mode: ..."` entries (never ALL) in
-`cannot_price`, so the board is partly priced, not unpriceable. Before the
+`cannot_price`, so the board is partly priced, not unpriceable; so does a
+Pinnacle refresh that has stalled past `TWOUP_PINNACLE_MAX_AGE_S`, read when
+the status is asked for, so a tracker post composing a new board never hides
+it. A snapshot's age is the older of since it was received and since its
+newest row was read. A snapshot with no usable bet365 row (an empty post, no
+bet365 home or away row, every bet365 row's price unknown or too old) is an
+`"ALL — the Bookie Bashing tracker snapshot has no usable bet365 row (...)"`
+gap; usable rows that all kick off outside the horizon are an honest empty
+board. Before the
 first pass and with the kill switch on the list is empty. `served_at: null`
 with `not_yet_refreshed: false` means no pass has priced yet; see
 `cannot_price`. With no OddsPapi key `status` is just `degraded: true`,
@@ -278,11 +305,15 @@ in use, `global_kill_switch` the flag, `settings` the dials (`twoup_min_edge`,
 `twoup_min_price`, `twoup_max_price`, `twoup_min_lead_minutes`,
 `twoup_tournament_ids`, `twoup_feed_ttl`, `twoup_horizon_hours`,
 `twoup_bet365_source`, `twoup_bb_min_rating`, `twoup_bb_max_age_s`,
-`twoup_bb_row_max_age_s`), and `tracker` the snapshot held: `received_at`,
-`age_s`, `fresh`, `rows_received`, `bet365_rows`, `not_kept` (`not bet365`,
-`draw`) and, from the last composed board, `matched`, `unmatched`,
-`ambiguous`, `no_pinnacle_board`, `no_pinnacle`, `pinnacle_priced` and
-`dropped` (`row_too_old`, `out_of_horizon`, `duplicate`). No secrets.
+`twoup_bb_row_max_age_s`, `twoup_pinnacle_max_age_s`), and `tracker` the
+snapshot held: `received_at`, `newest_seen_at`, `age_s`, `fresh`,
+`rows_received`, `bet365_rows`, `not_kept` (`seen_at in the future`, `not
+bet365`, `draw`, `selection does not match side`) and, from the last composed
+board, `matched`, `unmatched`, `ambiguous`, `no_pinnacle_board`,
+`no_pinnacle`, `pinnacle_too_old`, `pinnacle_priced`, `modes_disagree` (rows
+the Pinnacle mode flags while Bookie Bashing rates them below 100; counted
+only) and `dropped` (`unknown_age`, `row_too_old`, `out_of_horizon`,
+`duplicate`). No secrets.
 
 ### 2-Up tracker ingest (`POST /api/2up/bb`, 18 Nov 2026)
 
@@ -300,13 +331,19 @@ table and REPLACES the snapshot held:
 
 Every key is required (`updated_s` may be null) and an unknown key, a missing
 one or a value out of range (prices above 1, `rating` above 0) is a 422 for
-the whole post; a time with no offset is UTC. At most 2,000 rows. Only bet365's
-home and away rows are kept. The answer is `{received, kept, not_kept: {"not
-bet365", "draw"}, received_at}`. A post whose newest `seen_at` is older than
+the whole post; a time with no offset is UTC. At most 2,000 rows. `updated_s` is
+the data's true age at `seen_at`; a row with it null is kept but never used (its
+age is unknown). Only bet365's home and away rows are kept, and only where
+`selection` is the team on `side` (by the join's similarity, and better than
+the other team). A row whose `seen_at` is more than 120 s ahead of Render's
+clock is refused; a post where every row is is a 422 saying so. The answer is
+`{received, kept, not_kept: {"seen_at in the future", "not bet365", "draw",
+"selection does not match side"}, received_at}`. A post whose newest `seen_at` is older than
 the held snapshot's is refused with 409 and the held one stands. The snapshot
 is held in memory, never in a table: a restart or deploy loses it, and the 2-Up
 board says "not yet refreshed" until the next post refills it. A row whose
-`updated_s` is above `TWOUP_BB_ROW_MAX_AGE_S` (600) is dropped from the board
+bet365 price (`seen_at` less `updated_s`) is older than
+`TWOUP_BB_ROW_MAX_AGE_S` (600) when the board is composed is dropped from it
 and counted. Render never loads the tracker.
 
 ### Finder (`/api/finder/*`, Nov 2026)

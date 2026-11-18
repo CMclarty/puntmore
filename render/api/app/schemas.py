@@ -563,7 +563,9 @@ class TwoUpCandidateOut(BaseModel):
     edge: float
     ev: float
     value: bool                      # in the price band and flagged by at least one mode
-    priced_at: Optional[datetime] = None   # when the prices behind the row were read
+    priced_at: Optional[datetime] = None   # the older of the two below: the stalest price behind the row
+    bet365_priced_at: Optional[datetime] = None  # when bet365's price was true; null: not known
+    fair_priced_at: Optional[datetime] = None    # when Pinnacle's price was true (fetch less the plan's delay); null: no Pinnacle side
     sources: list[Literal["bb", "pinnacle"]] = []
     bb_rating: Optional[float] = None      # Bookie Bashing's rating, 100 = break-even
     bb_fair: Optional[float] = None        # Bookie Bashing's fair odds for the 2-up bet
@@ -588,7 +590,7 @@ class TwoUpTrackerIngestOut(BaseModel):
     """What POST /api/2up/bb kept: the snapshot it replaced the held one with."""
     received: int                    # rows in the post
     kept: int                        # bet365's home and away rows, the snapshot
-    not_kept: dict[str, int]         # reason -> rows: "not bet365", "draw"
+    not_kept: dict[str, int]         # reason -> rows: "not bet365", "draw", "selection does not match side", "seen_at in the future"
     received_at: datetime
 
 
