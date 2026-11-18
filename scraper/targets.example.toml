@@ -65,6 +65,23 @@ every_min = 10
 parser = "bb_saves"
 post = "/api/paddy/saves-fair"
 
+# Bookie Bashing's Early Payout Tracker for 2-Up: a page kept open that
+# fetches its ratings about once a minute. parsers/bb_2up.py reads every
+# selection kicking off within games.within_h from the newest of them, clicks
+# nothing, and the rows go to Render's /api/2up/bb through the Hub. No
+# every_min: a page that stops fetching goes quiet and is reloaded after
+# stale_min (10, the floor); otherwise only recycle.hours reloads it. With
+# no game within games.within_h it rests (page closed) until 48 hours before
+# the next one, or a day; `python -m scraper wake bb-2up` ends a rest. No
+# min_rows: a resting job reads no rows by design.
+[[target]]
+name = "bb-2up"
+site = "bookiebashing"
+url = "https://www.bookiebashing.net/trackers/early-payout-tracker/#/"
+stale_min = 10
+parser = "bb_2up"
+post = "/api/2up/bb"
+
 [[target]]
 name = "pp-epl-most"
 site = "paddypower"

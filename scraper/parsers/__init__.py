@@ -16,11 +16,12 @@ A parser may return `rows.Rows`, a list with a `said` line about the page
 (still loading, a count that does not add up): the runner shows it in the
 job's status and writes it to the job's log when it changes.
 """
+from .bb_2up import bb_2up
 from .bb_builder import bb_builder
 from .bb_saves import bb_saves
 from .example_tipster import example_tipster
 from .pp_most import pp_most
 from .tc_reload import tc_reload
 
-PARSERS = {"bb_saves": bb_saves, "bb_builder": bb_builder, "pp_most": pp_most,
+PARSERS = {"bb_saves": bb_saves, "bb_builder": bb_builder, "bb_2up": bb_2up, "pp_most": pp_most,
            "tc_reload": tc_reload, "example_tipster": example_tipster}

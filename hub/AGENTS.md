@@ -25,9 +25,9 @@ files.
   `scraper_tips`, `scraper_event` and `scraper_prices`. A change touches the Scraper's sink and
   the Hub's inbox in ONE pull request; `tests/test_protocol.py` and
   `scraper/tests/test_sinks_schema.py` are the referees.
-- **Paddy's prices go to Render through the inbox only** (`inbox.post_prices`,
-  `PUNTMORE_RENDER_API_KEY`); no retry loop: a file waits for the next pass, and is dropped once
-  15 min old.
+- **Paddy's prices, and 2-Up's Bookie Bashing rows (`/api/2up/bb`), go to Render through the
+  inbox only** (`inbox.post_prices`, `PUNTMORE_RENDER_API_KEY`); no retry loop: a file waits for
+  the next pass, and is dropped once 15 min old.
 - **The daemon talks to Render for AW 26** (`aw26_loop.py`; the register's AW 26 entry). Its
   third loop, beside the inbox and the mailbox poll, starts only when switched on
   (`PUNTMORE_AW26_READ=1`, off until the reading has been proved) and `PUNTMORE_RENDER_HTTP` and

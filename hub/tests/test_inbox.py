@@ -182,6 +182,17 @@ def test_bb_saves_rows_go_to_the_saves_route(pcfg, store):
     assert render.sent[0][0].endswith("/api/paddy/saves-fair") and render.sent[0][2] == {"prices": [SAVES_ROW]}
 
 
+def test_bb_2up_rows_go_to_the_2up_route(pcfg, store):
+    row = {"bookmaker": "bet365", "event": "Real Madrid v PSV", "home": "Real Madrid", "away": "PSV",
+           "selection": "PSV", "side": "away", "book_odds": 13.0, "lay": 15.0, "rating": 108.86,
+           "n_odds": 11.95, "kickoff": "2026-11-24T20:00:00Z", "updated_s": 60, "seen_at": "2026-11-18T12:10:39Z"}
+    _price_drop(pcfg, time.time(), route="/api/2up/bb", rows=[row])
+    render = _Render(200)
+    counts = inbox.ingest(store, pcfg, notify=False, opener=render)
+    assert render.sent == [("https://puntmore.example/api/2up/bb", "Bearer k-ingest", {"prices": [row]})]
+    assert counts["price_files"] == 1 and _left(pcfg) == []
+
+
 def test_files_are_posted_oldest_first(pcfg, store):
     now = time.time()
     for i, home in enumerate(["first", "second", "third"]):
