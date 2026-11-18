@@ -125,7 +125,11 @@ an account or configures the feed: the dials are `.env` on Render. Helpers in
   time or other decoration in the header: Callum has asked twice. (Superseded
   for Paddy and Hills on 8 Nov 2026: he asked for "Updated 3m" in the band.)
   Refund = the insurance offer; **Acca Boost** (`accaBoost.js`) = winnings +10/20/30%
-  on 4/5/6 legs, win-or-lose, each leg scored in its best fold. Both are a
+  on 4/5/6 legs, win-or-lose, each leg scored in its best fold. On Hills the
+  Boost tab is William Hill's own Football Acca Boost (`HILLS_BOOST`, Callum,
+  18 Nov 2026, from help.williamhill.com: 3% on 2 legs up to 200% on 20+, each
+  leg 1/5+, on 90 Mins, 2 Up, BTTS or O/U Goals only, ends 30 May 2027), so of
+  the Hills board's markets it lists match goals alone. Both are a
   plain list of qualifying legs, best down — NO recommended acca on the page
   (Callum: "this is a tool"); `bestAcca`/`bestBoostAcca` stay, tested. There is
   NO calculator page (removed Oct 2026, never asked for); the offer's terms

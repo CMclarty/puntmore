@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { boostEval, boostLegScore, bestBoostAcca } from './accaBoost'
+import { boostEval, boostLegScore, bestBoostAcca, HILLS_BOOST } from './accaBoost'
 
 const fair = (n, o) => [Array(n).fill(o), Array(n).fill(1 / o)]
 const pct1 = x => Math.round(x * 1000) / 10
@@ -49,5 +49,37 @@ describe('legs and the builder', () => {
     expect([4, 5, 6]).toContain(best.picks.length)
     expect(new Set(best.picks.map(p => p.matchId)).size).toBe(best.picks.length)
     expect(best.picks.every(p => p.odds >= 1.2)).toBe(true)
+  })
+})
+
+describe("William Hill's Football Acca Boost", () => {
+  const fair = n => [Array(n).fill(1.25), Array(n).fill(0.8)]
+  test('the table: 3% on a double, 7.5% on five, 100% on fifteen, 200% on twenty', () => {
+    for (const [n, b] of [[2, 0.03], [5, 0.075], [14, 0.5], [15, 1], [20, 2]]) {
+      const r = boostEval(...fair(n), HILLS_BOOST)
+      expect(r.qualifies).toBe(true)
+      expect(r.boost).toBe(b)
+    }
+  })
+  test('a single and a 21-fold are not scored', () => {
+    expect(boostEval(...fair(1), HILLS_BOOST).qualifies).toBe(false)
+    expect(boostEval(...fair(21), HILLS_BOOST).qualifies).toBe(false)
+  })
+  test('a leg under 1/5 does not qualify', () => {
+    expect(boostEval([1.19, 1.5], [0.84, 0.66], HILLS_BOOST).qualifies).toBe(false)
+  })
+  test("a double's winnings are boosted 3%", () => {
+    const r = boostEval([2, 2], [0.5, 0.5], HILLS_BOOST)
+    expect(r.boostedOdds).toBeCloseTo(1 + 3 * 1.03, 10)
+  })
+  test('Paddy keeps its own table', () => {
+    expect(boostEval(...fair(2)).qualifies).toBe(false)
+    expect(boostEval(...fair(5)).boost).toBe(0.2)
+  })
+  test('only match goals qualify of the Hills board', () => {
+    expect(HILLS_BOOST.markets).toEqual(['goals'])
+  })
+  test('a leg is scored in a boosted fold', () => {
+    expect(boostLegScore({ odds: 1.9, value: 0.02 }, HILLS_BOOST).qualifies).toBe(true)
   })
 })
