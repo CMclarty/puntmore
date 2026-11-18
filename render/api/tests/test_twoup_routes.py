@@ -15,6 +15,10 @@ from app.twoup.model import Params
 
 from tests.twoup_helpers import NOW, FakeOddsPapi, Session, engine, standard_boards
 
+# The fake plan grants Pinnacle as `pinnacle+30`: its prices were true 30 minutes
+# before they were fetched (18 Nov 2026 review: honest ages).
+DELAY = timedelta(minutes=30)
+
 
 @pytest.fixture(autouse=True)
 def world(monkeypatch):
@@ -27,6 +31,9 @@ def world(monkeypatch):
         finally:
             s.close()
     app.dependency_overrides[get_db] = _db
+    # These tests pin the `oddspapi` source, today's behaviour before 18 Nov
+    # 2026, unchanged; the `bb` source's are tests/test_twoup_bb.py.
+    monkeypatch.setattr(settings, "twoup_bet365_source", "oddspapi")
     monkeypatch.setattr(settings, "twoup_tournament_ids", "17,18")
     monkeypatch.setattr(settings, "oddspapi_fair_book", "pinnacle")
     yield
@@ -190,7 +197,8 @@ def test_feed_route_serves_the_last_good_board_when_every_request_fails():
     app.state.twoup_feed = feed
     body = TestClient(app).get("/2up/feed").json()
     assert len(body["candidates"]) == 4
-    assert all(c["priced_at"].startswith(NOW.strftime("%Y-%m-%dT%H:%M")) for c in body["candidates"])
+    assert all(c["priced_at"].startswith((NOW - DELAY).strftime("%Y-%m-%dT%H:%M"))
+               for c in body["candidates"])
     assert body["status"]["stale"] is True
     assert body["status"]["cannot_price"] == ["ALL — every OddsPapi odds request failed"]
 
@@ -265,10 +273,15 @@ def test_feed_route_lists_priced_sides(monkeypatch):
     assert [c["selection"] for c in only["candidates"]] == ["Arsenal"]
 
 
-def test_rows_carry_the_time_their_prices_were_fetched():
+def test_rows_carry_the_time_their_prices_were_true():
     feed, client = _feed()
     rows = feed.refresh(NOW)
-    assert rows and all(c.priced_at == client.fetched_at([17, 18], "bet365") for c in rows)
+    fetched = client.fetched_at([17, 18], "bet365")
+    assert rows and all(c.bet365_priced_at == fetched for c in rows)
+    # Pinnacle's slug is 30 minutes behind: its price was true then, and the
+    # row is as old as its staler side.
+    assert all(c.fair_priced_at == fetched - DELAY == c.priced_at for c in rows)
+    assert feed.status(NOW)["pinnacle"]["delay_s"] == 1800
     app.state.twoup_feed = feed
     body = TestClient(app).get("/2up/feed").json()
     assert body["candidates"][0]["priced_at"].startswith(NOW.strftime("%Y-%m-%d"))
@@ -278,7 +291,20 @@ def test_a_rows_priced_at_is_the_staler_of_its_two_books():
     feed, client = _feed()
     stale = NOW - timedelta(minutes=7)
     client.fetched_at = lambda ids, book: stale if book.startswith("pinnacle") else NOW
-    assert {c.priced_at for c in feed.candidates(NOW)} == {stale}
+    rows = feed.candidates(NOW)
+    assert {c.priced_at for c in rows} == {stale - DELAY}
+    assert {c.bet365_priced_at for c in rows} == {NOW}
+
+
+def test_a_fixture_whose_pinnacle_price_is_too_old_is_not_priced_and_is_counted():
+    feed, client = _feed()
+    # Fetched 66 minutes ago and 30 minutes behind: 96 minutes, past 5700 s.
+    client.fetched_at = lambda ids, book: NOW - timedelta(minutes=66)
+    assert feed.refresh(NOW) == []
+    assert feed.last_pass["pinnacle_too_old"] == 2          # f3 has no bet365 price anyway
+    assert any("older than 5700s" in c for c in feed.status(NOW)["cannot_price"])
+    client.fetched_at = lambda ids, book: NOW - timedelta(minutes=64)    # 94 minutes: inside
+    assert feed.refresh(NOW)
 
 
 def test_diagnostics_route_reports_the_feed_and_the_dials():
@@ -359,7 +385,7 @@ def test_value_feed_a_stale_board_keeps_its_rows_with_their_own_seen_at_and_says
     priced = {c.priced_at for c in good}
     assert {datetime.fromisoformat(r["seen_at"].replace("Z", "+00:00")) for r in body["selections"]} == priced
     assert body["errors"]["2up"].startswith("stale: prices from ")
-    assert NOW.strftime("%H:%M UTC") in body["errors"]["2up"]
+    assert (NOW - DELAY).strftime("%H:%M UTC") in body["errors"]["2up"]
 
 
 def test_value_feed_stale_note_gives_the_oldest_price_behind_the_board():
@@ -371,7 +397,7 @@ def test_value_feed_stale_note_gives_the_oldest_price_behind_the_board():
     feed.refresh(NOW + timedelta(minutes=5))
     app.state.twoup_feed = feed
     assert _value_2up()["errors"]["2up"] == \
-        f"stale: prices from {older:%H:%M} UTC — OddsPapi not answering"
+        f"stale: prices from {older - DELAY:%H:%M} UTC — OddsPapi not answering"
 
 
 def test_value_feed_killed_2up_has_no_rows_and_says_so(monkeypatch):

@@ -39,12 +39,14 @@ FALLBACK_RESCUE = 0.012
 
 @dataclass(frozen=True)
 class Params:
-    """The four dials the filters read. Defaults match config.py;
-    `from_settings` reads the live values."""
+    """The dials the filters read. Defaults match config.py;
+    `from_settings` reads the live values. `min_bb_rating` is the `bb`
+    mode's threshold: Bookie Bashing's rating at or above it flags a row."""
     min_edge: float = 0.005
     min_price: float = 1.25
     max_price: float = 8.0
     min_lead_minutes: int = 15
+    min_bb_rating: float = 101.0
 
     @classmethod
     def from_settings(cls, settings=None) -> "Params":
@@ -55,6 +57,7 @@ class Params:
             min_price=settings.twoup_min_price,
             max_price=settings.twoup_max_price,
             min_lead_minutes=settings.twoup_min_lead_minutes,
+            min_bb_rating=settings.twoup_bb_min_rating,
         )
 
     def but(self, **changes) -> "Params":
@@ -65,29 +68,51 @@ class Params:
 
 @dataclass(frozen=True)
 class Candidate:
-    """One bettable selection, priced. Rows come from `feed.py`."""
+    """One bettable selection, priced. Rows come from `feed.py`.
+
+    The model fields (`p_win`, `rescue`, `fair_price`, `edge`) are the
+    Pinnacle model's whenever Pinnacle priced the row. A row only Bookie
+    Bashing's tracker priced has `p_win` and `rescue` None, `fair_price` BB's
+    fair odds (2-up adjusted), and `edge` BB's expressed in the same
+    probability units: (rating/100 - 1) / price, which is
+    P(pays) - 1/price with P(pays) = rating / 100 / price. BB's own figures
+    always sit in `bb_rating` and `bb_fair` where the tracker carried the row."""
     event_id: str
     event: str                     # "Home v Away"
     home: str
     away: str
     kickoff: datetime              # aware, UTC
-    selection: str                 # the team backed, as OddsPapi names it
+    selection: str                 # the team backed, as the source names it
     side: str                      # home | away
     price: float                   # bet365's decimal price
-    p_win: float                   # fair P(win), Pinnacle de-vigged
-    rescue: float                  # P(two up but fails to win)
-    edge: float                    # p_win + rescue - 1/price
+    p_win: float | None            # fair P(win), Pinnacle de-vigged; None: not Pinnacle-priced
+    rescue: float | None           # P(two up but fails to win); None: not Pinnacle-priced
+    edge: float                    # p_win + rescue - 1/price (or BB's, above)
     market: str = "Match Result"
     competition: str = ""
-    fair_price: float | None = None   # 1 / p_win
+    fair_price: float | None = None   # 1 / p_win; BB's fair odds on a BB-only row
     source: str = "2up"
-    priced_at: datetime | None = None # when the prices behind the row were fetched
+    priced_at: datetime | None = None # the older of the two times below: the stalest price behind the row
+    bet365_priced_at: datetime | None = None  # when bet365's price was true
+    fair_priced_at: datetime | None = None    # when Pinnacle's price was true (fetch less the plan's delay)
+    bb_rating: float | None = None    # Bookie Bashing's rating (100 = break-even)
+    bb_fair: float | None = None      # Bookie Bashing's fair odds for the 2-up bet
     extra: dict = field(default_factory=dict, compare=False, hash=False)
 
     @property
     def payout_prob(self) -> float:
-        """Probability the bet pays as a winner (win, or rescued)."""
-        return self.p_win + self.rescue
+        """Probability the bet pays as a winner (win, or rescued): the
+        Pinnacle model's, or Bookie Bashing's on a row only it priced."""
+        if self.p_win is not None and self.rescue is not None:
+            return self.p_win + self.rescue
+        if self.bb_rating is not None:
+            return self.bb_rating / 100.0 / self.price
+        return 0.0
+
+    @property
+    def bb_ev(self) -> float | None:
+        """Bookie Bashing's expected return per pound: rating / 100 - 1."""
+        return None if self.bb_rating is None else self.bb_rating / 100.0 - 1.0
 
     @property
     def ev(self) -> float:
@@ -210,7 +235,9 @@ def edge(p_win: float, rescue: float, price: float) -> float:
 def price_fixture(*, event_id: str, home: str, away: str, kickoff: datetime,
                   pinnacle: tuple[float, float, float], bet365: tuple[float, float, float],
                   table: RescueTable, competition: str = "",
-                  priced_at: datetime | None = None) -> list[Candidate]:
+                  priced_at: datetime | None = None,
+                  bet365_priced_at: datetime | None = None,
+                  fair_priced_at: datetime | None = None) -> list[Candidate]:
     """Both sides of one fixture priced as 2-up candidates (the draw has no
     2-up and is never one). Returns [] when Pinnacle's 1X2 is incomplete.
     Every side is returned whatever its edge; filtering is the caller's."""
@@ -218,6 +245,9 @@ def price_fixture(*, event_id: str, home: str, away: str, kickoff: datetime,
     if fair is None:
         return []
     p_home, _p_draw, p_away = fair
+    if priced_at is None:
+        # The stalest price behind the row.
+        priced_at = min((t for t in (bet365_priced_at, fair_priced_at) if t is not None), default=None)
     out = []
     for side, team, p, price in (("home", home, p_home, bet365[0]),
                                  ("away", away, p_away, bet365[2])):
@@ -229,14 +259,43 @@ def price_fixture(*, event_id: str, home: str, away: str, kickoff: datetime,
             kickoff=kickoff, selection=team, side=side, price=float(price),
             p_win=p, rescue=r, edge=edge(p, r, price), competition=competition,
             fair_price=1.0 / p if p > 0 else None, priced_at=priced_at,
+            bet365_priced_at=bet365_priced_at, fair_priced_at=fair_priced_at,
         ))
     return out
 
 
+def bb_only(*, event_id: str, home: str, away: str, kickoff: datetime, selection: str,
+            side: str, price: float, rating: float, fair: float, competition: str = "",
+            bet365_priced_at: datetime | None = None) -> Candidate:
+    """A row only Bookie Bashing's tracker priced, taken as given: no
+    Pinnacle model fields, BB's fair as `fair_price`, BB's rating as the
+    edge in probability units, (rating/100 - 1) / price."""
+    return Candidate(
+        event_id=event_id, event=f"{home} v {away}", home=home, away=away, kickoff=kickoff,
+        selection=selection, side=side, price=float(price), p_win=None, rescue=None,
+        edge=(rating / 100.0 - 1.0) / price, competition=competition, fair_price=fair,
+        priced_at=bet365_priced_at, bet365_priced_at=bet365_priced_at,
+        bb_rating=rating, bb_fair=fair,
+    )
+
+
+def flagged_by(c: Candidate, params: Params = Params()) -> list[str]:
+    """The modes that call the row value, whatever its price: `bb` when
+    Bookie Bashing's rating is at or above `min_bb_rating`, `pinnacle` when
+    the Pinnacle model's edge is at or above `min_edge`."""
+    out = []
+    if c.bb_rating is not None and c.bb_rating >= params.min_bb_rating:
+        out.append("bb")
+    if c.p_win is not None and c.rescue is not None and c.edge >= params.min_edge:
+        out.append("pinnacle")
+    return out
+
+
 def passes_filters(c: Candidate, params: Params = Params()) -> str | None:
-    """None if the candidate may be bet, else the reason it may not."""
+    """None if the candidate may be bet, else the reason it may not: the
+    price band, then at least one mode flagging it (`flagged_by`)."""
     if not (params.min_price <= c.price <= params.max_price):
         return "price outside band"
-    if c.edge < params.min_edge:
-        return "edge below floor"
+    if not flagged_by(c, params):
+        return "edge below floor" if c.bb_rating is None else "no mode flags it"
     return None

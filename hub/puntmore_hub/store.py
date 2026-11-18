@@ -127,6 +127,16 @@ class Store:
                 "roi": ((returned - staked) / staked) if staked else None}
 
     # ---- bets ------------------------------------------------------------------------------------
+    def bet_bodies(self, prefix: str) -> list[dict]:
+        """The stored bodies of every bet whose id starts with `prefix` (unreadable ones left out)."""
+        out = []
+        for (body,) in self.conn.execute("SELECT body FROM bets WHERE bet_id LIKE ? || '%'", (prefix,)):
+            try:
+                out.append(json.loads(body))
+            except (TypeError, ValueError):
+                continue
+        return out
+
     def bet_exists(self, bet_id: str) -> bool:
         return self.conn.execute("SELECT 1 FROM bets WHERE bet_id=?", (bet_id,)).fetchone() is not None
 

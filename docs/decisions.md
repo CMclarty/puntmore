@@ -190,8 +190,9 @@ names and no other; older names appear only in `docs/retired.md`.
   bet value; the Bet Placer reads their three feeds, sizes across all of them,
   runs the phones and keeps the records. Its Console page gets a sizing page.
   (6 Nov 2026, Callum)
-- **OddsPapi prices Paddy, 2-Up and the coupon tracker; odds-api.net prices
-  Hills.** Callum, 11 Nov 2026: "now we have a provider for william hill odds
+- **OddsPapi prices Paddy, 2-Up's Pinnacle side and the coupon tracker;
+  odds-api.net prices Hills** (2-Up's bet365 price comes from Bookie Bashing's
+  tracker since 18 Nov 2026, below). Callum, 11 Nov 2026: "now we have a provider for william hill odds
   lets build that out"; "update the planning documents with the 2nd
   providor"; "Oddspapi is a subscription". odds-api.net is the second odds
   provider; OddsPapi stays. TheOddsApi stays removed. Goalscorers is parked;
@@ -292,9 +293,9 @@ names and no other; older names appear only in `docs/retired.md`.
 
 ## 2-Up and the Bet Placer
 
-- **2-Up is a one-way feed of current value bets and nothing else.** It prices
-  bet365's early-payout match-result markets against Pinnacle plus the rescue
-  and serves the rows that beat fair, over HTTP, to two readers: the Bet Placer
+- **2-Up is a one-way feed of current value bets and nothing else.** It judges
+  bet365's early-payout match-result prices (in two modes since 18 Nov 2026,
+  below) and serves the rows that are value, over HTTP, to two readers: the Bet Placer
   and the 2-Up tab as the manual backup. No account and no ledger on Render:
   nothing is reported back and Render keeps no log of bets. The global
   `TWOUP_KILL_SWITCH` empties the feed. (6 Nov 2026, Callum;
@@ -302,6 +303,15 @@ names and no other; older names appear only in `docs/retired.md`.
 - **The 2-Up edge is proven. Do not spend effort questioning it.** The rescue
   table is tuned by hand against BB's tracker as part of testing. (5 Nov 2026,
   Callum)
+- **2-Up feeds two modes, one of them Bookie Bashing's Early Payout Tracker.**
+  Callum: "the 2up feeds two modes, with one being a passive scrape of the
+  bookie bashing feed https://www.bookiebashing.net/trackers/early-payout-tracker/#/"
+  and "the dynamic will be that bookie bashing is a 'trusted' source, but
+  pinnacle feeds will sometimes capture much more rapid movement, which will
+  show value. both are valid". The two modes are Bookie Bashing's and
+  Pinnacle's, and bet365's price comes from the tracker. (18 Nov 2026,
+  Callum; how it is built, and the defaults Callum has not decided,
+  `docs/2up-engine-spec.md`)
 - **The Bet Placer is a black box for now.** Its outside is fixed: it reads the
   three feeds, sizes, places, keeps the only book and posts `placed` / `gone`
   to Finder. Inside it are a **phone interface** and a **staking logic**,

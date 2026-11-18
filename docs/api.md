@@ -87,7 +87,9 @@ source only (`cards` → paddy, `goalscorers` → scorers (parked),
 `coupons` → coupon, `accabonus` → 2up); none of them → `403`. A source whose
 tool is switched off on the server (`ENABLE_*`; 2up has `ENABLE_TWOUP`) is not
 listed. On `2up` rows `fair` is the 2-up-adjusted fair price
-1 / (P(win) + P(rescue)), so `edge` keeps its meaning (odds / fair − 1).
+1 / (P(win) + P(rescue)), so `edge` keeps its meaning (odds / fair − 1). Where
+Bookie Bashing's tracker priced the row too, the better of the two modes' EV is
+served with the fair it implies (price / (rating / 100) for the `bb` mode).
 
 `finder` is a **private** source: only the `finder` grant reads it, and only
 at `GET /api/value/finder`. It is never part of the combined `GET /api/value`
@@ -116,12 +118,15 @@ Response (`ValueFeedOut`):
 `errors` names a source that FAILED, as opposed to one with no value — an
 empty list is never ambiguous. It also names a source answering but not
 fresh: `2up` is `"killed: TWOUP_KILL_SWITCH is on"` (no rows), `"not yet
-refreshed"` (no rows) or `"stale: prices from HH:MM UTC — OddsPapi not
-answering"` (HH:MM the oldest price behind the board) beside the last good
-board's rows, each with `seen_at` = when its prices were fetched. `"cannot
-price: <reason>"` (no rows) is a deploy where every pass since boot failed or
-raised; `"partly priced: <gap>; <gap>"` sits beside the rows of a board where
-part of the pass failed. Selections are sorted by edge, best first.
+refreshed"` (no rows; in the `bb` source also before the first tracker post)
+or `"stale: prices from HH:MM UTC — OddsPapi not answering"` (the `oddspapi`
+source; in the `bb` source, where only a composition that raised leaves a board
+stale, `"stale: prices from HH:MM UTC — the board could not be composed"`)
+(HH:MM the oldest price behind the board) beside the last good board's rows,
+each with `seen_at` = its `priced_at`. `"cannot price: <reason>"` (no rows) is a
+deploy where every pass since boot failed or raised, or a tracker snapshot too
+old; `"partly priced: <gap>; <gap>"` sits beside the rows of a board where part
+of the pass failed (in the `bb` source, Pinnacle's half). Selections are sorted by edge, best first.
 
 `ValueSelection` — one shape for every tool:
 
@@ -170,6 +175,7 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 | 365 2-Up (`accabonus`) | `GET /2up/feed` (`?value_only=`), `GET /2up/diagnostics` | the served board of priced rows; what the feed last saw, the rescue table and the dials |
 | Paddy (`cards`) | `GET /paddy/feed`, `/paddy/diagnostics`, `/paddy/shadow`, `/paddy/oddspapi-check`, `/paddy/oddspapi-probe`, `/paddy/board-at?at=` | `oddspapi-probe` (17 Nov 2026) is a read-only look at what OddsPapi carries: `what=sports`, `tournaments&sport=`, `catalogue&sport=`, `book&book=&tournament=` (what that book prices there by market type, player props apart) or `raw&path=` for a listed endpoint; billable calls count against the daily budget. each feed item carries `priced_at`, when the board's OddsPapi prices were fetched (the oldest chunk; null when unknown; added 8 Nov 2026). `board-at` (10 Nov 2026) is the board as it stood at `at` (ISO 8601, UTC unless it says otherwise), in the feed's shape: each line's Paddy price and fair then, or its first price after when it had none yet, for every game not kicked off at `at`, soonest first; `priced_at` is when its newest line was seen. Every priced line, no value floor (down to −50%), kept 14 days after kick-off (`cards/history.py`). Paddy only, not Hills |
 | Paddy ingest (`ingest`) | `POST /paddy/saves-fair`, `POST /paddy/most-prices` | Scraper control (the Hub's inbox), posting the Scraper service's prices |
+| 2-Up ingest (`ingest`, key only) | `POST /2up/bb` | the Hub posting Bookie Bashing's Early Payout Tracker as the Scraper read it; replaces the snapshot held (18 Nov 2026) |
 | Finder writes (`ingest`, key only) | `POST /finder/rows`, `POST /finder/rows/{tip_id}/status` | HubAI's rows; the Bet Placer's `placed`\|`gone` |
 | Finder reads (`finder`) | `GET /finder/feed`, `GET /finder/board` (`?days=3`), `GET /value/finder` | the offered rows; the board on `me` |
 | P&L (`pnl`) | `GET/POST /pnl/{dogs\|virtuals}/bets`, `GET /pnl/{c}/bets.csv`, `DELETE /pnl/{c}/bets/{id}` | per-caller ledger |
@@ -183,23 +189,33 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 ### 365 2-Up feed (`GET /api/2up/feed`)
 
 A one-way feed: the module takes nothing back and keeps no account
-(`docs/2up-engine-spec.md`). Every reader gets
-the same rows. The board is priced by the scheduler job `twoup_refresh` every
-`TWOUP_FEED_TTL` seconds (5 min by default) and the route only reads it; a
-request never fetches. `value_only=true` drops rows outside the price band or
-under the edge floor (each row also carries the `value` flag).
+(`docs/2up-engine-spec.md`). Every reader gets the same rows. bet365's price
+comes from Bookie Bashing's Early Payout Tracker (`TWOUP_BET365_SOURCE=bb`, the
+default since 18 Nov 2026) or from OddsPapi (`oddspapi`, the behaviour before;
+OddsPapi refuses bet365 on the current plan). Pinnacle's 1X2 always comes from
+OddsPapi. The board is priced by the scheduler job `twoup_refresh` every
+`TWOUP_FEED_TTL` seconds (5 min by default) and, in the `bb` source, composed
+again on each tracker post from the Pinnacle board the job last fetched; the
+route only reads it, and no request ever fetches from OddsPapi.
+`value_only=true` drops the rows that are not value (each row also carries the
+`value` flag).
 
 ```
 {
   "generated_at": "...",        // when the served board was priced; now if there is none
   "available": true,            // false only with no OddsPapi key
   "status": {
-    "provider": "oddspapi",
+    "provider": "bookiebashing+oddspapi",   // "oddspapi" in the oddspapi source
+    "bet365_source": "bb",      // "bb" | "oddspapi" (added 18 Nov 2026)
     "degraded": false,          // something could not be priced (see cannot_price)
     "cannot_price": [],
     "stale": false,             // the last pass failed; an older board is being served
     "served_at": "...",         // ISO time of the served board, null before the first pass
-    "not_yet_refreshed": false, // no pass since boot: the list is empty
+    "not_yet_refreshed": false, // no pass since boot (bb: or no tracker post since boot): the list is empty
+    "pinnacle": {               // the Pinnacle side, read now (added 18 Nov 2026)
+      "book", "delay_s",        // the plan's slug and its delay ("pinnacle+30": 1800)
+      "max_age_s", "oldest_fair_priced_at", "oldest_age_s", "newest_age_s"
+    },
     "last_pass": {...},         // counts, errors and cannot_price of the last pass
     "killed": false             // TWOUP_KILL_SWITCH: candidates is empty
   },
@@ -207,29 +223,128 @@ under the edge floor (each row also carries the `value` flag).
     "event_id", "event", "home", "away", "kickoff", "competition",
     "selection", "side",        // "home" | "away"; event_id + side identify a row
     "market", "price",          // bet365's decimal price at priced_at
-    "p_win", "rescue", "fair_price", "edge", "ev", "value",
-    "priced_at"                 // when the prices behind this row were fetched
+    "p_win", "rescue",          // the Pinnacle model's; null when Pinnacle did not price the row
+    "fair_price", "edge", "ev", "value",
+    "priced_at",                // the older of the two below: the stalest price behind the row
+    "bet365_priced_at",         // when bet365's price was true (added 18 Nov 2026)
+    "fair_priced_at",           // when Pinnacle's price was true: fetched less the plan's delay; null without a Pinnacle side
+    "sources",                  // the modes that flag it: [], ["bb"], ["pinnacle"], ["bb", "pinnacle"]
+    "bb_rating", "bb_fair"      // Bookie Bashing's rating and fair odds; null when the tracker did not carry it
   }]
 }
 ```
 
-On a failed pass — every request failed, reference data down, no configured
-tournament resolved, or the pass itself raised — the last good board is kept
-with its old `priced_at` and `status.stale` is true. A pass where one chunk's
-request failed but another priced replaces the board and names the failed
-chunk in `cannot_price` (`degraded: true`, `stale: false`). Before the first
-pass and with the kill switch on the list is empty. `served_at: null` with
-`not_yet_refreshed: false` means no pass has priced yet; see `cannot_price`.
-With no OddsPapi key `status` is just `degraded: true`, `killed` and
-`cannot_price: ["ALL — ODDSPAPI_API_KEY unset"]`. The kill switch also empties
-the `2up` source of `GET /api/value` (and names it in its `errors`).
+**The two modes** (the `bb` source; the register, 18 Nov 2026). Each tracker row
+for bet365, home or away, is one candidate. `bb`: the row is flagged when its
+rating (Bookie Bashing's EV for the 2-up bet, 100 = break-even) is at or above
+`TWOUP_BB_MIN_RATING` (101). `pinnacle`: the row is joined to an OddsPapi
+fixture by team names and kick-off, and the rescue model prices bet365's price
+from the tracker against Pinnacle's 1X2; it is flagged when its edge is at or
+above `TWOUP_MIN_EDGE`. A row that does not join, or joins more than one
+fixture, has no `pinnacle` verdict. `value` = flagged by at least one mode,
+inside the price band (`TWOUP_MIN_PRICE`..`TWOUP_MAX_PRICE`), kicking off
+inside the horizon and not inside the minimum lead. In the `oddspapi` source
+there is only the `pinnacle` mode.
+
+Where Pinnacle priced a row, `p_win`, `rescue`, `fair_price` (1 / `p_win`),
+`edge` (`p_win + rescue - 1/price`) and `ev` are the model's, and Bookie
+Bashing's figures sit in `bb_rating` and `bb_fair`. On a row only the tracker
+priced, `p_win` and `rescue` are null, `fair_price` is Bookie Bashing's fair
+odds (2-up adjusted, unlike the model's), `ev` is `rating/100 - 1` and `edge`
+is `ev / price`, the same probability units as the model's edge
+(P(pays) - 1/price). `competition` is the joined fixture's, or empty.
+`event_id` is `bb:<home>|<away>|<yyyy-mm-dd>` in the `bb` source (normalised
+team names, the kick-off's UTC date), the same whether or not the row joined a
+fixture in that pass; OddsPapi's fixture id in the `oddspapi` source.
+`bet365_priced_at` is when bet365's price was true (in the `bb` source the
+row's `seen_at` less `updated_s`, the data's true age; in the `oddspapi` source
+when bet365's chunk was fetched). `fair_priced_at` is when Pinnacle's price was
+true: OddsPapi's fetch less the delay the plan's slug names (`pinnacle+30` is 30
+minutes behind), null on a row without a Pinnacle side. `priced_at` is the
+older of the two. A Pinnacle price older than `TWOUP_PINNACLE_MAX_AGE_S` (5700:
+the slowest cache tier of an hour, the 30-minute delay and the feed's 5
+minutes) gives no `pinnacle` verdict and is counted (`pinnacle_too_old`).
+
+**`p_win` and `rescue` may be null: a breaking change, not yet confirmed.**
+Before 18 Nov 2026 they were always numbers. A null is honest (Pinnacle did not
+price the row) and the 2-Up tab and the Hub's reader take it, but a reader that
+assumes a number breaks. This is a noted exception to "changes are additive
+only", awaiting Callum's confirmation; until he confirms, it is not settled.
+
+On a failed pass in the `oddspapi` source (every request failed, reference
+data down, no configured tournament resolved, or the pass itself raised) the
+last good board is kept with its old `priced_at` and `status.stale` is true. A
+pass where one chunk's request failed but another priced replaces the board and
+names the failed chunk in `cannot_price` (`degraded: true`, `stale: false`).
+In the `bb` source, no tracker snapshot since boot is `not_yet_refreshed: true`
+with `cannot_price` starting `"ALL — no Bookie Bashing tracker snapshot since
+boot"`; a snapshot older than `TWOUP_BB_MAX_AGE_S` (300) serves no rows from
+either mode, `"ALL — the Bookie Bashing tracker snapshot is Ns old"` first in
+`cannot_price`; OddsPapi or Pinnacle failing while the tracker is fresh leaves
+the `bb` mode serving, with `"pinnacle mode: ..."` entries (never ALL) in
+`cannot_price`, so the board is partly priced, not unpriceable; so does a
+Pinnacle refresh that has stalled past `TWOUP_PINNACLE_MAX_AGE_S`, read when
+the status is asked for, so a tracker post composing a new board never hides
+it. A snapshot's age is the older of since it was received and since its
+newest row was read. A snapshot with no usable bet365 row (an empty post, no
+bet365 home or away row, every bet365 row's price unknown or too old) is an
+`"ALL — the Bookie Bashing tracker snapshot has no usable bet365 row (...)"`
+gap; usable rows that all kick off outside the horizon are an honest empty
+board. Before the
+first pass and with the kill switch on the list is empty. `served_at: null`
+with `not_yet_refreshed: false` means no pass has priced yet; see
+`cannot_price`. With no OddsPapi key `status` is just `degraded: true`,
+`killed` and `cannot_price: ["ALL — ODDSPAPI_API_KEY unset"]`. The kill switch
+also empties the `2up` source of `GET /api/value` (and names it in its
+`errors`).
 
 `GET /api/2up/diagnostics` returns `{feed, rescue_table, global_kill_switch,
-settings}`: `feed` is the same `status` block as above (without `killed`),
-`rescue_table` the path, `loaded`, `default`, `key` and the buckets in use,
-`global_kill_switch` the flag, and `settings` the dials (`twoup_min_edge`,
+settings, tracker}`: `feed` is the same `status` block as above (without
+`killed`), `rescue_table` the path, `loaded`, `default`, `key` and the buckets
+in use, `global_kill_switch` the flag, `settings` the dials (`twoup_min_edge`,
 `twoup_min_price`, `twoup_max_price`, `twoup_min_lead_minutes`,
-`twoup_tournament_ids`, `twoup_feed_ttl`, `twoup_horizon_hours`). No secrets.
+`twoup_tournament_ids`, `twoup_feed_ttl`, `twoup_horizon_hours`,
+`twoup_bet365_source`, `twoup_bb_min_rating`, `twoup_bb_max_age_s`,
+`twoup_bb_row_max_age_s`, `twoup_pinnacle_max_age_s`), and `tracker` the
+snapshot held: `received_at`, `newest_seen_at`, `age_s`, `fresh`,
+`rows_received`, `bet365_rows`, `not_kept` (`seen_at in the future`, `not
+bet365`, `draw`, `selection does not match side`) and, from the last composed
+board, `matched`, `unmatched`, `ambiguous`, `no_pinnacle_board`,
+`no_pinnacle`, `pinnacle_too_old`, `pinnacle_priced`, `modes_disagree` (rows
+the Pinnacle mode flags while Bookie Bashing rates them below 100; counted
+only) and `dropped` (`unknown_age`, `row_too_old`, `out_of_horizon`,
+`duplicate`). No secrets.
+
+### 2-Up tracker ingest (`POST /api/2up/bb`, 18 Nov 2026)
+
+The Hub posts Bookie Bashing's Early Payout Tracker as the Scraper read it, on
+the `ingest` grant (`SAVES_INGEST_KEY` or a client granted `ingest`, key only;
+a session never counts), like `/api/paddy/saves-fair`. Each post is the whole
+table and REPLACES the snapshot held:
+
+```
+{"prices": [{"bookmaker": "bet365", "event": "Real Madrid v PSV", "home": "Real Madrid",
+             "away": "PSV", "selection": "PSV", "side": "away",   // home | away | draw
+             "book_odds": 13.0, "lay": 15.0, "rating": 108.86, "n_odds": 11.95,
+             "kickoff": "2026-11-24T20:00:00Z", "updated_s": 60, "seen_at": "<ISO UTC>"}]}
+```
+
+Every key is required (`updated_s` may be null) and an unknown key, a missing
+one or a value out of range (prices above 1, `rating` above 0) is a 422 for
+the whole post; a time with no offset is UTC. At most 2,000 rows. `updated_s` is
+the data's true age at `seen_at`; a row with it null is kept but never used (its
+age is unknown). Only bet365's home and away rows are kept, and only where
+`selection` is the team on `side` (by the join's similarity, and better than
+the other team). A row whose `seen_at` is more than 120 s ahead of Render's
+clock is refused; a post where every row is is a 422 saying so. The answer is
+`{received, kept, not_kept: {"seen_at in the future", "not bet365", "draw",
+"selection does not match side"}, received_at}`. A post whose newest `seen_at` is older than
+the held snapshot's is refused with 409 and the held one stands. The snapshot
+is held in memory, never in a table: a restart or deploy loses it, and the 2-Up
+board says "not yet refreshed" until the next post refills it. A row whose
+bet365 price (`seen_at` less `updated_s`) is older than
+`TWOUP_BB_ROW_MAX_AGE_S` (600) when the board is composed is dropped from it
+and counted. Render never loads the tracker.
 
 ### Finder (`/api/finder/*`, Nov 2026)
 

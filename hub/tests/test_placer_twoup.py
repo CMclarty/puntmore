@@ -27,10 +27,15 @@ def iso(dt):
     return dt.isoformat().replace("+00:00", "Z")
 
 
-def row(event_id="ev1", side="home", value=True, priced_ago=60, kickoff_in=180, price=2.5):
-    return {"event_id": event_id, "event": "Home v Away", "home": "Home", "away": "Away",
+def row(event_id="ev1", side="home", value=True, priced_ago=60, kickoff_in=180, price=2.5,
+        home=None, away=None):
+    # Another event is another match: its teams follow its id (the reader refuses a second bet on
+    # the same teams and side whatever the id).
+    home = home or ("Home" if event_id == "ev1" else f"Home {event_id}")
+    away = away or ("Away" if event_id == "ev1" else f"Away {event_id}")
+    return {"event_id": event_id, "event": f"{home} v {away}", "home": home, "away": away,
             "kickoff": iso(NOW + timedelta(minutes=kickoff_in)), "competition": "EPL",
-            "selection": "Home" if side == "home" else "Away", "side": side, "market": "Match Result",
+            "selection": home if side == "home" else away, "side": side, "market": "Match Result",
             "price": price, "p_win": 0.42, "rescue": 0.05, "fair_price": 2.38, "edge": 0.07, "ev": 0.17,
             "value": value,
             "priced_at": None if priced_ago is None else iso(NOW - timedelta(seconds=priced_ago))}
@@ -169,12 +174,129 @@ def test_a_partly_priced_board_keeps_its_priced_rows(pcfg, store):
     assert "bet365 chunk" in r["detail"]
 
 
+# ---- Bookie Bashing's tracker as bet365's source (Render's `bb` source, 18 Nov 2026) ----------
+
+def bb_row(event_id="bb:arsenal|chelsea|2026-11-18", side="home", sources=("bb",), **kw):
+    """A row as Render serves one only the tracker priced: no Pinnacle model fields."""
+    out = {**row(event_id=event_id, side=side, **kw), "sources": list(sources),
+           "bb_rating": 104.0, "bb_fair": 2.4}
+    if "pinnacle" not in sources:
+        out.update({"p_win": None, "rescue": None, "fair_price": 2.4, "edge": 0.016, "ev": 0.04})
+    return out
+
+
+def bb_feed(rows=(), **status):
+    return feed(rows, provider="bookiebashing+oddspapi", bet365_source="bb", **status)
+
+
+def test_a_bb_only_board_is_bet_while_pinnacle_is_down(pcfg, store):
+    body = bb_feed([bb_row(), bb_row(event_id="bb:leeds|hull|2026-11-18", side="away")],
+                   degraded=True, last_pass={"priced_fixtures": 2},
+                   cannot_price=["pinnacle mode: every OddsPapi odds request for Pinnacle failed"])
+    r = run(pcfg, store, body)
+    assert (r["outcome"], r["board"], r["recorded"]) == ("done", "partly priced", 2)
+    assert "pinnacle mode" in r["detail"]
+    assert [b["bet_id"] for b in bets(store)] == ["2up:bb:arsenal|chelsea|2026-11-18:home",
+                                                  "2up:bb:leeds|hull|2026-11-18:away"]
+    # The same selection in the next pass, now joined to Pinnacle: the same bet id, not a second bet.
+    again = run(pcfg, store, bb_feed([bb_row(sources=("bb", "pinnacle"))]))
+    assert again["recorded"] == 0 and again["skipped"] == {"already_recorded": 1}
+
+
+@pytest.mark.parametrize("body, says", [
+    (bb_feed([], not_yet_refreshed=True, degraded=True,
+             cannot_price=["ALL — no Bookie Bashing tracker snapshot since boot (POST /api/2up/bb)"]),
+     "not_yet_refreshed"),
+    (bb_feed([], degraded=True, last_pass={"priced_fixtures": 2},
+             cannot_price=["ALL — the Bookie Bashing tracker snapshot is 400s old (limit 300s)"]),
+     "cannot_price: ALL — the Bookie Bashing tracker snapshot"),
+])
+def test_a_bb_board_with_no_usable_tracker_is_no_bet(pcfg, store, body, says):
+    r = run(pcfg, store, body)
+    assert (r["outcome"], r["board"]) == ("no-bet", "no-bet")
+    assert r["detail"].startswith(says) and bets(store) == []
+
+
+def test_an_unreadable_rescue_table_leaves_only_the_rows_bb_flags(pcfg, store):
+    body = bb_feed([bb_row(), bb_row(event_id="bb:leeds|hull|2026-11-18", sources=("bb", "pinnacle")),
+                    {**row(event_id="bb:wigan|bolton|2026-11-18"), "sources": ["pinnacle"]}],
+                   degraded=True, cannot_price=["rescue table unreadable: /x.json"])
+    r = run(pcfg, store, body)
+    assert (r["outcome"], r["board"], r["recorded"]) == ("done", "partly priced", 2)
+    assert r["skipped"] == {"needs_rescue_table": 1}
+    assert [b["bet_id"] for b in bets(store)] == ["2up:bb:arsenal|chelsea|2026-11-18:home",
+                                                  "2up:bb:leeds|hull|2026-11-18:home"]
+
+
+def test_an_unreadable_rescue_table_with_no_bb_row_is_still_no_bet(pcfg, store):
+    body = bb_feed([{**row(), "sources": ["pinnacle"]}], degraded=True,
+                   cannot_price=["rescue table unreadable: /x.json"])
+    r = run(pcfg, store, body)
+    assert (r["outcome"], r["board"]) == ("no-bet", "no-bet")
+    assert r["detail"].startswith("cannot_price: rescue table unreadable")
+
+
+# ---- the review fixes, 18 Nov 2026: honest ages, one bet per selection --------------------------
+
+def test_a_row_whose_bet365_price_is_older_than_its_limit_is_skipped(pcfg, store):
+    old = {**bb_row(), "bet365_priced_at": iso(NOW - timedelta(seconds=901))}
+    fresh = {**bb_row(event_id="bb:leeds|hull|2026-11-18"),
+             "bet365_priced_at": iso(NOW - timedelta(seconds=899))}
+    r = run(pcfg, store, bb_feed([old, fresh]))
+    assert r["skipped"] == {"stale_bet365_price": 1} and r["recorded"] == 1
+
+
+def test_without_a_bet365_time_the_rows_priced_at_stands_in(pcfg, store):
+    r = run(pcfg, store, feed([row(priced_ago=901)]))
+    assert r["skipped"] == {"stale_bet365_price": 1}
+
+
+def test_the_bet365_age_limit_is_a_setting(pcfg, store):
+    r = run(pcfg.with_overrides(placer_2up_bet365_max_age_s=30), store, feed([row(priced_ago=60)]))
+    assert r["skipped"] == {"stale_bet365_price": 1}
+
+
+def test_a_selection_already_recorded_under_another_event_id_is_refused(pcfg, store):
+    teams = {"home": "Arsenal", "away": "Chelsea"}
+    first = bb_row(event_id="bb:arsenal|chelsea|2026-11-18", **teams)
+    assert run(pcfg, store, bb_feed([first]))["recorded"] == 1
+    # The same match and side, its id drifted (a kick-off moved across midnight, a name
+    # spelt another way): refused, whatever its bet id.
+    moved = bb_row(event_id="bb:arsenal|chelsea|2026-11-19", kickoff_in=300,
+                   home="ARSENAL", away="Chelsea ")
+    r = run(pcfg, store, bb_feed([moved]))
+    assert r["skipped"] == {"same_selection_recorded": 1} and r["recorded"] == 0
+    # The other side, or the same teams 13 hours on, is a different bet.
+    other = bb_row(event_id="bb:x2", side="away", **teams)
+    later = bb_row(event_id="bb:x3", kickoff_in=180 + 13 * 60, **teams)
+    assert run(pcfg, store, bb_feed([other, later]))["recorded"] == 2
+
+
+def test_the_same_selection_twice_under_two_ids_in_one_feed_is_recorded_once(pcfg, store):
+    teams = {"home": "Leeds", "away": "Hull"}
+    r = run(pcfg, store, bb_feed([bb_row(event_id="bb:a", **teams), bb_row(event_id="bb:b", **teams)]))
+    assert r["recorded"] == 1 and r["skipped"] == {"same_selection_recorded": 1}
+
+
+def test_the_bet_body_keeps_what_the_guard_and_the_dry_run_need(pcfg, store):
+    rw = {**bb_row(sources=("bb", "pinnacle")), "bet365_priced_at": iso(NOW - timedelta(seconds=60)),
+          "fair_priced_at": iso(NOW - timedelta(minutes=35))}
+    run(pcfg, store, bb_feed([rw]))
+    body = json.loads(bets(store)[0]["body"])
+    assert body["meta"] == {
+        "home": rw["home"], "away": rw["away"], "side": "home", "kickoff": rw["kickoff"],
+        "sources": ["bb", "pinnacle"], "bb_rating": 104.0,
+        "bet365_priced_at": rw["bet365_priced_at"], "fair_priced_at": rw["fair_priced_at"],
+        "priced_at": rw["priced_at"]}
+    assert Bet.from_dict(body).meta == body["meta"]
+
+
 # ---- the rows --------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("bad, reason", [
     (row(value=False), "not_value"),
     (row(priced_ago=None), "no_priced_at"),
-    (row(priced_ago=3901), "stale_price"),
+    (row(priced_ago=5701), "stale_price"),
     (row(kickoff_in=-1), "kicked_off"),
     ({**row(), "event_id": ""}, "bad_row"),
 ])
@@ -289,7 +411,7 @@ def test_the_2up_reader_is_off_unless_switched_on(tmp_path):
             "print(s.placer_2up, s.placer_2up_every_s, s.placer_flat_stake, s.placer_2up_max_age_s, "
             "repr(s.placer_2up_account), s.dry_run)"]
     out = subprocess.run(read, env={**env, "PYTHONPATH": str(hub)}, cwd=hub, capture_output=True, text=True, check=True)
-    assert out.stdout == "False 120 10.0 3900 '' True\n"
+    assert out.stdout == "False 120 10.0 5700 '' True\n"
     on = {**env, "PYTHONPATH": str(hub), "PUNTMORE_PLACER_2UP": "1"}
     assert subprocess.run(read, env=on, cwd=hub, capture_output=True, text=True, check=True).stdout.startswith("True ")
 
@@ -462,12 +584,15 @@ def test_read_once_logs_nothing_at_info(pcfg, store, caplog):
     assert [r for r in caplog.records if r.name == "puntmore.placement.twoup"] == []
 
 
-def test_the_price_age_limit_defaults_to_the_slowest_tier_plus_the_feed(tmp_path):
+def test_the_price_age_limits_default_to_an_honest_pinnacle_age_and_a_tight_bet365_one(tmp_path):
+    """5700 = the slowest cache tier (3600) + Pinnacle's 30-minute plan delay (1800) + the feed's
+    5 min (Render's TWOUP_PINNACLE_MAX_AGE_S); bet365's own side 900."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("PUNTMORE_PLACER")}
     hub = Path(__file__).resolve().parents[1]
     env.update(PUNTMORE_HUB_ROOT=str(tmp_path), PYTHONPATH=str(hub))
-    read = [sys.executable, "-c", "from puntmore_hub.config import Settings; print(Settings().placer_2up_max_age_s)"]
-    assert subprocess.run(read, env=env, cwd=hub, capture_output=True, text=True, check=True).stdout == "3900\n"
+    read = [sys.executable, "-c", "from puntmore_hub.config import Settings; s = Settings(); "
+            "print(s.placer_2up_max_age_s, s.placer_2up_bet365_max_age_s)"]
+    assert subprocess.run(read, env=env, cwd=hub, capture_output=True, text=True, check=True).stdout == "5700 900\n"
 
 
 def test_with_dry_run_off_the_reader_still_records_through_the_dry_run_adapter(pcfg, store):
@@ -502,7 +627,7 @@ def test_the_same_selection_twice_in_one_feed_is_recorded_once(pcfg, store):
 def test_times_with_z_no_offset_or_an_offset_are_read_alike(pcfg, store, fmt):
     fresh = {**row(event_id="fresh"), "priced_at": fmt(NOW - timedelta(seconds=60)),
              "kickoff": fmt(NOW + timedelta(minutes=30))}
-    old = {**row(event_id="old"), "priced_at": fmt(NOW - timedelta(seconds=4000))}
+    old = {**row(event_id="old"), "priced_at": fmt(NOW - timedelta(seconds=5800))}
     gone = {**row(event_id="gone"), "kickoff": fmt(NOW - timedelta(minutes=1))}
     r = run(pcfg, store, feed([fresh, old, gone]))
     assert r["skipped"] == {"stale_price": 1, "kicked_off": 1}

@@ -23,8 +23,10 @@ Nothing about the system lives outside the repo.
 ## Render
 
 One Docker web service; a push to `main` that changes `render/` or `render.yaml` deploys it. Render never loads a bookmaker page and
-never places a bet. **OddsPapi** prices Paddy, 2-Up and the coupon tracker; **odds-api.net**,
-the second odds provider, prices Hills (11 Nov 2026).
+never places a bet. **OddsPapi** prices Paddy, the coupon tracker and 2-Up's Pinnacle side;
+**odds-api.net**, the second odds provider, prices Hills (11 Nov 2026); 2-Up's bet365 prices come
+from Bookie Bashing's Early Payout Tracker, read by the Hub's Scraper and posted by the Hub
+(18 Nov 2026).
 
 It serves **boards**: tool pages, each with a one-way HTTP **feed** of value rows.
 

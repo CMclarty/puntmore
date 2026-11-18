@@ -27,7 +27,7 @@ flowchart TB
     end
   end
 
-  ODDS["OddsPapi<br/>Paddy, 2-Up, coupons"] -- "prices (HTTPS)" --> PADDY
+  ODDS["OddsPapi<br/>Paddy, 2-Up (Pinnacle), coupons"] -- "prices (HTTPS)" --> PADDY
   ODDS -- "prices (HTTPS)" --> T365
   ODDS -- "prices (HTTPS): coupons; Hills only without ODDSAPINET_API_KEY" --> PUB
   OAN["odds-api.net<br/>Hills' prices"] -- "prices (HTTPS)" --> PUB
@@ -44,10 +44,11 @@ flowchart TB
     CONSOLE["Console<br/>every part, live; the control page<br/><i>built</i>"]
   end
 
-  SITES["Sites<br/>Paddy Power, tip sources; one Bookie Bashing page (the named exception)"] -- "pages" --> SVC
+  SITES["Sites<br/>Paddy Power, tip sources; Bookie Bashing (saves, the Early Payout Tracker)"] -- "pages" --> SVC
   MAILBOX["Tipster mailbox"] -- "IMAP" --> CTRL
   SVC -- "tips and prices: drop files (scraper_tips, scraper_prices, scraper_event)" --> CTRL
   CTRL -- "prices: POST /api/paddy/saves-fair, /most-prices" --> PADDY
+  CTRL -- "bet365's 2-Up prices: POST /api/2up/bb (Bookie Bashing's tracker)" --> T365
   CTRL -- "new tips (hub.sqlite); escalations" --> HUBAI
   HUBAI -- "POST /api/finder/rows" --> FINDER
   AW26 -- "slip photos: the Hub daemon takes one a minute" --> HUBAI
@@ -75,7 +76,7 @@ flowchart TB
 |---|---|---|---|
 | Render service | FastAPI + React, one origin, SQLite on the disk; the main domain and `me` (`app/site.py`; `me` only once `ME_HOST` is set) | Render | live |
 | Paddy | Corners, cards, goals and saves against Paddy Power (`app/cards/`); OddsPapi plus the Scraper's prices, posted by Scraper control | Render · main | live |
-| 365 tool, 2-Up | bet365's offers; 2-Up (`app/twoup/`) is a served board refreshed by `twoup_refresh`, read at `GET /api/2up/feed` and on the 2-Up tab; acca boost returns on OddsPapi; goalscorers parked | Render · main | live |
+| 365 tool, 2-Up | bet365's offers; 2-Up (`app/twoup/`) is a served board refreshed by `twoup_refresh` and by each tracker post, read at `GET /api/2up/feed` and on the 2-Up tab: bet365's price from Bookie Bashing's Early Payout Tracker (posted by Scraper control to `POST /api/2up/bb`), Pinnacle's 1X2 from OddsPapi, two modes (`bb`, `pinnacle`); acca boost returns on OddsPapi; goalscorers parked | Render · main | live |
 | Coupon tracker, Hills | photographed coupons priced off the score grid (OddsPapi); William Hill boosted bet builders, priced from odds-api.net (`app/cards/oddsapinet.py`, `app/hills/`; OddsPapi without `ODDSAPINET_API_KEY`) | Render · main | live |
 | Finder | `finder_rows`, its status machine, `/api/finder/*` (`app/finder/`, `docs/finder-spec.md`) | Render · me | live, Callum only; on the main domain until `ME_HOST` is set |
 | Personal tools | dogs, Virtuals, P&L, Kelly, shop | Render · me | live on the main domain until `ME_HOST` is set |
@@ -89,11 +90,12 @@ flowchart TB
 
 ## What crosses between the boxes
 
-Five HTTP flows and nothing else; no socket, no Hub endpoint on Render.
+Six HTTP flows and nothing else; no socket, no Hub endpoint on Render.
 
 | Flow | Route | Who | Key |
 |---|---|---|---|
 | Paddy prices up | `POST /api/paddy/saves-fair`, `/api/paddy/most-prices` | Scraper control (the Hub's inbox) for the Scraper service | ingest key (`PUNTMORE_RENDER_API_KEY`) |
+| 2-Up's tracker up | `POST /api/2up/bb` | Scraper control (the Hub's inbox) for the Scraper service | ingest key |
 | Tips up to Finder | `POST /api/finder/rows` | HubAI, through `puntmore finder post` | ingest key |
 | Feeds down | `GET /api/paddy/feed`, `/api/2up/feed`, `/api/finder/feed` | Bet Placer | its key: `accabonus`, `cards`, `finder`, `ingest` (a third party's: `accabonus`) |
 | Placed / gone up | `POST /api/finder/rows/{tip_id}/status` | Bet Placer, through `puntmore finder status` | ingest key |
@@ -109,7 +111,7 @@ command.
 3. **No retry, no re-route** of a failed bet; it goes to HubAI.
 4. **Real Chrome, no stealth.** Limits and timings in one catalogue Callum changes live (`scraper/behaviour.py`, every change logged); a block is a 24 h cool-off, in code.
 5. **Tips on Finder are Callum's only**, behind the `finder` grant and on `me` (the main domain until `ME_HOST` is set); never in the combined value feed, never offered to a third party.
-6. **OddsPapi prices Paddy, 2-Up and the coupon tracker; odds-api.net prices Hills.** Render keeps no record of anyone's bets.
+6. **OddsPapi prices Paddy, the coupon tracker and 2-Up's Pinnacle side; Bookie Bashing's Early Payout Tracker gives 2-Up bet365's price; odds-api.net prices Hills.** Render keeps no record of anyone's bets.
 7. **One deploy**, not designed to scale.
 
 ## Open

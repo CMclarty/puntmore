@@ -109,12 +109,15 @@ class Settings:
     # only when switched on; `puntmore placer 2up` runs one pass either way. The flat stake is a
     # test setting, not the staking logic. The account is a sub_clients.yaml entry; blank or not
     # there, a pass does nothing and says so. A row priced longer ago than the max age is skipped:
-    # 3900 s, Render's slowest price tier (an hour, for games over six hours out) plus the feed's
-    # own 5 min; a board Render marks stale is no-bet whatever the age.
+    # 5700 s, Render's slowest price tier (an hour, for games over six hours out) plus Pinnacle's
+    # 30-minute plan delay plus the feed's own 5 min (Render's TWOUP_PINNACLE_MAX_AGE_S); a row
+    # whose bet365 price is older than the bet365 max age (900 s) is skipped too. A board Render
+    # marks stale is no-bet whatever the age.
     placer_2up: bool = _env_bool("PUNTMORE_PLACER_2UP", False)
     placer_2up_every_s: int = int(os.environ.get("PUNTMORE_PLACER_2UP_EVERY_S", "120"))
     placer_2up_account: str = os.environ.get("PUNTMORE_PLACER_2UP_ACCOUNT", "")
-    placer_2up_max_age_s: int = int(os.environ.get("PUNTMORE_PLACER_2UP_MAX_AGE_S", "3900"))
+    placer_2up_max_age_s: int = int(os.environ.get("PUNTMORE_PLACER_2UP_MAX_AGE_S", "5700"))
+    placer_2up_bet365_max_age_s: int = int(os.environ.get("PUNTMORE_PLACER_2UP_BET365_MAX_AGE_S", "900"))
     placer_flat_stake: float = float(os.environ.get("PUNTMORE_PLACER_FLAT_STAKE", "10.0"))
     # PUNTMORE_ESCALATE_TO_LOCAL_AI is the old name, still read when the new one is unset.
     escalate_to_hubai: bool = _env_bool_first("PUNTMORE_ESCALATE_TO_HUBAI", "PUNTMORE_ESCALATE_TO_LOCAL_AI",

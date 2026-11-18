@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -194,8 +196,9 @@ class Settings(BaseSettings):
 
     # --- 2-Up (app/twoup/, docs/2up-engine-spec.md) --------------------------
     # Part of the 365 tool, behind the `accabonus` grant. Prices bet365's 2 Goals
-    # Ahead Early Payout off OddsPapi (bet365 + Pinnacle 1X2) and serves the value
-    # bets as a one-way feed, read by the Bet Placer. It NEVER places a bet and
+    # Ahead Early Payout (bet365's price from Bookie Bashing's tracker, or from
+    # OddsPapi: `twoup_bet365_source`; Pinnacle's 1X2 from OddsPapi) and serves the
+    # value bets as a one-way feed, read by the Bet Placer. It NEVER places a bet and
     # keeps no account.
     # Mounts /api/2up. Off = no router.
     enable_twoup: bool = True
@@ -240,6 +243,31 @@ class Settings(BaseSettings):
     twoup_max_price: float = 8.0
     # Where the rescue-rate table lives. Blank = app/twoup/rescue_table.json.
     twoup_rescue_table_path: str = ""
+    # Where bet365's price comes from (the register, 18 Nov 2026). `bb`: Bookie
+    # Bashing's Early Payout Tracker, read by the Hub's Scraper and posted to
+    # POST /api/2up/bb; the feed then makes NO OddsPapi request for bet365 and
+    # runs two modes over the tracker's rows, `bb` (BB's rating taken as given)
+    # and `pinnacle` (the rescue model against Pinnacle's 1X2 from OddsPapi).
+    # `oddspapi`: bet365's 1X2 from OddsPapi and the Pinnacle model alone, as
+    # before 18 Nov 2026 (OddsPapi refuses bet365 on the current plan).
+    twoup_bet365_source: Literal["bb", "oddspapi"] = "bb"
+    # The `bb` mode's threshold: a tracker row is value when BB's rating (its
+    # EV for the 2-up bet, 100 = break-even) is at or above this. Callum's to
+    # change.
+    twoup_bb_min_rating: float = 101.0
+    # The tracker snapshot is unusable this many seconds after it was received:
+    # the feed then serves no rows from either mode and says so.
+    twoup_bb_max_age_s: int = 300
+    # A tracker row whose own `updated_s` (how long ago BB saw that price) is
+    # above this is dropped and counted.
+    twoup_bb_row_max_age_s: int = 600
+    # The oldest a Pinnacle price may be for the `pinnacle` mode to judge a row
+    # by it, measured from when the price was TRUE: OddsPapi's fetch time less
+    # the plan's delay (`pinnacle+30` is 30 minutes behind). 5700 = the
+    # client's slowest cache tier (3600, games more than six hours out) + the
+    # plan's delay (1800) + the feed's refresh interval (300). An older one
+    # gives the row no `pinnacle` verdict, and the row is counted.
+    twoup_pinnacle_max_age_s: int = 5700
 
     # Session cookie signing key. If blank, a random key is generated at startup
     # (sessions reset on restart — fine for dev; set a fixed value in prod).

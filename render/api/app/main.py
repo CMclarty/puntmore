@@ -154,13 +154,18 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Hills: William Hill and Pinnacle from %s", app.state.hills_client.vendor)
 
-    # The 2-Up engine's feed: bet365 + Pinnacle 1X2 on the SAME OddsPapi
-    # client (one budget, one rate limit; Pinnacle's chunks shared with the
-    # coupon tracker and Paddy). No key = no feed, and /api/ready says so.
+    # The 2-Up engine's feed: Pinnacle's 1X2 on the SAME OddsPapi client (one
+    # budget, one rate limit; Pinnacle's chunks shared with the coupon tracker
+    # and Paddy), bet365's price from Bookie Bashing's tracker as the Hub posts
+    # it (`app.state.twoup_tracker`, in memory) or, with
+    # TWOUP_BET365_SOURCE=oddspapi, from OddsPapi. No key = no feed, and
+    # /api/ready says so.
+    from .twoup.tracker import TrackerStore
+    app.state.twoup_tracker = TrackerStore()
     app.state.twoup_feed = None
     if settings.enable_twoup and oddspapi_client is not None:
         from .twoup.feed import TwoUpFeed
-        app.state.twoup_feed = TwoUpFeed(oddspapi_client)
+        app.state.twoup_feed = TwoUpFeed(oddspapi_client, tracker=app.state.twoup_tracker)
 
     # Coupon odds provider (behind the OddsProvider seam).
     #
@@ -367,6 +372,8 @@ app.include_router(aw26_router.router, dependencies=[Depends(require_tool("aw26"
 # not ENABLE_ACCABONUS: the acca page can stay hidden while 2-Up runs dry.
 if settings.enable_twoup:
     app.include_router(twoup_router.router, dependencies=[Depends(require_tool("accabonus"))])
+    # The tracker's ingest: the `ingest` grant on the route, like /paddy/saves-fair.
+    app.include_router(twoup_router.ingest_router)
 # Finder, Callum's tips board (docs/finder-spec.md). No router-level
 # grant: its POSTs take the ingest key (HubAI, the Bet Placer) and its GETs the
 # `finder` grant, each on the route itself.

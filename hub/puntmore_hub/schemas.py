@@ -43,6 +43,10 @@ class Bet:
     bet_type: str                      # single | double | treble | fourfold | cover
     not_before: str | None = None      # ISO timestamps; placement window
     not_after: str | None = None
+    # What the reader that made the bet keeps beside it (the 2-Up reader: the selection's teams,
+    # side and kick-off for its one-bet-per-selection guard, and the row's modes and price times
+    # for comparing them later). The engine and the adapters never read it.
+    meta: dict = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Bet":
@@ -55,6 +59,7 @@ class Bet:
             bet_type=d.get("bet_type", "single"),
             not_before=d.get("not_before"),
             not_after=d.get("not_after"),
+            meta=dict(d.get("meta") or {}),
         )
 
     def to_dict(self) -> dict:

@@ -539,7 +539,14 @@ class TwoUpCandidateOut(BaseModel):
     """One side of one fixture priced for bet365's 2-up early payout.
     `edge` is in probability units (p_win + rescue - 1/price), what the feed
     ranks its rows by and the edge floor reads; `ev` is the expected return
-    per pound (what the `2up` source of /api/value calls `edge`)."""
+    per pound (what the `2up` source of /api/value calls `edge`).
+
+    `sources` names the modes that flag the row as value: `bb` (Bookie
+    Bashing's rating at or above TWOUP_BB_MIN_RATING) and `pinnacle` (the
+    rescue model's edge at or above TWOUP_MIN_EDGE). Where Pinnacle priced
+    the row the model fields are its; on a row only the tracker priced,
+    `p_win` and `rescue` are null, `fair_price` is BB's fair odds (2-up
+    adjusted), `ev` is rating/100 - 1 and `edge` is ev/price."""
     event_id: str
     event: str
     home: str
@@ -550,13 +557,18 @@ class TwoUpCandidateOut(BaseModel):
     side: str
     market: str
     price: float
-    p_win: float
-    rescue: float
+    p_win: Optional[float] = None    # null: Pinnacle did not price the row
+    rescue: Optional[float] = None   # null: Pinnacle did not price the row
     fair_price: Optional[float] = None
     edge: float
     ev: float
-    value: bool                      # passes the price band and the edge floor
-    priced_at: Optional[datetime] = None   # when the prices behind the row were fetched
+    value: bool                      # in the price band and flagged by at least one mode
+    priced_at: Optional[datetime] = None   # the older of the two below: the stalest price behind the row
+    bet365_priced_at: Optional[datetime] = None  # when bet365's price was true; null: not known
+    fair_priced_at: Optional[datetime] = None    # when Pinnacle's price was true (fetch less the plan's delay); null: no Pinnacle side
+    sources: list[Literal["bb", "pinnacle"]] = []
+    bb_rating: Optional[float] = None      # Bookie Bashing's rating, 100 = break-even
+    bb_fair: Optional[float] = None        # Bookie Bashing's fair odds for the 2-up bet
 
 
 class TwoUpFeedOut(BaseModel):
@@ -571,6 +583,15 @@ class TwoUpDiagnosticsOut(OpenModel):
     rescue_table: dict[str, Any]
     global_kill_switch: bool
     settings: dict[str, Any]
+    tracker: dict[str, Any] = {}     # the Bookie Bashing tracker snapshot held
+
+
+class TwoUpTrackerIngestOut(BaseModel):
+    """What POST /api/2up/bb kept: the snapshot it replaced the held one with."""
+    received: int                    # rows in the post
+    kept: int                        # bet365's home and away rows, the snapshot
+    not_kept: dict[str, int]         # reason -> rows: "not bet365", "draw", "selection does not match side", "seen_at in the future"
+    received_at: datetime
 
 
 # --- Finder (app/finder/, docs/finder-spec.md) ------------------------------
