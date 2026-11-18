@@ -38,12 +38,16 @@ What the page is:
   HTML does not carry, but the payload shows what they did. On 18 Nov
   (screenshot: Book Bet365, all competitions, EV min 80, KO window Any,
   Metric Lay, Display EV, 2-up model Fixed trigger) every record had
-  `metric` "lay", `bookName` "Bet365", and `score` equal to
+  `metric` "lay", `bookName` "Bet365", a `ratings.lay.ev`, and `score` equal to
   `ratings.lay.ev`, the fixed trigger's EV (never `ratings.dam_lay.ev`,
   on any of the records that carry one). What `score` holds under the
   Dynamic (CS) model has not been seen, so the check is only that it is
-  still the lay rating's EV. The request's url carries the filters too; it
-  is not read, the payload says all the rows depend on.
+  still the lay rating's EV, and a record without one fails it (the model
+  cannot be confirmed). The request's url carries the filters too; it is
+  not read, the payload says all the rows depend on. The account's other
+  saved filters (Competition, EV min, KO window, Odds above and below)
+  narrow the table and so the board: that is deliberate, the job reads the
+  tracker as Callum has it set, and it costs bets, never a wrong price.
 - `count` was 194 with 194 records and a `limit` of 500, so it is taken as
   the tracker's total: more than the records fetched is a short board.
 
@@ -75,7 +79,8 @@ board it had rather than a wrong one, when:
     arrives is the page's activity, so with none the capture goes quiet
     and the runner reloads the page after the job's `stale_min`;
   - the settings changed: the payload's metric is not lay, a record's book
-    is not bet365, or a score is not the fixed trigger's;
+    is not bet365, or a score is not the fixed trigger's (or a record has
+    no lay rating to confirm it by);
   - the page fetched fewer records than the tracker has (`count` over
     `limit`);
   - there is no tracker table, or its header is not the tracker's (logged
@@ -93,7 +98,8 @@ payload agreeing, no more than a tenth unreadable) with no game inside the
 window, the parser raises rest.Rest: until `games.within_h` hours before
 the earliest game the tracker lists beyond it, or `games.look_again_s`
 (a day) from now, whichever is sooner; with no such game (every one under
-way), or no selection at all, `games.look_again_s`. The runner closes the
+way), `games.look_again_s`; with no selection at all, EMPTY_REST_S (30
+minutes: an empty answer may pass). The runner closes the
 page and loads nothing for the job until then, so it neither sits open
 posting nothing nor trips the no-rows alert; `python -m scraper wake
 bb-2up` ends a rest by hand. An unhealthy read never rests: the page stays
@@ -120,6 +126,7 @@ BOOK = "bet365"
 STALE_S = 180                   # the newest ratings payload older than this: the page has stopped
 MAX_SKIPPED = 0.10              # more of the records unreadable than this: post nothing
 SCORE_SLACK = 1e-6
+EMPTY_REST_S = 30 * 60          # a tracker with no selections: may be a passing empty answer
 EARLIEST, LATEST = 1_577_836_800, 4_102_444_800     # 2020-01-01, 2100-01-01 UTC
 
 NOT_TEXT = frozenset(("script", "style", "noscript", "template"))
@@ -237,13 +244,13 @@ def _rest(now: float, later: tuple[float, str] | None, within_h: float, look_aga
     """Nothing to post on a healthy read: rest until within_h hours before
     the earliest game listed beyond the window, or games.look_again_s,
     whichever is sooner (bb_saves._rest); with no such game,
-    games.look_again_s. The runner closes the page until then; `python -m
+    games.look_again_s; an empty tracker, EMPTY_REST_S. The runner closes the page until then; `python -m
     scraper wake bb-2up` ends it."""
     look_again = now + (behaviour.get("games.look_again_s") if look_again_s is None else look_again_s)
     if later is None:
         why = ("the tracker lists no selections" if empty
                else f"no game on the tracker kicks off within {within_h:g} hours")
-        return Rest(look_again, why)
+        return Rest(now + EMPTY_REST_S if empty else look_again, why)
     kickoff, event = later
     return Rest(min(kickoff - within_h * 3600, look_again),
                 f"no game on the tracker kicks off within {within_h:g} hours - next is {event}, {when(kickoff)}")
@@ -260,10 +267,12 @@ def _settings(body: dict) -> str | None:
     if books:
         return f"the Book filter is not {BOOK} alone (the payload has {', '.join(map(repr, books))})"
     for r in body["records"]:
-        ev = (r.get("ratings") or {}).get(METRIC, {}) if isinstance(r.get("ratings"), dict) else {}
+        ratings = r.get("ratings") if isinstance(r.get("ratings"), dict) else {}
+        lay = ratings.get(METRIC) if isinstance(ratings.get(METRIC), dict) else {}
+        if not _real(lay.get("ev")):
+            return f"cannot confirm the 2-up model: a record has no {METRIC} rating"
         score = r.get("score")
-        if (isinstance(ev, dict) and _real(ev.get("ev")) and _real(score)
-                and abs(score - ev["ev"]) > SCORE_SLACK):
+        if _real(score) and abs(score - lay["ev"]) > SCORE_SLACK:
             return "the 2-up model is not the fixed trigger (EV is not the lay rating's)"
     return None
 

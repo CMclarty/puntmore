@@ -81,9 +81,12 @@ reads games follows) are rows. When the tracker is read cleanly and no game
 on it is that near (midweek, usually), the job rests as `bb-saves` does:
 its page is closed and nothing loads until 48 hours before the earliest game
 the tracker lists, or a day (`games.look_again_s`), whichever is sooner; a
-tracker with no selections rests a day. `status` shows it `paused` with the
+tracker with no selections rests 30 minutes, as an empty answer may pass. `status` shows it `paused` with the
 reason; `wake bb-2up` ends the rest by hand. It clicks nothing: the page refreshes itself,
-and its filters are Callum's saved settings on Bookie Bashing.
+and its filters are Callum's saved settings on Bookie Bashing. Those other
+than the three below (Competition, EV min, KO window, Odds above and below)
+narrow the table and so the board: that is deliberate, the job reads the
+tracker as Callum has it set, and it costs bets, never a wrong price.
 
 Each parse that reads rows (once a minute) is one `scraper_prices` file for
 `/api/2up/bb`: every selection on the tracker inside the window, which the
@@ -92,7 +95,8 @@ nothing, and the job's log says why, when no ratings payload has arrived yet,
 when the newest is more than 3 minutes old (the page has stopped
 refreshing), when the settings are not the ones the rows are read for
 (Metric lay, Book bet365 alone, the fixed-trigger 2-up model, as the payload
-shows them), when the page fetched fewer selections than the tracker has
+shows them; a record with no lay rating to confirm the model by counts as
+changed), when the page fetched fewer selections than the tracker has
 (the payload's limit), when the table, its "N/M shown" line and the payload
 disagree, when there is no tracker table (logged out, still loading) or its
 header has changed, or when more than a tenth of the records cannot be read.

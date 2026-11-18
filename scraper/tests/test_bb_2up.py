@@ -253,7 +253,7 @@ def test_an_empty_tracker_rests_for_look_again_s(within_h):
     html, p = _empty_tracker()
     with pytest.raises(Rest) as exc:
         read(html, (ARRIVED, p), NOW, within_h, look_again_s=86400)
-    assert exc.value.until == NOW + 86400 and exc.value.why == "the tracker lists no selections"
+    assert exc.value.until == NOW + 30 * 60 and exc.value.why == "the tracker lists no selections"
 
 
 # --- the page ----------------------------------------------------------------
@@ -294,6 +294,17 @@ def test_the_dynamic_2up_model_posts_nothing():
     rows = _read(payload=p)
     assert rows == [] and rows.said == ("the 2-up model is not the fixed trigger (EV is not the lay rating's);"
                                         " nothing posted")
+
+
+@pytest.mark.parametrize("ratings", [None, {}, {"lay": {}}, {"lay": {"ev": "108.86"}}, "lay"])
+def test_a_record_with_no_lay_rating_cannot_confirm_the_model(ratings):
+    p = _payload()
+    if ratings is None:
+        del p["records"][7]["ratings"]
+    else:
+        p["records"][7]["ratings"] = ratings
+    rows = _read(payload=p)
+    assert rows == [] and rows.said == "cannot confirm the 2-up model: a record has no lay rating; nothing posted"
 
 
 # --- the 48-hour window ------------------------------------------------------
