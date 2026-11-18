@@ -75,8 +75,12 @@ export default function App() {
   if (loading) return <div className={styles.boot}>Loading…</div>
   if (bootError) return <BootError detail={bootError} />
 
+  // Keyed by tool: Paddy and Hills are the same page component, and without
+  // a key React kept the one instance across the switch, so the other book's
+  // matches (and its offer and filter choices) stayed up until the new feed
+  // landed. A different tool is always a fresh page.
   const protectTool = (el, tool) => (
-    <Protected user={user} tool={tool} onLogout={handleLogout}>{el}</Protected>
+    <Protected key={tool} user={user} tool={tool} onLogout={handleLogout}>{el}</Protected>
   )
 
   return (
