@@ -10,14 +10,18 @@ PUNTMORE_IMAP_EVERY_MIN on its own thread when a mailbox is configured (`mail.po
 writes `mail-status.json`). The AW 26 loop, on its own thread when switched on
 (PUNTMORE_AW26_READ) and Render and its key are configured, passes over AW 26's photo queue on
 Render every PUNTMORE_AW26_EVERY_S (`aw26_loop.read_once`: the oldest waiting slip photo taken
-and read by HubAI, one at a time).
+and read by HubAI, one at a time). The Bet Placer's 2-Up loop, on its own thread when switched
+on (PUNTMORE_PLACER_2UP) and Render and its key are configured, reads Render's 2-Up feed every
+PUNTMORE_PLACER_2UP_EVERY_S and records in dry-run what it would have placed
+(`placement.twoup.read_once`).
 A failed pass of one loop is logged and never stops another.
 
 Each pass is recorded in `daemon-status.json` in the data directory, which the Console's Daemon
 card reads: a full pass writes its time, counts and error; a price pass writes only its price
 counts, and an error, over the last full pass's record (`record_inbox`). A pass that finds no
 price file keeps the last files moved aside, and why, on the record, so the card's warning
-lasts until a pass handles another file. The last AW 26 pass is written beside it, under `aw26`.
+lasts until a pass handles another file. The last AW 26 pass is written beside it, under `aw26`,
+and the last 2-Up pass under `placer_2up`.
 """
 from __future__ import annotations
 
@@ -31,6 +35,7 @@ from typing import Callable
 
 from . import alerts, aw26, aw26_loop, inbox, mail
 from .config import Settings, settings as default_settings
+from .placement import twoup
 from .store import Store, iso, utcnow
 
 log = logging.getLogger("puntmore.daemon")
@@ -78,9 +83,14 @@ def record_inbox(cfg: Settings, counts: dict | None, error: str | None = None, *
 
 def _record_aw26(cfg: Settings, counts: dict | None, error: str | None) -> None:
     """Write the last AW 26 pass (time, counts or error) under `aw26`, atomically."""
+    _record(cfg, "aw26", counts, error)
+
+
+def _record(cfg: Settings, key: str, counts: dict | None, error: str | None) -> None:
+    """Write one loop's last pass (time, counts or error) under `key`, atomically."""
     with _lock:
         out = last_status(cfg)
-        out["aw26"] = {"at": iso(utcnow()), "counts": counts, "error": error}
+        out[key] = {"at": iso(utcnow()), "counts": counts, "error": error}
         _write(cfg, out)
 
 
@@ -116,6 +126,34 @@ def _aw26_loop(cfg: Settings, stop: threading.Event) -> None:
         except Exception as exc:  # noqa: BLE001 - a status file that cannot be written is not a pass
             log.exception("aw26: could not write the pass to %s: %s", STATUS_FILE, exc)
         stop.wait(max(1, cfg.aw26_every_s))
+
+
+def _placer_2up_loop(cfg: Settings, stop: threading.Event) -> None:
+    """The Bet Placer's 2-Up reader, pass after pass until `stop` is set. A pass is logged when
+    its outcome or verdict changes or it recorded a bet; a failed pass, or a failed write of its
+    record, is logged and never stops the loop."""
+    last = None
+    while not stop.is_set():
+        store = None
+        try:
+            store = Store(cfg.db_path)
+            counts, error = twoup.summary(twoup.read_once(cfg, store)), None
+            said = (counts["outcome"], counts["detail"])
+            if said != last or counts["recorded"]:
+                log.info("2up: %s: %s; %s row(s), skipped %s, recorded %s", counts["outcome"],
+                         counts["detail"], counts["seen"], counts["skipped"], counts["recorded"])
+            last = said
+        except Exception as exc:  # noqa: BLE001 - one bad pass never stops the loop
+            log.exception("2up pass failed: %s", exc)
+            counts, error, last = None, f"{exc.__class__.__name__}: {exc}"[:300], None
+        finally:
+            if store is not None:
+                store.close()
+        try:
+            _record(cfg, "placer_2up", counts, error)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("2up: could not write the pass to %s: %s", STATUS_FILE, exc)
+        stop.wait(max(1, cfg.placer_2up_every_s))
 
 
 def _inbox_pass(cfg: Settings, full: bool) -> None:
@@ -155,6 +193,12 @@ def run(cfg: Settings = default_settings, *, sleep: Callable[[float], None] = ti
         log.info("AW 26 photo loop not started: PUNTMORE_RENDER_HTTP or PUNTMORE_RENDER_API_KEY is unset")
     else:
         threading.Thread(target=_aw26_loop, args=(cfg, stop), name="aw26", daemon=True).start()
+    if not cfg.placer_2up:
+        log.info("2-Up reader not started: switched off (PUNTMORE_PLACER_2UP is not 1)")
+    elif not aw26.configured(cfg):
+        log.info("2-Up reader not started: PUNTMORE_RENDER_HTTP or PUNTMORE_RENDER_API_KEY is unset")
+    else:
+        threading.Thread(target=_placer_2up_loop, args=(cfg, stop), name="placer_2up", daemon=True).start()
     last_full: float | None = None
     try:
         while True:

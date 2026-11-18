@@ -104,6 +104,16 @@ class Settings:
     hermes_aw26_profile: str = os.environ.get("PUNTMORE_HERMES_AW26_PROFILE", "betting-client-manager")
     aw26_every_s: int = int(os.environ.get("PUNTMORE_AW26_EVERY_S", "60"))
     aw26_run_budget_s: int = int(os.environ.get("PUNTMORE_AW26_RUN_BUDGET_S", "600"))
+    # The Bet Placer's 2-Up reader, stage 1 (placement/twoup.py): reads Render's 2-Up feed on the
+    # same Render settings and records, in dry-run, what it would have placed. The daemon runs it
+    # only when switched on; `puntmore placer 2up` runs one pass either way. The flat stake is a
+    # test setting, not the staking logic. The account is a sub_clients.yaml entry; blank or not
+    # there, a pass does nothing and says so. A row priced longer ago than the max age is skipped.
+    placer_2up: bool = _env_bool("PUNTMORE_PLACER_2UP", False)
+    placer_2up_every_s: int = int(os.environ.get("PUNTMORE_PLACER_2UP_EVERY_S", "120"))
+    placer_2up_account: str = os.environ.get("PUNTMORE_PLACER_2UP_ACCOUNT", "")
+    placer_2up_max_age_s: int = int(os.environ.get("PUNTMORE_PLACER_2UP_MAX_AGE_S", "300"))
+    placer_flat_stake: float = float(os.environ.get("PUNTMORE_PLACER_FLAT_STAKE", "10.0"))
     # PUNTMORE_ESCALATE_TO_LOCAL_AI is the old name, still read when the new one is unset.
     escalate_to_hubai: bool = _env_bool_first("PUNTMORE_ESCALATE_TO_HUBAI", "PUNTMORE_ESCALATE_TO_LOCAL_AI",
                                               default=True)

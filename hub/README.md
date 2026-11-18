@@ -4,7 +4,8 @@ The Hub is Callum's box and the one program on it. Its page loads are the Scrape
 (`scraper/`); this directory is the rest: Scraper control's intake (the daemon's inbox of the
 Scraper's drop files, posting the Scraper's Paddy prices to Render, and its tipster-mailbox
 poll), HubAI's side (escalations, the Finder CLI and the reading of AW 26's slip photos), the
-placement engine the Bet Placer starts from (`docs/placer-spec.md`), and the Console. Read
+placement engine the Bet Placer starts from (`docs/placer-spec.md`) with its first stage, the
+2-Up reader (dry-run), and the Console. Read
 `docs/decisions.md` first; it wins over this file.
 
 ```
@@ -28,7 +29,7 @@ AW 26 slips ◄── /aw26/slips/record ────── HubAI (`puntmore aw2
 ```
 puntmore_hub/
   config.py        settings from .env; nothing hard-coded
-  daemon.py        `puntmore daemon`: the inbox pass every 30 s, the price drops every 10 s, the mailbox poll and the AW 26 photo loop (when `PUNTMORE_AW26_READ=1`) on their own threads
+  daemon.py        `puntmore daemon`: the inbox pass every 30 s, the price drops every 10 s, the mailbox poll, the AW 26 photo loop (when `PUNTMORE_AW26_READ=1`) and the 2-Up reader (when `PUNTMORE_PLACER_2UP=1`) on their own threads
   aw26.py          AW 26: Render's photo queue, Paddy's board at a moment, a slip recorded (`puntmore aw26`); printed times to UTC
   aw26_loop.py     the daemon's AW 26 loop: the oldest waiting photo taken, read by HubAI, checked on Render after
   inbox.py         the Scraper's drop files: tips, events -> stored tips for HubAI, escalations; prices -> Render
@@ -37,7 +38,7 @@ puntmore_hub/
   finder.py        Finder: the tips HubAI has not posted; its rows and the Bet Placer's status to Render over HTTPS
   schemas.py       the drop files' types; Tip; the placement engine's Bet and Report
   store.py         SQLite: tips, finder_posted, mail_seen, bets, balances, escalations, alerts
-  placement/       the placement engine: engine.py · adapters/{dry_run,phone}.py (README: the adapter interface)
+  placement/       the placement engine: engine.py · adapters/{dry_run,phone}.py (README: the adapter interface) · twoup.py, the Bet Placer's 2-Up reader (stage 1, dry-run)
   escalation.py    hands failures to HubAI with a self-contained brief; records the outcome
   alerts.py        Discord/log alerts with de-dup; daily heartbeat
   update.py        self-update: fast-forward to origin/main, reinstall, restart (`puntmore update`)
@@ -100,6 +101,16 @@ Examples: `football:2026-11-07:manchester-united-v-tottenham-hotspur`, `horse:20
 
 Env: `PUNTMORE_RENDER_HTTP` (the https base of Render) and `PUNTMORE_RENDER_API_KEY`, a Render API client key carrying `ingest` (in Render's shell: `python -m app.apikeys create <name> --tools ingest`), sent as a Bearer key. The inbox posts the Scraper's Paddy prices with the same two settings, and AW 26 uses them too, with the key also granted `aw26` and `cards` (`python -m app.apikeys grant <name> --tools aw26,cards`; the AW 26 loop runs only when `PUNTMORE_AW26_READ=1` as well; `hub/AGENTS.md` has the loop and its runbook).
 
+## The Bet Placer's 2-Up reader (stage 1, dry-run)
+The first stage of the Bet Placer (`docs/placer-spec.md`, "What exists"): the Hub reads Render's 2-Up feed and records, in dry-run, what it would have placed. No phone, no money. `puntmore placer 2up [--show]` runs one pass and prints the board's verdict and how many rows were seen, skipped (by reason) and recorded; `--show` adds one line per row. The daemon runs a pass every `PUNTMORE_PLACER_2UP_EVERY_S` (120 s) when `PUNTMORE_PLACER_2UP=1` and Render and its key are set, and writes the last one under `placer_2up` in `daemon-status.json`; a failed pass is logged and the loop goes on.
+
+- **The board.** No bet on any row when `available` is false or the status says `killed`, `not_yet_refreshed`, `stale` or `cannot_price`; the pass names which. A partly priced board (one request failed beside others that priced) keeps its priced rows; a gap naming ALL, or an unreadable rescue table, is no-bet.
+- **The rows.** Skipped when not value (`not_value`), with no `priced_at` (`no_priced_at`) or one older than `PUNTMORE_PLACER_2UP_MAX_AGE_S` (300 s, `stale_price`), past kick-off (`kicked_off`), unreadable (`bad_row`) or already in the `bets` table (`already_recorded`, one indexed lookup; the engine is not called). The rest go to the placement engine as singles: one leg (event id, market, selection, price), `expected_price` the row's price, `not_after` the kick-off, bet id `2up:<event_id>:<side>`, so a selection is recorded once however many passes see it.
+- **The stake** is `PUNTMORE_PLACER_FLAT_STAKE` (10.0), a test setting, not the staking logic.
+- **The account** is `PUNTMORE_PLACER_2UP_ACCOUNT`, an enabled entry in `sub_clients.yaml`. Blank, missing or disabled, a pass reads nothing, records nothing and says so; it never makes a failed bet and an escalation per row. With the kill switch on, the same.
+- **Dry-run.** The reader gives the engine no adapter, so every bet goes through the dry-run adapter whatever `PUNTMORE_DRY_RUN` says, and its `bets` row has `dry_run` 1. The Console's Placement tab lists the `bets` table, with that column.
+- **Render.** `GET /api/2up/feed?value_only=true` on `PUNTMORE_RENDER_HTTP` with `PUNTMORE_RENDER_API_KEY`, which needs the `accabonus` grant (`python -m app.apikeys grant <name> --tools accabonus`). A 403 is reported as "the Hub's key is not granted accabonus", a 401 as a key Render did not accept, a network error as unreachable; none is retried within the pass, and `puntmore placer 2up` exits 1 on them.
+
 ## Setup (from `hub/`)
 ```bash
 python3 -m venv ~/.venvs/puntmore && ~/.venvs/puntmore/bin/pip install -e '.[web,dev]'
@@ -132,8 +143,9 @@ puntmore aw26 fail ID --reason T     a photo HubAI cannot make a slip of
 puntmore aw26 upload FILE [--source page|telegram]  put a photo on the queue (the chief of staff, for one sent on Telegram)
 puntmore aw26 board --at T [--match "Home v Away"]  Paddy's board as it stood at T (printed, or ISO with its offset)
 puntmore aw26 record FILE|- [--dry-run]  record a slip HubAI read (--dry-run: print the body, send nothing)
+puntmore placer 2up [--show]         one pass of the Bet Placer's 2-Up reader (dry-run): the board's verdict, rows seen, skipped by reason, recorded
 puntmore heartbeat                   the daily summary, on demand
-puntmore daemon                      the daemon: the inbox every 30 s, the price drops every 10 s, the mailbox poll, and the AW 26 photo loop when switched on (`puntmore link` is the same command)
+puntmore daemon                      the daemon: the inbox every 30 s, the price drops every 10 s, the mailbox poll, and the AW 26 photo loop and the 2-Up reader when switched on (`puntmore link` is the same command)
 puntmore web                         the Console on PUNTMORE_WEB_BIND (default http://127.0.0.1:8090)
 puntmore update [--dry-run|--check]  fast-forward to origin/main, reinstall, restart (deploy/update.sh)
 python -m scraper status|dump|resume the Scraper's own commands, from scraper/

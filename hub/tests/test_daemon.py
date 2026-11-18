@@ -258,8 +258,9 @@ def test_a_price_pass_over_an_empty_folder_logs_nothing(cfg, monkeypatch, caplog
     daemon.run(cfg, sleep=_stop_at(t, 30), clock=t.clock)
     assert len(passes) == 2
     logged = [r.getMessage() for r in caplog.records if r.name in ("puntmore.daemon", "puntmore.inbox")]
-    assert [m for m in logged if not m.startswith("AW 26 photo loop not started")] == []   # the start-up line only:
-    # the reader is off by default and says so once at start-up, whatever the passes do
+    starts = ("AW 26 photo loop not started", "2-Up reader not started")
+    assert [m for m in logged if not m.startswith(starts)] == []   # the start-up lines only:
+    # the readers are off by default and say so once at start-up, whatever the passes do
 
 
 def test_a_price_pass_that_only_left_files_waiting_writes_no_prices_line(cfg, monkeypatch, caplog):

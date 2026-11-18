@@ -4,7 +4,9 @@ One file, plain tables, so any agent can inspect it with ``sqlite3 data/hub.sqli
 Tables:
     tips          tips from the Scraper's sources and the tipster mailbox, deduped, with settled
                   outcome for ROI
-    bets          bets the placement engine was asked to place and their status
+    bets          bets the placement engine was asked to place and their status; `dry_run` 1 when
+                  the dry-run adapter handled it (nothing reached a bookmaker), 0 when a real
+                  adapter did, null on a row recorded before the column existed
     mail_seen     Message-IDs of tipster emails already read (mail.py; idempotency)
     finder_posted tips HubAI has posted to Render's Finder, with the status Render stored, or
                   skipped (with a reason) when HubAI cannot post it (finder.py)
@@ -29,7 +31,7 @@ CREATE TABLE IF NOT EXISTS tips(
     first_seen TEXT, outcome TEXT, settled_return REAL, extra TEXT);
 CREATE TABLE IF NOT EXISTS bets(
     bet_id TEXT PRIMARY KEY, account_id TEXT, body TEXT, received TEXT,
-    status TEXT, actual_price REAL, updated TEXT);
+    status TEXT, actual_price REAL, updated TEXT, dry_run INTEGER);
 CREATE TABLE IF NOT EXISTS mail_seen(message_id TEXT PRIMARY KEY, ts TEXT);
 CREATE TABLE IF NOT EXISTS escalations(
     id INTEGER PRIMARY KEY, kind TEXT, ref TEXT, detail TEXT, created TEXT,
@@ -128,12 +130,14 @@ class Store:
     def bet_exists(self, bet_id: str) -> bool:
         return self.conn.execute("SELECT 1 FROM bets WHERE bet_id=?", (bet_id,)).fetchone() is not None
 
-    def upsert_bet(self, bet_id: str, account_id: str, body: dict, status: str) -> None:
+    def upsert_bet(self, bet_id: str, account_id: str, body: dict, status: str,
+                   dry_run: bool | None = None) -> None:
+        """Record a bet. `dry_run` is set on the first insert only (None leaves it null)."""
         now = iso(utcnow())
         self.conn.execute(
-            """INSERT INTO bets(bet_id, account_id, body, received, status, updated) VALUES(?,?,?,?,?,?)
+            """INSERT INTO bets(bet_id, account_id, body, received, status, updated, dry_run) VALUES(?,?,?,?,?,?,?)
                ON CONFLICT(bet_id) DO UPDATE SET status=excluded.status, updated=excluded.updated""",
-            (bet_id, account_id, json.dumps(body), now, status, now))
+            (bet_id, account_id, json.dumps(body), now, status, now, None if dry_run is None else int(dry_run)))
         self.conn.commit()
 
     def set_bet_status(self, bet_id: str, status: str, actual_price: float | None = None) -> None:
@@ -152,6 +156,10 @@ class Store:
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(finder_posted)").fetchall()}
         if "reason" not in cols:
             self.conn.execute("ALTER TABLE finder_posted ADD COLUMN reason TEXT")
+            self.conn.commit()
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(bets)").fetchall()}
+        if "dry_run" not in cols:
+            self.conn.execute("ALTER TABLE bets ADD COLUMN dry_run INTEGER")
             self.conn.commit()
 
     # ---- mail ------------------------------------------------------------------------------------

@@ -172,9 +172,10 @@ def test_the_daemon_card_names_both_when_prices_were_moved_aside_and_others_wait
 def test_placement_and_escalation_collectors(cfg):
     st = Store(cfg.db_path)
     st.upsert_bet("b1", "acc1", {"stake": 5.0, "expected_price": 2.0}, "placed")
-    st.upsert_bet("b2", "acc1", {"stake": 3.0, "expected_price": 4.0}, "failed")
+    st.upsert_bet("b2", "acc1", {"stake": 3.0, "expected_price": 4.0}, "failed", dry_run=True)
     st.add_balance("acc1", 100.0)
     p = collect.placement(cfg, st)
+    assert {b["bet_id"]: b["dry_run"] for b in p["bets"]} == {"b1": None, "b2": True}
     assert p["dry_run"] is True and p["kill_switch"] is False
     assert p["state"] == "warn" and "1 failed" in p["detail"]
     assert {b["bet_id"] for b in p["bets"]} == {"b1", "b2"}
