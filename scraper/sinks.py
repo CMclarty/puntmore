@@ -3,7 +3,8 @@
 A target names its sink by its `post` value:
   "/api/..."    one `scraper_prices` drop file per parse into data/hub/prices/,
                 which the Hub's inbox posts to Render as {"prices": rows} on
-                its key (PRICE_ROUTES: the two Paddy routes, nothing else)
+                its key (PRICE_ROUTES: the two Paddy routes and 2-Up's Bookie Bashing
+                route, nothing else)
   "hub:<chan>"  one JSON file per run into data/hub/tips/, for the Hub's
                 `puntmore inbox` (Finder sources); each row carries its
                 `tip_id`, minted here (ids.py)
@@ -33,8 +34,9 @@ PRICE_MIN, PRICE_MAX = 1.01, 1000.0
 CLIENT_ID = "scraper"
 
 # The Render routes a price target may name in `post`; the Hub posts a `scraper_prices` drop's
-# rows to its route. The same list as the schema's route enum (hub/schemas/protocol.schema.json).
-PRICE_ROUTES = ("/api/paddy/saves-fair", "/api/paddy/most-prices")
+# rows to its route. /api/2up/bb takes the bb-2up job's rows (Bookie Bashing's Early Payout
+# Tracker, parsers/bb_2up.py). The same list as the schema's route enum (hub/schemas/protocol.schema.json).
+PRICE_ROUTES = ("/api/paddy/saves-fair", "/api/paddy/most-prices", "/api/2up/bb")
 
 
 def _safe(s: str) -> str:

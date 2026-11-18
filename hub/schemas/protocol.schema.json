@@ -256,7 +256,8 @@
         "route": {
           "enum": [
             "/api/paddy/saves-fair",
-            "/api/paddy/most-prices"
+            "/api/paddy/most-prices",
+            "/api/2up/bb"
           ]
         },
         "rows": {

@@ -66,8 +66,9 @@ reads the Scraper's heartbeat and `status.json` from the same directory (`PUNTMO
 the native service's `/opt/puntmore-scraper/data`; the old name `PUNTMORE_WORKER_DATA` is still
 read; on a box with no screen, the container's volume).
 
-Paddy's prices are drop files too. For a target whose `post` is a Paddy route
-(`/api/paddy/most-prices`, `/api/paddy/saves-fair`) the Scraper writes one `scraper_prices` file
+Paddy's prices are drop files too, and so are the rows of Bookie Bashing's Early Payout Tracker
+for 2-Up. For a target whose `post` is one of these Render routes (`/api/paddy/most-prices`,
+`/api/paddy/saves-fair`, `/api/2up/bb`) the Scraper writes one `scraper_prices` file
 per parse of each tab into `<scraper data>/hub/prices/`. The inbox posts each one to Render as
 `{"prices": rows}` on that route (`inbox.post_prices`, with Finder's `PUNTMORE_RENDER_HTTP` and
 `PUNTMORE_RENDER_API_KEY`), oldest first, and moves it to `done/prices/`. The

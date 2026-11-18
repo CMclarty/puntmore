@@ -22,7 +22,7 @@ in one pull request.
 |---|---|---|
 | `scraper_tips` | `<scraper data>/hub/tips/<ms>-<source>.json`, one per run of a target posting to `hub:<channel>` (a Finder source) | `source, at, url, channel, trust_weight, rows[]`; every row has `event, market, selection` and its `tip_id` (`$defs/scraper_tip_row`) |
 | `scraper_event` | `<scraper data>/hub/events/<ms>-<ref>.json` | `kind` (`unhealthy_source` or `blocked_source`), `ref`, `detail`, `at` |
-| `scraper_prices` | `<scraper data>/hub/prices/<ms>-<source>-<8hex>.json`, one per parse of one tab of a target whose `post` is a Render route; the 8 hex are the start of the `msg_id`, so two tabs parsed in one tick are two files | `source` (the target's name), `at` (the parse), `url` (the target's), `route` (`/api/paddy/most-prices` or `/api/paddy/saves-fair`, nothing else), `rows[]` (at least one object, the parser's rows unchanged) |
+| `scraper_prices` | `<scraper data>/hub/prices/<ms>-<source>-<8hex>.json`, one per parse of one tab of a target whose `post` is a Render route; the 8 hex are the start of the `msg_id`, so two tabs parsed in one tick are two files | `source` (the target's name), `at` (the parse), `url` (the target's), `route` (`/api/paddy/most-prices`, `/api/paddy/saves-fair` or `/api/2up/bb`, nothing else), `rows[]` (at least one object, the parser's rows unchanged) |
 
 `at` is unix seconds. Every file is written atomically (temp file + rename), so the Hub never reads
 half a file: it reads only `*.json`, never a `*.json.tmp`. The Hub moves each tips or events file to
@@ -52,6 +52,11 @@ oldest first, by name. For each file:
 The 15 min cut-off is there because Render stores no read time with a price: it keeps what arrives
 for 36 h as if it were current. A backlog posted after an outage would put old Paddy prices on the
 board as fresh ones; 15 min is `pp_most`'s own freshness limit.
+
+`/api/2up/bb` takes the rows of Bookie Bashing's Early Payout Tracker (the `bb-2up` job, parser
+`bb_2up`; `scraper/README.md`). Each file is the whole table as the page showed it at one parse,
+one parse a minute while the page reads, so each post can replace what Render held from the last.
+A parse that reads no row writes no file, so Render keeps its last table until the next one.
 
 `done/prices/` keeps its newest 300 files, apart from the tips' and events' `done/`. The rows pass
 through unfiltered: the Scraper's sink and the inbox check only the file's shape, and Render's
