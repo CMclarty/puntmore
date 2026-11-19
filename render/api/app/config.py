@@ -65,14 +65,16 @@ class Settings(BaseSettings):
     # fixture kicks off (read off the cached response itself, so choosing the
     # gear costs nothing — OddsPapi bills /fixtures too). "seconds:ttl" pairs,
     # tightest first; the last applies to anything further out. At the
-    # defaults: 2 min inside 45 min, 5 min inside 2h, 15 min inside 6h, then
-    # hourly — ~15k requests/month on the 13 competitions x 2 books.
-    oddspapi_ttl_tiers: str = "2700:120,7200:300,21600:900,inf:3600"
+    # defaults: 2 min inside 45 min, 5 min inside 2h, then every 15 min,
+    # never slower (Callum, 19 Nov 2026: the hourly gear left the Paddy board
+    # up to an hour old all week) — ~576 requests/day at the 15-min gear on
+    # the 13 competitions x 2 books, ~20k/month with match days.
+    oddspapi_ttl_tiers: str = "2700:120,7200:300,inf:900"
     # A ceiling, not a target, so this only bites on a runaway. Keep it below
     # (monthly plan / 30). ~146/day was the planned spend before the 2-Up
     # feed. Its `twoup_refresh` job runs 24/7 every `twoup_feed_ttl` (5 min)
     # and asks bet365 for two chunks a pass, billed only when the tiered cache
-    # above has expired: ~48/day while neither chunk has a kick-off within 6h,
+    # above has expired: ~192/day while neither chunk has a kick-off within 2h,
     # rising towards a ceiling of ~576/day (both chunks re-billed every pass)
     # through a run of kick-offs. Its Pinnacle chunks are the coupon
     # tracker's and Paddy's, so mostly cache hits; when nothing else keeps

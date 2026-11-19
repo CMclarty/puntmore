@@ -34,7 +34,7 @@ every fixture in those tournaments with its full Paddy board — so a sweep is a
 handful of requests however many fixtures are on, not one call per fixture.
 Cached per chunk for a time set by how
 soon its next fixture kicks off (`oddspapi_ttl_tiers`: 2 min near kickoff,
-hourly when nothing is close), and capped per day by
+every 15 min when nothing is close), and capped per day by
 `oddspapi_daily_request_budget`.
 """
 from datetime import datetime, timedelta, timezone
@@ -627,7 +627,7 @@ class OddsPapiClient:
         if resp.status_code == 404 and "FIXTURE_NOT_FOUND" in (resp.text or ""):
             # Nothing scheduled in these competitions (e.g. the internationals
             # outside a window) — an EMPTY answer, not a failure. Returned as
-            # such so it is cached at the loosest gear (hourly) rather than
+            # such so it is cached at the loosest gear rather than
             # retried as an error every 10 minutes; each retry is billed.
             return []
         if resp.status_code != 200:
