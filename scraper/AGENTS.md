@@ -197,7 +197,7 @@ prices are `scraper_prices` files that the Hub posts to Render.
   (above; a Bookie Bashing job like any Callum adds, `docs/decisions.md`); `pp_most` reads Paddy's most-corners /
   most-cards three-ways (written from the 29 Oct 2026 capture); `pp_listing`
   reads the kick-off times off a Paddy listing (written from the 12 Nov 2026
-  dump); `tc_reload` reads Team Casino's reload-offers dashboard (written
+  dump; the coming week's headers, "Tomorrow" and a bare weekday, from the 19 Nov 2026 dump); `tc_reload` reads Team Casino's reload-offers dashboard (written
   from the signed-in page `look` saved on 13 Nov 2026); `bb_2up` reads Bookie
   Bashing's Early Payout Tracker for 2-Up (written from the `bb-2up` job's
   dumps and capture of 18 Nov 2026; kept open, posted to `/api/2up/bb`). Where `tc_reload`'s rows go is

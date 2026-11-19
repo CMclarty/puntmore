@@ -81,7 +81,7 @@ def LISTING2():
 def LATER():
     return listing("Later", [("/football/near-v-game", "Near", "Game", 10),
                              ("/football/far-v-game", "Far", "Game", 60),
-                             ("/football/odd-v-game", "Odd", "Game", "Tomorrow")])
+                             ("/football/odd-v-game", "Odd", "Game", "Today")])
 
 
 # Nothing within 48 hours.
