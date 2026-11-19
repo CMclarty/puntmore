@@ -25,10 +25,16 @@ samples of 12 Nov 2026) were seen only as what they received: the same page
 document and the same card type (COMPETITION_AVB) with their fixtures'
 names and openDates, not as a drawn page.
 
+Inside the coming week Paddy drops the day of the month (the listings the
+page held on Thu 19 Nov 2026, dump pp-epl-most-20261119-125946: "Tomorrow",
+"Saturday", "Sunday", "Monday", then "Friday 27", "Saturday 28", ...). A bare
+weekday is its next occurrence from today on; "Tomorrow" is tomorrow. Until
+19 Nov these were not read, so every game inside the week had no kick-off and
+the job rested past it.
+
 NOT read, because no real page has shown them: whatever Paddy writes over
-today's, tomorrow's or in-play games ("Today", "Tomorrow", "In-Play" or
-anything else that is not "<Weekday> <day of month>"), and a footer label that
-is not a time. A fixture under such a header, or with such a label, has no
+today's or in-play games ("Today", "In-Play" or anything else), and a footer
+label that is not a time. A fixture under such a header, or with such a label, has no
 kick-off: the runner does not open it, and says so when no fixture on the
 job's listings has one.
 
@@ -43,7 +49,7 @@ from zoneinfo import ZoneInfo
 
 LONDON = ZoneInfo("Europe/London")
 WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
-_DAY = re.compile(r"^(" + "|".join(WEEKDAYS) + r") (\d{1,2})$")
+_DAY = re.compile(r"^(" + "|".join(WEEKDAYS) + r")(?: (\d{1,2}))?$")
 _TIME = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 LOOK_BACK_DAYS = 1           # a header for yesterday still names yesterday
 LOOK_AHEAD_DAYS = 62         # ...and the first match within about two months ahead
@@ -73,11 +79,18 @@ class Fixture:
 
 def day_date(header: str, today: date) -> date | None:
     """"Saturday 21" -> the first date from LOOK_BACK_DAYS before `today` with
-    that weekday and day of the month; None for any other header."""
-    m = _DAY.match(" ".join(header.split()))
+    that weekday and day of the month; "Saturday" -> the next Saturday from
+    `today` on; "Tomorrow" -> tomorrow; None for any other header."""
+    header = " ".join(header.split())
+    if header == "Tomorrow":
+        return today + timedelta(days=1)
+    m = _DAY.match(header)
     if not m:
         return None
-    weekday, dom = WEEKDAYS.index(m.group(1)), int(m.group(2))
+    weekday = WEEKDAYS.index(m.group(1))
+    if m.group(2) is None:
+        return today + timedelta(days=(weekday - today.weekday()) % 7)
+    dom = int(m.group(2))
     for ahead in range(-LOOK_BACK_DAYS, LOOK_AHEAD_DAYS + 1):
         d = today + timedelta(days=ahead)
         if d.day == dom and d.weekday() == weekday:

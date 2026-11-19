@@ -86,13 +86,25 @@ def test_a_day_in_next_month(show):
 
 
 def test_a_header_it_has_not_seen_gives_no_kickoff(show):
-    html = FIXTURE.replace("<span>Sunday 22</span>", "<span>Tomorrow</span>")
+    html = FIXTURE.replace("<span>Sunday 22</span>", "<span>Today</span>")
     f = pp_listing.fixtures(show(html), NOW)
     league = BASE + "/football/english-premier-league/"
     assert f[league + "hull-v-brighton-36296140"].kickoff is None
     assert f[league + "liverpool-v-man-utd-36225147"].kickoff is None
     assert league + "hull-v-brighton-36296140" not in pp_listing.kickoffs(show(html), NOW)
     assert f[league + "brentford-v-everton-36303120"].kickoff == _at(2026, 11, 23, 20, 0)
+
+
+def test_the_coming_weeks_headers_carry_no_day_of_the_month(show):
+    # As the listings stood on Thu 19 Nov 2026: "Tomorrow", "Saturday", "Sunday", "Monday".
+    html = (FIXTURE.replace("<span>Saturday 21</span>", "<span>Saturday</span>")
+            .replace("<span>Sunday 22</span>", "<span>Sunday</span>")
+            .replace("<span>Monday 23</span>", "<span>Monday</span>"))
+    k = pp_listing.kickoffs(show(html), _at(2026, 11, 19, 12, 59))
+    league = BASE + "/football/english-premier-league/"
+    assert len(k) == 10
+    assert k[league + "man-city-v-fulham-36293092"] == _at(2026, 11, 21, 12, 30)
+    assert k[league + "brentford-v-everton-36303120"] == _at(2026, 11, 23, 20, 0)
 
 
 def test_a_time_label_that_is_not_a_time_gives_no_kickoff(show):
@@ -118,6 +130,11 @@ def test_a_page_that_cannot_be_read_is_empty():
     ("Wednesday 11", date(2026, 11, 12), date(2026, 11, 11)),      # yesterday's, still listed
     ("Monday 1", date(2026, 12, 30), date(2027, 2, 1)),            # into the next year
     ("Friday 30", date(2026, 11, 12), None),                       # no Friday 30th within two months
+    ("Tomorrow", date(2026, 11, 19), date(2026, 11, 20)),
+    ("Saturday", date(2026, 11, 19), date(2026, 11, 21)),
+    ("Monday", date(2026, 11, 19), date(2026, 11, 23)),
+    ("Thursday", date(2026, 11, 19), date(2026, 11, 19)),
+    ("Sunday", date(2026, 12, 30), date(2027, 1, 3)),
     ("Today", date(2026, 11, 12), None),
     ("In-Play", date(2026, 11, 12), None),
     ("Popular Football Betting", date(2026, 11, 12), None),
