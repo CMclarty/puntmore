@@ -701,8 +701,8 @@ Pinnacle's fair reference, joined on the same fixture id.
   named, so cost is refreshes x requests, not per fixture. Its window is
   therefore its own (`oddspapi_window_hours`, 7 days). Refreshes follow
   kickoffs (`oddspapi_ttl_tiers`, read off the cached response so choosing
-  costs nothing): 2 min inside 45 min, 5 inside 2h, 15 inside 6h, else
-  hourly — ~15k/month on 13 competitions x 2 books, against a 100k plan
+  costs nothing): 2 min inside 45 min, 5 inside 2h, else every
+  15 min, never slower (Callum, 19 Nov 2026) — ~20k/month on 13 competitions x 2 books, against a 100k plan
   (Oct 2026) capped at 3,000/day. The catalogue and participants field names were NOT verifiable
   when written (host blocked) — parsed tolerantly, and
   `/api/cards/oddspapi-check` shows what the live catalogue calls each corner
