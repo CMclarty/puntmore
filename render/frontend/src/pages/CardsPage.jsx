@@ -71,6 +71,7 @@ const DEFAULT_MARKETS = MARKETS.filter(m => !FAIR_ONLY.includes(m))
 const marketLabel = m => MARKET_LABELS[m] || m[0].toUpperCase() + m.slice(1)
 const WITHIN = [[null, 'Any'], [1, '< 1h'], ['today', 'Today'], [24, '24h'], [48, '48h'], [72, '72h']]
 const MAX_ODDS = [null, 1.5, 2, 3, 5]
+const PADDY_MAX_ODDS = [null, 1.3, 1.5, 2, 3, 5]   // 1.3 on Paddy (Callum, 20 Nov 2026)
 const SORTS = ['best', 'shortest']   // by the Value and Odds headings
 const PER_MATCH = [[false, 'All legs'], [true, '1 per match']]   // Refund / Boost only
 const NO_FILTERS = { markets: DEFAULT_MARKETS, within: null, maxOdds: null, sort: 'best', onePerMatch: false }
@@ -85,7 +86,7 @@ function loadFilters(cfg) {
     return {
       markets: v.markets.filter(m => cfg.markets.includes(m)),
       within: oneOf(v.within, WITHIN.map(([w]) => w), null),
-      maxOdds: oneOf(v.maxOdds, MAX_ODDS, null),
+      maxOdds: oneOf(v.maxOdds, cfg.maxOdds, null),
       sort: oneOf(v.sort, SORTS, 'best'),
       onePerMatch: v.onePerMatch === true,
     }
@@ -183,10 +184,10 @@ function Selection({ lead, others, expanded, onToggle, now }) {
 // which offers and markets it has.
 const BOOKS = {
   paddy: { feed: getCardsFeed, why: getCardsDiagnostics, offerKey: 'paddy.tab',
-    filterKey: 'paddy.filters', offers: OFFERS, markets: MARKETS },
+    filterKey: 'paddy.filters', offers: OFFERS, markets: MARKETS, maxOdds: PADDY_MAX_ODDS },
   hills: { feed: getHillsFeed, why: getHillsDiagnostics, offerKey: 'hills.tab',
     filterKey: 'hills.filters', offers: [['value', 'Value'], ['bb', 'BB Boost'], ['boost', 'Boost']],
-    markets: MARKETS.filter(m => !FAIR_ONLY.includes(m)), boost: HILLS_BOOST },
+    markets: MARKETS.filter(m => !FAIR_ONLY.includes(m)), boost: HILLS_BOOST, maxOdds: MAX_ODDS },
 }
 
 export default function CardsPage({ book = 'paddy' }) {
@@ -359,7 +360,7 @@ export default function CardsPage({ book = 'paddy' }) {
           )}
           {open === 'odds' && (
             <div className={f.group} role="group" aria-label="Max odds">
-              <Chips options={MAX_ODDS.map(o => [o, o == null ? 'Any' : o.toFixed(1)])}
+              <Chips options={cfg.maxOdds.map(o => [o, o == null ? 'Any' : o.toFixed(1)])}
                 isOn={o => fl.maxOdds === o} onPick={o => { setF({ maxOdds: o }); setOpen(null) }} />
             </div>
           )}
