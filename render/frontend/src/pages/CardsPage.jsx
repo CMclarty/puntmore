@@ -71,7 +71,9 @@ const DEFAULT_MARKETS = MARKETS.filter(m => !FAIR_ONLY.includes(m))
 const marketLabel = m => MARKET_LABELS[m] || m[0].toUpperCase() + m.slice(1)
 const WITHIN = [[null, 'Any'], [1, '< 1h'], ['today', 'Today'], [24, '24h'], [48, '48h'], [72, '72h']]
 const MAX_ODDS = [null, 1.5, 2, 3, 5]
-const PADDY_MAX_ODDS = [null, 1.3, 1.5, 2, 3, 5]   // 1.3 on Paddy (Callum, 20 Nov 2026)
+// Paddy's max odds is a slider (Callum, 20 Nov 2026): 1.25 up to 8, and the
+// top of the slider is no limit.
+const ODDS_SLIDER = { min: 1.25, max: 8, step: 0.05 }
 const SORTS = ['best', 'shortest']   // by the Value and Odds headings
 const PER_MATCH = [[false, 'All legs'], [true, '1 per match']]   // Refund / Boost only
 const NO_FILTERS = { markets: DEFAULT_MARKETS, within: null, maxOdds: null, sort: 'best', onePerMatch: false }
@@ -86,7 +88,9 @@ function loadFilters(cfg) {
     return {
       markets: v.markets.filter(m => cfg.markets.includes(m)),
       within: oneOf(v.within, WITHIN.map(([w]) => w), null),
-      maxOdds: oneOf(v.maxOdds, cfg.maxOdds, null),
+      maxOdds: cfg.oddsSlider
+        ? (typeof v.maxOdds === 'number' && v.maxOdds >= cfg.oddsSlider.min && v.maxOdds < cfg.oddsSlider.max ? v.maxOdds : null)
+        : oneOf(v.maxOdds, cfg.maxOdds, null),
       sort: oneOf(v.sort, SORTS, 'best'),
       onePerMatch: v.onePerMatch === true,
     }
@@ -109,7 +113,7 @@ function marketsLabel(markets) {
 }
 const withinLabel = w => (w == null ? 'Any time' : w === 'today' ? 'Today'
   : w === 1 ? 'Next 1h' : `Next ${w}h`)
-const oddsLabel = o => (o == null ? 'Any odds' : `≤ ${o.toFixed(1)}`)
+const oddsLabel = (o, dp = 1) => (o == null ? 'Any odds' : `≤ ${o.toFixed(dp)}`)
 
 function Chips({ options, isOn, onPick, icons = false }) {
   return options.map(([k, label]) => (
@@ -184,7 +188,7 @@ function Selection({ lead, others, expanded, onToggle, now }) {
 // which offers and markets it has.
 const BOOKS = {
   paddy: { feed: getCardsFeed, why: getCardsDiagnostics, offerKey: 'paddy.tab',
-    filterKey: 'paddy.filters', offers: OFFERS, markets: MARKETS, maxOdds: PADDY_MAX_ODDS },
+    filterKey: 'paddy.filters', offers: OFFERS, markets: MARKETS, oddsSlider: ODDS_SLIDER },
   hills: { feed: getHillsFeed, why: getHillsDiagnostics, offerKey: 'hills.tab',
     filterKey: 'hills.filters', offers: [['value', 'Value'], ['bb', 'BB Boost'], ['boost', 'Boost']],
     markets: MARKETS.filter(m => !FAIR_ONLY.includes(m)), boost: HILLS_BOOST, maxOdds: MAX_ODDS },
@@ -341,7 +345,7 @@ export default function CardsPage({ book = 'paddy' }) {
         <div className={f.pills} role="group" aria-label="Filters">
           {pill('markets', marketsLabel(fl.markets), !sameMarkets)}
           {pill('within', withinLabel(fl.within), fl.within != null)}
-          {pill('odds', oddsLabel(fl.maxOdds), fl.maxOdds != null)}
+          {pill('odds', oddsLabel(fl.maxOdds, cfg.oddsSlider ? 2 : 1), fl.maxOdds != null)}
           {!singles && pill('match', fl.onePerMatch ? '1 per match' : 'All legs', fl.onePerMatch)}
         </div>
       </div>
@@ -360,8 +364,12 @@ export default function CardsPage({ book = 'paddy' }) {
           )}
           {open === 'odds' && (
             <div className={f.group} role="group" aria-label="Max odds">
-              <Chips options={cfg.maxOdds.map(o => [o, o == null ? 'Any' : o.toFixed(1)])}
-                isOn={o => fl.maxOdds === o} onPick={o => { setF({ maxOdds: o }); setOpen(null) }} />
+              {cfg.oddsSlider
+                ? <input type="range" className={f.slider} aria-label="Max odds" {...cfg.oddsSlider}
+                    value={fl.maxOdds ?? cfg.oddsSlider.max}
+                    onChange={e => { const o = Number(e.target.value); setF({ maxOdds: o >= cfg.oddsSlider.max ? null : o }) }} />
+                : <Chips options={cfg.maxOdds.map(o => [o, o == null ? 'Any' : o.toFixed(1)])}
+                    isOn={o => fl.maxOdds === o} onPick={o => { setF({ maxOdds: o }); setOpen(null) }} />}
             </div>
           )}
           {open === 'match' && (
