@@ -779,6 +779,13 @@ Pinnacle's fair reference, joined on the same fixture id.
   This BB target is `bb-saves`, driven after the Scraper signs in; the
   Scraper may run Bookie Bashing jobs (`docs/decisions.md`, "Scraping
   conduct", 12 Nov 2026), the Early Payout Tracker for 2-Up among them.
+- **A page never waits behind the sweep** (21 Nov 2026). `GET /api/paddy/feed`
+  reads `OddsPapiPaddySource.served_events()`: the events the last finished
+  sweep left, with no fetch and no lock, while a sweep has finished inside
+  `SERVE_FOR_S` (300); otherwise (boot, or a source no job sweeps) it sweeps
+  as before. It used to call `get_events()`, which takes the sweep's lock, so
+  on a matchday a page sat on "Loading prices" for up to a minute (62 s and
+  29 s measured). The sweep job and props still call `get_events()`.
 - `cards/oddspapi.py` returns **RAW** prices. De-vigging lives in
   `cards/value.py`; handing it fair prices would de-vig them twice.
 - `merge_books` (`cards/oddspapi.py`) joins the books into one event on the
