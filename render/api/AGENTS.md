@@ -891,6 +891,11 @@ William Hill's corners, cards and goals lines with Pinnacle's as the fair side, 
   the settling floor ends the pass, holds no game and is named in `last_sweep.errors`.
   Nothing retries. The pass clears its busy flag in a `finally` that covers its summary too,
   so a failure there never leaves the source busy for good.
+- **A page never waits behind a request to the vendor** (21 Nov 2026): the client's day
+  and count sit under their own lock (`_count_lock`), so `budget_left()` answers while a
+  request is in flight, and once a listing has succeeded a due one is fetched off the page
+  request (`_listing_for_page`). Before, a page asked for the credits left under the lock a
+  pass holds across each of up to 60 snapshots, and the Hills page sat on "Loading prices".
 - **A warmish board** (Callum, 11 Nov 2026: "could we get a warmish board, with slow
   pre-loads"): the scheduler job `hills_warm` (`scheduler.warm_hills` →
   `OddsApiNetHillsSource.warm`) runs every `oddsapinet_warm_every_min` (10; 0 turns it off),

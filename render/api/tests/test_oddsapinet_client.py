@@ -187,3 +187,30 @@ def test_the_sql_store_round_trips_one_row():
         assert db.query(OddsApiNetUsage).count() == 1
     _, c = _client(_ok, store=store, today=_today)
     assert c.requests_today == 6
+
+
+def test_asking_what_is_left_never_waits_behind_a_request():
+    """A pass sends up to 60 snapshots back to back and the page asked for the
+    credits left under the same lock, so the Hills page sat on "Loading
+    prices" (21 Nov 2026)."""
+    import threading
+    sending, release = threading.Event(), threading.Event()
+
+    def slow(req):
+        sending.set()
+        assert release.wait(5)
+        return httpx.Response(200, json={})
+
+    _, c = _client(slow, daily_budget=10)
+    t = threading.Thread(target=c.get, args=("/events",))
+    t.start()
+    try:
+        assert sending.wait(5)
+        answer = []
+        asker = threading.Thread(target=lambda: answer.append(c.budget_left()))
+        asker.start()
+        asker.join(1)
+        assert answer == [9]                 # answered while the request is in flight
+    finally:
+        release.set()
+        t.join(5)
