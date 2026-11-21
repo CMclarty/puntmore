@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { age, kickoff } from './paddy'
+import { age, kickoff, snapOdds } from './paddy'
 
 describe('age', () => {
   const now = Date.parse('2026-11-08T15:05:00Z')
@@ -21,5 +21,15 @@ describe('kickoff', () => {
   })
   it('puts the day above another day', () => {
     expect(kickoff(new Date(2026, 10, 9, 20, 0).toISOString(), now)).toEqual({ day: 'Mon', time: '20:00' })
+  })
+})
+
+describe('snapOdds', () => {
+  it('catches a drag near the price and leaves the rest alone', () => {
+    expect(snapOdds(2.4, 2.5)).toBe(2.5)
+    expect(snapOdds(2.65, 2.5)).toBe(2.5)
+    expect(snapOdds(2.3, 2.5)).toBe(2.3)
+    expect(snapOdds(2.7, 2.5)).toBe(2.7)
+    expect(snapOdds(8, 2.5)).toBe(8)
   })
 })

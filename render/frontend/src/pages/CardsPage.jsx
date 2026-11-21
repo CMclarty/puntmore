@@ -7,7 +7,7 @@ import { shortTeams } from '../teams'
 import { DEFAULTS as ACCA_DEFAULTS, evaluate, legScore, trueProb } from '../accaInsurance'
 import { boostEval, boostLegScore, HILLS_BOOST } from '../accaBoost'
 import HillsBuilder from './HillsBuilder'
-import { age, kickoff } from '../paddy'
+import { age, kickoff, snapOdds } from '../paddy'
 
 /**
  * Paddy — Paddy Power's corners, cards, goals and saves against fair prices.
@@ -74,6 +74,8 @@ const MAX_ODDS = [null, 1.5, 2, 3, 5]
 // Paddy's max odds is a slider (Callum, 20 Nov 2026): 1.25 up to 8, and the
 // top of the slider is no limit.
 const ODDS_SLIDER = { min: 1.25, max: 8, step: 0.05 }
+// A dragged slider catches at 2.5 (Callum, 21 Nov 2026); the arrow keys still step through.
+const ODDS_SNAP = 2.5
 const SORTS = ['best', 'shortest']   // by the Value and Odds headings
 const PER_MATCH = [[false, 'All legs'], [true, '1 per match']]   // Refund / Boost only
 const NO_FILTERS = { markets: DEFAULT_MARKETS, within: null, maxOdds: null, sort: 'best', onePerMatch: false }
@@ -204,6 +206,7 @@ export default function CardsPage({ book = 'paddy' }) {
   })
   const [fl, setFl] = useState(() => loadFilters(cfg))
   const [open, setOpen] = useState(null)   // which filter's choices are showing
+  const dragging = useRef(false)   // the odds slider is under a finger or the mouse
   const [items, setItems] = useState(null)
   const [error, setError] = useState(null)
   const [why, setWhy] = useState(null)
@@ -367,7 +370,12 @@ export default function CardsPage({ book = 'paddy' }) {
               {cfg.oddsSlider
                 ? <input type="range" className={f.slider} aria-label="Max odds" {...cfg.oddsSlider}
                     value={fl.maxOdds ?? cfg.oddsSlider.max}
-                    onChange={e => { const o = Number(e.target.value); setF({ maxOdds: o >= cfg.oddsSlider.max ? null : o }) }} />
+                    onPointerDown={() => { dragging.current = true }}
+                    onPointerUp={() => { dragging.current = false }} onPointerCancel={() => { dragging.current = false }}
+                    onChange={e => {
+                      const o = dragging.current ? snapOdds(Number(e.target.value), ODDS_SNAP) : Number(e.target.value)
+                      setF({ maxOdds: o >= cfg.oddsSlider.max ? null : o })
+                    }} />
                 : <Chips options={cfg.maxOdds.map(o => [o, o == null ? 'Any' : o.toFixed(1)])}
                     isOn={o => fl.maxOdds === o} onPick={o => { setF({ maxOdds: o }); setOpen(null) }} />}
             </div>

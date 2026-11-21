@@ -14,3 +14,9 @@ export function kickoff(iso, now = Date.now()) {
     : d.toLocaleDateString('en-GB', { weekday: 'short' })
   return { day, time: d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) }
 }
+
+// The odds slider catches at one price: a drag that lands within `zone` of
+// `at` goes to `at` exactly.
+export function snapOdds(o, at, zone = 0.15) {
+  return Math.abs(o - at) <= zone + 1e-9 ? at : o
+}
