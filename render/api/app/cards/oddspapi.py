@@ -895,6 +895,11 @@ def listed_fixtures(fixtures, names, *, now=None, window_hours=None) -> list[dic
     return out
 
 
+# How long a finished sweep's events are served to a page without sweeping
+# again: the sweep job runs every 2 minutes, so this is two missed ticks.
+SERVE_FOR_S = 300
+
+
 class OddsPapiPaddySource:
     """The cards tool's Paddy Power side from OddsPapi — and, with
     `oddspapi_fair_book` set (default "pinnacle"), its fair side too. Same interface as
@@ -926,6 +931,19 @@ class OddsPapiPaddySource:
         self.market_index: dict[str, tuple] = {}
         self.priced_book = book          # the slug the plan granted, once a sweep resolves it
         self.priced_at = None            # when the priced book's prices were fetched (oldest chunk)
+        self._served: list[dict] | None = None   # the last finished sweep's events
+        self._served_at = 0.0                    # time.monotonic() when it finished
+
+    def served_events(self) -> list[dict]:
+        """The last finished sweep's events, for a page: never a fetch and
+        never a wait behind one while the sweep job is keeping them (a sweep
+        with chunks due takes up to a minute, and the page sat on "Loading
+        prices" for all of it, 21 Nov 2026). With no sweep inside SERVE_FOR_S
+        (boot, or a source no job sweeps) it sweeps, as a page always did."""
+        served = self._served
+        if served is not None and time.monotonic() - self._served_at <= SERVE_FOR_S:
+            return served
+        return self.get_events()
 
     def get_events(self) -> list[dict]:
         # One sweep at a time: a page load arriving mid-sweep waits and then
@@ -1027,4 +1045,5 @@ class OddsPapiPaddySource:
             counts["fixtures_in_window"], counts["carried_paddy_prices"], self.label,
             counts["carried_pinnacle_prices"], fair_book or "no fair book",
             self._client.requests_today)
+        self._served, self._served_at = events, time.monotonic()
         return events

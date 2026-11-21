@@ -582,9 +582,10 @@ def test_diagnostics_names_a_sweep_that_failed_before_pricing():
         scheduler.LAST_CARDS_ERROR.clear()
 
 
-def test_no_fixtures_in_a_competition_is_an_empty_answer_cached_hourly(monkeypatch):
+def test_no_fixtures_in_a_competition_is_an_empty_answer_cached_at_the_slowest_gear(monkeypatch):
     # Live, 15 Oct: the internationals chunk outside a window answers 404
     # FIXTURE_NOT_FOUND. Treated as an error it was re-sent every 10 min.
+    # The slowest gear is 15 min since 19 Nov 2026 (it was an hour).
     sent = []
     nf = _R(404, '{"error":{"message":"No fixtures found for the specified tournament IDs and '
                  'bookmaker.","code":"FIXTURE_NOT_FOUND"}}')
@@ -593,9 +594,9 @@ def test_no_fixtures_in_a_competition_is_an_empty_answer_cached_hourly(monkeypat
     c = op.OddsPapiClient("k")
     assert c.odds_by_tournaments([23755]) == []
     for k, (at, v) in list(c._odds._data.items()):
-        c._odds._data[k] = (at - 1800, v)          # half an hour later
+        c._odds._data[k] = (at - 600, v)           # ten minutes later
     assert c.odds_by_tournaments([23755]) == []
-    assert len(sent) == 1                          # still cached: hourly gear
+    assert len(sent) == 1                          # still cached: the 15-minute gear
 
 
 def test_a_sweep_with_no_fair_book_names_none_and_never_the_old_vendor(monkeypatch):
@@ -612,3 +613,23 @@ def test_a_sweep_with_no_fair_book_names_none_and_never_the_old_vendor(monkeypat
         "source": "oddspapi", "fair_source": None, "fixtures_in_window": 3, "called": 3,
         "carried_paddy_prices": 3, "carried_pinnacle_prices": 0, "errors": []})
     assert "Set ODDSPAPI_FAIR_BOOK" in diagnose(stub)["verdict"]
+
+
+def test_a_page_reads_the_last_sweep_and_never_waits_behind_one(monkeypatch):
+    """The feed route sat on "Loading prices" for up to a minute while the
+    sweep job held the lock (21 Nov 2026): a page takes the events the last
+    finished sweep left."""
+    fake = _Fake()
+    src = op.OddsPapiPaddySource(fake)
+    first = src.served_events()                       # never swept: it sweeps
+    assert src.last_sweep and len(fake.calls) > 0
+    asked = len(fake.calls)
+    assert src._sweep_lock.acquire(blocking=False)    # a sweep is running
+    try:
+        assert src.served_events() is first           # no wait, no request
+    finally:
+        src._sweep_lock.release()
+    assert len(fake.calls) == asked
+    # No sweep for longer than SERVE_FOR_S (a source no job sweeps): it sweeps again.
+    src._served_at -= op.SERVE_FOR_S + 1
+    assert src.served_events() is not first

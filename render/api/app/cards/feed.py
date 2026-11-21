@@ -63,7 +63,9 @@ def build_feed(client, min_edge: float) -> list[CardFeedItem]:
         return []
 
     book = getattr(client, "book", PADDY_POWER)
-    events = client.get_events()
+    # A page reads what the sweep job holds where the source keeps it
+    # (OddsPapiPaddySource.served_events); it never waits behind a sweep.
+    events = getattr(client, "served_events", client.get_events)()
     bets = price_events(events, min_edge, book)
 
     groups: dict[str, dict] = {}
