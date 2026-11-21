@@ -562,7 +562,7 @@ class OddsApiNetHillsSource:
     # -- reading ---------------------------------------------------------------
 
     def get_events(self) -> list[dict]:
-        self._refresh_listing()
+        self._listing_for_page()
         # Read outside `_lock` (the client's own lock is held across a
         # request); it also rolls the client's day at 00:00 UTC.
         page_may_spend = self._page_may_spend()
@@ -681,6 +681,21 @@ class OddsApiNetHillsSource:
         """True while more than `floor` credits are left today: the page's pass,
         the listing and the warm job send nothing below that."""
         return self._client.budget_left() > self.floor
+
+    def _listing_for_page(self) -> None:
+        """The listing for a page request. With none yet (boot) the page waits
+        for the first, as it always did; after that a due listing is fetched
+        off the request, so a page never waits for `/events` behind a pass's
+        snapshots (the Hills page sat on "Loading prices", 21 Nov 2026)."""
+        if not self._listed_ok:
+            self._refresh_listing()
+            return
+        if self._listing_next is not None and self._mono() < self._listing_next:
+            return
+        try:
+            self._runner(self._refresh_listing)
+        except Exception as exc:         # a thread that would not start
+            logger.error("hills (odds-api.net): listing not started: %s", exc)
 
     def _refresh_listing(self) -> None:
         with self._listing_lock:

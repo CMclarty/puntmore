@@ -92,7 +92,12 @@ class OddsApiNetClient:
         self._today = today
         self._day: date | None = None
         self._last_request: float | None = None
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()        # one request in flight
+        # The day and the count, apart from `_lock`: a page asking what is
+        # left must never wait behind a request (a pass sends up to 60 back to
+        # back and held `_lock` nearly all of it, so the Hills page sat on
+        # "Loading prices", 21 Nov 2026).
+        self._count_lock = threading.Lock()
         self._store = store
         if store is not None:
             self._resume()
@@ -125,21 +130,23 @@ class OddsApiNetClient:
             self._day, self.requests_today = today, 0
 
     def budget_left(self) -> int:
-        with self._lock:
+        with self._count_lock:
             self._roll_day()
             return max(0, self.daily_budget - self.requests_today)
 
     def get(self, path: str, **params) -> dict:
         with self._lock:
-            self._roll_day()
-            if self.requests_today >= self.daily_budget:
-                raise BudgetSpent("daily credit budget spent")
+            with self._count_lock:
+                self._roll_day()
+                if self.requests_today >= self.daily_budget:
+                    raise BudgetSpent("daily credit budget spent")
             if self._last_request is not None:
                 gap = MIN_REQUEST_GAP - (self._monotonic() - self._last_request)
                 if gap > 0:
                     self._sleep(gap)
-            self.requests_today += 1
-            self._save()                 # before sending: a request cut off still counts
+            with self._count_lock:
+                self.requests_today += 1
+                self._save()             # before sending: a request cut off still counts
             logger.debug("odds-api.net GET %s %s", path, params)
             try:
                 resp = self._http.get(path, params=params)
