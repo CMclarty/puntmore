@@ -20,6 +20,10 @@ Login refuses a site holding none of the user's tools: a grant of public
 tools only (cards, hills) signs in on the main domain, not on Me.
 """
 
-USERS: list[tuple[str, str, str]] = [
-    ("Filo", "$2b$12$azhBuLX.HApJY0ckgocn..jVyUrUG4abPMLF89QSXvXw3ZEDNOxP2", "cards+hills"),
-]
+USERS: list[tuple[str, str, str]] = []
+
+# Accounts taken away. Each name's row is deleted on every startup
+# (security.remove_coded_users, matched ignoring case, after both seedings),
+# which ends its sessions at once: a session is checked against the row on
+# every request. Taking a line out of USERS alone leaves the account live.
+REMOVED: list[str] = ["Filo"]

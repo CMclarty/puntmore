@@ -16,6 +16,7 @@ from app.security import (
     parse_auth_users,
     seed_users,
     seed_coded_users,
+    remove_coded_users,
     has_permission,
     granted_tools,
 )
@@ -477,3 +478,32 @@ def test_weak_seed_passwords_flags_the_obvious_ones():
     assert "admin" not in str(weak_seed_passwords("x:admin"))
 
 
+
+
+def test_a_removed_user_is_deleted_and_their_session_stops_working():
+    _use_real_auth()
+    db = TestSession()
+    try:
+        seed_coded_users(db, [("Gina", hash_password("a-long-test-password"), "*")])
+    finally:
+        db.close()
+    client = TestClient(app)
+    assert client.post("/auth/login", json={
+        "username": "Gina", "password": "a-long-test-password"}).status_code == 200
+    assert client.get("/auth/me").status_code == 200
+    db = TestSession()
+    try:
+        assert remove_coded_users(db, ["gina"]) == ["Gina"]
+        assert db.query(User).count() == 0
+        assert remove_coded_users(db, ["gina"]) == []
+    finally:
+        db.close()
+    assert client.get("/auth/me").status_code == 401
+    assert client.post("/auth/login", json={
+        "username": "Gina", "password": "a-long-test-password"}).status_code == 401
+
+
+def test_filo_is_removed_and_no_longer_seeded():
+    from app import users
+    assert "Filo" in users.REMOVED
+    assert not any(name.lower() == "filo" for name, _, _ in users.USERS)

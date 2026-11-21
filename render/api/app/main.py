@@ -18,6 +18,7 @@ from .security import (
     require_tool,
     seed_users,
     seed_coded_users,
+    remove_coded_users,
     ensure_schema,
     weak_seed_passwords,
     MIN_PASSWORD_LENGTH,
@@ -91,6 +92,8 @@ async def lifespan(app: FastAPI):
             logger.info(
                 "Regranted %s from app/users.py: %r -> %r", username, old, new
             )
+        for username in remove_coded_users(db):
+            logger.info("Removed user %s (app/users.py REMOVED)", username)
         # Login is reachable from the public internet, so a guessable password
         # is the whole attack. Warn every startup until it is fixed — seeding
         # never rewrites a PASSWORD, so changing AUTH_USERS alone is not enough

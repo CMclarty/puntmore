@@ -485,6 +485,21 @@ def seed_coded_users(db: Session, users=None) -> tuple[int, list[tuple[str, str,
     return created, changed
 
 
+def remove_coded_users(db: Session, names=None) -> list[str]:
+    """Delete the accounts named in app/users.py REMOVED, matched ignoring
+    case. Run after both seedings, so a name still in AUTH_USERS or USERS does
+    not survive. Returns the usernames deleted."""
+    if names is None:
+        from .users import REMOVED as names
+    gone = []
+    for name in names:
+        for row in db.query(User).filter(func.lower(User.username) == name.lower()).all():
+            gone.append(row.username)
+            db.delete(row)
+    db.commit()
+    return gone
+
+
 def ensure_schema() -> None:
     """Idempotent SQLite migrations. Safe to run on every startup."""
     from .models import Base  # local import avoids circular at module level
