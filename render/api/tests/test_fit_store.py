@@ -93,3 +93,15 @@ def test_a_cache_reloads_entries_at_their_age():
     assert c.get("a") == 1 and c.get("old") is MISS and c.get("held") == "mine"
     assert c.get("a", ttl=5) is MISS                 # ten seconds old already
     assert c.writes == 1
+
+
+def test_the_diagnostics_say_what_boot_read_back():
+    from app.cards import feed
+    laddered._FITS.set("k", 1)
+    fit_store.save()
+    _restart()
+    fit_store.load()
+    got = feed.diagnose(None)["fit_cache"]
+    assert got["kept"] is True and got["loaded_at_boot"] == 1
+    assert got["held"] == {"fits": 1, "prices": 0, "splits": 0}
+    assert got["last_saved"] is not None

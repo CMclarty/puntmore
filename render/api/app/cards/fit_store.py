@@ -34,6 +34,14 @@ PATH: str | None = None
 _REFUSED_MARK = "__refused__"
 _SAVE_LOCK = threading.Lock()        # one writer at a time
 _saved_writes: int | None = None     # the caches' write count at the last save
+# For the diagnostics: what boot read back, and the last write.
+STATUS: dict = {"loaded_at_boot": None, "boot_file_age_s": None, "last_saved": None}
+
+
+def status() -> dict:
+    """Whether the fits are kept, what boot read back and the last write."""
+    return {"kept": PATH is not None, **STATUS,
+            "held": {name: len(cache) for name, cache in _caches().items()}}
 
 
 def _caches() -> dict:
@@ -90,6 +98,7 @@ def save() -> bool:
             logger.warning("fit cache not saved: %s", exc)
             return False
         _saved_writes = writes
+        STATUS["last_saved"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         return True
 
 
@@ -115,5 +124,6 @@ def load() -> int:
         logger.warning("fit cache not loaded: %s", exc)
         return 0
     _saved_writes = _writes()
+    STATUS.update(loaded_at_boot=loaded, boot_file_age_s=round(lay))
     logger.info("fit cache: %d entr(ies) loaded, %.0f s old", loaded, lay)
     return loaded

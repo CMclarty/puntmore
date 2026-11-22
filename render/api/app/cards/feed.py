@@ -166,7 +166,7 @@ def diagnose(client) -> dict:
     The counts come from whatever the last sweep actually did, so this reports
     the real pipeline rather than re-running it.
     """
-    from . import laddered
+    from . import fit_store, laddered
 
     sweep = dict(getattr(client, "last_sweep", {}) or {})
     # A fair side came with the sweep when it names one ("oddspapi:pinnacle",
@@ -275,4 +275,5 @@ def diagnose(client) -> dict:
         "sweep_error": dict(LAST_CARDS_ERROR) or None,
         "sweep": sweep,
         "pricing": priced,
+        "fit_cache": fit_store.status(),
     }
