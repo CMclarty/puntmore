@@ -44,6 +44,7 @@ class TTLCache:
         self._ttl = ttl
         self._maxsize = maxsize
         self._data: OrderedDict = OrderedDict()
+        self.writes = 0          # every `set`, so a saver can tell it changed
 
     def __len__(self) -> int:
         return len(self._data)
@@ -66,6 +67,7 @@ class TTLCache:
         return value
 
     def set(self, key, value) -> None:
+        self.writes += 1
         self._data[key] = (time.monotonic(), value)
         self._data.move_to_end(key)
         self._sweep()
@@ -92,6 +94,27 @@ class TTLCache:
         cache that is only ever read in bulk still sheds its expired entries."""
         self._sweep()
         return [v for _, v in self._data.values()]
+
+    def dump(self) -> list:
+        """[(key, age in seconds, value)] for every live entry, oldest touched
+        first: what `load` reads back (cards/fit_store.py)."""
+        now = time.monotonic()
+        return [(k, now - at, v) for k, (at, v) in list(self._data.items())
+                if now - at < self._ttl]
+
+    def load(self, items) -> int:
+        """Put `dump`'s entries back at the age they had. One already past the
+        TTL is skipped, and a key already held is left alone. Returns the
+        entries added."""
+        now = time.monotonic()
+        added = 0
+        for key, age, value in items:
+            if age >= self._ttl or key in self._data:
+                continue
+            self._data[key] = (now - age, value)
+            added += 1
+        self._sweep()
+        return added
 
     def clear(self) -> None:
         self._data.clear()

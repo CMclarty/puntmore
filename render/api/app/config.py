@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # notifications/routes.py. Unrouted alerts use DISCORD_WEBHOOK_URL.
     discord_routes: str = ""
     upload_dir: str = "uploads"
+    # Where the fitted ladders are kept across a restart (cards/fit_store.py).
+    # Blank: memory only, so every restart refits both boards.
+    fit_cache_path: str = ""
     # A coupon and its photo are deleted this many days after upload (PLAN.md
     # item 4): a coupon's window is a week at most, so after 8 days nothing on
     # it can still be bet. Rows and image files go together, never one alone.

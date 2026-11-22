@@ -44,6 +44,8 @@ def prime_fits(events, book) -> None:
     for i in range(0, len(events), PRIME_CHUNK):
         price_events(events[i:i + PRIME_CHUNK], settings.cards_min_edge, book)
     price_events(events, settings.cards_min_edge, book)
+    from . import fit_store
+    fit_store.save()         # kept across a restart
 
 
 def market_name(market_key: str) -> str:
