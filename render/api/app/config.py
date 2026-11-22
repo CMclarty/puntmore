@@ -268,9 +268,11 @@ class Settings(BaseSettings):
     twoup_bb_row_max_age_s: int = 600
     # The oldest a Pinnacle price may be for the `pinnacle` mode to judge a row
     # by it, measured from when the price was TRUE: OddsPapi's fetch time less
-    # the plan's delay (`pinnacle+30` is 30 minutes behind). 5700 = the
-    # client's slowest cache tier (3600, games more than six hours out) + the
-    # plan's delay (1800) + the feed's refresh interval (300). An older one
+    # the plan's delay (`pinnacle+30` is 30 minutes behind). 5700 was sized
+    # when the client's slowest cache tier was 3600: that + the plan's delay
+    # (1800) + the feed's refresh interval (300). The slowest tier is 900
+    # since 21 Nov 2026 (`oddspapi_ttl_tiers`), so it is looser than the cache
+    # needs; the number itself is Callum's to change. An older one
     # gives the row no `pinnacle` verdict, and the row is counted.
     twoup_pinnacle_max_age_s: int = 5700
 
