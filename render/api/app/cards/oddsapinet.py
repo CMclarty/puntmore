@@ -558,6 +558,10 @@ class OddsApiNetHillsSource:
         self.boards: dict[str, SnapshotLines] = {}
         self.last_sweep: dict = {}
         self.priced_at: datetime | None = None
+        # Called with the boards held after every pass (page or warm), on the
+        # pass's own thread: main.py sets it to price them (feed.prime_fits),
+        # so a page finds the fits cached and never fits a ladder itself.
+        self.on_pass: Callable[[list[dict]], None] | None = None
 
     # -- reading ---------------------------------------------------------------
 
@@ -591,6 +595,10 @@ class OddsApiNetHillsSource:
             waiting = self._refreshing and self._passes_done == 0
         if waiting:
             self._pass_done.wait(self.first_wait)
+        return self.held_events()
+
+    def held_events(self) -> list[dict]:
+        """The events of the boards held now. No request, no pass."""
         with self._lock:
             events = []
             for listing in self._listed():
@@ -934,6 +942,11 @@ class OddsApiNetHillsSource:
             kind, fetched, sweep.get("fixtures_in_window", 0), sweep.get("carried_paddy_prices", 0),
             sweep.get("carried_pinnacle_prices", 0), sweep.get("pending", 0), len(errors),
             sweep.get("requests_today", 0))
+        if self.on_pass is not None:
+            try:
+                self.on_pass(self.held_events())
+            except Exception:
+                logger.exception("hills (odds-api.net): pricing after the pass failed")
         return fetched
 
     def _prune(self) -> None:

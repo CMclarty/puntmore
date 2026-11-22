@@ -450,6 +450,9 @@ def test_the_scheduler_adds_hills_warm_only_for_an_odds_api_net_source(monkeypat
     got = job(oan)
     assert got is not None and got.trigger.interval.total_seconds() == 600
     assert got.kwargs == {"source": oan}
+    # The first pre-load starts soon after boot, not a whole interval later.
+    from datetime import datetime, timezone
+    assert 0 < (got.next_run_time - datetime.now(timezone.utc)).total_seconds() <= 60
     assert job(None) is None
     assert job(papi) is None
     monkeypatch.setattr(settings, "oddsapinet_warm_every_min", 0)

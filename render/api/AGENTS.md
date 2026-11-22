@@ -896,6 +896,13 @@ William Hill's corners, cards and goals lines with Pinnacle's as the fair side, 
   request is in flight, and once a listing has succeeded a due one is fetched off the page
   request (`_listing_for_page`). Before, a page asked for the credits left under the lock a
   pass holds across each of up to 60 snapshots, and the Hills page sat on "Loading prices".
+- **A page never fits a ladder** (22 Nov 2026): after every pass, page or warm, the source
+  hands the boards it holds to `on_pass` on the pass's own thread; `main.py` sets it to
+  `feed.prime_fits`, which prices them in chunks of `PRIME_CHUNK` (each its own turn of the
+  pricing lock, so Paddy's sweep and pages never queue behind a cold Hills board) and then
+  once whole. Before, nothing priced Hills' board but the page: a fit is ~1.3 s a match, so
+  a load after the boards refreshed took 6 to 34 s, and held the pricing lock against
+  Paddy while it did. `hills_warm` first runs 20 s after boot, not a whole interval later.
 - **A warmish board** (Callum, 11 Nov 2026: "could we get a warmish board, with slow
   pre-loads"): the scheduler job `hills_warm` (`scheduler.warm_hills` →
   `OddsApiNetHillsSource.warm`) runs every `oddsapinet_warm_every_min` (10; 0 turns it off),

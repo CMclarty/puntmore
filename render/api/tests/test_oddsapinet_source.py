@@ -667,3 +667,55 @@ def test_after_one_good_listing_a_failed_one_is_held_600_s():
     assert paths(fake).count("/events") == 2
     clock.advance(2); src.get_events()
     assert paths(fake).count("/events") == 3
+
+
+# --- pricing off the page (22 Nov 2026) -----------------------------------------
+
+def test_a_pass_hands_its_boards_to_the_pricing_hook_off_the_page():
+    src, fake, _ = make()
+    seen = []
+    src.on_pass = lambda events: seen.append([e["id"] for e in events])
+    src.get_events()
+    assert seen == [["oan:1417142635"]]
+    sent = len(fake.calls)
+    assert [e["id"] for e in src.held_events()] == ["oan:1417142635"]
+    assert len(fake.calls) == sent                   # reading what is held sends nothing
+
+
+def test_a_failing_pricing_hook_never_breaks_the_pass():
+    src, _, _ = make()
+
+    def boom(events):
+        raise RuntimeError("no")
+
+    src.on_pass = boom
+    assert [e["id"] for e in src.get_events()] == ["oan:1417142635"]
+    assert src.last_sweep["failed"] == 0
+    assert [e["id"] for e in src.get_events()] == ["oan:1417142635"]   # next pass can start
+
+
+def test_priming_prices_in_small_chunks_then_the_whole_board(monkeypatch):
+    calls = []
+    monkeypatch.setattr(feed, "price_events",
+                        lambda events, min_edge, book: calls.append((len(events), book)) or [])
+    feed.prime_fits([{"id": str(i)} for i in range(9)], "williamhill")
+    assert calls == [(4, "williamhill"), (4, "williamhill"), (1, "williamhill"),
+                     (9, "williamhill")]
+    calls.clear()
+    feed.prime_fits([], "williamhill")
+    assert calls == []
+
+
+def test_after_priming_a_page_fits_nothing(monkeypatch):
+    from app.cards import laddered
+    src, _, _ = make()
+    src.on_pass = lambda events: feed.prime_fits(events, src.book)
+    for cache in (laddered._FITS, laddered._PRICES, laddered._SPLITS):
+        cache.clear()
+    src.get_events()
+
+    def never(*a, **k):
+        raise AssertionError("a page fitted a ladder")
+
+    monkeypatch.setattr(laddered, "fit_ladder", never)
+    feed.build_feed(src, 0.0)
