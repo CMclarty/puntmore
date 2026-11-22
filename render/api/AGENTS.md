@@ -225,8 +225,9 @@ default and a reason.
   `fair_priced_at`, when Pinnacle's price was true. Every row carries
   `bet365_priced_at`, `fair_priced_at` (null without a Pinnacle side) and
   `priced_at`, the older of the two, in both sources. A Pinnacle price older
-  than `twoup_pinnacle_max_age_s` (5700 = the slowest cache tier 3600 + the
-  delay 1800 + the feed's 300) gives no `pinnacle` verdict and is counted
+  than `twoup_pinnacle_max_age_s` (5700, sized when the slowest cache tier was 3600: that + the
+  delay 1800 + the feed's 300; the slowest tier is 900 since 21 Nov 2026, so the limit
+  is looser than the cache needs) gives no `pinnacle` verdict and is counted
   (`pinnacle_too_old`; in the `oddspapi` source the fixture is not priced).
   `status.pinnacle` reports the slug, delay and the held prices' oldest and
   newest ages, read when asked; in `bb`, Pinnacle data whose freshest price
