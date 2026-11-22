@@ -896,6 +896,12 @@ William Hill's corners, cards and goals lines with Pinnacle's as the fair side, 
   request is in flight, and once a listing has succeeded a due one is fetched off the page
   request (`_listing_for_page`). Before, a page asked for the credits left under the lock a
   pass holds across each of up to 60 snapshots, and the Hills page sat on "Loading prices".
+- **The fits survive a restart** (22 Nov 2026, `cards/fit_store.py`): the three fit caches
+  are written to `FIT_CACHE_PATH` (`/data/fit_cache.pkl`) after a Paddy sweep or a Hills
+  pricing pass that changed them, and read back at boot before anything prices. Entries
+  keep their age; a file written by other pricing code (a hash of `pricing/counts/` and
+  `laddered.py`) is not loaded. Before, every deploy refitted both boards: 29 s for Hills'
+  first load and 61 s for Paddy's.
 - **A page never fits a ladder** (22 Nov 2026): after every pass, page or warm, the source
   hands the boards it holds to `on_pass` on the pass's own thread; `main.py` sets it to
   `feed.prime_fits`, which prices them in chunks of `PRIME_CHUNK` (each its own turn of the

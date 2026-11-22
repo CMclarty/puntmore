@@ -205,6 +205,8 @@ def sweep_cards(cards_client, notifier=None) -> int:
         from .cards import history
         priced = price_events(events, history.FLOOR)
         rows = [r for r in priced if r.edge >= settings.cards_min_edge]
+        from .cards import fit_store
+        fit_store.save()                          # the fits, kept across a restart
     except Exception as exc:
         # Logged with the cause: a silent failure here is what made the old
         # cards client look like a market with no value in it. Kept for

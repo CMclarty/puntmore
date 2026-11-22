@@ -141,6 +141,13 @@ async def lifespan(app: FastAPI):
                     f"OddsPapi {settings.oddspapi_fair_book}"
                     if settings.oddspapi_fair_book else "none (set ODDSPAPI_FAIR_BOOK)")
 
+    # The fits from before the restart, read back before anything prices
+    # (cards/fit_store.py). FIT_CACHE_PATH names the file, on the disk; blank
+    # (tests, a dev box) keeps the fits in memory only.
+    from .cards import fit_store
+    fit_store.PATH = settings.fit_cache_path or None
+    fit_store.load()
+
     # Hills: on odds-api.net when ODDSAPINET_API_KEY is set, else the same
     # pipeline against William Hill on the SAME OddsPapi client (one budget,
     # one rate limit, Pinnacle's chunks cached once) — hills/vendor.py. On
@@ -270,6 +277,7 @@ async def lifespan(app: FastAPI):
     # "shutting down", the process was killed rather than redeployed — which is
     # what an OOM or a crash behind a 502 looks like from the outside.
     diagnostics.record("shutdown", note="lifespan exit, scheduler stopping")
+    fit_store.save()
     scheduler.shutdown(wait=False)
 
 

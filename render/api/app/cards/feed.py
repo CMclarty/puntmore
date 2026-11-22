@@ -44,6 +44,8 @@ def prime_fits(events, book) -> None:
     for i in range(0, len(events), PRIME_CHUNK):
         price_events(events[i:i + PRIME_CHUNK], settings.cards_min_edge, book)
     price_events(events, settings.cards_min_edge, book)
+    from . import fit_store
+    fit_store.save()         # kept across a restart
 
 
 def market_name(market_key: str) -> str:
@@ -164,7 +166,7 @@ def diagnose(client) -> dict:
     The counts come from whatever the last sweep actually did, so this reports
     the real pipeline rather than re-running it.
     """
-    from . import laddered
+    from . import fit_store, laddered
 
     sweep = dict(getattr(client, "last_sweep", {}) or {})
     # A fair side came with the sweep when it names one ("oddspapi:pinnacle",
@@ -273,4 +275,5 @@ def diagnose(client) -> dict:
         "sweep_error": dict(LAST_CARDS_ERROR) or None,
         "sweep": sweep,
         "pricing": priced,
+        "fit_cache": fit_store.status(),
     }
