@@ -519,6 +519,9 @@ def start_scheduler(
             minutes=settings.oddsapinet_warm_every_min,
             id="hills_warm",
             replace_existing=True,
+            # The first pre-load soon after boot, so a deploy does not leave
+            # the page cold for a whole interval.
+            next_run_time=datetime.now() + timedelta(seconds=20),
             # A slow pass skips the next tick rather than queueing it.
             coalesce=True,
             max_instances=1,

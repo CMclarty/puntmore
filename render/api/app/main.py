@@ -156,6 +156,11 @@ async def lifespan(app: FastAPI):
         logger.warning("Hills: no odds source (set ODDSAPINET_API_KEY or ODDSPAPI_API_KEY)")
     else:
         logger.info("Hills: William Hill and Pinnacle from %s", app.state.hills_client.vendor)
+        if hasattr(app.state.hills_client, "on_pass"):
+            # Hills' board is priced after each fetch pass, off the page.
+            from .cards.feed import prime_fits
+            _hills = app.state.hills_client
+            _hills.on_pass = lambda events: prime_fits(events, _hills.book)
 
     # The 2-Up engine's feed: Pinnacle's 1X2 on the SAME OddsPapi client (one
     # budget, one rate limit; Pinnacle's chunks shared with the coupon tracker

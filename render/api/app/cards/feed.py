@@ -28,6 +28,24 @@ def price_events(events, min_edge, book=PADDY_POWER):
     rows.sort(key=lambda r: r.edge, reverse=True)
     return rows
 
+PRIME_CHUNK = 4
+
+
+def prime_fits(events, book) -> None:
+    """Price `events` off the page so a page finds every fit cached (Hills:
+    nothing else prices its board, and a fit is ~1.3 s a match, which a page
+    paid in the request, 22 Nov 2026). In chunks of PRIME_CHUNK, each its own
+    turn of the pricing lock, so Paddy's sweep and pages are never stuck
+    behind a whole cold board; then once whole (all cached by now), so the
+    diagnostics' counts are the board's, not the last chunk's."""
+    from ..config import settings
+    if not events:
+        return
+    for i in range(0, len(events), PRIME_CHUNK):
+        price_events(events[i:i + PRIME_CHUNK], settings.cards_min_edge, book)
+    price_events(events, settings.cards_min_edge, book)
+
+
 def market_name(market_key: str) -> str:
     """corners | cards | goals | saves | team_corners | team_cards, from
     whichever key a vendor used."""
