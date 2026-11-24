@@ -21,11 +21,11 @@ tools only (cards, hills) signs in on the main domain, not on Me.
 """
 
 USERS: list[tuple[str, str, str]] = [
-    ("EV farmer", "$2b$12$rocfhnX2xSAb.PRPxCd5Nel9Gn2i5AfiLhbKNVnCNJls.A2ma00.W", "cards+hills"),
+    ("EV", "$2b$12$rocfhnX2xSAb.PRPxCd5Nel9Gn2i5AfiLhbKNVnCNJls.A2ma00.W", "cards+hills"),
 ]
 
 # Accounts taken away. Each name's row is deleted on every startup
 # (security.remove_coded_users, matched ignoring case, after both seedings),
 # which ends its sessions at once: a session is checked against the row on
 # every request. Taking a line out of USERS alone leaves the account live.
-REMOVED: list[str] = ["Filo"]
+REMOVED: list[str] = ["Filo", "EV farmer"]
