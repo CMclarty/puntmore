@@ -70,9 +70,8 @@ const FAIR_ONLY = ['most_corners', 'most_cards']
 const DEFAULT_MARKETS = MARKETS.filter(m => !FAIR_ONLY.includes(m))
 const marketLabel = m => MARKET_LABELS[m] || m[0].toUpperCase() + m.slice(1)
 const WITHIN = [[null, 'Any'], [1, '< 1h'], ['today', 'Today'], [24, '24h'], [48, '48h'], [72, '72h']]
-const MAX_ODDS = [null, 1.5, 2, 3, 5]
-// Paddy's max odds is a slider (Callum, 20 Nov 2026): 1.25 up to 8, and the
-// top of the slider is no limit.
+// Max odds is a slider (Callum: Paddy 20 Nov 2026, Hills 24 Nov 2026): 1.25 up
+// to 8, and the top of the slider is no limit.
 const ODDS_SLIDER = { min: 1.25, max: 8, step: 0.05 }
 // A dragged slider catches at 2.5 (Callum, 21 Nov 2026); the arrow keys still step through.
 const ODDS_SNAP = 2.5
@@ -90,9 +89,7 @@ function loadFilters(cfg) {
     return {
       markets: v.markets.filter(m => cfg.markets.includes(m)),
       within: oneOf(v.within, WITHIN.map(([w]) => w), null),
-      maxOdds: cfg.oddsSlider
-        ? (typeof v.maxOdds === 'number' && v.maxOdds >= cfg.oddsSlider.min && v.maxOdds < cfg.oddsSlider.max ? v.maxOdds : null)
-        : oneOf(v.maxOdds, cfg.maxOdds, null),
+      maxOdds: typeof v.maxOdds === 'number' && v.maxOdds >= ODDS_SLIDER.min && v.maxOdds < ODDS_SLIDER.max ? v.maxOdds : null,
       sort: oneOf(v.sort, SORTS, 'best'),
       onePerMatch: v.onePerMatch === true,
     }
@@ -115,7 +112,7 @@ function marketsLabel(markets) {
 }
 const withinLabel = w => (w == null ? 'Any time' : w === 'today' ? 'Today'
   : w === 1 ? 'Next 1h' : `Next ${w}h`)
-const oddsLabel = (o, dp = 1) => (o == null ? 'Any odds' : `≤ ${o.toFixed(dp)}`)
+const oddsLabel = o => (o == null ? 'Any odds' : `≤ ${o.toFixed(2)}`)
 
 function Chips({ options, isOn, onPick, icons = false }) {
   return options.map(([k, label]) => (
@@ -190,10 +187,10 @@ function Selection({ lead, others, expanded, onToggle, now }) {
 // which offers and markets it has.
 const BOOKS = {
   paddy: { feed: getCardsFeed, why: getCardsDiagnostics, offerKey: 'paddy.tab',
-    filterKey: 'paddy.filters', offers: OFFERS, markets: MARKETS, oddsSlider: ODDS_SLIDER },
+    filterKey: 'paddy.filters', offers: OFFERS, markets: MARKETS },
   hills: { feed: getHillsFeed, why: getHillsDiagnostics, offerKey: 'hills.tab',
     filterKey: 'hills.filters', offers: [['value', 'Value'], ['bb', 'BB Boost'], ['boost', 'Boost']],
-    markets: MARKETS.filter(m => !FAIR_ONLY.includes(m)), boost: HILLS_BOOST, maxOdds: MAX_ODDS },
+    markets: MARKETS.filter(m => !FAIR_ONLY.includes(m)), boost: HILLS_BOOST },
 }
 
 export default function CardsPage({ book = 'paddy' }) {
@@ -348,7 +345,7 @@ export default function CardsPage({ book = 'paddy' }) {
         <div className={f.pills} role="group" aria-label="Filters">
           {pill('markets', marketsLabel(fl.markets), !sameMarkets)}
           {pill('within', withinLabel(fl.within), fl.within != null)}
-          {pill('odds', oddsLabel(fl.maxOdds, cfg.oddsSlider ? 2 : 1), fl.maxOdds != null)}
+          {pill('odds', oddsLabel(fl.maxOdds), fl.maxOdds != null)}
           {!singles && pill('match', fl.onePerMatch ? '1 per match' : 'All legs', fl.onePerMatch)}
         </div>
       </div>
@@ -367,17 +364,14 @@ export default function CardsPage({ book = 'paddy' }) {
           )}
           {open === 'odds' && (
             <div className={f.group} role="group" aria-label="Max odds">
-              {cfg.oddsSlider
-                ? <input type="range" className={f.slider} aria-label="Max odds" {...cfg.oddsSlider}
-                    value={fl.maxOdds ?? cfg.oddsSlider.max}
-                    onPointerDown={() => { dragging.current = true }}
-                    onPointerUp={() => { dragging.current = false }} onPointerCancel={() => { dragging.current = false }}
-                    onChange={e => {
-                      const o = dragging.current ? snapOdds(Number(e.target.value), ODDS_SNAP) : Number(e.target.value)
-                      setF({ maxOdds: o >= cfg.oddsSlider.max ? null : o })
-                    }} />
-                : <Chips options={cfg.maxOdds.map(o => [o, o == null ? 'Any' : o.toFixed(1)])}
-                    isOn={o => fl.maxOdds === o} onPick={o => { setF({ maxOdds: o }); setOpen(null) }} />}
+              <input type="range" className={f.slider} aria-label="Max odds" {...ODDS_SLIDER}
+                value={fl.maxOdds ?? ODDS_SLIDER.max}
+                onPointerDown={() => { dragging.current = true }}
+                onPointerUp={() => { dragging.current = false }} onPointerCancel={() => { dragging.current = false }}
+                onChange={e => {
+                  const o = dragging.current ? snapOdds(Number(e.target.value), ODDS_SNAP) : Number(e.target.value)
+                  setF({ maxOdds: o >= ODDS_SLIDER.max ? null : o })
+                }} />
             </div>
           )}
           {open === 'match' && (
