@@ -503,7 +503,7 @@ def test_a_removed_user_is_deleted_and_their_session_stops_working():
         "username": "Gina", "password": "a-long-test-password"}).status_code == 401
 
 
-def test_filo_is_removed_and_no_longer_seeded():
+def test_filo_is_seeded_with_paddy_and_hills_and_not_removed():
     from app import users
-    assert "Filo" in users.REMOVED
-    assert not any(name.lower() == "filo" for name, _, _ in users.USERS)
+    assert ("Filo", "cards+hills") in [(name, grant) for name, _, grant in users.USERS]
+    assert not any(name.lower() == "filo" for name in users.REMOVED)
