@@ -104,7 +104,8 @@ kept and the clash is counted.
 - **Only Callum.** `props` is a new grant in `ALL_TOOLS` and `ME_TOOLS`. Callum's account is
   not in code: it comes from `AUTH_USERS` on Render and holds `*`, which carries every tool.
   No coded account and no API client is granted `props`; any other account holding `*`
-  would see it.
+  would see it. (25 Nov 2026: accounts now live in the database and are managed on the
+  Users page; `AUTH_USERS` only bootstraps an empty one and the coded accounts are gone.)
 
 ## Not in this build
 

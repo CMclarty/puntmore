@@ -17,9 +17,8 @@ from sqlalchemy.orm import Session
 
 from .. import diagnostics
 from ..database import get_db
-from ..models import User
 from ..schemas import ClearedOut, ClientErrorAckOut, ErrorsOut
-from ..security import KeyAuth, api_key_auth, has_permission
+from ..security import KeyAuth, api_key_auth, has_permission, session_user
 
 router = APIRouter(prefix="/diagnostics", tags=["diagnostics"])
 
@@ -38,13 +37,11 @@ def require_admin_or_key(
     p = auth.principal
     if p is not None and (p.permissions.strip() == "*" or has_permission(p.permissions, "state")):
         return
-    username = request.session.get("user")
-    if username:
-        user = db.query(User).filter(User.username == username).first()
-        # "*" only: diagnostics spans every tool, so a per-tool grant is not
-        # enough to read it.
-        if user and (user.permissions or "") == "*":
-            return
+    user = session_user(request, db)
+    # "*" only: diagnostics spans every tool, so a per-tool grant is not
+    # enough to read it.
+    if user is not None and (user.permissions or "") == "*":
+        return
     raise HTTPException(status_code=403, detail="Admin session or X-API-Key required")
 
 
@@ -82,7 +79,7 @@ class ClientError(BaseModel):
 
 
 @router.post("/client", status_code=202, response_model=ClientErrorAckOut)
-def report_client_error(body: ClientError, request: Request):
+def report_client_error(body: ClientError, request: Request, db: Session = Depends(get_db)):
     """Intake for frontend errors. Deliberately open to any LOGGED-IN user.
 
     Not key-guarded: the whole point is to catch failures on the phone in the
@@ -90,11 +87,12 @@ def report_client_error(body: ClientError, request: Request):
     an anonymous caller cannot fill the buffer — and every record is clipped and
     bounded by the same ring buffer as everything else.
     """
-    if not request.session.get("user"):
+    user = session_user(request, db)
+    if user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
     ref = diagnostics.record(
         "client_error",
-        user=request.session.get("user"),
+        user=user.username,
         route=body.route,
         request=body.request,
         status=body.status,

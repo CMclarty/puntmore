@@ -1,9 +1,13 @@
 """Minimal auth for a small trusted syndicate: bcrypt + signed session cookie.
 
-No registration / reset flows. Users are seeded from Settings.auth_users on
-startup. require_user is the single guard applied to every data router.
+No registration / reset flows. Accounts live in the database (the register,
+25 Nov 2026): a `*` account adds, regrants and removes them on the Users page
+(routers/admin.py). Settings.auth_users only bootstraps an empty users table.
+require_user is the single guard applied to every data router.
 """
 import hashlib
+import hmac
+import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -27,9 +31,13 @@ from .time_utils import utcnow
 # Callum's only, so a key or account issued to anyone but
 # Callum never carries "*", only named grants. `aw26` is Callum's ledger of
 # slips, also on `me`. `props` (Nov 2026) is Callum's player props board, on
-# `me`, granted to no one else and to no API client.
+# `me`, granted to no one else and to no API client. `admin` (25 Nov 2026) is
+# the Users page on `me`: held ONLY by an account whose raw grant is "*", never
+# by name (parse_permissions drops it from a named grant), and never by a key
+# (its routes take a session only: routers/admin.py).
+ADMIN = "admin"
 ALL_TOOLS = ("coupons", "accabonus", "cards", "hills", "goalscorers", "pnl", "kelly", "boost", "shop",
-             "aw26", "finder", "props")
+             "aw26", "finder", "props", ADMIN)
 
 # Grants that name no page — they exist for machine callers. `value` reads the
 # cross-tool value feed (GET /api/value); `state` is the whole-app snapshot
@@ -38,7 +46,8 @@ ALL_TOOLS = ("coupons", "accabonus", "cards", "hills", "goalscorers", "pnl", "ke
 # STATE_API_KEY and SAVES_INGEST_KEY are these last two, as static keys. A key
 # holding a grant name that no longer exists loads and is granted nothing for it.
 MACHINE_GRANTS = ("value", "state", "ingest")
-ALL_GRANTS = ALL_TOOLS + MACHINE_GRANTS
+# The names a grant may carry. Not `admin`: it cannot be granted by name.
+ALL_GRANTS = tuple(t for t in ALL_TOOLS if t != ADMIN) + MACHINE_GRANTS
 
 
 def hash_password(plain: str) -> str:
@@ -223,35 +232,86 @@ def api_key_auth(
     return KeyAuth(presented=True, principal=resolve_api_key(key, db))
 
 
-def require_user(request: Request, auth: KeyAuth = Depends(api_key_auth)) -> str:
+# --- sessions -------------------------------------------------------------------
+#
+# The key SessionMiddleware signs the cookie with (main.py). SECRET_KEY in
+# production; a random one (dev, tests) resets sessions on every restart.
+SESSION_SECRET = settings.secret_key or secrets.token_urlsafe(32)
+
+
+def account_mark(password_hash: str) -> str:
+    """The session's fingerprint of an account: an HMAC, keyed with the session
+    secret, of the row's stored password hash. bcrypt's salt is random, so an
+    account deleted and made again under the same name (or given a new password)
+    never has the old mark, and an old cookie is not signed in to it. The hash
+    itself never goes in the cookie."""
+    return hmac.new(SESSION_SECRET.encode(), b"account:" + (password_hash or "").encode(),
+                    hashlib.sha256).hexdigest()
+
+
+def sign_in(request: Request, user: User) -> None:
+    """Start a session for `user`: its name and its account's fingerprint.
+    Anything in the session before is dropped."""
+    request.session.clear()
+    request.session["user"] = user.username
+    request.session["acct"] = account_mark(user.password_hash)
+
+
+def session_user(request: Request, db: Session) -> User | None:
+    """The live row a session belongs to, or None: no session, no row by that
+    name, or a fingerprint missing or not this row's (the account was deleted
+    and made again, or its password changed). The ONE place a session becomes
+    a user; every guard that reads a session goes through it."""
+    username = request.session.get("user")
+    mark = request.session.get("acct")
+    if not username or not isinstance(mark, str) or not mark:
+        return None
+    user = db.query(User).filter(User.username == username).first()
+    if user is None or not hmac.compare_digest(mark, account_mark(user.password_hash)):
+        return None
+    return user
+
+
+def require_user(
+    request: Request,
+    auth: KeyAuth = Depends(api_key_auth),
+    db: Session = Depends(get_db),
+) -> str:
     """FastAPI dependency: who is calling — the session username, or
     "api:<name>" for an API client — else 401.
 
     A key, when sent, IS the identity: a bad key is a 401 even beside a valid
     session cookie, so a script can never silently act as a browser's user.
+    A session counts only while it matches its live row (`session_user`).
     Overridable in tests via app.dependency_overrides[require_user].
     """
     if auth.presented:
         if auth.principal is None:
             raise HTTPException(status_code=401, detail="Invalid API key")
         return auth.principal.username
-    user = request.session.get("user")
-    if not user:
+    user = session_user(request, db)
+    if user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return user
+    return user.username
 
 
 def parse_permissions(perms: str) -> set[str]:
     """Expand a permission string to the concrete set of tool names it grants.
 
-    "*" expands to every known tool. Otherwise tools are joined by "+"
-    (e.g. "coupons+accabonus"). Does NOT apply the server's enable flags — use
-    granted_tools for what a user may actually see.
+    "*" expands to every known tool, `admin` included. Otherwise tools are
+    joined by "+" (e.g. "coupons+accabonus"), and `admin` named there confers
+    nothing: it belongs to "*" alone. Does NOT apply the server's enable flags
+    — use granted_tools for what a user may actually see.
     """
     perms = (perms or "").strip()
     if perms == "*":
         return set(ALL_TOOLS)
-    return {t.strip() for t in perms.split("+") if t.strip()}
+    return {t.strip() for t in perms.split("+") if t.strip() and t.strip() != ADMIN}
+
+
+def is_admin(perms: str) -> bool:
+    """True for the raw grant "*", the only one that holds `admin`."""
+    return (perms or "").strip() == "*"
 
 
 def has_permission(perms: str, tool: str) -> bool:
@@ -296,7 +356,22 @@ def enabled_tools() -> list[str]:
     # ENABLE_PROPS switches the routes and the page off together.
     if settings.enable_props:
         tools.append("props")
+    # The Users page (on `me`): always surfaced, held by "*" alone.
+    tools.append(ADMIN)
     return tools
+
+
+# Granted on the Users page though enabled_tools() does not list it: `accabonus`
+# is the 365 tool, whose routes and tab are gated on the grant.
+EXTRA_GRANTABLE = ("accabonus",)
+
+
+def grantable_tools() -> list[str]:
+    """The tools the Users page may grant, in ALL_TOOLS order: the enabled ones
+    less `admin`, plus EXTRA_GRANTABLE. What the rest of the app surfaces
+    (enabled_tools, granted_tools) is unchanged by the extra."""
+    on = set(enabled_tools()) - {ADMIN}
+    return [t for t in ALL_TOOLS if t in on or t in EXTRA_GRANTABLE]
 
 
 def granted_tools(perms: str) -> list[str]:
@@ -324,12 +399,10 @@ def user_permissions(
         if auth.principal is None:
             raise HTTPException(status_code=401, detail="Invalid API key")
         return auth.principal.permissions
-    username = request.session.get("user")
-    if not username:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    user = db.query(User).filter(User.username == username).first()
+    # A session whose row is gone, was made again, or has a new password is
+    # not signed in (session_user).
+    user = session_user(request, db)
     if user is None:
-        # Session names a user that no longer exists (deleted between requests).
         raise HTTPException(status_code=401, detail="Not authenticated")
     return user.permissions or ""
 
@@ -410,6 +483,53 @@ _COMMON_PASSWORDS = {
 MIN_PASSWORD_LENGTH = 12
 
 
+# bcrypt reads at most 72 bytes; the library refuses more rather than cut it.
+MAX_PASSWORD_BYTES = 72
+
+
+def _unencodable(text: str) -> bool:
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return True
+    return False
+
+
+def password_problem(password: str) -> str | None:
+    """Why a password set on the Users page is refused, or None. The message
+    never repeats the password."""
+    if not password.strip():
+        return "Password cannot be blank"
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return f"Password must be at least {MIN_PASSWORD_LENGTH} characters"
+    # Characters bcrypt cannot take: a control character (a NUL makes an
+    # account nobody can sign in to) or one that will not encode.
+    if not password.isprintable() or not password.isascii() and _unencodable(password):
+        return "Password has a character that cannot be used"
+    if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        return f"Password must be at most {MAX_PASSWORD_BYTES} bytes (fewer characters if not plain letters)"
+    if password.lower() in _COMMON_PASSWORDS:
+        return "Password is too common"
+    return None
+
+
+# A username set on the Users page: ASCII letters, digits, space, dot,
+# underscore and hyphen, 1 to 32 characters, starting with a letter or digit
+# and not ending with a space. ASCII only, so case-blind uniqueness (SQLite's
+# lower() folds ASCII alone) means what it says.
+_USERNAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9 ._-]{0,30}[A-Za-z0-9._-])?")
+
+
+def username_problem(name: str) -> str | None:
+    """Why a username set on the Users page is refused, or None."""
+    if not name:
+        return "Username is required"
+    if name in (".", "..") or not _USERNAME.fullmatch(name):
+        return ("Username must be 1 to 32 characters: letters, digits, spaces, dots, "
+                "underscores and hyphens, starting with a letter or digit")
+    return None
+
+
 def weak_seed_passwords(raw: str) -> list[str]:
     """Usernames in AUTH_USERS whose password is guessable.
 
@@ -426,78 +546,30 @@ def weak_seed_passwords(raw: str) -> list[str]:
     return weak
 
 
-def seed_users(db: Session, raw: str) -> tuple[int, list[tuple[str, str, str]]]:
-    """Create users from auth_users, and reconcile existing users' permissions.
+def seed_users(db: Session, raw: str) -> int:
+    """Bootstrap accounts from auth_users, ONLY into an empty users table.
 
-    Returns (created_count, [(username, old_perms, new_perms), ...]).
-
-    Permissions are reconciled on every startup because AUTH_USERS is the only
-    lever available in production: the database lives on a disk we cannot open a
-    SQL shell against, so a grant that could only be changed by editing the row
-    could not be changed at all. Making the env var authoritative means a
-    permission change is an env edit plus a restart.
-
-    Passwords are still NEVER rewritten. Re-hashing on every boot would silently
-    revert a password changed by any other means, and unlike a permission grant
-    a password has no visible symptom when it is wrong-but-valid. Changing one
-    still means deleting the row.
+    Returns the number of accounts created. The database is the source of truth
+    for accounts (the register, 25 Nov 2026): they are added, regranted and
+    removed on the Users page, so once any account exists this creates nothing
+    and never touches an existing row's grant or password. AUTH_USERS is how a
+    fresh database gets its first (`*`) account.
     """
+    if db.query(User.id).first() is not None:
+        return 0
     created = 0
-    changed: list[tuple[str, str, str]] = []
     for username, password, permissions in parse_auth_users(raw):
-        existing = db.query(User).filter(User.username == username).first()
-        if existing is None:
-            db.add(User(
-                username=username,
-                password_hash=hash_password(password),
-                permissions=permissions,
-            ))
-            created += 1
-            continue
-        if existing.permissions != permissions:
-            changed.append((username, existing.permissions, permissions))
-            existing.permissions = permissions
+        if db.query(User).filter(func.lower(User.username) == username.lower()).first():
+            continue    # a repeated name in AUTH_USERS: the first one wins
+        db.add(User(
+            username=username,
+            password_hash=hash_password(password),
+            permissions=permissions,
+        ))
+        db.flush()
+        created += 1
     db.commit()
-    return created, changed
-
-
-def seed_coded_users(db: Session, users=None) -> tuple[int, list[tuple[str, str, str]]]:
-    """seed_users for the accounts in app/users.py, whose passwords come as
-    bcrypt hashes. Run after the AUTH_USERS seeding, so where a user is in
-    both, the grant in code wins."""
-    if users is None:
-        from .users import USERS as users
-    created = 0
-    changed: list[tuple[str, str, str]] = []
-    for username, password_hash, permissions in users:
-        # Matched ignoring case so a respelt name renames the user, not doubles it.
-        existing = db.query(User).filter(func.lower(User.username) == username.lower()).first()
-        if existing is not None and existing.username != username:
-            existing.username = username
-        if existing is None:
-            db.add(User(username=username, password_hash=password_hash,
-                        permissions=permissions))
-            created += 1
-        elif existing.permissions != permissions:
-            changed.append((username, existing.permissions, permissions))
-            existing.permissions = permissions
-    db.commit()
-    return created, changed
-
-
-def remove_coded_users(db: Session, names=None) -> list[str]:
-    """Delete the accounts named in app/users.py REMOVED, matched ignoring
-    case. Run after both seedings, so a name still in AUTH_USERS or USERS does
-    not survive. Returns the usernames deleted."""
-    if names is None:
-        from .users import REMOVED as names
-    gone = []
-    for name in names:
-        for row in db.query(User).filter(func.lower(User.username) == name.lower()).all():
-            gone.append(row.username)
-            db.delete(row)
-    db.commit()
-    return gone
+    return created
 
 
 def ensure_schema() -> None:

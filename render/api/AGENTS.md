@@ -23,6 +23,81 @@ The main domain serves every public tool; `me` serves Callum's personal tools
   refuses a redirected worker script, so a redirect there would leave every
   app installed from shalgo on its old worker for good.
 
+## Accounts (`app/accounts.py`, `routers/admin.py`, 25 Nov 2026)
+**The database is the source of truth for accounts** (the register, Callum,
+25 Nov 2026). They are added, regranted and removed on the Users page on `me`
+(`/users`, API `/api/admin/users`), and nowhere else: `app/users.py` and its
+startup seeding (`seed_coded_users`, `remove_coded_users`) are gone, and the
+accounts it created are ordinary rows. Never reintroduce a list of accounts in
+code or an env var that re-applies grants on boot: it would undo the page.
+- **`AUTH_USERS` only bootstraps an empty database** (`security.seed_users`):
+  it creates accounts only when the users table has no row at all, and never
+  regrants or re-passwords one. The boot still warns about a weak password in
+  it; changing it there changes nothing live (below: how a password is set).
+- **`admin` belongs to the raw grant `*` alone** (`security.ADMIN`,
+  `is_admin`). It is in `ALL_TOOLS` (so `*` and `granted_tools("*")` carry it,
+  and the shell shows the page) but not in `ALL_GRANTS`: a grant that names it
+  is granted nothing for it (`parse_permissions` drops it), `apikeys` refuses
+  it, and the page never offers it (`grantable_tools`).
+- **Session only.** `routers/admin.require_admin` takes a session whose row,
+  read live (`session_user`), has the grant `*`; any key, even one holding
+  `*`, is a 403 (a bad key 401). It does not go through `user_permissions`, so
+  the test bypass in `conftest.py` does not open it.
+- **A `*` account is never changed or removed there**, and nothing there sets
+  `*`: Callum cannot lock himself out and no one is made an admin on the page.
+- **What the page grants** (`security.grantable_tools`): the enabled tools less
+  `admin`, plus `accabonus` (the 365 tool; `EXTRA_GRANTABLE`), which
+  `enabled_tools()` does not list although its routes and tab are gated on it.
+  The extra changes nothing `enabled_tools()` / `granted_tools()` return to the
+  rest of the app. The list shows each account's grantable tools read from its
+  raw grant. A regrant replaces only the grantable tokens: every other token of
+  the stored grant (a tool switched off, such as `goalscorers`; a dead name) is
+  kept after them as it was, and `admin` and `*` are dropped.
+- **Usernames** (`security.username_problem`): ASCII letters, digits, space,
+  dot, underscore and hyphen, 1 to 32 characters, starting with a letter or
+  digit, not ending with a space, not `.` or `..`; spaces at either end are
+  trimmed first. ASCII only, so the case-blind uniqueness check (SQLite's
+  `lower()` folds ASCII alone) means what it says, and no `:` (a key acts as
+  `api:<name>`) or `/` (unreachable at `/admin/users/{username}`).
+- **Passwords** (`security.password_problem`): not blank, at least
+  `MIN_PASSWORD_LENGTH` (12) characters, at most `MAX_PASSWORD_BYTES` (72, UTF-8;
+  bcrypt reads no more and the library refuses longer), not in
+  `_COMMON_PASSWORDS`. Stored only as a bcrypt hash; never log or return either.
+- **A session belongs to an account, not to a name** (`security.sign_in`,
+  `session_user`). Login stores the username and `acct`, an HMAC keyed with
+  the session secret (`SESSION_SECRET`, the key the cookie is signed with) of
+  the row's stored `password_hash`; the hash itself never goes in the cookie.
+  Every guard that turns a session into a user (`require_user`,
+  `user_permissions`, `routers/admin.require_admin`, the diagnostics routes)
+  goes through `session_user`, which compares it with the live row: a missing
+  or different mark is not signed in. bcrypt's salt is random, so an account
+  deleted and made again under the same name never revives an old cookie, and
+  a new password ends that account's sessions. Never key this on the row id
+  (SQLite reuses rowids). Sessions from before 25 Nov 2026 carry no mark and
+  were all refused: everyone signed in once after that deploy.
+- **Removing a user ends their sessions at once**: the next request finds no row.
+- **A `*` account's password cannot be changed on the page** (and there is no
+  reset). It is set by hand in Render's shell, which ends that account's
+  sessions (its mark changes):
+  ```
+  cd /app && python -c '
+  import sys, getpass
+  from app.database import SessionLocal
+  from app.models import User
+  from app.security import hash_password, password_problem
+  pw = getpass.getpass("New password: ")
+  problem = password_problem(pw)
+  if problem: sys.exit(problem)
+  db = SessionLocal()
+  user = db.query(User).filter(User.username == sys.argv[1]).one()
+  user.password_hash = hash_password(pw)
+  db.commit()
+  print("Password set; that account is signed out everywhere.")
+  ' 'USERNAME'
+  ```
+  Any other account's password is changed by removing it on the page and
+  adding it again.
+
 ## Odds sources
 **OddsPapi prices Paddy, the coupon tracker and 2-Up's Pinnacle side;
 odds-api.net prices Hills** (the register; Callum, 11 Nov 2026: "update the
@@ -1009,7 +1084,8 @@ python -m app.apikeys grant <name> --tools aw26,cards    # adds tools to an exis
 python -m app.apikeys list                              # never shows keys
 python -m app.apikeys revoke <name>                     # disables at once
 ```
-Grants are the tool names plus `value`, `state`, `ingest` (or `*`); `paddy` =
+Grants are the tool names but `admin` (the Users page: the raw `*` only, never
+a key) plus `value`, `state`, `ingest` (or `*`); `paddy` =
 `cards`, `365` = `accabonus+goalscorers`. **The Bet Placer's key** (register,
 6 Nov 2026) carries `accabonus` (the 2-Up feed), `cards` (the Paddy feed),
 `finder` (the Finder feed) and `ingest` (Finder's `placed | gone`); **a third

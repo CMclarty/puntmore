@@ -165,7 +165,7 @@ class Settings(BaseSettings):
     # rebuilt on OddsPapi (PLAN.md, Parked).
     enable_goalscorers: bool = False
     # Private P&L bet tracker. Mounted when on, but gated by the "pnl" tool
-    # grant — only users whose AUTH_USERS permission is "*" (or lists "pnl")
+    # grant — only users whose grant is "*" (or lists "pnl")
     # see it, so it stays a private per-user ledger.
     enable_pnl: bool = True
     # Comma-separated sport keys the watchlist covers. Default = the big-five
@@ -288,8 +288,11 @@ class Settings(BaseSettings):
     # us to one anyway); a multi-instance deploy would need a shared store.
     login_max_attempts: int = 10
     login_lockout_seconds: int = 900
-    # Seed users, format "user:pass[:perms],...". Parsed on startup; missing
-    # users are created, existing users are never modified. The optional third
+    # Bootstrap users, format "user:pass[:perms],...". Parsed on startup and
+    # used ONLY when the users table is empty (a fresh database): accounts live
+    # in the database and are managed on the Users page (the register, 25 Nov
+    # 2026), so an existing account is never created, regranted or changed from
+    # here. The optional third
     # field is the tool grant: "*" = all tools (present and future), or tool
     # names joined by "+" (e.g. "coupons+accabonus"). Omitted = "*". Seeing a
     # tool means full use of it. Because ":" separates fields, a password cannot

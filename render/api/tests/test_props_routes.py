@@ -238,13 +238,11 @@ def test_no_oddspapi_configured_answers_cleanly():
 
 
 def test_props_is_a_grant_a_tool_on_me_and_off_with_its_flag(monkeypatch):
-    from app import site, users
+    from app import site
     from app.config import settings
     from app.security import ALL_TOOLS, enabled_tools, parse_permissions
     assert "props" in ALL_TOOLS and "props" in enabled_tools() and "props" in site.ME_TOOLS
     assert "props" in parse_permissions("*")
-    # Granted to no coded account but Callum's (his is "*", from AUTH_USERS).
-    assert not any("props" in parse_permissions(g) for _, _, g in users.USERS if g != "*")
     monkeypatch.setattr(settings, "enable_props", False)
     assert "props" not in enabled_tools()
 

@@ -1,0 +1,14 @@
+/* Users: only what CardsPage.module.css (`f`) and Aw26Page.module.css (`s`)
+   have no class for. */
+.form { display: flex; flex-direction: column; gap: 8px; }
+.input {
+  min-height: 36px; padding: 0 8px; border: 1px solid var(--rule-pp); border-radius: 6px;
+  background: #fff; font: inherit; font-size: 13px; color: var(--ink-pp); width: 100%;
+}
+.user { display: flex; flex-direction: column; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--rule-pp); }
+.ticks { display: flex; flex-wrap: wrap; gap: 5px; }
+.tick { cursor: pointer; }
+.tick input { margin: 0; accent-color: var(--band, #004833); }
+.user .actions, .form .actions { margin-top: 0; }
+.right { margin-left: auto; }
+.error { padding: 0; }

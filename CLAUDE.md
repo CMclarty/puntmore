@@ -53,6 +53,10 @@ the main domain.
   one list of every bet at 103% of fair or better. Identical lines only; no results, no log.
   Callum's alone.
 - **P&L** (Dogs), **Kelly**, **the shop**: on `me`.
+- **Users** (`/users` on `me`, API `/api/admin/users`, the `admin` tool): the accounts. Add a
+  user, pick their tools, remove a user. Held only by an account whose grant is exactly `*`
+  (Callum's); accounts live in the database, and `AUTH_USERS` only bootstraps an empty one
+  (the register, 25 Nov 2026).
 - **AW 26** (`/aw26` on `me`, `aw26` grant, `app/aw26/`): Callum's slips from the Paddy
   terminal, a page over the stored rows with two screens: a Summary (the all-time profit, the
   day against the targets, the selections in aggregate with win or lose) and a Slips sub

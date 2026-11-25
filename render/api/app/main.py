@@ -1,6 +1,5 @@
 import logging
 import os
-import secrets
 import time
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
@@ -17,11 +16,10 @@ from .security import (
     require_any_grant,
     require_tool,
     seed_users,
-    seed_coded_users,
-    remove_coded_users,
     ensure_schema,
     weak_seed_passwords,
     MIN_PASSWORD_LENGTH,
+    SESSION_SECRET,
 )
 from . import coupon_types
 from .providers.oddspapi_coupon import OddsPapiCouponProvider
@@ -43,6 +41,7 @@ from .routers import pnl as pnl_router
 from .routers import shop as shop_router
 from .routers import aw26 as aw26_router
 from .routers import auth as auth_router
+from .routers import admin as admin_router
 from .routers import state as state_router
 from .routers import diagnostics as diagnostics_router
 from .routers import value as value_router
@@ -75,35 +74,23 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed(db)
-        created, regranted = seed_users(db, settings.auth_users)
+        # The database is the source of truth for accounts (the register,
+        # 25 Nov 2026): they are managed on the Users page. AUTH_USERS only
+        # bootstraps an EMPTY users table, and never regrants an existing row.
+        created = seed_users(db, settings.auth_users)
         if created:
-            logger.info("Seeded %d user(s) from AUTH_USERS", created)
-        # Every grant change is logged with both sides. A permission edit is
-        # invisible until someone hits a 403, so the log is the only record that
-        # a redeploy widened or narrowed what an account can reach.
-        for username, old, new in regranted:
-            logger.info(
-                "Regranted %s from AUTH_USERS: %r -> %r", username, old, new
-            )
-        created, regranted = seed_coded_users(db)
-        if created:
-            logger.info("Seeded %d user(s) from app/users.py", created)
-        for username, old, new in regranted:
-            logger.info(
-                "Regranted %s from app/users.py: %r -> %r", username, old, new
-            )
-        for username in remove_coded_users(db):
-            logger.info("Removed user %s (app/users.py REMOVED)", username)
+            logger.info("Seeded %d user(s) from AUTH_USERS (empty users table)", created)
         # Login is reachable from the public internet, so a guessable password
-        # is the whole attack. Warn every startup until it is fixed — seeding
-        # never rewrites a PASSWORD, so changing AUTH_USERS alone is not enough
-        # for one: delete the row too. (Permissions, by contrast, do reconcile.)
+        # is the whole attack. Warn every startup until it is fixed. Seeding
+        # never rewrites a PASSWORD, so changing AUTH_USERS changes nothing live:
+        # a "*" account's is set by hand in Render's shell, any other account is
+        # removed on the Users page and added again (render/api/AGENTS.md).
         weak = weak_seed_passwords(settings.auth_users)
         if weak:
             logger.warning(
-                "WEAK PASSWORD for user(s): %s — guessable or under %d chars. "
-                "Change AUTH_USERS *and* delete the existing row(s), or the old "
-                "password stays live.",
+                "WEAK PASSWORD in AUTH_USERS for user(s): %s — guessable or under %d chars. "
+                "Editing AUTH_USERS changes no live password; to change one, see "
+                "render/api/AGENTS.md, Accounts.",
                 ", ".join(weak), MIN_PASSWORD_LENGTH,
             )
         # AW 26 counts cash only since 10 Nov 2026: refund slips stored before
@@ -313,9 +300,10 @@ app = FastAPI(
 
 # Session signing key. A fixed SECRET_KEY in prod keeps sessions alive across
 # restarts; a random one (dev default) resets them on every restart.
-_secret_key = settings.secret_key
-if not _secret_key:
-    _secret_key = secrets.token_urlsafe(32)
+# security.SESSION_SECRET: the same key fingerprints each session's account
+# (security.account_mark), so the two must never differ.
+_secret_key = SESSION_SECRET
+if not settings.secret_key:
     logger.warning(
         "SECRET_KEY not set — using a random key; sessions reset on restart."
     )
@@ -342,6 +330,9 @@ app.add_middleware(
 
 # Auth router is open (login/logout); /auth/me self-guards.
 app.include_router(auth_router.router)
+# The Users page's API (/admin/users): a session whose raw grant is "*", never
+# a key; the guard is on the router itself (routers/admin.py).
+app.include_router(admin_router.router)
 
 # Each data router is gated on its tool. require_tool enforces both a logged-in
 # session and the per-user grant (seeing a tool = full use of it). Upload is
