@@ -6,6 +6,8 @@ No registration / reset flows. Accounts live in the database (the register,
 require_user is the single guard applied to every data router.
 """
 import hashlib
+import hmac
+import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -230,22 +232,67 @@ def api_key_auth(
     return KeyAuth(presented=True, principal=resolve_api_key(key, db))
 
 
-def require_user(request: Request, auth: KeyAuth = Depends(api_key_auth)) -> str:
+# --- sessions -------------------------------------------------------------------
+#
+# The key SessionMiddleware signs the cookie with (main.py). SECRET_KEY in
+# production; a random one (dev, tests) resets sessions on every restart.
+SESSION_SECRET = settings.secret_key or secrets.token_urlsafe(32)
+
+
+def account_mark(password_hash: str) -> str:
+    """The session's fingerprint of an account: an HMAC, keyed with the session
+    secret, of the row's stored password hash. bcrypt's salt is random, so an
+    account deleted and made again under the same name (or given a new password)
+    never has the old mark, and an old cookie is not signed in to it. The hash
+    itself never goes in the cookie."""
+    return hmac.new(SESSION_SECRET.encode(), b"account:" + (password_hash or "").encode(),
+                    hashlib.sha256).hexdigest()
+
+
+def sign_in(request: Request, user: User) -> None:
+    """Start a session for `user`: its name and its account's fingerprint.
+    Anything in the session before is dropped."""
+    request.session.clear()
+    request.session["user"] = user.username
+    request.session["acct"] = account_mark(user.password_hash)
+
+
+def session_user(request: Request, db: Session) -> User | None:
+    """The live row a session belongs to, or None: no session, no row by that
+    name, or a fingerprint missing or not this row's (the account was deleted
+    and made again, or its password changed). The ONE place a session becomes
+    a user; every guard that reads a session goes through it."""
+    username = request.session.get("user")
+    mark = request.session.get("acct")
+    if not username or not isinstance(mark, str) or not mark:
+        return None
+    user = db.query(User).filter(User.username == username).first()
+    if user is None or not hmac.compare_digest(mark, account_mark(user.password_hash)):
+        return None
+    return user
+
+
+def require_user(
+    request: Request,
+    auth: KeyAuth = Depends(api_key_auth),
+    db: Session = Depends(get_db),
+) -> str:
     """FastAPI dependency: who is calling — the session username, or
     "api:<name>" for an API client — else 401.
 
     A key, when sent, IS the identity: a bad key is a 401 even beside a valid
     session cookie, so a script can never silently act as a browser's user.
+    A session counts only while it matches its live row (`session_user`).
     Overridable in tests via app.dependency_overrides[require_user].
     """
     if auth.presented:
         if auth.principal is None:
             raise HTTPException(status_code=401, detail="Invalid API key")
         return auth.principal.username
-    user = request.session.get("user")
-    if not user:
+    user = session_user(request, db)
+    if user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return user
+    return user.username
 
 
 def parse_permissions(perms: str) -> set[str]:
@@ -314,9 +361,17 @@ def enabled_tools() -> list[str]:
     return tools
 
 
+# Granted on the Users page though enabled_tools() does not list it: `accabonus`
+# is the 365 tool, whose routes and tab are gated on the grant.
+EXTRA_GRANTABLE = ("accabonus",)
+
+
 def grantable_tools() -> list[str]:
-    """The tools the Users page may grant: the enabled ones less `admin`."""
-    return [t for t in enabled_tools() if t != ADMIN]
+    """The tools the Users page may grant, in ALL_TOOLS order: the enabled ones
+    less `admin`, plus EXTRA_GRANTABLE. What the rest of the app surfaces
+    (enabled_tools, granted_tools) is unchanged by the extra."""
+    on = set(enabled_tools()) - {ADMIN}
+    return [t for t in ALL_TOOLS if t in on or t in EXTRA_GRANTABLE]
 
 
 def granted_tools(perms: str) -> list[str]:
@@ -344,12 +399,10 @@ def user_permissions(
         if auth.principal is None:
             raise HTTPException(status_code=401, detail="Invalid API key")
         return auth.principal.permissions
-    username = request.session.get("user")
-    if not username:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    user = db.query(User).filter(User.username == username).first()
+    # A session whose row is gone, was made again, or has a new password is
+    # not signed in (session_user).
+    user = session_user(request, db)
     if user is None:
-        # Session names a user that no longer exists (deleted between requests).
         raise HTTPException(status_code=401, detail="Not authenticated")
     return user.permissions or ""
 
@@ -430,13 +483,38 @@ _COMMON_PASSWORDS = {
 MIN_PASSWORD_LENGTH = 12
 
 
+# bcrypt reads at most 72 bytes; the library refuses more rather than cut it.
+MAX_PASSWORD_BYTES = 72
+
+
 def password_problem(password: str) -> str | None:
     """Why a password set on the Users page is refused, or None. The message
     never repeats the password."""
+    if not password.strip():
+        return "Password cannot be blank"
     if len(password) < MIN_PASSWORD_LENGTH:
         return f"Password must be at least {MIN_PASSWORD_LENGTH} characters"
+    if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        return f"Password must be at most {MAX_PASSWORD_BYTES} bytes (fewer characters if not plain letters)"
     if password.lower() in _COMMON_PASSWORDS:
         return "Password is too common"
+    return None
+
+
+# A username set on the Users page: ASCII letters, digits, space, dot,
+# underscore and hyphen, 1 to 32 characters, starting with a letter or digit
+# and not ending with a space. ASCII only, so case-blind uniqueness (SQLite's
+# lower() folds ASCII alone) means what it says.
+_USERNAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9 ._-]{0,30}[A-Za-z0-9._-])?")
+
+
+def username_problem(name: str) -> str | None:
+    """Why a username set on the Users page is refused, or None."""
+    if not name:
+        return "Username is required"
+    if name in (".", "..") or not _USERNAME.fullmatch(name):
+        return ("Username must be 1 to 32 characters: letters, digits, spaces, dots, "
+                "underscores and hyphens, starting with a letter or digit")
     return None
 
 

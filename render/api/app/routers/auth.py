@@ -13,6 +13,7 @@ from ..security import (
     api_key_auth,
     granted_tools,
     require_user,
+    sign_in,
     verify_login,
 )
 
@@ -74,8 +75,9 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     # nothing from an unauthenticated session survives into an authenticated
     # one. Cheap, and it keeps the invariant "a logged-in session was built by
     # this login" true regardless of what else ever gets put in the session.
-    request.session.clear()
-    request.session["user"] = user.username
+    # The session holds the name and the account's fingerprint (security.sign_in),
+    # so it is signed in to this row only, never to one made again by that name.
+    sign_in(request, user)
     return _user_out(user)
 
 

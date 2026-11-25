@@ -1,8 +1,10 @@
 """Accounts, as the Users page manages them (routers/admin.py).
 
 The database is the source of truth for accounts (the register, 25 Nov 2026).
-A grant set here is always tools joined by "+", each one grantable
-(`security.grantable_tools`): never "*", never `admin`. An account whose grant
+A grant set here is tools joined by "+": the ticked grantable ones
+(`security.grantable_tools`), and on a regrant every token of the stored grant
+the page does not show (a tool switched off, a dead name), kept as it was;
+never "*", never `admin`. An account whose grant
 is "*" is never changed or removed here, so the admin cannot lock themselves
 out and no one is made or unmade an admin on the page. A password is stored
 only as its bcrypt hash and is never logged or returned.
@@ -13,7 +15,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .models import User
-from .security import grantable_tools, granted_tools, hash_password, is_admin, password_problem
+from .security import (
+    ADMIN, grantable_tools, granted_tools, hash_password, is_admin, password_problem,
+    username_problem,
+)
 
 
 class AccountError(Exception):
@@ -29,12 +34,21 @@ class AccountError(Exception):
 class Account:
     username: str
     permissions: str      # the raw grant
-    tools: list[str]      # what it may see (security.granted_tools)
+    tools: list[str]      # "*": what it may see; else its grantable tools, the tick boxes
+
+
+def _tokens(perms: str) -> list[str]:
+    return [t.strip() for t in (perms or "").split("+") if t.strip()]
 
 
 def _account(user: User) -> Account:
     perms = user.permissions or ""
-    return Account(username=user.username, permissions=perms, tools=granted_tools(perms))
+    if is_admin(perms):
+        tools = granted_tools(perms)
+    else:
+        held = set(_tokens(perms))
+        tools = [t for t in grantable_tools() if t in held]
+    return Account(username=user.username, permissions=perms, tools=tools)
 
 
 def list_accounts(db: Session) -> list[Account]:
@@ -54,14 +68,13 @@ def _grant(tools: list[str]) -> str:
 
 
 def _username(raw: str) -> str:
-    name = (raw or "").strip()
-    if not name:
-        raise AccountError(422, "Username is required")
-    # A key acts as "api:<name>" where a route records who did something, so a
-    # person's name never holds a colon (nor could one from AUTH_USERS). A
-    # slash would leave the account unreachable at /admin/users/{username}.
-    if ":" in name or "/" in name:
-        raise AccountError(422, "Username cannot contain : or /")
+    # Spaces at either end are trimmed, nothing else: a tab or newline is refused.
+    # The rule (security.username_problem) also keeps out ":" (a key acts as
+    # "api:<name>") and "/" (unreachable at /admin/users/{username}).
+    name = (raw or "").strip(" ")
+    problem = username_problem(name)
+    if problem:
+        raise AccountError(422, problem)
     return name
 
 
@@ -89,14 +102,20 @@ def create_account(db: Session, username: str, password: str, tools: list[str]) 
 
 
 def set_tools(db: Session, username: str, tools: list[str]) -> Account:
+    """Replace the account's grantable tools with `tools`. Every other token of
+    its stored grant (a tool switched off, a name the page does not offer) is
+    kept, after them, as it was; `admin` and "*" are dropped."""
     user = _editable(db, username)
-    user.permissions = _grant(tools)
+    grantable = set(grantable_tools())
+    kept = [t for t in _tokens(user.permissions) if t not in grantable and t not in (ADMIN, "*")]
+    user.permissions = "+".join([_grant(tools)] + list(dict.fromkeys(kept)))
     db.commit()
     return _account(user)
 
 
 def delete_account(db: Session, username: str) -> None:
     """Delete the row. Their sessions end at once: every request checks the
-    session's user against the table (security.user_permissions, /auth/me)."""
+    session against its live row (security.session_user), and an account made
+    again under the same name has another fingerprint."""
     db.delete(_editable(db, username))
     db.commit()

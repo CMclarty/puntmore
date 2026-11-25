@@ -1,6 +1,5 @@
 import logging
 import os
-import secrets
 import time
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
@@ -20,6 +19,7 @@ from .security import (
     ensure_schema,
     weak_seed_passwords,
     MIN_PASSWORD_LENGTH,
+    SESSION_SECRET,
 )
 from . import coupon_types
 from .providers.oddspapi_coupon import OddsPapiCouponProvider
@@ -83,12 +83,14 @@ async def lifespan(app: FastAPI):
         # Login is reachable from the public internet, so a guessable password
         # is the whole attack. Warn every startup until it is fixed. Seeding
         # never rewrites a PASSWORD, so changing AUTH_USERS changes nothing live:
-        # a non-"*" account is removed on the Users page and added again.
+        # a "*" account's is set by hand in Render's shell, any other account is
+        # removed on the Users page and added again (render/api/AGENTS.md).
         weak = weak_seed_passwords(settings.auth_users)
         if weak:
             logger.warning(
                 "WEAK PASSWORD in AUTH_USERS for user(s): %s — guessable or under %d chars. "
-                "Changing AUTH_USERS does not change a live password.",
+                "Editing AUTH_USERS changes no live password; to change one, see "
+                "render/api/AGENTS.md, Accounts.",
                 ", ".join(weak), MIN_PASSWORD_LENGTH,
             )
         # AW 26 counts cash only since 10 Nov 2026: refund slips stored before
@@ -298,9 +300,10 @@ app = FastAPI(
 
 # Session signing key. A fixed SECRET_KEY in prod keeps sessions alive across
 # restarts; a random one (dev default) resets them on every restart.
-_secret_key = settings.secret_key
-if not _secret_key:
-    _secret_key = secrets.token_urlsafe(32)
+# security.SESSION_SECRET: the same key fingerprints each session's account
+# (security.account_mark), so the two must never differ.
+_secret_key = SESSION_SECRET
+if not settings.secret_key:
     logger.warning(
         "SECRET_KEY not set — using a random key; sessions reset on restart."
     )

@@ -517,15 +517,26 @@ grant `403`, and an API key is refused whatever it holds (`403`; a bad key
 - `GET /admin/users` → `{users: [{username, permissions, tools}], grantable}`:
   every account with its raw grant and the tools it can see, and the tools
   the page may grant (the enabled tools less `admin`).
+- `GET` also says each account's `tools`: for a `*` account every tool it can
+  see, for any other the grantable tools its raw grant holds (`accabonus`, the
+  365 tool, included).
 - `POST /admin/users` `{username, password, tools}` → `201` and the account.
-  The username is trimmed, must not be empty or hold `:` or `/` (`422`), and
-  must be unique ignoring case (`409`). The password is at least 12
-  characters and not a common one (`422`), stored as a bcrypt hash. `tools` is
-  at least one grantable tool (`422` otherwise), stored joined by `+` in nav
-  order.
-- `PATCH /admin/users/{username}` `{tools}` → the account, its tools replaced
-  (same validation); the change holds on the user's next request.
+  The username has spaces at either end trimmed, then is 1 to 32 ASCII
+  letters, digits, spaces, dots, underscores and hyphens, starting with a
+  letter or digit, not ending with a space, not `.` or `..` (`422`), and must
+  be unique ignoring case (`409`). The password is not blank, 12 characters
+  to 72 bytes (UTF-8), and not a common one (`422`), stored as a bcrypt hash.
+  `tools` is at least one grantable tool (`422` otherwise), stored joined by
+  `+` in the tools' order.
+- `PATCH /admin/users/{username}` `{tools}` → the account, its grantable tools
+  replaced (same validation); every other token of its stored grant (a tool
+  switched off, a name the page does not offer) is kept, `admin` and `*`
+  never. The change holds on the user's next request.
 - `DELETE /admin/users/{username}` → `204`; the user's sessions end at once.
+  A session is tied to its account (an HMAC of the row's password hash rides
+  in it, never the hash), so an account made again under that name does not
+  revive an old cookie; a session without one (from before 25 Nov 2026) is
+  not signed in.
 - An unknown username is `404`. An account whose grant is `*` can be neither
   changed nor removed here (`403`), and nothing here sets `*`.
 

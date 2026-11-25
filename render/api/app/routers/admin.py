@@ -12,9 +12,8 @@ from sqlalchemy.orm import Session
 
 from .. import accounts
 from ..database import get_db
-from ..models import User
 from ..schemas import AdminUserOut, AdminUsersOut
-from ..security import KeyAuth, api_key_auth, grantable_tools, is_admin
+from ..security import KeyAuth, api_key_auth, grantable_tools, is_admin, session_user
 
 
 def require_admin(
@@ -22,21 +21,18 @@ def require_admin(
     auth: KeyAuth = Depends(api_key_auth),
     db: Session = Depends(get_db),
 ) -> str:
-    """A session (never a key) whose user's raw grant, read live from the
-    table, is "*". A bad key is 401, as everywhere; a valid key is 403."""
+    """A session (never a key) matching its live row (security.session_user)
+    whose raw grant is "*". A bad key is 401, as everywhere; a valid key is 403."""
     if auth.presented:
         if auth.principal is None:
             raise HTTPException(status_code=401, detail="Invalid API key")
         raise HTTPException(status_code=403, detail="Users are managed from a signed-in session")
-    username = request.session.get("user")
-    if not username:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    user = db.query(User).filter(User.username == username).first()
+    user = session_user(request, db)
     if user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
     if not is_admin(user.permissions):
         raise HTTPException(status_code=403, detail="Insufficient permissions")
-    return username
+    return user.username
 
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])

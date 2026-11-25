@@ -16,7 +16,10 @@ from app.database import Base, get_db
 from app.main import app
 from app.models import User
 from app.security import (
+    SESSION_SECRET,
+    account_mark,
     enabled_tools,
+    grantable_tools,
     granted_tools,
     has_permission,
     hash_password,
@@ -85,7 +88,7 @@ def admin():
     return _signed_in("callum", ADMIN_PW)
 
 
-GRANTABLE = [t for t in enabled_tools() if t != "admin"]
+GRANTABLE = grantable_tools()
 
 
 # --- the admin tool -----------------------------------------------------------
@@ -379,3 +382,193 @@ def test_the_routes_live_under_admin():
     from tests.test_removed_modules import _paths
     paths = set(_paths(app.routes))
     assert {"/admin/users", "/admin/users/{username}"} <= paths
+
+
+# --- a session belongs to an account, not to a name ---------------------------
+
+def _cookie(session: dict) -> str:
+    """A session cookie signed as SessionMiddleware signs one."""
+    import json
+    from base64 import b64encode
+    from itsdangerous import TimestampSigner
+    return TimestampSigner(str(SESSION_SECRET)).sign(
+        b64encode(json.dumps(session).encode())).decode()
+
+
+def _with_session(session: dict) -> TestClient:
+    c = TestClient(app)
+    c.cookies.set("session", _cookie(session))
+    return c
+
+
+def _session_of(client) -> dict:
+    import json
+    from base64 import b64decode
+    return json.loads(b64decode(client.cookies.get("session").split(".")[0]))
+
+
+def test_a_recreated_username_does_not_revive_an_old_session(admin):
+    _add("bob", USER_PW, "shop")
+    old = _signed_in("bob", USER_PW)
+    assert old.get("/shop").status_code == 200
+    assert admin.delete("/admin/users/bob").status_code == 204
+    assert admin.post("/admin/users", json={"username": "bob", "password": USER_PW,
+                                            "tools": ["shop"]}).status_code == 201
+    assert old.get("/auth/me").status_code == 401
+    assert old.get("/shop").status_code == 401
+    fresh = _signed_in("bob", USER_PW)
+    assert fresh.get("/auth/me").status_code == 200
+    assert fresh.get("/shop").status_code == 200
+
+
+def test_the_cookie_carries_a_fingerprint_never_the_hash(admin):
+    session = _session_of(admin)
+    assert set(session) == {"user", "acct"}
+    row = _row("callum")
+    assert session["acct"] == account_mark(row.password_hash)
+    assert row.password_hash not in admin.cookies.get("session")
+    assert row.password_hash not in str(session)
+
+
+def test_a_session_signed_with_the_right_fingerprint_is_signed_in():
+    _add("bob", USER_PW, "shop")
+    c = _with_session({"user": "bob", "acct": account_mark(_row("bob").password_hash)})
+    assert c.get("/auth/me").status_code == 200
+    assert c.get("/shop").status_code == 200
+
+
+@pytest.mark.parametrize("bad", [None, "", "0" * 64, "other-account"])
+def test_a_session_with_no_or_a_wrong_fingerprint_is_not_signed_in(bad):
+    _add("bob", USER_PW, "shop")
+    _add("other", USER_PW, "shop")
+    session = {"user": "bob"}
+    if bad == "other-account":
+        session["acct"] = account_mark(_row("other").password_hash)
+    elif bad is not None:
+        session["acct"] = bad
+    c = _with_session(session)
+    assert c.get("/auth/me").status_code == 401
+    assert c.get("/shop").status_code == 401
+    assert c.post("/diagnostics/client", json={"message": "x"}).status_code == 401
+
+
+def test_an_admin_session_without_a_fingerprint_is_refused_everywhere():
+    _add("callum", ADMIN_PW, "*")
+    c = _with_session({"user": "callum"})
+    assert c.get("/admin/users").status_code == 401
+    assert c.get("/diagnostics/errors").status_code == 403
+    ok = _with_session({"user": "callum", "acct": account_mark(_row("callum").password_hash)})
+    assert ok.get("/admin/users").status_code == 200
+    assert ok.get("/diagnostics/errors").status_code == 200
+
+
+def test_a_new_password_hash_ends_the_session(admin):
+    _add("bob", USER_PW, "shop")
+    bob = _signed_in("bob", USER_PW)
+    db = Session()
+    try:
+        db.query(User).filter(User.username == "bob").update(
+            {"password_hash": hash_password("fake-other-password")})
+        db.commit()
+    finally:
+        db.close()
+    assert bob.get("/auth/me").status_code == 401
+
+
+# --- regranting keeps what the page does not show -----------------------------
+
+def test_regrant_keeps_tokens_the_page_does_not_show(admin, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "enable_finder", False)
+    _add("gina", USER_PW, "finder+goalscorers+cards+hub")
+    r = admin.patch("/admin/users/gina", json={"tools": ["hills"]})
+    assert r.status_code == 200
+    assert _row("gina").permissions == "hills+finder+goalscorers+hub"
+    assert r.json()["tools"] == ["hills"]
+
+
+@pytest.mark.parametrize("stored", ["cards+admin", "cards+*", "cards+admin+*"])
+def test_regrant_never_keeps_admin_or_star(admin, stored):
+    _add("gina", USER_PW, stored)
+    assert admin.patch("/admin/users/gina", json={"tools": ["hills"]}).status_code == 200
+    assert _row("gina").permissions == "hills"
+
+
+# --- 365 (accabonus) is grantable ---------------------------------------------
+
+def test_365_is_grantable_without_changing_what_the_app_surfaces():
+    assert "accabonus" in grantable_tools()
+    assert "admin" not in grantable_tools()
+    assert "accabonus" not in enabled_tools()
+    assert granted_tools("cards+accabonus") == ["cards"]
+
+
+def test_365_can_be_given_and_shows_on_the_list(admin):
+    assert "accabonus" in admin.get("/admin/users").json()["grantable"]
+    r = admin.post("/admin/users", json={"username": "sam", "password": NEW_PW,
+                                         "tools": ["cards", "accabonus"]})
+    assert r.status_code == 201
+    assert _row("sam").permissions == "accabonus+cards"
+    users = {u["username"]: u for u in admin.get("/admin/users").json()["users"]}
+    assert users["sam"]["tools"] == ["accabonus", "cards"]
+    assert admin.patch("/admin/users/sam", json={"tools": ["accabonus"]}).json()["tools"] == ["accabonus"]
+
+
+def test_the_list_shows_an_accounts_grantable_tools_from_its_raw_grant(admin):
+    _add("gina", USER_PW, "accabonus+hills+goalscorers")     # goalscorers is off
+    users = {u["username"]: u for u in admin.get("/admin/users").json()["users"]}
+    assert users["gina"]["tools"] == ["accabonus", "hills"]
+    assert users["gina"]["permissions"] == "accabonus+hills+goalscorers"
+
+
+# --- passwords ------------------------------------------------------------------
+
+@pytest.mark.parametrize("pw", ["x" * 73, "é" * 37, "fake-" + "€" * 23])
+def test_a_password_over_72_bytes_is_refused_plainly(admin, pw):
+    assert len(pw.encode()) > 72
+    r = admin.post("/admin/users", json={"username": "dave", "password": pw, "tools": ["cards"]})
+    assert r.status_code == 422
+    assert "72" in r.json()["detail"]
+    assert _row("dave") is None
+
+
+@pytest.mark.parametrize("pw", ["x" * 72, "é" * 36])
+def test_a_password_of_72_bytes_is_taken(admin, pw):
+    r = admin.post("/admin/users", json={"username": "dave", "password": pw, "tools": ["cards"]})
+    assert r.status_code == 201
+    assert _signed_in("dave", pw).get("/auth/me").status_code == 200
+
+
+@pytest.mark.parametrize("pw", [" " * 14, "\t" * 12, " \n " * 5])
+def test_a_password_of_only_whitespace_is_refused(admin, pw):
+    r = admin.post("/admin/users", json={"username": "dave", "password": pw, "tools": ["cards"]})
+    assert r.status_code == 422
+    assert _row("dave") is None
+
+
+# --- usernames ------------------------------------------------------------------
+
+@pytest.mark.parametrize("name", ["bob", "Bob Smith", "b.o_b-1", "9lives", "a" * 32, "EV fan"])
+def test_a_plain_username_is_taken(admin, name):
+    r = admin.post("/admin/users", json={"username": name, "password": NEW_PW, "tools": ["cards"]})
+    assert r.status_code == 201
+    assert r.json()["username"] == name
+
+
+@pytest.mark.parametrize("name", [
+    "a" * 33, "-bob", "_bob", ".bob", ".", "..", " ", "bo\u200bb", "\u200bbob", "bo\nb",
+    "bob\n", "\tbob", "bo\tb", "Émile", "émile", "straße", "STRASSE\u0130", "bob!", "bob@x",
+    "bo#b", "bob'", "api:bot", "a/b",
+])
+def test_any_other_username_is_refused(admin, name):
+    r = admin.post("/admin/users", json={"username": name, "password": NEW_PW, "tools": ["cards"]})
+    assert r.status_code == 422, name
+    assert r.json()["detail"]
+
+
+def test_a_non_ascii_case_pair_never_makes_two_accounts(admin):
+    # SQLite's lower() folds ASCII only, so "Émile" and "émile" would both pass
+    # a case-blind uniqueness check: the name rule keeps them both out.
+    for name in ("Émile", "émile"):
+        assert admin.post("/admin/users", json={"username": name, "password": NEW_PW,
+                                                "tools": ["cards"]}).status_code == 422

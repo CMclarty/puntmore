@@ -389,8 +389,10 @@ The older product decisions, settled while the coupon tracker was built.
   nor removed there, and nothing there sets `*`. `AUTH_USERS` only bootstraps
   an empty database (it creates accounts only when the users table is empty
   and never regrants one); `app/users.py` is gone, and the accounts it created
-  stay as rows. Removing a user ends their sessions at once. (25 Nov 2026,
-  Callum)
+  stay as rows. Removing a user ends their sessions at once, and a session
+  is tied to its account, so one made again under a removed name does not
+  revive an old sign-in. Sessions from before this change are not accepted:
+  everyone signs in once after the deploy. (25 Nov 2026, Callum)
 - **Image OCR upload, not CSV/XLSX.** OCR is auto-confirm: rows save and price
   immediately, with inline edit and re-scan.
 - **The coupon cleanup window is 8 days**, and deletes both database rows and
