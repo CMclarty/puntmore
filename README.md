@@ -37,7 +37,7 @@ It serves **boards**: tool pages, each with a one-way HTTP **feed** of value row
 | **Finder** | the tips board: the tips HubAI has judged; the feed is the ones it offered | `GET /api/finder/feed` |
 
 Beside the boards: the coupon tracker, Hills, and Callum's personal tools (dogs, Virtuals, P&L,
-Kelly, the shop, AW 26, Props). No ledger, no account and no Hub endpoint on Render: the Hub calls
+Kelly, the shop, AW 26, Props, and Users, where Callum manages the accounts). No ledger, no account and no Hub endpoint on Render: the Hub calls
 tools' own routes with a key, as the Hub daemon takes AW 26's slip photos from the tool's queue
 (`/api/aw26/photos`) and HubAI records the slips it reads.
 

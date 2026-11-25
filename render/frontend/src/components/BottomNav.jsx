@@ -102,6 +102,18 @@ const TOOLS = [
       </svg>
     ),
   },
+  {
+    // Users, the accounts: on Me, held only by a "*" account. Last, so no
+    // account ever lands on it.
+    tool: 'admin', name: 'Users', to: '/users', sub: 'Accounts', priv: true,
+    matches: (p) => p.startsWith('/users'),
+    icon: (
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="8" cy="8" r="3"/><path d="M2.5 18c0-3.2 2.4-5.4 5.5-5.4s5.5 2.2 5.5 5.4"/>
+        <circle cx="15.5" cy="7" r="2.5"/><path d="M15 12.6c2.8 0 4.5 2 4.5 4.9"/>
+      </svg>
+    ),
+  },
 ]
 
 /**

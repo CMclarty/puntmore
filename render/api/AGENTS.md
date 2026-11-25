@@ -23,6 +23,36 @@ The main domain serves every public tool; `me` serves Callum's personal tools
   refuses a redirected worker script, so a redirect there would leave every
   app installed from shalgo on its old worker for good.
 
+## Accounts (`app/accounts.py`, `routers/admin.py`, 25 Nov 2026)
+**The database is the source of truth for accounts** (the register, Callum,
+25 Nov 2026). They are added, regranted and removed on the Users page on `me`
+(`/users`, API `/api/admin/users`), and nowhere else: `app/users.py` and its
+startup seeding (`seed_coded_users`, `remove_coded_users`) are gone, and the
+accounts it created are ordinary rows. Never reintroduce a list of accounts in
+code or an env var that re-applies grants on boot: it would undo the page.
+- **`AUTH_USERS` only bootstraps an empty database** (`security.seed_users`):
+  it creates accounts only when the users table has no row at all, and never
+  regrants or re-passwords one. The boot still warns about a weak password in
+  it; changing it there changes nothing live.
+- **`admin` belongs to the raw grant `*` alone** (`security.ADMIN`,
+  `is_admin`). It is in `ALL_TOOLS` (so `*` and `granted_tools("*")` carry it,
+  and the shell shows the page) but not in `ALL_GRANTS`: a grant that names it
+  is granted nothing for it (`parse_permissions` drops it), `apikeys` refuses
+  it, and the page never offers it (`grantable_tools`).
+- **Session only.** `routers/admin.require_admin` takes a session whose row,
+  read live, has the grant `*`; any key, even one holding `*`, is a 403 (a bad
+  key 401). It does not go through `user_permissions`, so the test bypass in
+  `conftest.py` does not open it.
+- **A `*` account is never changed or removed there**, and nothing there sets
+  `*`: Callum cannot lock himself out and no one is made an admin on the page.
+  A grant set there is grantable tools joined by `+`, in nav order. Usernames
+  are trimmed, unique ignoring case, and hold no `:` (a key acts as
+  `api:<name>`) or `/`. Passwords are `MIN_PASSWORD_LENGTH` (12) or more and
+  not in `_COMMON_PASSWORDS`, stored only as a bcrypt hash; never log or
+  return either.
+- **Removing a user ends their sessions at once**: a session is only a
+  username, checked against the table on every guarded request.
+
 ## Odds sources
 **OddsPapi prices Paddy, the coupon tracker and 2-Up's Pinnacle side;
 odds-api.net prices Hills** (the register; Callum, 11 Nov 2026: "update the
@@ -1009,7 +1039,8 @@ python -m app.apikeys grant <name> --tools aw26,cards    # adds tools to an exis
 python -m app.apikeys list                              # never shows keys
 python -m app.apikeys revoke <name>                     # disables at once
 ```
-Grants are the tool names plus `value`, `state`, `ingest` (or `*`); `paddy` =
+Grants are the tool names but `admin` (the Users page: the raw `*` only, never
+a key) plus `value`, `state`, `ingest` (or `*`); `paddy` =
 `cards`, `365` = `accabonus+goalscorers`. **The Bet Placer's key** (register,
 6 Nov 2026) carries `accabonus` (the 2-Up feed), `cards` (the Paddy feed),
 `finder` (the Finder feed) and `ingest` (Finder's `placed | gone`); **a third

@@ -737,3 +737,16 @@ class PropsDiagnosticsOut(OpenModel):
     verdict: Optional[str] = None
     stats: dict[str, dict[str, int]] = Field(default_factory=dict)
     totals: dict[str, int] = Field(default_factory=dict)
+
+
+# --- The Users page (routers/admin.py) ---
+
+class AdminUserOut(BaseModel):
+    username: str
+    permissions: str                 # the raw grant ("*" or tools joined by "+")
+    tools: list[str]                 # what it may see (grant ∩ enabled tools)
+
+
+class AdminUsersOut(BaseModel):
+    users: list[AdminUserOut]
+    grantable: list[str]             # the tick boxes: enabled tools less `admin`

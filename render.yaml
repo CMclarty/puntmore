@@ -59,6 +59,8 @@ services:
       # the value itself. Never commit these.
       - key: SECRET_KEY
         generateValue: true    # random, then stable — sessions survive deploys
+      # Bootstraps the first account(s) into an EMPTY database only; accounts
+      # are managed on the Users page (docs/decisions.md, 25 Nov 2026).
       - key: AUTH_USERS
         sync: false
       # Paddy Power's corners/cards AND the Pinnacle fair side (OddsPapi). The

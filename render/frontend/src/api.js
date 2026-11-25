@@ -351,3 +351,11 @@ async function patch(path, body) {
   if (!res.ok) throw await fail(res, path, 'PATCH')
   return res.json()
 }
+
+// Users (me, a "*" account only): every account with its tools, and the tools
+// that can be granted; add one, replace its tools, remove it.
+export const getUsers = () => get('/admin/users')
+export const addUser = (username, password, tools) => post('/admin/users', { username, password, tools })
+export const setUserTools = (username, tools) =>
+  patch(`/admin/users/${encodeURIComponent(username)}`, { tools })
+export const removeUser = (username) => del(`/admin/users/${encodeURIComponent(username)}`)

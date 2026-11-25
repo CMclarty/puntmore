@@ -491,7 +491,8 @@ These cannot be done for him:
 2. Put five or more real slip photos where they can be read, for the
    proof, with at least one refund slip and one boost slip among them, so
    the runbook can quote each offer's wording.
-3. Check his `AUTH_USERS` entry on Render carries `aw26`.
+3. Check his `AUTH_USERS` entry on Render carries `aw26`. (Since 25 Nov 2026 an
+   account's tools are set on the Users page; his `*` account carries `aw26`.)
 4. After the Render step ships: one command in Render's Shell to add
    `aw26` and `cards` to the Hub's existing key.
 5. Read the card-counting rule above and say if the terminal settles

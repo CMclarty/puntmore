@@ -20,16 +20,19 @@ Two ways in, one permission model:
 
 | Caller | How | Grants |
 |---|---|---|
-| A person | log in on the site (`POST /api/auth/login`), session cookie | `User.permissions` (`AUTH_USERS`) |
+| A person | log in on the site (`POST /api/auth/login`), session cookie | `User.permissions`, set on the Users page (below); `AUTH_USERS` only bootstraps an empty database |
 | A machine | `Authorization: Bearer <key>` (preferred) or `X-API-Key: <key>` | the API client's grant |
 
 Grants use one grammar: `*` (everything) or names joined by `+`. Tool grants:
 `coupons`, `accabonus` (365 acca), `cards` (Paddy), `goalscorers` (365
 scorers), `hills`, `pnl`, `kelly`, `boost`, `shop`, `finder` (Finder,
 Callum's tips on `me`, or the main domain while `ME_HOST` is blank: Callum's
-account and his Bet Placer's key only). `*`
+account and his Bet Placer's key only), `props`. `*`
 includes `finder`, so a key or account issued to anyone but Callum never
-carries `*`, only named grants. Machine grants: `value` (every source on
+carries `*`, only named grants. `admin` (the Users page, 25 Nov 2026) is held
+only by an account whose grant is exactly `*`: it is never granted by name (a
+grant naming it gets nothing for it, and the key CLI refuses it) and no key can
+use it. Machine grants: `value` (every source on
 `/api/value`), `state` (`/api/state`), `ingest` (the write paths, used by
 Scraper control to post the Scraper's prices, by the Bookie Bashing script,
 by HubAI, and by the Bet Placer for its Finder status). A key holding a
@@ -183,6 +186,7 @@ All paths are under `/api`. "Grant" is what a key (or user) needs.
 | AW 26 photos (`aw26`) | `POST /aw26/photos`, `GET /aw26/photos`, `POST /aw26/photos/{id}/take`, `/fail`, `/resend`, `GET /aw26/photos/{id}/image`, `DELETE /aw26/photos/{id}` | the queue of slip photos waiting for the Hub |
 | Props (`props`) | `GET /props/feed?min_edge=`, `GET /props/diagnostics` | Callum's player props list (17 Nov 2026): Paddy Power's player lines priced against Pinnacle's two sides for the same player, statistic and number. One item per fixture, soonest first: `{event_id, match, home, away, commence_time, priced_at, best_value, bets: [{player, player_id, stat, n, pick, odds, fair, value, pinnacle_margin}]}`, `n` meaning "`n` or more". `diagnostics` counts, per statistic, Paddy's selections, Pinnacle's two-sided ones, the matched and why the rest were not (`no_fair_player`, `no_fair_line`, `fair_one_sided`, `fair_crossed`, `unnamed`), with a one-line `verdict`. No API client is granted it |
 | shop (`shop`) | `GET /shop`, `POST /shop/visits`, `DELETE /shop/visits[/{id}]` | per-caller route |
+| Users (a `*` session only) | `GET /admin/users`, `POST /admin/users`, `PATCH /admin/users/{username}`, `DELETE /admin/users/{username}` | the accounts (25 Nov 2026; below) |
 | diagnostics (`*`, or `state`) | `GET/DELETE /diagnostics/errors` | error ring buffer |
 | — | `GET /health`, `GET /ready` | probes, unauthenticated |
 
@@ -501,6 +505,29 @@ once. Every route on one photo answers `404` for no such photo.
 
 `kelly` and `boost` are client-side calculators with no routes. The legacy
 aliases (`/cards/*`, `/tennis/*`) still answer and are hidden from the schema.
+
+### Users (`/api/admin/users`, 25 Nov 2026)
+
+Accounts live in the database and are managed here, from the Users page on
+`me` (the register). Every route takes a signed-in session whose user's grant,
+read live from the table, is exactly `*`: no session is `401`, any other
+grant `403`, and an API key is refused whatever it holds (`403`; a bad key
+`401`). Nothing here logs or returns a password or a hash.
+
+- `GET /admin/users` → `{users: [{username, permissions, tools}], grantable}`:
+  every account with its raw grant and the tools it can see, and the tools
+  the page may grant (the enabled tools less `admin`).
+- `POST /admin/users` `{username, password, tools}` → `201` and the account.
+  The username is trimmed, must not be empty or hold `:` or `/` (`422`), and
+  must be unique ignoring case (`409`). The password is at least 12
+  characters and not a common one (`422`), stored as a bcrypt hash. `tools` is
+  at least one grantable tool (`422` otherwise), stored joined by `+` in nav
+  order.
+- `PATCH /admin/users/{username}` `{tools}` → the account, its tools replaced
+  (same validation); the change holds on the user's next request.
+- `DELETE /admin/users/{username}` → `204`; the user's sessions end at once.
+- An unknown username is `404`. An account whose grant is `*` can be neither
+  changed nor removed here (`403`), and nothing here sets `*`.
 
 ## Python client
 

@@ -378,7 +378,19 @@ The older product decisions, settled while the coupon tracker was built.
   the Mon–Wed/Sat/Sun set navigation.
 - **Syndicate model**: 4 members, shared data, all equal. No roles, no per-user
   partitioning. Auth is in-app sessions (bcrypt + signed cookie); no JWT, no
-  registration, no password reset.
+  registration, no password reset. (Edited 25 Nov 2026, Callum: the one
+  exception to "no roles" is the Users page below, held only by a `*` account.)
+- **Accounts live in the database and are managed on the Users page on `me`**
+  (`/users`, the `admin` tool; API `/api/admin/users`). The page adds a user
+  (username, password, tools), changes a user's tools and removes a user, and
+  nothing else. It is held ONLY by an account whose grant is exactly `*`:
+  `admin` is never granted by name, the page never offers it, and an API key
+  (even one holding `*`) cannot use it. A `*` account can be neither changed
+  nor removed there, and nothing there sets `*`. `AUTH_USERS` only bootstraps
+  an empty database (it creates accounts only when the users table is empty
+  and never regrants one); `app/users.py` is gone, and the accounts it created
+  stay as rows. Removing a user ends their sessions at once. (25 Nov 2026,
+  Callum)
 - **Image OCR upload, not CSV/XLSX.** OCR is auto-confirm: rows save and price
   immediately, with inline edit and re-scan.
 - **The coupon cleanup window is 8 days**, and deletes both database rows and

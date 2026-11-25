@@ -1,7 +1,9 @@
 """Minimal auth for a small trusted syndicate: bcrypt + signed session cookie.
 
-No registration / reset flows. Users are seeded from Settings.auth_users on
-startup. require_user is the single guard applied to every data router.
+No registration / reset flows. Accounts live in the database (the register,
+25 Nov 2026): a `*` account adds, regrants and removes them on the Users page
+(routers/admin.py). Settings.auth_users only bootstraps an empty users table.
+require_user is the single guard applied to every data router.
 """
 import hashlib
 import secrets
@@ -27,9 +29,13 @@ from .time_utils import utcnow
 # Callum's only, so a key or account issued to anyone but
 # Callum never carries "*", only named grants. `aw26` is Callum's ledger of
 # slips, also on `me`. `props` (Nov 2026) is Callum's player props board, on
-# `me`, granted to no one else and to no API client.
+# `me`, granted to no one else and to no API client. `admin` (25 Nov 2026) is
+# the Users page on `me`: held ONLY by an account whose raw grant is "*", never
+# by name (parse_permissions drops it from a named grant), and never by a key
+# (its routes take a session only: routers/admin.py).
+ADMIN = "admin"
 ALL_TOOLS = ("coupons", "accabonus", "cards", "hills", "goalscorers", "pnl", "kelly", "boost", "shop",
-             "aw26", "finder", "props")
+             "aw26", "finder", "props", ADMIN)
 
 # Grants that name no page — they exist for machine callers. `value` reads the
 # cross-tool value feed (GET /api/value); `state` is the whole-app snapshot
@@ -38,7 +44,8 @@ ALL_TOOLS = ("coupons", "accabonus", "cards", "hills", "goalscorers", "pnl", "ke
 # STATE_API_KEY and SAVES_INGEST_KEY are these last two, as static keys. A key
 # holding a grant name that no longer exists loads and is granted nothing for it.
 MACHINE_GRANTS = ("value", "state", "ingest")
-ALL_GRANTS = ALL_TOOLS + MACHINE_GRANTS
+# The names a grant may carry. Not `admin`: it cannot be granted by name.
+ALL_GRANTS = tuple(t for t in ALL_TOOLS if t != ADMIN) + MACHINE_GRANTS
 
 
 def hash_password(plain: str) -> str:
@@ -244,14 +251,20 @@ def require_user(request: Request, auth: KeyAuth = Depends(api_key_auth)) -> str
 def parse_permissions(perms: str) -> set[str]:
     """Expand a permission string to the concrete set of tool names it grants.
 
-    "*" expands to every known tool. Otherwise tools are joined by "+"
-    (e.g. "coupons+accabonus"). Does NOT apply the server's enable flags — use
-    granted_tools for what a user may actually see.
+    "*" expands to every known tool, `admin` included. Otherwise tools are
+    joined by "+" (e.g. "coupons+accabonus"), and `admin` named there confers
+    nothing: it belongs to "*" alone. Does NOT apply the server's enable flags
+    — use granted_tools for what a user may actually see.
     """
     perms = (perms or "").strip()
     if perms == "*":
         return set(ALL_TOOLS)
-    return {t.strip() for t in perms.split("+") if t.strip()}
+    return {t.strip() for t in perms.split("+") if t.strip() and t.strip() != ADMIN}
+
+
+def is_admin(perms: str) -> bool:
+    """True for the raw grant "*", the only one that holds `admin`."""
+    return (perms or "").strip() == "*"
 
 
 def has_permission(perms: str, tool: str) -> bool:
@@ -296,7 +309,14 @@ def enabled_tools() -> list[str]:
     # ENABLE_PROPS switches the routes and the page off together.
     if settings.enable_props:
         tools.append("props")
+    # The Users page (on `me`): always surfaced, held by "*" alone.
+    tools.append(ADMIN)
     return tools
+
+
+def grantable_tools() -> list[str]:
+    """The tools the Users page may grant: the enabled ones less `admin`."""
+    return [t for t in enabled_tools() if t != ADMIN]
 
 
 def granted_tools(perms: str) -> list[str]:
@@ -410,6 +430,16 @@ _COMMON_PASSWORDS = {
 MIN_PASSWORD_LENGTH = 12
 
 
+def password_problem(password: str) -> str | None:
+    """Why a password set on the Users page is refused, or None. The message
+    never repeats the password."""
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return f"Password must be at least {MIN_PASSWORD_LENGTH} characters"
+    if password.lower() in _COMMON_PASSWORDS:
+        return "Password is too common"
+    return None
+
+
 def weak_seed_passwords(raw: str) -> list[str]:
     """Usernames in AUTH_USERS whose password is guessable.
 
@@ -426,78 +456,30 @@ def weak_seed_passwords(raw: str) -> list[str]:
     return weak
 
 
-def seed_users(db: Session, raw: str) -> tuple[int, list[tuple[str, str, str]]]:
-    """Create users from auth_users, and reconcile existing users' permissions.
+def seed_users(db: Session, raw: str) -> int:
+    """Bootstrap accounts from auth_users, ONLY into an empty users table.
 
-    Returns (created_count, [(username, old_perms, new_perms), ...]).
-
-    Permissions are reconciled on every startup because AUTH_USERS is the only
-    lever available in production: the database lives on a disk we cannot open a
-    SQL shell against, so a grant that could only be changed by editing the row
-    could not be changed at all. Making the env var authoritative means a
-    permission change is an env edit plus a restart.
-
-    Passwords are still NEVER rewritten. Re-hashing on every boot would silently
-    revert a password changed by any other means, and unlike a permission grant
-    a password has no visible symptom when it is wrong-but-valid. Changing one
-    still means deleting the row.
+    Returns the number of accounts created. The database is the source of truth
+    for accounts (the register, 25 Nov 2026): they are added, regranted and
+    removed on the Users page, so once any account exists this creates nothing
+    and never touches an existing row's grant or password. AUTH_USERS is how a
+    fresh database gets its first (`*`) account.
     """
+    if db.query(User.id).first() is not None:
+        return 0
     created = 0
-    changed: list[tuple[str, str, str]] = []
     for username, password, permissions in parse_auth_users(raw):
-        existing = db.query(User).filter(User.username == username).first()
-        if existing is None:
-            db.add(User(
-                username=username,
-                password_hash=hash_password(password),
-                permissions=permissions,
-            ))
-            created += 1
-            continue
-        if existing.permissions != permissions:
-            changed.append((username, existing.permissions, permissions))
-            existing.permissions = permissions
+        if db.query(User).filter(func.lower(User.username) == username.lower()).first():
+            continue    # a repeated name in AUTH_USERS: the first one wins
+        db.add(User(
+            username=username,
+            password_hash=hash_password(password),
+            permissions=permissions,
+        ))
+        db.flush()
+        created += 1
     db.commit()
-    return created, changed
-
-
-def seed_coded_users(db: Session, users=None) -> tuple[int, list[tuple[str, str, str]]]:
-    """seed_users for the accounts in app/users.py, whose passwords come as
-    bcrypt hashes. Run after the AUTH_USERS seeding, so where a user is in
-    both, the grant in code wins."""
-    if users is None:
-        from .users import USERS as users
-    created = 0
-    changed: list[tuple[str, str, str]] = []
-    for username, password_hash, permissions in users:
-        # Matched ignoring case so a respelt name renames the user, not doubles it.
-        existing = db.query(User).filter(func.lower(User.username) == username.lower()).first()
-        if existing is not None and existing.username != username:
-            existing.username = username
-        if existing is None:
-            db.add(User(username=username, password_hash=password_hash,
-                        permissions=permissions))
-            created += 1
-        elif existing.permissions != permissions:
-            changed.append((username, existing.permissions, permissions))
-            existing.permissions = permissions
-    db.commit()
-    return created, changed
-
-
-def remove_coded_users(db: Session, names=None) -> list[str]:
-    """Delete the accounts named in app/users.py REMOVED, matched ignoring
-    case. Run after both seedings, so a name still in AUTH_USERS or USERS does
-    not survive. Returns the usernames deleted."""
-    if names is None:
-        from .users import REMOVED as names
-    gone = []
-    for name in names:
-        for row in db.query(User).filter(func.lower(User.username) == name.lower()).all():
-            gone.append(row.username)
-            db.delete(row)
-    db.commit()
-    return gone
+    return created
 
 
 def ensure_schema() -> None:

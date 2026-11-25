@@ -14,3 +14,8 @@ test('an account with nothing lands on the tracker path', () => {
   expect(landingFor([])).toBe('/')
   expect(landingFor()).toBe('/')
 })
+
+test('no account lands on Users, which is last', () => {
+  expect(landingFor(['coupons', 'cards', 'admin'])).toBe('/')
+  expect(landingFor(['pnl', 'admin'])).toBe('/pnl/dogs')
+})

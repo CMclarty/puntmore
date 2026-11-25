@@ -15,8 +15,6 @@ from app.security import (
     verify_password,
     parse_auth_users,
     seed_users,
-    seed_coded_users,
-    remove_coded_users,
     has_permission,
     granted_tools,
 )
@@ -112,8 +110,8 @@ def test_parse_auth_users_empty():
 def test_seed_users_idempotent():
     db = TestSession()
     try:
-        assert seed_users(db, "bob:pw,carol:pw") == (2, [])
-        assert seed_users(db, "bob:pw,carol:pw") == (0, [])  # already exist
+        assert seed_users(db, "bob:pw,carol:pw") == 2
+        assert seed_users(db, "bob:pw,carol:pw") == 0  # already exist
         assert db.query(User).count() == 2
     finally:
         db.close()
@@ -132,102 +130,55 @@ def test_seed_users_never_modifies_an_existing_password():
         db.close()
 
 
-def test_coded_users_log_in_with_the_password_behind_their_hash():
-    db = TestSession()
-    try:
-        users = [("gina", hash_password("a-long-test-password"), "cards+hills")]
-        assert seed_coded_users(db, users) == (1, [])
-        row = db.query(User).filter(User.username == "gina").first()
-        assert verify_password("a-long-test-password", row.password_hash)
-        assert row.permissions == "cards+hills"
-        assert seed_coded_users(db, users) == (0, [])
-        created, changed = seed_coded_users(db, [("gina", hash_password("other"), "*")])
-        assert changed == [("gina", "cards+hills", "*")]
-        assert verify_password("a-long-test-password",            # password kept
-                               db.query(User).filter(User.username == "gina").first().password_hash)
-    finally:
-        db.close()
-
-
-def test_a_respelt_coded_user_is_renamed_not_doubled():
-    db = TestSession()
-    try:
-        seed_coded_users(db, [("filo", hash_password("a-long-test-password"), "*")])
-        seed_coded_users(db, [("Filo", hash_password("other"), "cards+hills")])
-        rows = db.query(User).all()
-        assert [(r.username, r.permissions) for r in rows] == [("Filo", "cards+hills")]
-        assert verify_password("a-long-test-password", rows[0].password_hash)
-    finally:
-        db.close()
-
-
 def test_a_paddy_and_hills_account_signs_in_on_the_main_domain_not_on_me(monkeypatch):
     from app.config import settings
     monkeypatch.setattr(settings, "me_host", "me.puntmore.com")
-    db = TestSession()
-    try:
-        seed_coded_users(db, [("gina", hash_password("a-long-test-password"), "cards+hills")])
-    finally:
-        db.close()
+    _seed_user("gina", "a-long-test-password", "cards+hills")
     body = {"username": "gina", "password": "a-long-test-password"}
     r = TestClient(app).post("/auth/login", json=body)
     assert r.status_code == 200 and r.json()["tools"]
     assert TestClient(app, base_url="http://me.puntmore.com").post("/auth/login", json=body).status_code == 403
 
 
-def test_the_coded_user_list_holds_hashes_not_passwords():
-    from app.users import USERS
-    for username, password_hash, permissions in USERS:
-        assert password_hash.startswith("$2") and len(password_hash) == 60, username
-        assert permissions
-
-
-def test_seed_users_reconciles_permissions_of_existing_users():
-    # AUTH_USERS is the only lever in production — the database sits on a disk
-    # with no SQL shell — so a grant edit must take effect on restart.
+def test_seed_users_only_bootstraps_an_empty_table():
+    # The database is the source of truth for accounts (the register, 25 Nov
+    # 2026): AUTH_USERS creates accounts only when there are none at all.
     db = TestSession()
     try:
-        seed_users(db, "erin:pw:coupons")
-        created, changed = seed_users(db, "erin:pw:coupons+pnl")
-        assert created == 0
-        assert changed == [("erin", "coupons", "coupons+pnl")]
-        assert db.query(User).filter(User.username == "erin").first().permissions == "coupons+pnl"
+        assert seed_users(db, "erin:pw:coupons") == 1
+        assert seed_users(db, "erin:pw:coupons+pnl, frank:pw:coupons") == 0
+        assert [(u.username, u.permissions) for u in db.query(User).all()] == [("erin", "coupons")]
     finally:
         db.close()
 
 
-def test_seed_users_reports_no_change_when_the_grant_matches():
-    db = TestSession()
-    try:
-        seed_users(db, "frank:pw:coupons")
-        assert seed_users(db, "frank:pw:coupons") == (0, [])
-    finally:
-        db.close()
-
-
-def test_seed_users_can_narrow_a_grant_too():
-    # Reconciliation is not "widen only" — removing a tool from AUTH_USERS
-    # revokes it, so the env var is genuinely the source of truth.
+def test_seed_users_never_regrants_an_existing_account():
     db = TestSession()
     try:
         seed_users(db, "gina:pw:*")
-        _, changed = seed_users(db, "gina:pw:coupons")
-        assert changed == [("gina", "*", "coupons")]
-        assert db.query(User).filter(User.username == "gina").first().permissions == "coupons"
+        assert seed_users(db, "gina:pw:coupons") == 0
+        assert db.query(User).filter(User.username == "gina").first().permissions == "*"
     finally:
         db.close()
 
 
-def test_seed_users_leaves_users_absent_from_auth_users_alone():
-    # A user not named in AUTH_USERS is untouched, not deleted or reset.
+def test_seed_users_creates_nothing_beside_an_account_made_another_way():
+    _seed_user("hank", "a-long-test-password", "cards")
     db = TestSession()
     try:
-        seed_users(db, "hank:pw:coupons")
-        seed_users(db, "iris:pw:pnl")
-        assert db.query(User).filter(User.username == "hank").first().permissions == "coupons"
-        assert db.query(User).count() == 2
+        assert seed_users(db, "hank:pw:*, iris:pw:pnl") == 0
+        assert [(u.username, u.permissions) for u in db.query(User).all()] == [("hank", "cards")]
     finally:
         db.close()
+
+
+def test_the_coded_user_list_is_gone():
+    import importlib
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("app.users")
+    from app import security
+    assert not hasattr(security, "seed_coded_users")
+    assert not hasattr(security, "remove_coded_users")
 
 
 # --- Integration: login flow ---
@@ -258,7 +209,7 @@ def test_login_success_then_me():
     expected = {
         "username": "alice",
         "permissions": "*",
-        "tools": ["coupons", "cards", "pnl", "kelly", "boost", "shop", "aw26", "hills", "finder", "props"],
+        "tools": ["coupons", "cards", "pnl", "kelly", "boost", "shop", "aw26", "hills", "finder", "props", "admin"],
     }
     assert resp.json() == expected
     # session cookie now set on the client → /auth/me works
@@ -411,7 +362,7 @@ def test_has_permission_wildcard_and_explicit():
 
 def test_granted_tools_intersects_grant_with_enabled(monkeypatch):
     # Both flags on in the test env, so "*" yields every tool in nav order.
-    assert granted_tools("*") == ["coupons", "cards", "pnl", "kelly", "boost", "shop", "aw26", "hills", "finder", "props"]
+    assert granted_tools("*") == ["coupons", "cards", "pnl", "kelly", "boost", "shop", "aw26", "hills", "finder", "props", "admin"]
     assert granted_tools("coupons") == ["coupons"]
     # A grant for a disabled tool yields nothing for it.
     from app import security
@@ -476,34 +427,3 @@ def test_weak_seed_passwords_flags_the_obvious_ones():
     assert weak_seed_passwords("dave:cqR7-vv2N!ktPz") == []       # fine
     # Reports usernames only — this gets logged, so it must never leak secrets.
     assert "admin" not in str(weak_seed_passwords("x:admin"))
-
-
-
-
-def test_a_removed_user_is_deleted_and_their_session_stops_working():
-    _use_real_auth()
-    db = TestSession()
-    try:
-        seed_coded_users(db, [("Gina", hash_password("a-long-test-password"), "*")])
-    finally:
-        db.close()
-    client = TestClient(app)
-    assert client.post("/auth/login", json={
-        "username": "Gina", "password": "a-long-test-password"}).status_code == 200
-    assert client.get("/auth/me").status_code == 200
-    db = TestSession()
-    try:
-        assert remove_coded_users(db, ["gina"]) == ["Gina"]
-        assert db.query(User).count() == 0
-        assert remove_coded_users(db, ["gina"]) == []
-    finally:
-        db.close()
-    assert client.get("/auth/me").status_code == 401
-    assert client.post("/auth/login", json={
-        "username": "Gina", "password": "a-long-test-password"}).status_code == 401
-
-
-def test_filo_is_seeded_with_paddy_and_hills_and_not_removed():
-    from app import users
-    assert ("Filo", "cards+hills") in [(name, grant) for name, _, grant in users.USERS]
-    assert not any(name.lower() == "filo" for name in users.REMOVED)
