@@ -487,6 +487,14 @@ MIN_PASSWORD_LENGTH = 12
 MAX_PASSWORD_BYTES = 72
 
 
+def _unencodable(text: str) -> bool:
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return True
+    return False
+
+
 def password_problem(password: str) -> str | None:
     """Why a password set on the Users page is refused, or None. The message
     never repeats the password."""
@@ -494,6 +502,10 @@ def password_problem(password: str) -> str | None:
         return "Password cannot be blank"
     if len(password) < MIN_PASSWORD_LENGTH:
         return f"Password must be at least {MIN_PASSWORD_LENGTH} characters"
+    # Characters bcrypt cannot take: a control character (a NUL makes an
+    # account nobody can sign in to) or one that will not encode.
+    if not password.isprintable() or not password.isascii() and _unencodable(password):
+        return "Password has a character that cannot be used"
     if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
         return f"Password must be at most {MAX_PASSWORD_BYTES} bytes (fewer characters if not plain letters)"
     if password.lower() in _COMMON_PASSWORDS:

@@ -572,3 +572,9 @@ def test_a_non_ascii_case_pair_never_makes_two_accounts(admin):
     for name in ("Émile", "émile"):
         assert admin.post("/admin/users", json={"username": name, "password": NEW_PW,
                                                 "tools": ["cards"]}).status_code == 422
+
+
+@pytest.mark.parametrize("pw", ["aaaaaaaaaaaa\x00", "aaaaaaaaaaaa\ud800", "aaaaaa\naaaaaa"])
+def test_a_password_bcrypt_cannot_take_is_refused_not_a_500(pw):
+    from app.security import password_problem
+    assert password_problem(pw) == "Password has a character that cannot be used"
