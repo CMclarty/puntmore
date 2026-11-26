@@ -1,5 +1,7 @@
 # "Check wops for weekend": design
 
+> Replaced on 26 Nov 2026 by `2026-11-26-check-on-demand-design.md`; kept for what it settled.
+
 Callum, 12 Nov 2026. A WOP is a WhatOddsPaddy: a prebuilt bet builder Paddy Power prices,
 found on a tab in each game's own menu. Callum checks them by hand each weekend against
 Bookie Bashing's bet builder. This is that check as one request.
