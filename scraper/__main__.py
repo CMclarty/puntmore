@@ -35,9 +35,12 @@
                    builder a job keeps open: {"kind": "price", "job":
                    "bb-look", "items": [{"key", "competition", "home",
                    "away", "preset"}, ...]} (at most 60): each item's Total
-                   Odds (priced, no_game, no_preset, unsettled); read only,
-                   nothing loaded, nothing saved ("save" other than "no" is
-                   refused). "id" is made when not given. Waits for the
+                   Odds (priced, no_game, no_preset, unsettled: a fair only
+                   with proof the preset applied to that game), with the
+                   bet's description and the data's age; "list_presets":
+                   true adds Use Preset's names (items may then be []).
+                   Read only, nothing loaded, nothing saved ("save" other
+                   than "no" is refused). "id" is made when not given. Waits for the
                    result (data/requests/done/ask-<id>.json; --wait, default
                    3600 s) and prints it: exit 0 when done, 2 refused, 1
                    otherwise. One request at a time.
@@ -589,11 +592,15 @@ def _ask_lines(body) -> list[str]:
     out = [f"{body['id']}: {body['state']}" + (f" - {body['reason']}" if body.get("reason") else "")]
     for x in body.get("listings") or []:
         out.append(f"  listing  {x['state']:8} {x['url']}" + (f"  ({x['reason']})" if x.get("reason") else ""))
+    if body.get("presets") is not None:
+        out.append(f"  presets  {len(body['presets'])} name(s), from {body.get('presets_from')}")
     for i in body.get("items") or []:
         if body.get("kind") == "price":
             line = f"  {i['state']:9} {i['key']}  {i['home']} v {i['away']}  {i['preset']}"
             if i.get("fair") is not None:
                 line += f"  fair {i['fair']}"
+                if i.get("data_age_s") is not None:
+                    line += f"  (data {i['data_age_s']} s old)"
             if i.get("reason"):
                 line += f"  ({i['reason']})"
             out.append(line)

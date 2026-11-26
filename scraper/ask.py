@@ -51,8 +51,17 @@ Two kinds:
          `bb.call_budget_s` (at least one), so a long request spans ticks
          and its result shows the items done so far. A result item: the
          request's item as given, "state" (priced, no_game, no_preset,
-         unsettled), "fair" (Total Odds, or null), "saved" ("no"), "reason".
-         The driver is parsers/bb_presets.py.
+         unsettled), "fair" (Total Odds, or null: a fair is taken only with
+         proof the preset was applied to that game), "saved" ("no"),
+         "reason", "description" (the bet as the builder words it),
+         "data_age_s" (the page's "Ns since data update"). Items may be
+         taken out of order, so that an item whose preset is the one already
+         chosen does not come next; each keeps its key. "list_presets": true
+         (items may then be empty) adds "presets": [{"name", "count"}] (Use
+         Preset's names, whitespace collapsed, and how many options carry
+         each) and "presets_from" (the game the panel was drawn for; with
+         none chosen, the first listed is chosen). The driver is
+         parsers/bb_presets.py.
 
 What happens in the browser is Runner._ask's; this module is the files.
 """
@@ -80,7 +89,7 @@ SAVES = ("no", "dry", "press")
 MAX_BYTES = 1024 * 1024             # a request file larger than this is refused unread
 PRUNE_DAYS = 14
 FIELDS = {"read": {"id", "kind", "job", "from", "to", "urls", "parser", "keep"},
-          "price": {"id", "kind", "job", "items", "save"}}
+          "price": {"id", "kind", "job", "items", "save", "list_presets"}}
 ITEM_FIELDS = ("key", "competition", "home", "away", "preset")
 BUILDER_SITE, BUILDER_PARSER = "bookiebashing", "bb_builder"
 LONDON = ZoneInfo("Europe/London")
@@ -139,6 +148,7 @@ class Request:
     keep: bool
     items: tuple[PriceItem, ...] = ()    # price
     save: str = "no"                     # price
+    list_presets: bool = False           # price: the result also lists Use Preset's names
 
 
 def iso(ts: float | None) -> str | None:
@@ -178,10 +188,13 @@ def _price(raw: dict, rid: str, targets) -> Request:
         raise Refused(f"save must be one of {', '.join(SAVES)}")
     if save != "no":
         raise Refused("save not built")
-    items = raw.get("items")
+    list_presets = raw.get("list_presets", False)
+    if not isinstance(list_presets, bool):
+        raise Refused("list_presets must be true or false")
+    items = raw.get("items", [] if list_presets else None)
     if not isinstance(items, list) or not all(isinstance(x, dict) for x in items):
         raise Refused("items must be a list of objects")
-    if not items:
+    if not items and not list_presets:
         raise Refused("items is empty")
     if len(items) > MAX_ITEMS:
         raise Refused(f"at most {MAX_ITEMS} items in one request (got {len(items)})")
@@ -200,7 +213,7 @@ def _price(raw: dict, rid: str, targets) -> Request:
             raise Refused(f"item {n}: key {x['key']!r} is given twice")
         keys.add(x["key"])
         out.append(PriceItem(*(x[f] for f in ITEM_FIELDS)))
-    return Request(rid, "price", job, None, None, (), None, False, tuple(out), save)
+    return Request(rid, "price", job, None, None, (), None, False, tuple(out), save, list_presets)
 
 
 def parse(raw: dict, targets=None) -> Request:

@@ -515,33 +515,49 @@ page a Bookie Bashing builder job keeps open (a job whose parser is
 `bb_builder`: `bb-look`, which must be enabled and its page open):
 
 ```json
-{"kind": "price", "job": "bb-look", "save": "no",
+{"kind": "price", "job": "bb-look", "save": "no", "list_presets": false,
  "items": [{"key": "ars-che-h26", "competition": "English Premier League",
             "home": "Arsenal", "away": "Chelsea", "preset": "Home 2,6"}]}
 ```
 
 At most 60 items, each `key` once. It is read only: nothing is saved to the
-tracker and nothing that changes the account is pressed (`save` is `no`, the
-default; `dry` and `press` are refused, "save not built"). Nothing is loaded:
-when the job's page is not open (`bb-look has no open page`), Bookie Bashing is
-cooling off, backing off or signing in, or the builder is not up (`builder not
-ready: ...`), the request stops and says so. On the page
-(`scraper/parsers/bb_presets.py`, written from the 12 Nov 2026 `bb-look`
-dumps): the game is chosen in the builder's first block (home and away matched
-against the Game(s) list under the competition named: the options whose name,
-less its `(n/m)` count, is the name given, any case, else those starting with
-it; the same teams listed twice is no game; a game already chosen is not chosen
-again), the presets panel opened with "Show/Hide Presets" when it is shut, the
-preset chosen in "Use Preset" (its name matched with whitespace collapsed, case
-as given), and Total Odds read once it reads the same twice `bb.settle_s` apart
-and is no longer the value before the preset (up to 6 s), with every block
-checked to be on the game. Each tick works through items for at most
-`bb.call_budget_s` (at least one), so a long request spans ticks; the result
-shows the items done so far, each the request's item as given with `state`
-(`priced`, `no_game`, `no_preset`, `unsettled`), `fair` (null unless priced),
-`saved` (`no`) and `reason`. Items not reached when a request stops are left
-out of `items`; the request's `reason` says why. One request at a time, of
-either kind.
+tracker, nothing that changes the account is pressed, and no preset is chosen
+but the ones asked for (`save` is `no`, the default; `dry` and `press` are
+refused, "save not built"). Nothing is loaded: when the job's page is not open
+(`bb-look has no open page`), Bookie Bashing is cooling off, backing off or
+signing in, or the builder is not up (`builder not ready: ...`), the request
+stops and says so. On the page (`scraper/parsers/bb_presets.py`, written from
+the 12 Nov 2026 `bb-look` dumps): the game is chosen in the builder's first
+block (home and away matched against the Game(s) list under the competition
+named: the options whose name, less its `(n/m)` count, is the name given, any
+case, else those starting with it; the same teams listed twice is no game; a
+game already chosen is not chosen again), the presets panel opened with
+"Show/Hide Presets" when it is shut, the preset chosen in "Use Preset" (its
+name matched with whitespace collapsed, case as given; a name listed more than
+once, as 17 were on 12 Nov 2026, is `no_preset`, "listed N times").
+
+A fair is taken only with proof that the preset was applied to that game: the
+bet's description (the line under Total Odds, "All of Arsenal (Over 1.5 goals)
+and ...") is there and changed when the preset was chosen, and names no team of
+a game a block was on before; Total Odds is a price and changed; both have read
+the same for a second (read every `bb.settle_s`, up to 8 s); and every block is
+on the game. Otherwise the item is `unsettled` with the reason. Use Preset has
+no empty option, so a preset already chosen cannot be applied afresh: an item
+whose preset is the one showing is `unsettled`, and the service takes another
+item first where it can (items may finish out of order; each keeps its key). A
+true fair equal to the item before's is also `unsettled`, never a stale number.
+
+Each tick works through items for at most `bb.call_budget_s` (at least one),
+so a long request spans ticks; the result shows the items done so far, each
+the request's item as given with `state` (`priced`, `no_game`, `no_preset`,
+`unsettled`), `fair` (null unless priced), `saved` (`no`), `reason`,
+`description` and `data_age_s` (the page's "Ns since data update"; the data is
+pulled no more often than the `bb-look` job pulls it). Items not reached when a
+request stops are left out of `items`; the request's `reason` says why.
+`"list_presets": true` (items may then be `[]`) adds `presets`, every Use
+Preset name with its `count` of options, and `presets_from`, the game the panel
+was drawn for (with no game chosen, the first one listed is chosen to draw it).
+One request at a time, of either kind.
 
 ### Looking at a page: `look`
 Parsers are written only from real saved pages, and some states of a page need

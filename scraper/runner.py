@@ -1503,6 +1503,7 @@ class Runner:
                 self._ask_finish("refused", f"no Bookie Bashing builder job called {req.job!r}", now)
                 return
             a["todo"] = list(req.items)
+            result.update(presets=None, presets_from=None)
             return
         self._say(ASK_LOG, f"{req.id}: taken ({req.kind}, "
                            + (f"{req.job} {ask.iso(req.start)} to {ask.iso(req.end)})" if req.job
@@ -1643,13 +1644,22 @@ class Runner:
             self._ask_finish("stopped", ask.scrub(f"builder not ready: {exc}"), now)
             return
         started, budget = time.time(), behaviour.get("bb.call_budget_s")
-        while a["todo"]:
+        if req.list_presets and a["result"]["presets"] is None:
             try:
-                item = self._ask_price_item(page, a["todo"][0])
+                listed, came_from = bb_presets.list_presets(page)
             except BuilderNotReady as exc:
                 self._ask_finish("stopped", ask.scrub(f"builder not ready: {exc}"), now)
                 return
-            a["todo"].pop(0)
+            a["result"].update(presets=listed, presets_from=came_from)
+            self._say(ASK_LOG, f"{req.id}: {len(listed)} preset name(s) listed, from {came_from}")
+        while a["todo"]:
+            n = self._ask_price_next(page, a["todo"])
+            try:
+                item = self._ask_price_item(page, a["todo"][n])
+            except BuilderNotReady as exc:
+                self._ask_finish("stopped", ask.scrub(f"builder not ready: {exc}"), now)
+                return
+            a["todo"].pop(n)
             a["result"]["items"].append(item)
             self._say(ASK_LOG, f"{req.id}: {item['state']} {item['key']} ({item['home']} v {item['away']}, "
                                f"{item['preset']})"
@@ -1664,13 +1674,28 @@ class Runner:
         else:
             self._ask_save(a["result"])
 
-    def _ask_price_item(self, page, it) -> dict:
-        """One item priced (bb_presets.price): its result as the request gave
-        it, with state, fair, saved and reason."""
-        item = {"key": it.key, "competition": it.competition, "home": it.home, "away": it.away,
-                "preset": it.preset, "state": "unsettled", "fair": None, "saved": "no", "reason": None}
+    @staticmethod
+    def _ask_price_next(page, todo) -> int:
+        """Which item next: the first whose preset is not the one Use Preset
+        shows chosen (that one cannot be applied afresh: bb_presets), else
+        the first."""
         try:
-            fair = bb_presets.price(page, it.competition, it.home, it.away, it.preset)
+            chosen = bb_presets.chosen_preset(page)
+        except Exception:                       # only a hint: the first item then
+            return 0
+        if chosen is None:
+            return 0
+        return next((i for i, it in enumerate(todo) if bb_presets.collapse(it.preset) != chosen), 0)
+
+    def _ask_price_item(self, page, it) -> dict:
+        """One item priced (bb_presets.price_reading): its result as the
+        request gave it, with state, fair, saved, reason, description and
+        data_age_s."""
+        item = {"key": it.key, "competition": it.competition, "home": it.home, "away": it.away,
+                "preset": it.preset, "state": "unsettled", "fair": None, "saved": "no", "reason": None,
+                "description": None, "data_age_s": None}
+        try:
+            got = bb_presets.price_reading(page, it.competition, it.home, it.away, it.preset)
         except bb_presets.NoGame as exc:
             item.update(state="no_game", reason=str(exc))
         except bb_presets.NoPreset as exc:
@@ -1678,10 +1703,11 @@ class Runner:
         except bb_presets.Unpriced as exc:
             item.update(reason=str(exc))
         else:
-            if fair is None:
-                item["reason"] = "Total Odds did not settle"
-            else:
-                item.update(state="priced", fair=fair)
+            item.update(description=got.description, data_age_s=got.data_age_s, reason=got.reason)
+            if got.fair is not None:
+                item.update(state="priced", fair=got.fair)
+        if item["data_age_s"] is None:
+            item["data_age_s"] = bb_presets.data_age(page)
         return item
 
     def _ask_open(self, key, url, parser, now) -> tuple[Tab | None, str | None]:

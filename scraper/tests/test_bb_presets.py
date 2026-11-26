@@ -71,10 +71,17 @@ def test_presets_with_no_game_chosen_says_the_panel_is_not_there(page, monkeypat
 
 
 # --- price ---------------------------------------------------------------------
+def _desc(page):  # noqa: F811
+    return page.locator("#desc .message-body").inner_text()
+
+
 def test_price_reads_total_odds_for_a_game_and_a_preset(page):  # noqa: F811
     _up(page)
-    fair = mod.price(page, CUP, "Bradford", "Peterborough", "Home 2,6")
-    assert fair == _expected(page, "user4", BRADFORD)
+    page.evaluate("UPDATED_AT = Date.now() - 113000")
+    got = mod.price_reading(page, CUP, "Bradford", "Peterborough", "Home 2,6")
+    assert got.fair == _expected(page, "user4", BRADFORD)
+    assert got.description == _desc(page) == "All of Bradford (user4 leg 1) and Bradford (user4 leg 2)"
+    assert 113 <= got.data_age_s <= 125 and got.reason is None
     assert page.evaluate("LOADED") == ["user4"]
     assert _games_shown(page) == [BRADFORD, BRADFORD]              # the preset kept the game
     assert page.evaluate("PRESSED") == NOTHING_PRESSED             # nothing that changes the account
@@ -104,11 +111,46 @@ def test_the_old_total_is_never_read_as_the_new_presets(page):  # noqa: F811
     assert a != b and b == _expected(page, "user6", BRADFORD)
 
 
-def test_the_same_preset_again_on_the_same_game_is_read_where_it_is(page):  # noqa: F811
+def test_a_wrong_total_shown_for_900_ms_is_never_taken(page):  # noqa: F811
+    """Total Odds and the description must hold for a whole second: a number
+    the builder shows on the way to the right one is not the fair."""
     _up(page)
-    a = mod.price(page, CUP, "Bradford", "Peterborough", "Home 2,6")
-    assert mod.price(page, CUP, "Bradford", "Peterborough", "Home 2,6") == a
-    assert page.evaluate("LOADED") == ["user4"]
+    page.evaluate("SETTLE = 'intermediate'")
+    assert mod.price(page, CUP, "Bradford", "Peterborough", "Home 2,6") == _expected(page, "user4", BRADFORD)
+    assert mod.price(page, CUP, "Bradford", "Peterborough", "Away 2,6") == _expected(page, "user5", BRADFORD)
+
+
+def test_the_same_preset_again_on_the_same_game_is_unsettled(page):  # noqa: F811
+    """No shortcut: a preset already chosen cannot be shown to apply afresh."""
+    _up(page)
+    mod.price(page, CUP, "Bradford", "Peterborough", "Home 2,6")
+    got = mod.price_reading(page, CUP, "Bradford", "Peterborough", "Home 2,6")
+    assert got.fair is None and "already chosen" in got.reason
+
+
+@pytest.mark.parametrize("reapply", [True, False])
+def test_the_same_preset_on_the_next_game_is_never_the_last_games_number(page, reapply):  # noqa: F811
+    """Use Preset has no empty option (12 Nov 2026 dump), so the option already
+    chosen cannot be gone through again: the item is unsettled, whether or not
+    choosing it again would re-apply it (REAPPLY)."""
+    _up(page)
+    page.evaluate(f"REAPPLY = {'true' if reapply else 'false'}")
+    a = mod.price(page, CUP, "Bradford", "Peterborough", "GG")             # one block
+    assert a == _expected(page, "user0", BRADFORD)
+    got = mod.price_reading(page, CUP, "Fleetwood Town", "Arsenal", "GG")
+    assert got.fair is None and "already chosen" in got.reason
+    assert got.fair != a
+
+
+def test_a_description_that_still_names_the_last_games_team_is_not_taken(page):  # noqa: F811
+    """A preset chosen after the game moved, whose second block stayed on the
+    last game: its description names that game's team, so no fair."""
+    _up(page)
+    page.evaluate("KEEPS_GAME = 'old'")
+    mod.price(page, CUP, "Bradford", "Peterborough", "Home 2,6")
+    got = mod.price_reading(page, CUP, "Fleetwood Town", "Arsenal", "Away 2,6")
+    assert got.fair is None
+    assert got.reason == "the description still names Peterborough from the last game"
 
 
 def test_names_match_after_collapsing_whitespace_and_teams_after_normalising(page):  # noqa: F811
@@ -120,11 +162,14 @@ def test_names_match_after_collapsing_whitespace_and_teams_after_normalising(pag
     assert page.evaluate("LOADED") == ["glob6", "glob445"]
 
 
-def test_a_name_twice_in_the_list_loads_the_first(page):  # noqa: F811
+def test_a_name_listed_twice_is_no_preset(page):  # noqa: F811
+    """Two options share the name (and price differently): neither is chosen."""
     _up(page)
-    mod.price(page, CUP, "Bradford", "Peterborough",
-              "#WOP - Both Teams to Score & 3+ Corners for Each Team & 3+ Cards for Each Team")
-    assert page.evaluate("LOADED") == ["glob172"]
+    page.evaluate(f"PRICES = {{'glob172|{BRADFORD}': 3.1, 'glob251|{BRADFORD}': 4.4}}")
+    with pytest.raises(mod.NoPreset, match="listed 2 times"):
+        mod.price(page, CUP, "Bradford", "Peterborough",
+                  "#WOP - Both Teams to Score &  3+ Corners for Each Team & 3+ Cards for Each Team")
+    assert page.evaluate("LOADED") == []
 
 
 @pytest.mark.parametrize("comp, home, away", [(CUP, "Bradford", "Hull"),             # not listed
@@ -159,7 +204,7 @@ def test_the_named_competition_chooses_between_two_games_with_the_same_teams(pag
     _up(page)
     mod.price(page, "English Premier League 2", "Leeds", "Hull", "Home 2,6")
     assert _games_shown(page) == ["Leeds v Hull - 12:00 tomorrow"] * 2
-    mod.price(page, EPL, "Leeds", "Hull", "Home 2,6")
+    mod.price(page, EPL, "Leeds", "Hull", "Away 2,6")
     assert _games_shown(page) == ["Leeds v Hull - 19:45 tomorrow"] * 2
 
 
@@ -177,9 +222,11 @@ def test_total_odds_that_never_settles_is_none_within_the_wait(page, settle):  #
     mod.price(page, CUP, "Bradford", "Peterborough", "Home 2,6")       # the panel open
     page.evaluate(f"SETTLE = '{settle}'")
     t0 = time.time()
-    assert mod.price(page, CUP, "Bradford", "Peterborough", "Away 2,6") is None
+    got = mod.price_reading(page, CUP, "Bradford", "Peterborough", "Away 2,6")
+    assert got.fair is None
+    assert got.reason == {"infinity": "Total Odds shows no price",
+                          "flicker": "Total Odds and the description did not hold for 1.0 s"}[settle]
     assert time.time() - t0 < mod.SETTLE_WAIT_S + 3
-    assert mod._STATE[id(page)].get("loaded") is None                  # not taken as loaded
 
 
 def test_a_preset_that_leaves_the_game_is_not_priced(page):  # noqa: F811
@@ -192,6 +239,46 @@ def test_a_preset_that_leaves_the_game_is_not_priced(page):  # noqa: F811
 def test_a_builder_that_is_not_up_says_so(page):  # noqa: F811
     with pytest.raises(saves.BuilderNotReady):
         mod.price(page, CUP, "Bradford", "Peterborough", "Home 2,6")
+
+
+def test_a_data_pull_forgets_what_the_driver_knew_of_the_page(page):  # noqa: F811
+    _up(page)
+    mod.price(page, CUP, "Bradford", "Peterborough", "Home 2,6")
+    assert id(page) in mod._STATE
+    assert mod.up(page, time.time()) is False                          # not due: nothing pulled
+    assert id(page) in mod._STATE
+    builder._STATE[id(page)]["updated"] -= behaviour.get("bb.update_every_s")
+    assert mod.up(page, time.time()) is True
+    assert id(page) not in mod._STATE
+    assert page.evaluate("UPDATES") == 2
+
+
+def test_data_age_is_read_off_the_page(page):  # noqa: F811
+    _up(page)
+    page.evaluate("UPDATED_AT = Date.now() - 300000")
+    page.wait_for_timeout(400)
+    assert 300 <= mod.data_age(page) <= 305
+    page.set_content("<html><body><h1>How it works</h1></body></html>")
+    assert mod.data_age(page) is None                                  # no builder: no age
+
+
+def test_list_presets_with_no_game_chosen_chooses_the_first_listed(page):  # noqa: F811
+    _up(page)
+    listed, came_from = mod.list_presets(page)
+    assert came_from == f"{BRADFORD} ({CUP} (8/8)), chosen to open the panel: no game was chosen"
+    assert listed[:2] == [{"name": "GG", "count": 1}, {"name": "Home 1,5", "count": 1}]
+    assert {"name": "#WOP - Both Teams to Score & 3+ Corners for Each Team & 3+ Cards for Each Team",
+            "count": 2} in listed
+    assert len(listed) == 9 and page.evaluate("LOADED") == []
+    assert mod.list_presets(page)[1] == f"{BRADFORD} (already chosen)"
+    assert page.evaluate("PRESSED") == NOTHING_PRESSED
+
+
+def test_the_chosen_preset_is_read(page):  # noqa: F811
+    _up(page)
+    assert mod.chosen_preset(page) is None
+    mod.price(page, CUP, "Bradford", "Peterborough", "Player Foul & Foul Won")
+    assert mod.chosen_preset(page) == "Player Foul & Foul Won"
 
 
 def test_it_is_not_a_parser_a_job_could_name():
@@ -243,11 +330,15 @@ def test_the_runner_prices_a_request_on_the_jobs_open_page(tmp_path, page):  # n
     body = ask.read_result(tmp_path, "p1")
     assert (body["kind"], body["state"], body["reason"]) == ("price", "done", None)
     got = [(x["key"], x["state"], x["fair"], x["saved"], x["preset"]) for x in body["items"]]
+    assert body["items"][0]["description"] == "All of Bradford (user4 leg 1) and Bradford (user4 leg 2)"
+    assert isinstance(body["items"][0]["data_age_s"], int)
+    assert (body["presets"], body["presets_from"]) == (None, None)
+    # c's preset is the one just chosen, so d goes first (_ask_price_next)
     assert got == [("a", "priced", _expected(page, "user4", BRADFORD), "no", "Home 2,6"),
                    ("b", "no_preset", None, "no", "Home 9,9"),
-                   ("c", "no_game", None, "no", "Home 2,6"),
-                   ("d", "priced", _expected(page, "user5", FLEETWOOD), "no", "Away  2,6")]
-    assert body["items"][2]["reason"]
+                   ("d", "priced", _expected(page, "user5", FLEETWOOD), "no", "Away  2,6"),
+                   ("c", "no_game", None, "no", "Home 2,6")]
+    assert body["items"][3]["reason"]
     assert page.evaluate("PRESSED") == NOTHING_PRESSED
     assert cap.last_activity > 0
     assert r.guard.requested("bookiebashing", 1_000.0) == (0, 0)   # nothing loaded
@@ -263,7 +354,38 @@ def test_unsettled_on_the_runner(tmp_path, page):  # noqa: F811
                      "items": [_item("a", "Bradford", "Peterborough", "Home 2,6")]})
     r._requests(now=1_000.0)
     (item,) = ask.read_result(tmp_path, "p2")["items"]
-    assert (item["state"], item["fair"], item["reason"]) == ("unsettled", None, "Total Odds did not settle")
+    assert (item["state"], item["fair"], item["reason"]) == ("unsettled", None, "Total Odds shows no price")
+
+
+def test_the_runner_lists_presets_with_no_items(tmp_path, page):  # noqa: F811
+    t = _bb_look()
+    r = _runner(tmp_path, [t])
+    r.tabs["bb-look"] = SimpleNamespace(target=t, page=page, capture=_Capture(), url=t.url)
+    _drop(tmp_path, {"id": "l1", "kind": "price", "job": "bb-look", "items": [], "list_presets": True})
+    r._requests(now=1_000.0)
+    body = ask.read_result(tmp_path, "l1")
+    assert (body["state"], body["items"]) == ("done", [])
+    assert {"name": "Home 2,6", "count": 1} in body["presets"] and len(body["presets"]) == 9
+    assert body["presets_from"].startswith(BRADFORD)
+    assert page.evaluate("LOADED") == [] and page.evaluate("PRESSED") == NOTHING_PRESSED
+
+
+def test_the_runner_does_not_take_next_an_item_whose_preset_is_already_chosen(tmp_path, page):  # noqa: F811
+    """GG on one game, then GG on another would be unsettled (already chosen):
+    another item goes between them. Each item keeps its key."""
+    t = _bb_look()
+    r = _runner(tmp_path, [t])
+    r.tabs["bb-look"] = SimpleNamespace(target=t, page=page, capture=_Capture(), url=t.url)
+    _drop(tmp_path, {"id": "o1", "kind": "price", "job": "bb-look", "items": [
+        _item("a", "Bradford", "Peterborough", "GG"), _item("b", "Fleetwood Town", "Arsenal", "GG"),
+        _item("c", "Fleetwood Town", "Arsenal", "Home 2,6")]})
+    for i in range(10):
+        r._requests(now=1_000.0 + i)
+        if r.asking is None:
+            break
+    body = ask.read_result(tmp_path, "o1")
+    assert [(x["key"], x["state"]) for x in body["items"]] == [("a", "priced"), ("c", "priced"), ("b", "priced")]
+    assert body["items"][2]["fair"] == _expected(page, "user0", FLEETWOOD)
 
 
 def test_a_logged_out_builder_stops_the_request(tmp_path, page):  # noqa: F811

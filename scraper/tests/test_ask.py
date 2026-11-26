@@ -194,6 +194,15 @@ def test_price_refusals(raw, why):
     assert _refused(raw) == why
 
 
+def test_a_price_may_list_the_presets_with_no_items():
+    req = ask.parse({"id": "p", "kind": "price", "job": "bb-look", "list_presets": True}, targets=TARGETS)
+    assert (req.items, req.list_presets) == ((), True)
+    assert ask.parse(_price(items=[], list_presets=True)).list_presets is True
+    assert ask.parse(_price()).list_presets is False
+    assert _refused(_price(items=[], list_presets=False)) == "items is empty"
+    assert _refused(_price(list_presets="yes")) == "list_presets must be true or false"
+
+
 def test_more_than_60_items():
     items = [{**ITEM, "key": f"k{i}"} for i in range(61)]
     assert _refused(_price(items=items)) == "at most 60 items in one request (got 61)"
@@ -478,14 +487,17 @@ def test_a_price_spans_ticks_within_the_call_budget_and_shows_the_items_so_far(t
     monkeypatch.setattr(runner.behaviour, "get", lambda k: 0.05 if k == "bb.call_budget_s" else real(k))
     ups, priced = [], []
     monkeypatch.setattr(bb_presets, "up", lambda page, now: ups.append(now))
+    monkeypatch.setattr(bb_presets, "data_age", lambda page: 42)
 
     def price(page, competition, home, away, preset):
         priced.append(preset)
         time.sleep(0.03)
         if preset == "Nope":
             raise bb_presets.NoPreset(f"no preset {preset!r}")
-        return {"Home 2,6": 2.1}.get(preset)                                 # Away 2,6: never settles
-    monkeypatch.setattr(bb_presets, "price", price)
+        if preset == "Home 2,6":
+            return bb_presets.Reading(2.1, "All of Arsenal (Over 1.5 goals)", 40, None)
+        return bb_presets.Reading(None, "x", 40, "Total Odds shows no price")    # Away 2,6
+    monkeypatch.setattr(bb_presets, "price_reading", price)
     presets = ["Home 2,6", "Away 2,6", "Nope", "Home 2,6", "Home 2,6"]
     _drop(tmp_path, "p", _price(items=[{**ITEM, "key": f"k{i}", "preset": p} for i, p in enumerate(presets)]))
     r._requests(now=1_000.0)
@@ -493,8 +505,9 @@ def test_a_price_spans_ticks_within_the_call_budget_and_shows_the_items_so_far(t
     assert body["state"] == "running" and len(body["items"]) == 2            # two in 0.05 s
     assert body["items"][0] == {"key": "k0", "competition": "English Premier League", "home": "Arsenal",
                                 "away": "Chelsea", "preset": "Home 2,6", "state": "priced", "fair": 2.1,
-                                "saved": "no", "reason": None}
-    assert (body["items"][1]["state"], body["items"][1]["reason"]) == ("unsettled", "Total Odds did not settle")
+                                "saved": "no", "reason": None, "description": "All of Arsenal (Over 1.5 goals)",
+                                "data_age_s": 40}
+    assert (body["items"][1]["state"], body["items"][1]["reason"]) == ("unsettled", "Total Odds shows no price")
     _drop(tmp_path, "q", _price(id="q"))
     r._requests(now=1_001.0)                                                  # one more tick
     assert _result(tmp_path, "q")["reason"] == "another request is running"   # not interleaved
@@ -503,6 +516,7 @@ def test_a_price_spans_ticks_within_the_call_budget_and_shows_the_items_so_far(t
     assert body["state"] == "done" and [i["state"] for i in body["items"]] == \
         ["priced", "unsettled", "no_preset", "priced", "priced"]
     assert body["items"][2]["reason"] == "no preset 'Nope'"
+    assert (body["items"][2]["description"], body["items"][2]["data_age_s"]) == (None, 42)
     assert priced == presets and len(ups) == 3                               # once a tick
 
 
@@ -512,7 +526,7 @@ def test_a_price_interrupted_by_a_restart_keeps_what_it_did(tmp_path, monkeypatc
     r = _runner(tmp_path, TARGETS)
     _bb_tab(r, _builder())
     monkeypatch.setattr(bb_presets, "up", lambda page, now: None)
-    monkeypatch.setattr(bb_presets, "price", lambda *a: 3.0)
+    monkeypatch.setattr(bb_presets, "price_reading", lambda *a: bb_presets.Reading(3.0, "d", None, None))
     real = runner.behaviour.get
     monkeypatch.setattr(runner.behaviour, "get", lambda k: 0.0 if k == "bb.call_budget_s" else real(k))
     _drop(tmp_path, "p", _price(items=[ITEM, {**ITEM, "key": "k2"}]))
@@ -575,13 +589,16 @@ def test_ask_gives_an_id_when_none_is_named_and_prints_the_items(tmp_path, cli, 
 
 
 def test_ask_prints_a_price_result(tmp_path, cli, capsys):
-    items = [{**ITEM, "state": "priced", "fair": 2.1, "saved": "no", "reason": None},
+    items = [{**ITEM, "state": "priced", "fair": 2.1, "saved": "no", "reason": None, "data_age_s": 40,
+              "description": "All of Arsenal (Over 1.5 goals)"},
              {**ITEM, "key": "k2", "preset": "Home 9,9", "state": "no_preset", "fair": None, "saved": "no",
               "reason": "no preset 'Home 9,9'"}]
     assert cli([json.dumps({"id": "c7", "kind": "price", "job": "bb-look", "items": [ITEM]})],
-               answer={"state": "done", "items": items}) == 0
+               answer={"state": "done", "items": items, "presets": [{"name": "Home 2,6", "count": 1}],
+                       "presets_from": "Arsenal v Chelsea - 15:00 (already chosen)"}) == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[-2:] == ["  priced    k1  Arsenal v Chelsea  Home 2,6  fair 2.1",
+    assert "  presets  1 name(s), from Arsenal v Chelsea - 15:00 (already chosen)" in out
+    assert out[-2:] == ["  priced    k1  Arsenal v Chelsea  Home 2,6  fair 2.1  (data 40 s old)",
                         "  no_preset k2  Arsenal v Chelsea  Home 9,9  (no preset 'Home 9,9')"]
 
 

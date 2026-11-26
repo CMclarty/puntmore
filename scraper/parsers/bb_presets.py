@@ -13,25 +13,36 @@ loaded one after another on one game):
   Preset Bookmaker, "Save As Preset" (never pressed), and "Use Preset": a
   <select> of optgroups by bookmaker (640 options on 12 Nov 2026, Callum's own
   "user..." ones, "Home 1,5", "Home 2,6", ..., and Bookie Bashing's "glob..."
-  ones, "#WOP - ..." among them), none chosen at first. The panel stays open
-  after a preset is chosen. Some names carry tabs, doubled or trailing spaces;
-  some names are in the list twice.
+  ones, "#WOP - ..." among them), none chosen at first, and NO empty or
+  placeholder option. The panel stays open after a preset is chosen. Some
+  names carry tabs, doubled or trailing spaces; 17 names (whitespace
+  collapsed) are listed more than once, 4 of them within one bookmaker.
 - Choosing a preset fills the builder with the preset's blocks (Home 2,6: a
   goals block and a corners block, Team set to the home side), every block on
   the game block 1 was on: the game is kept. A user's preset shows "Delete
   Preset" beside the select (never pressed).
 - Total Odds keeps the last value until the preset's price lands (2.32 stood
   before the first one); "Infinity" is no price.
+- Below Total Odds, the field Reset / Update Data / "Ns since data update",
+  then the bet's description in a message-body: absent before a game is
+  chosen; "England v Croatia (Over 3.5 goals)" with a game and no preset;
+  "All of England (Over 1.5 goals) and England (Over 5.5 corners)" once Home
+  2,6 is chosen. (The Stat row sits in a message-body too, so the description
+  is found as the one right after that field.)
 
-NOT in the dumps, so checked rather than assumed: whether a preset chosen
-after block 1 is moved to another game puts every block on the new game (the
-dumps load presets on one game only), and how long Total Odds takes after a
-preset (look waited 2.5 s, and it was there). So after every preset the
-blocks' games are read back, and a fair is taken only when Total Odds reads the
-same twice `bb.settle_s` apart and is not the value it stood at before the
-preset was chosen (as bb_saves._read_total does for its lines): a preset whose
-true price equals the last one's is then unsettled, never a stale fair. Up to
-SETTLE_WAIT_S for it to settle.
+A FAIR IS TAKEN ONLY WITH PROOF the preset was applied to this game, as all
+of these, read every `bb.settle_s` for up to SETTLE_WAIT_S (else the item is
+unsettled, with the reason):
+- the preset was not already the chosen option: Use Preset has no empty
+  option to go through, so an option already chosen cannot be applied afresh
+  without choosing another real preset, which is not done;
+- the description is there, and not the one before the preset was chosen;
+- it names no team of a game any block was on before this item that is not
+  in this game (a block left on the last game);
+- Total Odds is a price and not the one before the preset was chosen (a true
+  fair equal to the last item's is then unsettled, never a stale one);
+- Total Odds and the description have both read the same for STABLE_S;
+- afterwards every block's Game(s) is this game (else Unpriced).
 
 The game: home and away are matched against block 1's Game(s) options as
 bb_saves.parse_game_label reads them (NFC, whitespace collapsed, any case),
@@ -40,16 +51,18 @@ is the name given, any case; if none, those starting with it, as bb_saves's
 COMPETITIONS. One game found is chosen; none, or the same teams more than once
 (two competitions, two dates), is NoGame. A game already chosen in block 1 is
 not chosen again. A preset is matched by its name with whitespace collapsed,
-case as given; of names listed twice, the one whose text is exactly as given,
-else the first.
+case as given; a name listed more than once is NoPreset (neither is chosen).
 
-Nothing here loads a page: every step is an in-page selection or the
-"Show/Hide Presets" click (browser.click, as look's). Bookie Bashing's load
-budget is untouched.
+What the driver knows of a page (the games found) is dropped when `up` pulls
+the data. Nothing here loads a page: every step is an in-page selection or
+the "Show/Hide Presets" click (browser.click, as look's). Bookie Bashing's
+load budget is untouched.
 """
 import re
 import time
 import unicodedata
+from collections import Counter
+from dataclasses import dataclass
 
 from .. import behaviour
 from .. import browser
@@ -57,11 +70,21 @@ from .bb_builder import _STATE as _BUILDER
 from .bb_saves import (BuilderNotReady, _field_select, _options, _select_label, _state, _total_odds,
                        bring_up, parse_game_label)
 
-SETTLE_WAIT_S = 6.0          # Total Odds settling after a preset is chosen, at most
+SETTLE_WAIT_S = 8.0          # after a preset is chosen, the proof above within this, at most
+STABLE_S = 1.0               # Total Odds and the description unchanged this long
 PANEL_WAIT_MS = 3000         # "Show/Hide Presets" drawn, and its panel opening
 COMP_WAIT_MS = 400           # a competition chosen: its games listed (bb_saves's pause)
 GAME_WAIT_MS = 600           # a game chosen
+FIRST_GAME_COMPS = 12        # competitions tried for a game to open the panel with, at most
 _COUNT = re.compile(r"\s*\(\d+/\d+\)\s*$")
+_AGE = re.compile(r"(\d+)\s*s since data update")
+_UPDATE_FIELD = "div.field:has(> div.control > a:text-is('Update Data'))"
+
+NO_DESCRIPTION = "no description of the bet"
+SAME_DESCRIPTION = "the description did not change after the preset was chosen"
+NO_PRICE = "Total Odds shows no price"
+SAME_TOTAL = "Total Odds did not change after the preset was chosen"
+UNSTABLE = f"Total Odds and the description did not hold for {STABLE_S:.1f} s"
 
 
 class NoGame(Exception):
@@ -69,11 +92,19 @@ class NoGame(Exception):
 
 
 class NoPreset(Exception):
-    """No preset of that name in Use Preset."""
+    """No preset of that name in Use Preset, or more than one."""
 
 
 class Unpriced(Exception):
     """The preset was chosen but the builder did not end on the game."""
+
+
+@dataclass(frozen=True)
+class Reading:
+    fair: float | None           # None: not proved (reason says why)
+    description: str | None      # the bet's description as last read
+    data_age_s: int | None       # "Ns since data update"
+    reason: str | None
 
 
 def collapse(s: str) -> str:
@@ -105,18 +136,52 @@ def _chosen_label(sel) -> str | None:
     return opts[i] if 0 <= i < len(opts) else None
 
 
-# Per page: the games found (competition, home, away -> the labels chosen) and
-# the preset last loaded, by id(page); a closed page's entry is dropped.
+def description(page) -> str | None:
+    """The bet's description (the message-body right after the Update Data
+    field), whitespace collapsed; None when it is not drawn."""
+    box = page.locator(f"{_UPDATE_FIELD} + div.message > div.message-body")
+    if box.count() == 0:
+        return None
+    return collapse(box.first.inner_text()) or None
+
+
+def data_age(page) -> int | None:
+    """Seconds since the builder's data was pulled, as the page says it, or None."""
+    try:
+        field = page.locator(_UPDATE_FIELD)
+        if field.count() == 0:
+            return None
+        m = _AGE.search(collapse(field.first.inner_text()))
+        return int(m.group(1)) if m else None
+    except Exception:
+        return None
+
+
+# Per page: the games found (competition, home, away -> the labels chosen), by
+# id(page); a closed page's entry is dropped, and a data pull drops it (`up`).
 _STATE: dict[int, dict] = {}
 
 
 def up(page, now: float) -> bool:
     """The builder up (bb_saves.bring_up), on the bb-look job's own clock, so a
     request and the job's parse never pull the data twice. Every Playwright
-    call on the page then has at most 8 s, as bb_builder's: a control that is
-    not there is a failure, not a stall."""
+    call on the page then has at most 8 s, as bb_builder's. When this pulled
+    the data, what the driver knew of the page is forgotten."""
     page.set_default_timeout(8_000)
-    return bring_up(page, _state(page, _BUILDER), now)
+    pulled = bring_up(page, _state(page, _BUILDER), now)
+    if pulled:
+        _STATE.pop(id(page), None)
+    return pulled
+
+
+def _teams(label: str | None) -> set[str]:
+    p = parse_game_label(label or "")
+    return {_name(p["home"]), _name(p["away"])} if p else set()
+
+
+def _shown_games(page) -> list[str | None]:
+    return _games_field(page).evaluate_all(
+        "els => els.map(s => s.selectedIndex < 0 ? null : s.options[s.selectedIndex].innerText)")
 
 
 def _find_game(page, st, competition, home, away) -> tuple[str, str]:
@@ -196,53 +261,137 @@ def presets(page) -> list[str]:
     return [collapse(t) for t in _texts(_open_presets(page))]
 
 
+def chosen_preset(page) -> str | None:
+    """The preset Use Preset shows chosen (whitespace collapsed), or None when
+    the panel is shut or nothing is chosen."""
+    sel = _preset_select(page)
+    if sel.count() == 0 or not sel.is_visible():
+        return None
+    i, texts = _chosen(sel), _texts(sel)
+    return collapse(texts[i]) if 0 <= i < len(texts) else None
+
+
+def _first_game(page) -> str:
+    """Choose a game in block 1 so the presets panel is drawn: the first game
+    listed, the competition chosen first, then the others in their order (at
+    most FIRST_GAME_COMPS). Says which."""
+    comp_sel = _field_select(page, "Competition", 0)
+    game_sel = _field_select(page, "Game(s)", 0)
+    if comp_sel.count() == 0:
+        raise BuilderNotReady("no Competition field on the builder")
+    current = _chosen_label(comp_sel)
+    comps = [c for c in dict.fromkeys(_options(comp_sel)) if c]
+    comps.sort(key=lambda c: c != current)
+    for c in comps[:FIRST_GAME_COMPS]:
+        if _chosen_label(comp_sel) != c:
+            _select_label(comp_sel, c)
+            page.wait_for_timeout(COMP_WAIT_MS)
+        g = next((g for g in _options(game_sel) if parse_game_label(g)), None)
+        if g is not None:
+            _select_label(game_sel, g)
+            page.wait_for_timeout(GAME_WAIT_MS)
+            return f"{g} ({c}), chosen to open the panel: no game was chosen"
+    raise BuilderNotReady("no game listed to open the presets panel with")
+
+
+def list_presets(page) -> tuple[list[dict], str]:
+    """Every Use Preset name (whitespace collapsed) with how many options carry
+    it, in the page's order; and the game the panel was drawn for. With no
+    game chosen, the first one listed is chosen to draw it (`_first_game`).
+    No preset is chosen."""
+    sel = _preset_select(page)
+    game_sel = _field_select(page, "Game(s)", 0)
+    chosen = _chosen_label(game_sel) if game_sel.count() else None
+    if chosen and parse_game_label(chosen):
+        came_from = f"{chosen} (already chosen)"
+    elif sel.count() and sel.is_visible():
+        came_from = "the panel already open"
+    else:
+        came_from = _first_game(page)
+    counts = Counter(presets(page))
+    return [{"name": n, "count": c} for n, c in counts.items()], came_from
+
+
 def _find_preset(texts: list[str], preset: str) -> int:
     hits = [i for i, t in enumerate(texts) if collapse(t) == collapse(preset)]
     if not hits:
         raise NoPreset(f"no preset {preset!r} in Use Preset")
-    return next((i for i in hits if texts[i] == preset), hits[0])
+    if len(hits) > 1:
+        raise NoPreset(f"{preset!r} is listed {len(hits)} times in Use Preset - none chosen")
+    return hits[0]
 
 
-def _settled(page, before: float | None) -> float | None:
-    """Total Odds once it reads the same twice bb.settle_s apart and is not
-    `before`; None when that does not happen within SETTLE_WAIT_S."""
-    settle = behaviour.get("bb.settle_s")
-    deadline = time.time() + max(SETTLE_WAIT_S, 4 * settle)
-    last = None
-    while time.time() < deadline:
-        v = _total_odds(page)
-        if v is not None and v == last and v != before:
-            return v
-        last = v
-        time.sleep(settle)
+def _mentions(text: str, team: str) -> bool:
+    return re.search(r"(?<!\w)" + re.escape(team) + r"(?!\w)", text) is not None
+
+
+def _not_yet(desc, total, desc_before, total_before, gone) -> str | None:
+    """Why (desc, total) is not yet proof of the preset applied; None when it is."""
+    if not desc:
+        return NO_DESCRIPTION
+    if desc == desc_before:
+        return SAME_DESCRIPTION
+    for team, shown in gone:
+        if _mentions(_name(desc), team):
+            return f"the description still names {shown} from the last game"
+    if total is None:
+        return NO_PRICE
+    if total == total_before:
+        return SAME_TOTAL
     return None
 
 
-def _on_game(page, game_label: str) -> bool:
-    shown = _games_field(page).evaluate_all(
-        "els => els.map(s => s.selectedIndex < 0 ? null : s.options[s.selectedIndex].innerText)")
-    return bool(shown) and all(collapse(x) == collapse(game_label) for x in shown)
+def _proved(page, desc_before, total_before, gone) -> tuple[float | None, str | None, str | None]:
+    """(fair, description, why not): read every bb.settle_s until _not_yet
+    passes and both have held STABLE_S, for up to SETTLE_WAIT_S."""
+    settle = behaviour.get("bb.settle_s")
+    deadline = time.time() + max(SETTLE_WAIT_S, STABLE_S + 4 * settle)
+    seen, since, why = None, 0.0, NO_PRICE
+    desc = None
+    while time.time() < deadline:
+        desc, total = description(page), _total_odds(page)
+        now = time.time()
+        if (desc, total) != seen:
+            seen, since = (desc, total), now
+        why = _not_yet(desc, total, desc_before, total_before, gone)
+        if why is None:
+            if now - since >= STABLE_S:
+                return total, desc, None
+            why = UNSTABLE
+        time.sleep(settle)
+    return None, desc, why
 
 
-def price(page, competition: str, home: str, away: str, preset: str) -> float | None:
-    """Total Odds for `preset` on the game home v away under `competition`, or
-    None when it does not settle (SETTLE_WAIT_S). Raises NoGame, NoPreset,
+def price_reading(page, competition: str, home: str, away: str, preset: str) -> Reading:
+    """Total Odds for `preset` on the game home v away under `competition`,
+    taken only with the proof in the module's docstring; with none, a Reading
+    whose fair is None and whose reason says why. Raises NoGame, NoPreset,
     Unpriced (the builder not on the game after the preset), BuilderNotReady
     (no builder, or no presets panel). The builder must be up (`up`)."""
     st = _state(page, _STATE)
+    before_games = _shown_games(page)                   # every block, before this item
     comp_label, game_label = _find_game(page, st, competition, home, away)
     sel = _open_presets(page)
-    texts = _texts(sel)
-    i = _find_preset(texts, preset)
-    if st.get("loaded") == (comp_label, game_label, i) and _chosen(sel) == i:
-        before = None                       # loaded already, on this game: read where it is
-    else:
-        st["loaded"] = None
-        before = _total_odds(page)
-        sel.select_option(index=i)
-    fair = _settled(page, before)
-    if not _on_game(page, game_label):
-        st["loaded"] = None
+    i = _find_preset(_texts(sel), preset)
+    now_teams = _teams(game_label)
+    gone = []
+    for g in before_games:
+        p = parse_game_label(g or "")
+        for t in (p["home"], p["away"]) if p else ():
+            if _name(t) not in now_teams and (_name(t), t) not in gone:
+                gone.append((_name(t), t))
+    if _chosen(sel) == i:
+        return Reading(None, description(page), data_age(page),
+                       f"{preset!r} is already chosen in Use Preset, which has no empty option to go "
+                       f"through: it cannot be shown to apply afresh")
+    desc_before, total_before = description(page), _total_odds(page)
+    sel.select_option(index=i)
+    fair, desc, why = _proved(page, desc_before, total_before, gone)
+    if fair is not None and not all(collapse(x or "") == collapse(game_label) for x in _shown_games(page)):
         raise Unpriced(f"the builder is not on {game_label} after the preset was chosen")
-    st["loaded"] = (comp_label, game_label, i) if fair is not None else None
-    return fair
+    return Reading(fair, desc, data_age(page), why)
+
+
+def price(page, competition: str, home: str, away: str, preset: str) -> float | None:
+    """price_reading's fair: Total Odds, or None when not proved."""
+    return price_reading(page, competition, home, away, preset).fair
