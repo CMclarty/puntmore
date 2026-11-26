@@ -100,6 +100,7 @@ prices are `scraper_prices` files that the Hub posts to Render.
   login, what marks a logged-out page where the url does not (Team Casino's
   login form, or the reset form shown in its place), Paddy's market-list url (its limits are in `behaviour.py`).
 - `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite);
+  a request's load (`ask.py`) skips only the budget and quiet-hours checks;
   built from `behaviour.py`'s limits, which it keeps a copy of (`use`). Its
   record of loads (two days) also gives a fetch job's last load (`last_load`).
   A request's load (`ask.py`) is recorded in a table of its own,
@@ -207,8 +208,10 @@ prices are `scraper_prices` files that the Hub posts to Render.
   hours (Paddy 15/h, 01-07, by default) are `behaviour.py`'s settings, which
   only Callum changes (the Console's Behaviour pane or `python -m scraper
   behaviour`; every change logged); no `targets.toml` edit can loosen them.
-  A request (`ask.py`) disregards Paddy's budget and quiet hours, and only
-  those (Callum, 26 Nov 2026; the register).
+  A request's loads (`ask.py`) skip Paddy's budget and quiet-hours checks
+  and no other: the gaps between loads, the hosts rule and the cool-off
+  hold for them. A request also reads games outside the 48-hour window,
+  and may load its job's listing itself (Callum, 26 Nov 2026; the register).
   It detects challenges and logouts (also on an already-open page: 3+
   refusals in 10 min, Cloudflare, logout) and never answers a challenge — no
   fingerprint spoofing, no solvers, no proxies, no user-agent or navigator

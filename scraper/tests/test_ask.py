@@ -362,11 +362,13 @@ def test_a_request_that_fails_inside_ends_stopped_and_the_next_is_taken(tmp_path
     """Something going wrong mid-request never leaves it `running` (which
     would refuse every later request until a restart)."""
     r = _runner(tmp_path, [])
-    monkeypatch.setattr(r, "_ask_read", lambda *a: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(r, "_ask_read", lambda *a: (_ for _ in ()).throw(
+        RuntimeError(f"boom at {PP}?_ak=SECRET")))
     _drop(tmp_path, "a", {"id": "a", "kind": "read", "urls": [PP], "keep": True})
     r._requests(now=1_000.0)
     a = _result(tmp_path, "a")
-    assert (a["state"], a["reason"]) == ("stopped", "failed: RuntimeError: boom")
+    assert (a["state"], a["reason"]) == ("stopped", f"failed: RuntimeError: boom at {PP}")
+    assert "SECRET" not in (tmp_path / "logs" / "ask.log").read_text()
     assert [i["state"] for i in a["items"]] == ["skipped"]
     _drop(tmp_path, "b", {"id": "b", "kind": "read", "urls": [PP], "keep": True})
     r._requests(now=2_000.0)
@@ -498,15 +500,39 @@ def test_old_results_and_saved_pages_are_pruned_once_a_day(tmp_path):
         d.mkdir(parents=True)
         (d / "page.html").write_text("x")
         os.utime(d, (at, at))
-    other = tmp_path / "dumps" / "pp-20261101-120000"
-    other.mkdir()
-    os.utime(other, (old, old))
+    others = [tmp_path / "dumps" / "pp-20261101-120000",
+              tmp_path / "dumps" / "ask-jobs-20261101-120000"]      # a target called ask-jobs
+    for other in others:
+        other.mkdir()
+        os.utime(other, (old, old))
+    for name, at in (("ask-x.json.tmp", old), ("ask-y.json.tmp", now)):
+        tmp = tmp_path / "requests" / "done" / name
+        tmp.write_text("{")
+        os.utime(tmp, (at, at))
     r = _runner(tmp_path, [])
     r._requests(now=now)
     assert not ask.result_path(tmp_path, "old").exists() and ask.result_path(tmp_path, "new").exists()
-    assert sorted(p.name for p in (tmp_path / "dumps").iterdir()) == ["ask-new-1", "pp-20261101-120000"]
+    assert sorted(p.name for p in (tmp_path / "dumps").iterdir()) == \
+        ["ask-jobs-20261101-120000", "ask-new-1", "pp-20261101-120000"]
+    assert sorted(p.name for p in (tmp_path / "requests" / "done").glob("*.tmp")) == ["ask-y.json.tmp"]
     os.utime(ask.result_path(tmp_path, "new"), (old, old))
     r._requests(now=now + 3600)                                      # not again within the day
     assert ask.result_path(tmp_path, "new").exists()
     r._requests(now=now + 25 * 3600)
     assert not ask.result_path(tmp_path, "new").exists()
+
+
+def test_a_restart_keeps_the_gap_after_a_requested_load(tmp_path):
+    """The pacer lives in memory: a new runner takes Paddy's last requested
+    load from the guard, so a restart straight after one is not a second load
+    at once."""
+    from scraper import behaviour
+    from scraper.guard import Guard
+    now = time.time()
+    Guard(tmp_path / "g.sqlite3").record_load("paddypower", PP, now - 5, requested=True)
+    r = _runner(tmp_path, [])
+    assert not r.pacer.may_load("paddypower", now)
+    assert r.pacer.may_load("paddypower", now - 5 + behaviour.get("paddypower.load_gap_s") * 10 + 3600)
+    assert r.pacer.next_load_at.get("bookiebashing") is None
+    (tmp_path / "fresh").mkdir()
+    assert _runner(tmp_path / "fresh", []).pacer.may_load("paddypower", now)

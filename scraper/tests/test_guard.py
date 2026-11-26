@@ -89,3 +89,13 @@ def test_the_status_command_says_requested_loads_only_when_there_are_any(tmp_pat
     out = capsys.readouterr().out
     assert "paddypower  requested: 1 this hour, 3 today" in out.splitlines()
     assert "bookiebashing  requested" not in out
+
+
+def test_the_last_requested_load(tmp_path):
+    g = _g(tmp_path)
+    now = time.time()
+    assert g.last_requested("paddypower") is None
+    g.record_load("paddypower", "a", now - 50, requested=True)
+    g.record_load("paddypower", "b", now - 10, requested=True)
+    g.record_load("paddypower", "c", now)                       # the sweep's: not this
+    assert g.last_requested("paddypower") == now - 10

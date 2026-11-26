@@ -106,6 +106,14 @@ for (const el of document.querySelectorAll('[role=tab], .tabs__item'))
     document.getElementById('m').textContent = (await r.json()).markets.join(','); });
 </script></body></html>"""
 
+# Another site's page, with a cookie banner: anything done on it is a request
+# to /touched (the handler records every path).
+FOREIGN = """<html><title>Elsewhere</title><body><div style="height:5000px">x</div>
+<button onclick="fetch('/touched?click')">Reject All</button><script>
+addEventListener('scroll', () => fetch('/touched?scroll'));
+addEventListener('mousemove', () => fetch('/touched?move'), {once: true});
+</script></body></html>"""
+
 LOGIN = "<html><title>Sign in</title><body><form><input type=password></form></body></html>"
 
 
@@ -204,9 +212,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, BB_LOGIN_UNBOUND)
         if path == "/redirect-away":             # a Paddy page that sends the browser elsewhere
             self.send_response(302)
-            self.send_header("location", f"http://localhost:{self.server.server_port}/football/x-v-y")
+            self.send_header("location", f"http://localhost:{self.server.server_port}/foreign")
             self.end_headers()
             return
+        if path == "/foreign":                   # says on the server if it is clicked or scrolled
+            return self._send(200, FOREIGN)
         if path == "/how-it-works":
             return self._send(200, "<html><title>How It Works</title><body>Subscribe</body></html>")
         self._send(404, "no")
@@ -903,6 +913,10 @@ def test_a_parser_that_raises_fails_its_page_and_the_request_goes_on(tmp_path, s
         written = (json.dumps(body) + (saved / "page.url").read_text()
                    + (tmp_path / "logs" / "ask.log").read_text())
         assert "SECRET" not in written
+        import sqlite3
+        urls = [u for (u,) in sqlite3.connect(str(tmp_path / "g.sqlite3")).execute(
+            "SELECT url FROM requested_loads")]
+        assert urls == [site + "/football/raise-me-v-now", b]
         ctx.close()
 
 
@@ -923,4 +937,5 @@ def test_a_requested_page_that_redirects_off_paddy_is_failed_unread(tmp_path, si
         assert (item["state"], item["reason"], item["rows"], item["saved"]) == (
             "failed", "left Paddy Power: the page ended on 'localhost'", [], None)
         assert not (tmp_path / "dumps").exists() and not r.tabs
+        assert "/foreign" in Handler.seen and not _asked("/touched")   # no click, no scroll, no pointer
         ctx.close()

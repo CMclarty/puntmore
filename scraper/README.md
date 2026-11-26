@@ -500,8 +500,12 @@ result is written (a result that cannot be written is alerted and tried again
 every tick); anything in `data/requests/` that is not a readable request (a
 directory, a file over 1 MB, text that will not parse) is refused, or moved to
 `data/requests/rejected/` when it cannot be removed. Results, entries moved
-aside and the pages requests saved are removed after 14 days (checked once a
-day). Each request's lines are in `python -m scraper targets log ask`.
+aside and the pages requests saved (`ask-<id>-<n>` only: never another dump)
+are removed after 14 days, and a result's leftover temp file after an hour
+(checked once a day). A page a request loads that lands on another host is
+failed before anything is done on it (no consent click, no scrolling). The
+gap holds across a restart: the service spaces its first Paddy load from the
+last requested one. Each request's lines are in `python -m scraper targets log ask`.
 
 ### Looking at a page: `look`
 Parsers are written only from real saved pages, and some states of a page need

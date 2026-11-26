@@ -99,6 +99,12 @@ class Guard:
         self.db.execute(f"DELETE FROM {table} WHERE ts < ?", (now - 2 * 24 * HOUR,))
         self.db.commit()
 
+    def last_requested(self, site) -> float | None:
+        """When the site's newest requested load (kept two days) went out, or
+        None: what a new runner spaces its next load from (Runner.__init__)."""
+        return self.db.execute("SELECT MAX(ts) FROM requested_loads WHERE site = ?",
+                               (site,)).fetchone()[0]
+
     def requested(self, site, now=None) -> tuple[int, int]:
         """(this hour, today) of the site's loads made for requests (ask.py)."""
         now = now or time.time()

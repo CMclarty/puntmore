@@ -156,6 +156,12 @@ class Runner:
         self.served_said: dict[str, float] = {}       # site -> cool-off `since` already alerted
         self.next_open: dict[str, float] = {}         # target -> earliest next match-tab open
         self.pacer = schedule.Pacer()                 # spacing between page loads
+        # The pacer lives in memory; a request's last load is in the guard, so
+        # a restart straight after one still keeps the gap (ask.py).
+        for site in SITES:
+            last = guard.last_requested(site)
+            if last is not None:
+                self.pacer.spaced(site, last)
         self.retired: dict[str, collections.deque] = {}
         self.parser_said: dict[str, str] = {}
         self.failure_said: dict[str, str] = {}        # job -> first line of its last parser failure
@@ -471,17 +477,24 @@ class Runner:
                 except Exception:
                     pass
                 resp = page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-            self.guard.record_load(site, url, now, requested=requested)
+            self.guard.record_load(site, ask.bare(url) if requested else url, now, requested=requested)
             tab.last_load = now
             tab.due_at = None
         except Exception as exc:
-            self.guard.record_load(site, url, now, requested=requested)   # a failed load still went out
+            # a failed load still went out
+            self.guard.record_load(site, ask.bare(url) if requested else url, now, requested=requested)
             why = f"load failed: {exc.__class__.__name__}: {exc}"
             if requested:                       # a request's urls are written bare (ask.py)
                 why = ask.scrub(why)
             self._say(target.name, (f"{key}: " if key != target.name else "") + why)
             return None, why
 
+        # A request's page must still be on Paddy's own hosts (a redirect away):
+        # checked before anything is done on it - no block check, no consent
+        # click, no settling, and no _on_clear of the site's back-off.
+        if requested and not config.paddy_page(tab.page.url):
+            landed = tab.page.url
+            return None, f"left Paddy Power: the page ended on {urlparse(landed).hostname or ask.bare(landed)!r}"
         reason = browser.blocked(tab.page, resp.status if resp else None)
         if reason is None and SITES[site].needs_login and browser.logged_out(tab.page, url, site):
             if self._try_login(site, tab, now):
@@ -1376,7 +1389,7 @@ class Runner:
         try:
             self._ask(now)
         except Exception as exc:                # a request never ends a tick
-            why = f"failed: {exc.__class__.__name__}: {exc}"
+            why = ask.scrub(f"failed: {exc.__class__.__name__}: {exc}")
             if self.asking is not None:
                 self._ask_finish("stopped", why, now)
             else:
@@ -1593,10 +1606,7 @@ class Runner:
         target = config.Target(name=ASK_LOG, site=ASK_SITE, url=url, parser=parser)
         tab, why = self._open(target, key, url, now, requested=True)
         if tab is None:
-            return None, why
-        landed = tab.page.url
-        if not config.paddy_page(landed):
-            return None, f"left Paddy Power: the page ended on {urlparse(landed).hostname or landed!r}"
+            return None, why                     # a redirect off Paddy is _open's to refuse
         reason = ("repeated 403/429 on an open page" if tab.capture.refused_within(600) >= 3
                   else browser.blocked(tab.page))
         if reason:

@@ -65,6 +65,11 @@ LONDON = ZoneInfo("Europe/London")
 _ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 ANOTHER = "another request is running"
 INTERRUPTED = "the Scraper restarted mid-request; the items listed were done"
+# A request's saved page: data/dumps/ask-<id>-<n> (n at most 60). Every other
+# dump (`dump`, `look`) ends in its time, -YYYYmmdd-HHMMSS, so a target
+# called ask-... never matches.
+_DUMP = re.compile(r"^ask-[A-Za-z0-9._-]{1,64}-[1-9][0-9]?$")
+TMP_STALE_S = 3600                   # a result's temp file older than this was left by a failed write
 _URL_QUERY = re.compile(r"((?:https?|wss?)://[^\s?#'\"<>]+)[?#][^\s'\"<>]*")
 
 
@@ -352,14 +357,19 @@ def pending(data_dir, targets=None, now=None, busy=False, unwritten=None) -> Req
 
 def prune(data_dir, now=None, days=PRUNE_DAYS) -> int:
     """Results (data/requests/done/), entries moved aside and the pages
-    requests saved (data/dumps/ask-*) older than `days`: removed. How many."""
-    cutoff = (now or time.time()) - days * 86400
+    requests saved (data/dumps/ask-<id>-<n>, _DUMP: never another dump)
+    older than `days`, and result temp files older than TMP_STALE_S:
+    removed. How many."""
+    now = now or time.time()
+    cutoff = now - days * 86400
+    old = [(p, cutoff) for p in [*(data_dir / "requests" / "done").glob("ask-*.json"),
+                                 *(data_dir / "requests" / "rejected").glob("*"),
+                                 *(p for p in (data_dir / "dumps").glob("ask-*") if _DUMP.match(p.name))]]
+    old += [(p, now - TMP_STALE_S) for p in (data_dir / "requests" / "done").glob("*.tmp")]
     gone = 0
-    for path in [*(data_dir / "requests" / "done").glob("ask-*.json"),
-                 *(data_dir / "requests" / "rejected").glob("*"),
-                 *(data_dir / "dumps").glob("ask-*")]:
+    for path, before in old:
         try:
-            if path.lstat().st_mtime >= cutoff:
+            if path.lstat().st_mtime >= before:
                 continue
             if path.is_dir() and not path.is_symlink():
                 shutil.rmtree(path)
