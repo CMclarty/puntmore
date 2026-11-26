@@ -466,15 +466,21 @@ service running, when nothing is written). A request:
 
 (an `id`, letters, digits, `.`, `_` and `-`, is made when not given)
 names the games by a Paddy listing job and a kick-off range (a time with no
-zone is London's): the match links on that job's listings, which must be open
-(not resting, outside its window or in quiet hours), whose kick-off is in the
-range, nearest first. No listing is loaded for it. Or `"urls": [...]` in place
-of job, from and to: at most 60, each on `paddypower.com`. `parser` is a
-parser's name or null; `keep: true` saves each page to
+zone is London's): the match links on that job's listings whose kick-off is in
+the range, nearest first. A listing the sweep holds open, loaded within the
+job's `relist_min`, is read where it is; any other (the job resting, in quiet
+hours, outside its window, or the tab stale) the request loads itself, one a
+tick like its pages, reads and closes; each is in the result's `listings`
+(`open`, `loaded`, `failed` or `skipped`). Or `"urls": [...]` in place of job,
+from and to: at most 60, each on `paddypower.com`. `parser` is null or one of
+the parsers that click nothing (`ask.READ_PARSERS`: `pp_most`; a parser that
+drives a page, `bb_saves` say, is refused); `keep: true` saves each page to
 `data/dumps/ask-<id>-<n>/` (`page.html`, `page.url`, a full-page `page.png`,
 and `payloads.json`: what the tab's capture held, each body with its kind and
-its url's path, never the query, which carries the site's key). A page whose
-parser failed is saved anyway. On the page nothing is clicked but the cookie
+its url's path). A page whose parser failed is saved anyway; a page that ends
+on another host (a redirect) is failed, not read and not saved. A page's url is
+written without its query (it can carry the site's key): in the result, the
+saved `page.url` and the log. On the page nothing is clicked but the cookie
 banner.
 
 The service answers one page a tick, so the sweep keeps running beside it,
@@ -489,8 +495,13 @@ running"). The result is written `running` with each item as it is done
 (`url`, `home`, `away` and `kickoff` off the listing when it shows the game,
 `state` read, failed or skipped, `reason`, the parser's `rows`, `saved`); if
 the service restarts mid-request it is rewritten `interrupted`, keeping what
-was done, and is never run again. Each request's lines are in
-`python -m scraper targets log ask`.
+was done, and is never run again. A request file is removed only once its
+result is written (a result that cannot be written is alerted and tried again
+every tick); anything in `data/requests/` that is not a readable request (a
+directory, a file over 1 MB, text that will not parse) is refused, or moved to
+`data/requests/rejected/` when it cannot be removed. Results, entries moved
+aside and the pages requests saved are removed after 14 days (checked once a
+day). Each request's lines are in `python -m scraper targets log ask`.
 
 ### Looking at a page: `look`
 Parsers are written only from real saved pages, and some states of a page need

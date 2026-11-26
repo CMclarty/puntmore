@@ -55,12 +55,22 @@ def host_allowed(url: str, site: str | None = None) -> bool:
     return _on(host, ALLOWED_HOSTS)
 
 
+# The tests' fake site counts as Paddy Power's for paddy_page only while this
+# is True: the tests set it (monkeypatch); the service never does.
+LOCAL_PADDY = False
+
+
 def paddy_page(url: str) -> bool:
-    """An http(s) page on Paddy Power's own hosts (or the tests' fake site):
-    what a `read` request may name (ask.py). Narrower than host_allowed's
-    rule for a paddypower target, which may open Bookie Bashing too."""
-    u = urlparse(url)
-    return u.scheme in ("http", "https") and _on((u.hostname or "").lower(), PADDY_HOSTS + LOCAL_HOSTS)
+    """An http(s) page on Paddy Power's own hosts: what a `read` request may
+    name and where its pages must end up (ask.py). Narrower than
+    host_allowed's rule for a paddypower target, which may open Bookie
+    Bashing too; localhost only under LOCAL_PADDY (the tests)."""
+    try:
+        u = urlparse(url)
+        host = (u.hostname or "").lower()
+    except ValueError:
+        return False
+    return u.scheme in ("http", "https") and _on(host, PADDY_HOSTS + (LOCAL_HOSTS if LOCAL_PADDY else ()))
 
 
 def _clamp(v, lo=None, hi=None):

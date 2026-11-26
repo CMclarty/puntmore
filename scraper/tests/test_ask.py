@@ -51,9 +51,28 @@ def test_a_read_by_urls():
     assert (req.job, req.start, req.end, req.parser) == (None, None, None, None)
 
 
-def test_the_tests_fake_site_is_a_paddy_host_as_config_has_it():
-    assert ask.parse({"id": "r", "kind": "read", "urls": ["http://127.0.0.1:8123/football/a-v-b"],
-                      "keep": True}).urls
+def test_localhost_is_a_paddy_page_only_under_the_tests_flag(monkeypatch):
+    local = {"id": "r", "kind": "read", "urls": ["http://127.0.0.1:8123/football/a-v-b"], "keep": True}
+    assert config.LOCAL_PADDY is False                       # the service's default
+    assert _refused(local) == "not a Paddy Power page: http://127.0.0.1:8123/football/a-v-b"
+    assert not config.paddy_page("http://localhost/football/a-v-b")
+    monkeypatch.setattr(config, "LOCAL_PADDY", True)         # what the tests' fake site sets
+    assert ask.parse(local).urls
+
+
+def test_a_read_runs_only_parsers_that_click_nothing():
+    assert _refused({"id": "r", "kind": "read", "urls": [PP], "parser": "bb_saves"}) == \
+        "parser 'bb_saves' may not be run by a read: only parsers that click nothing (pp_most)"
+    assert ask.parse({"id": "r", "kind": "read", "urls": [PP], "parser": "pp_most"}).parser == "pp_most"
+
+
+def test_a_refusal_never_carries_a_query():
+    url = "https://example.com/x?_ak=SECRET"
+    assert _refused({"id": "r", "kind": "read", "urls": [url], "keep": True}) == \
+        "not a Paddy Power page: https://example.com/x"
+    assert ask.bare("https://www.paddypower.com/a/b?_ak=S#t") == "https://www.paddypower.com/a/b"
+    assert ask.scrub("Timeout navigating to https://x.paddypower.com/p?_ak=S then wss://y/s?t=S") == \
+        "Timeout navigating to https://x.paddypower.com/p then wss://y/s"
 
 
 def test_unknown_kind():
@@ -146,18 +165,65 @@ def test_pending_takes_the_oldest_and_marks_it_running(tmp_path):
     assert not (tmp_path / "requests" / "ask-a.json").exists()      # taken
     body = _result(tmp_path, "a")
     assert body == {"id": "a", "kind": "read", "state": "running", "reason": None,
-                    "started": ask.iso(1_000.0), "finished": None, "items": []}
+                    "started": ask.iso(1_000.0), "finished": None, "listings": [], "items": []}
 
 
 def test_a_second_request_while_one_runs_is_refused(tmp_path):
     _drop(tmp_path, "a", {"id": "a", "kind": "read", "urls": [PP], "keep": True})
     assert ask.pending(tmp_path).id == "a"
     _drop(tmp_path, "b", {"id": "b", "kind": "read", "urls": [PP], "keep": True})
-    assert ask.pending(tmp_path) is None
+    assert ask.pending(tmp_path, busy=True) is None
     assert not (tmp_path / "requests" / "ask-b.json").exists()
     b = _result(tmp_path, "b")
     assert (b["state"], b["reason"], b["items"]) == ("refused", "another request is running", [])
     assert _result(tmp_path, "a")["state"] == "running"               # untouched
+
+
+def test_busy_is_the_runners_own_request_not_a_file(tmp_path):
+    """A result left `running` on disk (written by hand, or one whose end was
+    never written) does not refuse the next request: only the runner knows
+    whether it is answering one."""
+    ask.write_result(tmp_path, ask.result("old", "read", "running"))
+    _drop(tmp_path, "a", {"id": "a", "kind": "read", "urls": [PP], "keep": True})
+    assert ask.pending(tmp_path).id == "a"
+
+
+def test_a_directory_and_an_oversized_file_are_refused_and_the_next_taken(tmp_path):
+    folder = tmp_path / "requests"
+    (folder / "ask-dir.json").mkdir(parents=True)
+    (folder / "ask-dir.json" / "x").write_text("x")
+    _drop(tmp_path, "big", '{"id": "big", "pad": "' + "x" * (ask.MAX_BYTES + 10) + '"}', age=1)
+    _drop(tmp_path, "deep", "[" * 200_000 + "]" * 200_000, age=2)
+    _drop(tmp_path, "ok", {"id": "ok", "kind": "read", "urls": [PP], "keep": True}, age=3)
+    import os
+    os.utime(folder / "ask-dir.json", (time.time() - 200, time.time() - 200))
+    assert ask.pending(tmp_path).id == "ok"
+    assert _result(tmp_path, "dir")["reason"] == "not a request file"
+    assert _result(tmp_path, "big")["reason"] == "the request is over 1 MB"
+    assert _result(tmp_path, "deep")["reason"] == "the request could not be read: RecursionError"
+    assert list(folder.glob("ask-*")) == []                       # the directory moved aside
+    assert [p.name.startswith("ask-dir.json-") for p in (folder / "rejected").iterdir()] == [True]
+
+
+def test_a_file_with_no_id_in_its_name_is_moved_aside(tmp_path):
+    _drop(tmp_path, "bad name", {"id": "x"})
+    _drop(tmp_path, "ok", {"id": "ok", "kind": "read", "urls": [PP], "keep": True}, age=1)
+    assert ask.pending(tmp_path).id == "ok"
+    assert [p.name.startswith("ask-bad name.json-") for p in (tmp_path / "requests" / "rejected").iterdir()] \
+        == [True]
+
+
+def test_a_request_is_never_removed_before_its_result_is_written(tmp_path, monkeypatch):
+    _drop(tmp_path, "a", {"id": "a", "kind": "read", "urls": [PP], "keep": True})
+    _drop(tmp_path, "b", {"id": "b", "kind": "place"}, age=1)
+    said = []
+    monkeypatch.setattr(ask, "write_result", lambda data_dir, body: False)    # a full disk
+    assert ask.pending(tmp_path, unwritten=said.append) is None
+    assert (tmp_path / "requests" / "ask-a.json").exists()
+    assert (tmp_path / "requests" / "ask-b.json").exists()
+    assert said == ["a"]                                      # the oldest; tried again next tick
+    monkeypatch.undo()
+    assert ask.pending(tmp_path).id == "a"
 
 
 def test_a_malformed_request_is_refused_with_a_reason_and_the_next_taken(tmp_path):
@@ -260,15 +326,19 @@ JOB = {"id": "j", "kind": "read", "job": "pp-epl-most", "from": "2026-11-28T12:0
        "to": "2026-11-29T23:00", "parser": "pp_most"}
 
 
-def test_a_job_whose_listing_is_not_open_is_refused_and_nothing_loads(tmp_path):
+def test_a_job_whose_listing_cannot_be_loaded_is_stopped(tmp_path):
+    """The job's listing is not open, so the request loads it (no browser
+    here: the load fails), and with no listing read it stops."""
     r = _runner(tmp_path, TARGETS)
     _drop(tmp_path, "j", JOB)
     r._requests(now=1_000.0)
     body = _result(tmp_path, "j")
-    assert body["state"] == "refused" and body["items"] == []
-    assert body["reason"].startswith("pp-epl-most's listings are not all open (0 of 1)")
-    assert r.asking is None and r.guard.requested("paddypower", 1_000.0) == (0, 0)
-    assert "j: refused" in (tmp_path / "logs" / "ask.log").read_text()
+    assert (body["state"], body["reason"]) == ("stopped", "no listing of pp-epl-most could be read")
+    (listing,) = body["listings"]
+    assert listing["url"] == TARGETS[0].url and listing["state"] == "failed"
+    assert listing["reason"].startswith("load failed: AttributeError")
+    assert r.asking is None and r.guard.requested("paddypower", 1_000.0) == (1, 1)
+    assert "j: stopped" in (tmp_path / "logs" / "ask.log").read_text()
 
 
 def test_a_job_request_in_a_cooloff_is_stopped(tmp_path):
@@ -344,8 +414,11 @@ def test_ask_gives_an_id_when_none_is_named_and_prints_the_items(tmp_path, cli, 
     item = {"url": PP, "home": "Arsenal", "away": "Chelsea", "kickoff": ask.iso(1.0), "state": "read",
             "reason": None, "rows": [{"x": 1}, {"x": 2}], "saved": "/d/ask-x-1"}
     assert cli([json.dumps({"kind": "read", "urls": [PP], "parser": "pp_most"})],
-               answer={"state": "done", "items": [item]}) == 0
+               answer={"state": "done", "items": [item],
+                       "listings": [{"url": "https://www.paddypower.com/l", "state": "loaded",
+                                     "reason": None}]}) == 0
     out = capsys.readouterr().out
+    assert "  listing  loaded   https://www.paddypower.com/l" in out
     assert "done" in out and "Arsenal v Chelsea" in out and "2 row(s)" in out and "/d/ask-x-1" in out
     (done,) = (tmp_path / "requests" / "done").glob("ask-*.json")
     assert re.fullmatch(r"ask-\d{8}-\d{6}-[0-9a-f]{4}\.json", done.name)
@@ -381,3 +454,59 @@ def test_ask_gives_up_waiting_but_the_request_goes_on(tmp_path, cli, capsys):
     err = capsys.readouterr().err
     assert "not answered within 10 s" in err and "ask-c6.json" in err
     assert (tmp_path / "requests" / "ask-c6.json").exists()     # still there for the service
+
+
+def test_back_off_stops_a_request(tmp_path):
+    r = _runner(tmp_path, [])
+    r.sites["paddypower"].blocked_for, r.sites["paddypower"].retry_at = "Cloudflare check", 5_000.0
+    _drop(tmp_path, "a", {"id": "a", "kind": "read", "urls": [PP], "keep": True})
+    r._requests(now=1_000.0)
+    a = _result(tmp_path, "a")
+    assert (a["state"], a["reason"]) == \
+        ("stopped", "paddypower is backing off (Cloudflare check) - nothing more loaded")
+    assert [i["state"] for i in a["items"]] == ["skipped"]
+
+
+def test_a_final_result_not_written_is_said_loudly_and_written_next_tick(tmp_path, monkeypatch):
+    r = _runner(tmp_path, [])
+    r.guard.start_cooloff("paddypower", "HTTP 429", 900.0)       # it ends at once: stopped
+    _drop(tmp_path, "a", {"id": "a", "kind": "read", "urls": [PP], "keep": True})
+    real = ask.write_result
+    calls = []
+
+    def flaky(data_dir, body):
+        calls.append(body["state"])
+        return real(data_dir, body) if len(calls) != 2 else False   # the final write fails once
+    monkeypatch.setattr(ask, "write_result", flaky)
+    r._requests(now=1_000.0)
+    assert _result(tmp_path, "a")["state"] == "running" and r.asking is None
+    assert "its result could not be written" in (tmp_path / "alerts.log").read_text()
+    _drop(tmp_path, "b", {"id": "b", "kind": "read", "urls": [PP], "keep": True})
+    r._requests(now=1_020.0)
+    assert _result(tmp_path, "a")["state"] == "stopped"            # written now
+    assert _result(tmp_path, "b")["state"] == "stopped"            # and the next one was taken
+
+
+def test_old_results_and_saved_pages_are_pruned_once_a_day(tmp_path):
+    import os
+    now = time.time()
+    old, new = now - 15 * 86400, now - 13 * 86400
+    for rid, at in (("old", old), ("new", new)):
+        ask.write_result(tmp_path, ask.result(rid, "read", "done"))
+        os.utime(ask.result_path(tmp_path, rid), (at, at))
+        d = tmp_path / "dumps" / f"ask-{rid}-1"
+        d.mkdir(parents=True)
+        (d / "page.html").write_text("x")
+        os.utime(d, (at, at))
+    other = tmp_path / "dumps" / "pp-20261101-120000"
+    other.mkdir()
+    os.utime(other, (old, old))
+    r = _runner(tmp_path, [])
+    r._requests(now=now)
+    assert not ask.result_path(tmp_path, "old").exists() and ask.result_path(tmp_path, "new").exists()
+    assert sorted(p.name for p in (tmp_path / "dumps").iterdir()) == ["ask-new-1", "pp-20261101-120000"]
+    os.utime(ask.result_path(tmp_path, "new"), (old, old))
+    r._requests(now=now + 3600)                                      # not again within the day
+    assert ask.result_path(tmp_path, "new").exists()
+    r._requests(now=now + 25 * 3600)
+    assert not ask.result_path(tmp_path, "new").exists()

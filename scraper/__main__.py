@@ -577,6 +577,8 @@ def ask_cmd(s, argv):
 def _ask_lines(body) -> list[str]:
     """A result as `ask` prints it: how it ended, then a line per item."""
     out = [f"{body['id']}: {body['state']}" + (f" - {body['reason']}" if body.get("reason") else "")]
+    for x in body.get("listings") or []:
+        out.append(f"  listing  {x['state']:8} {x['url']}" + (f"  ({x['reason']})" if x.get("reason") else ""))
     for i in body.get("items") or []:
         game = f"{i['home']} v {i['away']}" if i.get("home") and i.get("away") else i["url"]
         line = f"  {i['state']:8} {game}" + (f"  {i['kickoff']}" if i.get("kickoff") else "")

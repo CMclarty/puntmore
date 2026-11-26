@@ -14,11 +14,12 @@ is built (`from_behaviour`) and keeps its own copy; `use` replaces that copy,
 which the runner does after each load of data/behaviour.toml.
 
 A load made for a request (ask.py, `python -m scraper ask`) is recorded with
-`requested=True`: it is in the record (`last_load`, `requested`) but not in
-what the budget counts (`spent`, `can_load`), so a request never spends the
-sweep's loads (Callum, 26 Nov 2026: a request disregards Paddy's budget). A
-guard.sqlite3 from before has the column added in place, its rows kept as
-the sweep's.
+`requested=True` in a table of its own, `requested_loads`: never in `loads`,
+so it spends none of the site's budget (`spent`, `can_load`; Callum,
+26 Nov 2026: "Paddy budget should be disregarded for requests made.") and
+`requested` counts it. `loads` keeps the shape it has always had: a service
+of the version before (still running while a new CLI asks, or after a
+rollback) inserts three values into it.
 """
 import sqlite3
 import time
@@ -46,13 +47,11 @@ class Guard:
         self.db.executescript("""
             CREATE TABLE IF NOT EXISTS loads (site TEXT, ts REAL, url TEXT);
             CREATE INDEX IF NOT EXISTS loads_site_ts ON loads(site, ts);
+            CREATE TABLE IF NOT EXISTS requested_loads (site TEXT, ts REAL, url TEXT);
+            CREATE INDEX IF NOT EXISTS requested_loads_site_ts ON requested_loads(site, ts);
             CREATE TABLE IF NOT EXISTS cooloff (
                 site TEXT PRIMARY KEY, since REAL, reason TEXT, resumed INTEGER);
         """)
-        columns = {row[1] for row in self.db.execute("PRAGMA table_info(loads)")}
-        if "requested" not in columns:          # a file from before requests: rows kept
-            self.db.execute("ALTER TABLE loads ADD COLUMN requested INTEGER NOT NULL DEFAULT 0")
-            self.db.commit()
         now = from_behaviour()
         self.use(limits if limits is not None else now["limits"],
                  quiet if quiet is not None else now["quiet"],
@@ -69,11 +68,9 @@ class Guard:
         return self.limits[site]
 
     # --- budget -----------------------------------------------------------
-    def _count(self, site, since, requested=False):
-        """The site's loads since `since`: the sweep's, or the requested ones."""
+    def _count(self, site, since):
         return self.db.execute(
-            "SELECT COUNT(*) FROM loads WHERE site=? AND ts>=? AND requested=?",
-            (site, since, int(requested))).fetchone()[0]
+            "SELECT COUNT(*) FROM loads WHERE site=? AND ts>=?", (site, since)).fetchone()[0]
 
     def in_quiet(self, now=None) -> bool:
         h = datetime.fromtimestamp(now or time.time()).hour
@@ -94,13 +91,20 @@ class Guard:
         return True, ""
 
     def record_load(self, site, url, now=None, requested=False):
-        """One load went out. `requested`: for a request (ask.py), which the
-        budget does not count."""
+        """One load went out. `requested`: one made for a request (ask.py),
+        kept in requested_loads, outside the budget."""
         now = now or time.time()
-        self.db.execute("INSERT INTO loads (site, ts, url, requested) VALUES (?,?,?,?)",
-                        (site, now, url, int(requested)))
-        self.db.execute("DELETE FROM loads WHERE ts < ?", (now - 2 * 24 * HOUR,))
+        table = "requested_loads" if requested else "loads"
+        self.db.execute(f"INSERT INTO {table} VALUES (?,?,?)", (site, now, url))
+        self.db.execute(f"DELETE FROM {table} WHERE ts < ?", (now - 2 * 24 * HOUR,))
         self.db.commit()
+
+    def requested(self, site, now=None) -> tuple[int, int]:
+        """(this hour, today) of the site's loads made for requests (ask.py)."""
+        now = now or time.time()
+        count = lambda since: self.db.execute(
+            "SELECT COUNT(*) FROM requested_loads WHERE site=? AND ts>=?", (site, since)).fetchone()[0]
+        return count(now - HOUR), count(now - 24 * HOUR)
 
     def last_load(self, site, url) -> float | None:
         """When `url` was last loaded for `site` (kept two days), or None."""
@@ -109,15 +113,8 @@ class Guard:
         return row[0] if row else None
 
     def spent(self, site, now=None):
-        """(this hour, today) of the site's budgeted loads: requested ones are not counted."""
         now = now or time.time()
         return self._count(site, now - HOUR), self._count(site, now - 24 * HOUR)
-
-    def requested(self, site, now=None) -> tuple[int, int]:
-        """(this hour, today) of the site's loads made for requests (ask.py)."""
-        now = now or time.time()
-        return (self._count(site, now - HOUR, requested=True),
-                self._count(site, now - 24 * HOUR, requested=True))
 
     # --- cool-off ---------------------------------------------------------
     def start_cooloff(self, site, reason, now=None):

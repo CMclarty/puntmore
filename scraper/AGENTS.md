@@ -102,20 +102,31 @@ prices are `scraper_prices` files that the Hub posts to Render.
 - `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite);
   built from `behaviour.py`'s limits, which it keeps a copy of (`use`). Its
   record of loads (two days) also gives a fetch job's last load (`last_load`).
-  A request's load (`ask.py`) is recorded `requested`: in the record and in
-  `requested`, never in `spent` or `can_load` (26 Nov 2026).
+  A request's load (`ask.py`) is recorded in a table of its own,
+  `requested_loads` (`requested`), never in `loads`, so never in `spent`,
+  `can_load` or `last_load` (26 Nov 2026). `loads` keeps its three columns:
+  the service of the version before inserts three values into it.
 - `ask.py` - `python -m scraper ask '<json>'`: a request for the running
   service, `data/requests/ask-<id>.json`, answered by `Runner._ask` in
   `data/requests/done/ask-<id>.json` (`running` with the items so far, then
   `done`, `refused`, `stopped`, or `interrupted` when the service restarted
-  mid-request; never run twice). One at a time: another is refused. Kind
-  `read`: Paddy Power match pages, by a Paddy listing job and a kick-off
-  range (off its open listings; none loaded for it) or by address (at most
-  60), each loaded in a tab of its own, one a tick, a parser run over it,
-  saved with its payloads (`keep`; query strings never written), closed.
-  Its loads keep the pacer and the hosts rule and stop on a cool-off or
-  back-off; they skip Paddy's budget and quiet hours and the 48-hour window
-  (Callum, 26 Nov 2026). On the page it clicks only the cookie banner.
+  mid-request; never run twice). One at a time (the runner's own request,
+  not a file): another is refused. A request file goes only once a result
+  for it is written; anything else there is refused or moved aside to
+  `requests/rejected/`. Kind `read`: Paddy Power match pages, by a Paddy
+  listing job and a kick-off range or by address (at most 60). A job's
+  listing is read where the sweep holds it open and fresher than its
+  `relist_min`, else loaded by the request and closed once read (the
+  result's `listings`). Each page is loaded in a tab of its own, one load a
+  tick; a page that ends off Paddy's hosts is failed unread; a parser from
+  `READ_PARSERS` (parsers that click nothing) runs over it; it is saved
+  with its payloads (`keep`); the tab is closed. Page urls are written
+  without their query (`bare`). Its loads keep the pacer and the hosts rule
+  and stop on a cool-off or back-off; they skip Paddy's budget and quiet
+  hours and the 48-hour window (Callum, 26 Nov 2026). On the page it clicks
+  only the cookie banner. Results and saved pages go after 14 days
+  (`prune`). Localhost counts as Paddy's (`config.paddy_page`) only under
+  `config.LOCAL_PADDY`, which the tests set.
 - `look.py` - `python -m scraper look <job> '<steps>'`: a few plain steps
   (click a named control with `browser.click`, set a select, type in a
   field, wait, save) on a job's open page, answered by `Runner._look` from

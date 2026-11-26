@@ -202,6 +202,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, BB_LOGIN)
         if path.startswith("/how-it-works/bb-login-unbound"):
             return self._send(200, BB_LOGIN_UNBOUND)
+        if path == "/redirect-away":             # a Paddy page that sends the browser elsewhere
+            self.send_response(302)
+            self.send_header("location", f"http://localhost:{self.server.server_port}/football/x-v-y")
+            self.end_headers()
+            return
         if path == "/how-it-works":
             return self._send(200, "<html><title>How It Works</title><body>Subscribe</body></html>")
         self._send(404, "no")
@@ -223,7 +228,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 @pytest.fixture
-def site():
+def site(monkeypatch):
+    monkeypatch.setattr(config, "LOCAL_PADDY", True)     # this fake site counts as Paddy's (ask.py)
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_port}"
@@ -705,9 +711,15 @@ def _asked(path):
 def prices_parser(monkeypatch):
     """A parser over the fake match page: its title, and how many price
     payloads the capture held when it ran."""
+    from scraper import ask
     from scraper.parsers import PARSERS
-    monkeypatch.setitem(PARSERS, "test_prices", lambda page, cap: [
-        {"title": page.title(), "payloads": sum('"prices"' in r[3] for r in cap.recent)}])
+
+    def parse(page, cap):
+        if "raise-me" in page.url:
+            raise ValueError("cannot read this one")
+        return [{"title": page.title(), "payloads": sum('"prices"' in r[3] for r in cap.recent)}]
+    monkeypatch.setitem(PARSERS, "test_prices", parse)
+    monkeypatch.setattr(ask, "READ_PARSERS", (*ask.READ_PARSERS, "test_prices"))   # it clicks nothing
     return "test_prices"
 
 
@@ -818,6 +830,7 @@ def test_a_read_request_by_job_takes_the_games_in_its_range_off_the_open_listing
             r.tick(t0 + off)
         body = _answer(tmp_path, "r4")
         assert body["state"] == "done"
+        assert body["listings"] == [{"url": site + "/football", "state": "open", "reason": None}]
         assert [(i["url"], i["home"], i["away"]) for i in body["items"]] == [
             (site + "/football/spurs-v-everton", "Spurs", "Everton"),
             (site + "/football/leeds-v-wolves", "Leeds", "Wolves")]
@@ -825,5 +838,89 @@ def test_a_read_request_by_job_takes_the_games_in_its_range_off_the_open_listing
         assert abs(k - (t0 + 21 * 3600)) <= 60
         assert all(i["saved"] is None for i in body["items"])     # keep false: nothing saved
         assert Handler.seen.count("/football") == 1                # the listing once, by the sweep
+        # The sweep kept loading beside it, and counting its own budget.
+        assert any(k.startswith("pp:m:") for k in r.tabs)
+        assert r.guard.spent("paddypower", t0 + 800)[0] == 2       # its listing and one match
+        assert r.guard.requested("paddypower", t0 + 800) == (2, 2)
         r.close_all()
+        ctx.close()
+
+
+def test_a_resting_jobs_request_loads_its_listing_then_the_matches(tmp_path, site, prices_parser):
+    """Nothing within 48 hours: the job rests and its listing closes. A request
+    for its games loads the listing itself (a requested load), reads the games
+    off it, closes that tab, then reads the matches."""
+    from playwright.sync_api import sync_playwright
+    t = config.Target(name="pp", site="paddypower", url=site + "/quiet", stale_min=120,
+                      matches=config.Matches(max_tabs=3))
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [t], p)
+        t0 = time.time()
+        r.tick(t0)
+        r.tick(t0 + 1)
+        assert "pp" in r.resting and not r.tabs
+        iso = lambda h: datetime.fromtimestamp(t0 + h * 3600, LONDON).isoformat()
+        _ask(tmp_path, {"id": "r5", "kind": "read", "job": "pp", "from": iso(60), "to": iso(100),
+                        "parser": prices_parser})
+        r.tick(t0 + 200)
+        mid = _answer(tmp_path, "r5")
+        assert mid["state"] == "running" and mid["listings"][0]["state"] == "loaded" and not mid["items"]
+        assert not r.tabs                                        # the request's listing tab closed
+        for off in (400, 600, 800):
+            r.tick(t0 + off)
+        body = _answer(tmp_path, "r5")
+        assert body["state"] == "done"
+        assert [(i["home"], i["away"], i["state"]) for i in body["items"]] == [
+            ("Next", "Week", "read"), ("Later", "Still", "read")]
+        assert Handler.seen.count("/quiet") == 2                 # the sweep's, then the request's
+        assert r.guard.spent("paddypower", t0 + 800)[0] == 1     # the sweep's listing only
+        assert r.guard.requested("paddypower", t0 + 800) == (3, 3)
+        assert "pp" in r.resting and not r.tabs
+        ctx.close()
+
+
+def test_a_parser_that_raises_fails_its_page_and_the_request_goes_on(tmp_path, site, prices_parser):
+    """The failed page is saved (whatever keep says), its tab closed, and the
+    next page read. A url's query is never written: not in the result, the
+    saved page's url or the log."""
+    from playwright.sync_api import sync_playwright
+    a, b = site + "/football/raise-me-v-now?ref=SECRET", site + "/football/spurs-v-everton"
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [], p)
+        t0 = time.time()
+        _ask(tmp_path, {"id": "r6", "kind": "read", "urls": [a, b], "parser": prices_parser})
+        r.tick(t0)
+        assert not r.tabs
+        r.tick(t0 + 200)
+        body = _answer(tmp_path, "r6")
+        assert body["state"] == "done"
+        first, second = body["items"]
+        assert (first["url"], first["state"], first["reason"]) == (
+            site + "/football/raise-me-v-now", "failed", "parser failed: cannot read this one")
+        saved = pathlib.Path(first["saved"])
+        assert (saved / "page.url").read_text() == site + "/football/raise-me-v-now"
+        assert second["state"] == "read" and second["saved"] is None
+        written = (json.dumps(body) + (saved / "page.url").read_text()
+                   + (tmp_path / "logs" / "ask.log").read_text())
+        assert "SECRET" not in written
+        ctx.close()
+
+
+def test_a_requested_page_that_redirects_off_paddy_is_failed_unread(tmp_path, site, prices_parser,
+                                                                   monkeypatch):
+    """The page ends on another host: failed with the reason, not parsed, not saved."""
+    from playwright.sync_api import sync_playwright
+    monkeypatch.setattr(config, "LOCAL_HOSTS", ("127.0.0.1",))  # here only 127.0.0.1 stands for Paddy
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [], p)
+        t0 = time.time()
+        _ask(tmp_path, {"id": "r7", "kind": "read", "urls": [site + "/redirect-away"],
+                        "parser": prices_parser, "keep": True})
+        r.tick(t0)
+        body = _answer(tmp_path, "r7")
+        (item,) = body["items"]
+        assert body["state"] == "done"
+        assert (item["state"], item["reason"], item["rows"], item["saved"]) == (
+            "failed", "left Paddy Power: the page ended on 'localhost'", [], None)
+        assert not (tmp_path / "dumps").exists() and not r.tabs
         ctx.close()
