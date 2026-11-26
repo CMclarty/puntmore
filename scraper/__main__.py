@@ -29,12 +29,21 @@
                    on its open listings kicking off in that range) or
                    {"kind": "read", "urls": [...]} (at most 60), with
                    "parser": "<name>" or null and "keep": true to save each
-                   page to data/dumps/ask-<id>-<n>/; "id" is made when not
-                   given. One page a tick, Paddy's gap between loads; not in
-                   its budget or quiet hours; stops on a cool-off. Waits for
-                   the result (data/requests/done/ask-<id>.json; --wait,
-                   default 3600 s) and prints it: exit 0 when done, 2
-                   refused, 1 otherwise. One request at a time.
+                   page to data/dumps/ask-<id>-<n>/. One page a tick, Paddy's
+                   gap between loads; not in its budget or quiet hours; stops
+                   on a cool-off. Or price presets on the Bookie Bashing
+                   builder a job keeps open: {"kind": "price", "job":
+                   "bb-look", "items": [{"key", "competition", "home",
+                   "away", "preset"}, ...]} (at most 60): each item's Total
+                   Odds (priced, no_game, no_preset, unsettled: a fair only
+                   with proof the preset applied to that game), with the
+                   bet's description and the data's age; "list_presets":
+                   true adds Use Preset's names (items may then be []).
+                   Read only, nothing loaded, nothing saved ("save" other
+                   than "no" is refused). "id" is made when not given. Waits for the
+                   result (data/requests/done/ask-<id>.json; --wait, default
+                   3600 s) and prints it: exit 0 when done, 2 refused, 1
+                   otherwise. One request at a time.
   wake <target>    Ask the RUNNING service to end that job's rest (a parser
                    that found nothing to do rested it: rest.py) - it runs on
                    its next tick.
@@ -510,9 +519,13 @@ def ask_cmd(s, argv):
     from . import ask
     p = argparse.ArgumentParser(
         prog="python -m scraper ask",
-        description="Ask the running service to read Paddy Power match pages now (scraper/ask.py).")
+        description="Ask the running service to read Paddy Power match pages, or to price presets on "
+                    "the Bookie Bashing builder, now (scraper/ask.py).")
     p.add_argument("request", help='a JSON object, e.g. \'{"kind": "read", "urls": ["https://www.'
-                                   'paddypower.com/football/..."], "parser": "pp_most"}\'')
+                                   'paddypower.com/football/..."], "parser": "pp_most"}\' or \'{"kind": '
+                                   '"price", "job": "bb-look", "items": [{"key": "1", "competition": '
+                                   '"English Premier League", "home": "Arsenal", "away": "Chelsea", '
+                                   '"preset": "Home 2,6"}]}\'')
     p.add_argument("--wait", type=float, default=3600.0,
                    help="seconds to wait for the result (default 3600)")
     p.add_argument("--json", action="store_true", help="machine output: the result as written")
@@ -579,7 +592,19 @@ def _ask_lines(body) -> list[str]:
     out = [f"{body['id']}: {body['state']}" + (f" - {body['reason']}" if body.get("reason") else "")]
     for x in body.get("listings") or []:
         out.append(f"  listing  {x['state']:8} {x['url']}" + (f"  ({x['reason']})" if x.get("reason") else ""))
+    if body.get("presets") is not None:
+        out.append(f"  presets  {len(body['presets'])} name(s), from {body.get('presets_from')}")
     for i in body.get("items") or []:
+        if body.get("kind") == "price":
+            line = f"  {i['state']:9} {i['key']}  {i['home']} v {i['away']}  {i['preset']}"
+            if i.get("fair") is not None:
+                line += f"  fair {i['fair']}"
+                if i.get("data_age_s") is not None:
+                    line += f"  (data {i['data_age_s']} s old)"
+            if i.get("reason"):
+                line += f"  ({i['reason']})"
+            out.append(line)
+            continue
         game = f"{i['home']} v {i['away']}" if i.get("home") and i.get("away") else i["url"]
         line = f"  {i['state']:8} {game}" + (f"  {i['kickoff']}" if i.get("kickoff") else "")
         if i["state"] == "read":

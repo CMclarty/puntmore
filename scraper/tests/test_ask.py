@@ -17,7 +17,13 @@ def _job(name="pp-epl-most", site="paddypower", matches=True):
                          matches=config.Matches() if matches else None)
 
 
-TARGETS = [_job(), _job("bb-saves", "bookiebashing", matches=False), _job("pp-page", matches=False)]
+def _builder(name="bb-look", parser="bb_builder"):
+    return config.Target(name=name, site="bookiebashing", url="https://www.bookiebashing.net/tools/betbuilder/",
+                         parser=parser)
+
+
+TARGETS = [_job(), _job("bb-saves", "bookiebashing", matches=False), _job("pp-page", matches=False),
+           _builder(), _builder("bb-saves-job", "bb_saves")]
 
 
 def _refused(raw, targets=TARGETS) -> str:
@@ -76,7 +82,7 @@ def test_a_refusal_never_carries_a_query():
 
 
 def test_unknown_kind():
-    assert _refused({"id": "r", "kind": "place", "urls": [PP]}) == "unknown kind 'place' (known: read)"
+    assert _refused({"id": "r", "kind": "place", "urls": [PP]}) == "unknown kind 'place' (known: read, price)"
 
 
 def test_unknown_parser():
@@ -139,6 +145,73 @@ def test_a_job_is_checked_only_against_the_targets_given():
     taken as it is (the runner checks it again when it starts the request)."""
     assert ask.parse({"id": "r", "kind": "read", "job": "anything", "from": "2026-11-28T12:00",
                       "to": "2026-11-28T13:00", "parser": "pp_most"}).job == "anything"
+
+
+# --- parse: price ---------------------------------------------------------------
+ITEM = {"key": "k1", "competition": "English Premier League", "home": "Arsenal", "away": "Chelsea",
+        "preset": "Home 2,6"}
+
+
+def _price(**over):
+    return {"id": "p", "kind": "price", "job": "bb-look", "items": [ITEM], **over}
+
+
+def test_a_price_request():
+    req = ask.parse(_price(save="no", items=[ITEM, {**ITEM, "key": "k2", "preset": "Away  2,6"}]),
+                    targets=TARGETS)
+    assert (req.id, req.kind, req.job, req.save) == ("p", "price", "bb-look", "no")
+    assert req.items == (ask.PriceItem("k1", "English Premier League", "Arsenal", "Chelsea", "Home 2,6"),
+                         ask.PriceItem("k2", "English Premier League", "Arsenal", "Chelsea", "Away  2,6"))
+    assert ask.parse(_price()).save == "no"                         # the default
+
+
+@pytest.mark.parametrize("save", ["dry", "press"])
+def test_a_price_that_saves_is_refused_until_the_save_is_built(save):
+    assert _refused(_price(save=save)) == "save not built"
+
+
+@pytest.mark.parametrize("raw, why", [
+    (_price(save="yes"), "save must be one of no, dry, press"),
+    (_price(job="bb-saves"), "no Bookie Bashing builder job called 'bb-saves'"),
+    (_price(job="bb-saves-job"), "no Bookie Bashing builder job called 'bb-saves-job'"),
+    (_price(job="pp-epl-most"), "no Bookie Bashing builder job called 'pp-epl-most'"),
+    (_price(job=None), "job must be a job's name"),
+    ({"id": "p", "kind": "price", "items": [ITEM]}, "job must be a job's name"),
+    (_price(items=[]), "items is empty"),
+    (_price(items=ITEM), "items must be a list of objects"),
+    (_price(items=["x"]), "items must be a list of objects"),
+    (_price(items=[{**ITEM, "key": ""}]), "item 1: key must be text"),
+    (_price(items=[{**ITEM, "preset": "  "}]), "item 1: preset must be text"),
+    (_price(items=[ITEM, {**ITEM, "home": 3}]), "item 2: home must be text"),
+    (_price(items=[{k: v for k, v in ITEM.items() if k != "away"}]), "item 1: away must be text"),
+    (_price(items=[{**ITEM, "odds": 3.0}]), "item 1: unknown field(s): odds"),
+    (_price(items=[{**ITEM, "preset": "x" * 201}]), "item 1: preset is over 200 characters"),
+    (_price(items=[ITEM, ITEM]), "item 2: key 'k1' is given twice"),
+    (_price(parser="pp_most"), "unknown field(s): parser"),
+    (_price(urls=[PP]), "unknown field(s): urls"),
+])
+def test_price_refusals(raw, why):
+    assert _refused(raw) == why
+
+
+def test_a_price_may_list_the_presets_with_no_items():
+    req = ask.parse({"id": "p", "kind": "price", "job": "bb-look", "list_presets": True}, targets=TARGETS)
+    assert (req.items, req.list_presets) == ((), True)
+    assert ask.parse(_price(items=[], list_presets=True)).list_presets is True
+    assert ask.parse(_price()).list_presets is False
+    assert _refused(_price(items=[], list_presets=False)) == "items is empty"
+    assert _refused(_price(list_presets="yes")) == "list_presets must be true or false"
+
+
+def test_more_than_60_items():
+    items = [{**ITEM, "key": f"k{i}"} for i in range(61)]
+    assert _refused(_price(items=items)) == "at most 60 items in one request (got 61)"
+    assert len(ask.parse(_price(items=items[:60]), targets=TARGETS).items) == 60
+
+
+def test_a_read_still_refuses_a_price_field():
+    assert _refused({"id": "r", "kind": "read", "urls": [PP], "keep": True, "items": []}) == \
+        "unknown field(s): items"
 
 
 # --- pending, write_result ------------------------------------------------------
@@ -375,6 +448,122 @@ def test_a_request_that_fails_inside_ends_stopped_and_the_next_is_taken(tmp_path
     assert _result(tmp_path, "b")["state"] == "stopped"           # taken, not "another is running"
 
 
+# --- price on the runner, with no browser ----------------------------------------
+def _bb_tab(r, t):
+    from types import SimpleNamespace
+    from scraper.tests.test_bb_saves import _Capture
+    r.tabs[t.name] = SimpleNamespace(target=t, page=SimpleNamespace(url=t.url), capture=_Capture(), url=t.url)
+
+
+def test_a_price_with_no_open_page_is_stopped(tmp_path):
+    r = _runner(tmp_path, TARGETS)
+    _drop(tmp_path, "p", _price())
+    r._requests(now=1_000.0)
+    body = _result(tmp_path, "p")
+    assert (body["kind"], body["state"], body["reason"], body["items"]) == \
+        ("price", "stopped", "bb-look has no open page", [])
+    assert r.asking is None
+
+
+def test_a_price_while_bookie_bashing_cools_off_is_stopped(tmp_path, monkeypatch):
+    from scraper.parsers import bb_presets
+    r = _runner(tmp_path, TARGETS)
+    _bb_tab(r, _builder())
+    r.guard.start_cooloff("bookiebashing", "Cloudflare check", 900.0)
+    monkeypatch.setattr(bb_presets, "up", lambda *a: pytest.fail("the page was touched"))
+    _drop(tmp_path, "p", _price())
+    r._requests(now=1_000.0)
+    body = _result(tmp_path, "p")
+    assert (body["state"], body["items"]) == ("stopped", [])
+    assert body["reason"] == "bookiebashing is cooling off (Cloudflare check) - nothing more priced"
+
+
+def test_a_price_spans_ticks_within_the_call_budget_and_shows_the_items_so_far(tmp_path, monkeypatch):
+    from scraper import behaviour, runner
+    from scraper.parsers import bb_presets
+    r = _runner(tmp_path, TARGETS)
+    _bb_tab(r, _builder())
+    real = behaviour.get
+    monkeypatch.setattr(runner.behaviour, "get", lambda k: 0.05 if k == "bb.call_budget_s" else real(k))
+    ups, priced = [], []
+    monkeypatch.setattr(bb_presets, "up", lambda page, now: ups.append(now))
+    monkeypatch.setattr(bb_presets, "data_age", lambda page: 42)
+
+    def price(page, competition, home, away, preset, spacers=()):
+        priced.append(preset)
+        time.sleep(0.03)
+        if preset == "Nope":
+            raise bb_presets.NoPreset(f"no preset {preset!r}")
+        if preset == "Home 2,6":
+            return bb_presets.Reading(2.1, "All of Arsenal (Over 1.5 goals)", 40, None)
+        return bb_presets.Reading(None, "x", 40, "Total Odds shows no price")    # Away 2,6
+    monkeypatch.setattr(bb_presets, "price_reading", price)
+    presets = ["Home 2,6", "Away 2,6", "Nope", "Home 2,6", "Home 2,6"]
+    _drop(tmp_path, "p", _price(items=[{**ITEM, "key": f"k{i}", "preset": p} for i, p in enumerate(presets)]))
+    r._requests(now=1_000.0)
+    body = _result(tmp_path, "p")
+    assert body["state"] == "running" and len(body["items"]) == 2            # two in 0.05 s
+    assert body["items"][0] == {"key": "k0", "competition": "English Premier League", "home": "Arsenal",
+                                "away": "Chelsea", "preset": "Home 2,6", "state": "priced", "fair": 2.1,
+                                "saved": "no", "reason": None, "description": "All of Arsenal (Over 1.5 goals)",
+                                "data_age_s": 40, "respaced": False}
+    assert (body["items"][1]["state"], body["items"][1]["reason"]) == ("unsettled", "Total Odds shows no price")
+    _drop(tmp_path, "q", _price(id="q"))
+    r._requests(now=1_001.0)                                                  # one more tick
+    assert _result(tmp_path, "q")["reason"] == "another request is running"   # not interleaved
+    r._requests(now=1_002.0)
+    body = _result(tmp_path, "p")
+    assert body["state"] == "done" and [i["state"] for i in body["items"]] == \
+        ["priced", "unsettled", "no_preset", "priced", "priced"]
+    assert body["items"][2]["reason"] == "no preset 'Nope'"
+    assert (body["items"][2]["description"], body["items"][2]["data_age_s"]) == (None, 42)
+    assert priced == presets and len(ups) == 3                               # once a tick
+
+
+def test_an_unexpected_failure_on_one_item_leaves_it_unsettled_and_the_request_goes_on(tmp_path, monkeypatch):
+    from scraper.parsers import bb_presets
+    r = _runner(tmp_path, TARGETS)
+    _bb_tab(r, _builder())
+    monkeypatch.setattr(bb_presets, "up", lambda page, now: None)
+
+    class TimeoutError(Exception):                       # as Playwright's is named
+        pass
+    seen = []
+
+    def price(page, competition, home, away, preset, spacers=()):
+        seen.append((preset, tuple(spacers)))
+        if preset == "Boom":
+            raise TimeoutError("Locator.select_option: Timeout 8000ms exceeded")
+        return bb_presets.Reading(2.5, "d", 10, None)
+    monkeypatch.setattr(bb_presets, "price_reading", price)
+    monkeypatch.setattr(bb_presets, "list_presets", lambda page: (_ for _ in ()).throw(RuntimeError("x")))
+    _drop(tmp_path, "p", _price(items=[{**ITEM, "preset": "Boom"}, {**ITEM, "key": "k2"}], list_presets=True))
+    r._requests(now=1_000.0)
+    body = _result(tmp_path, "p")
+    assert body["state"] == "done"
+    assert [(i["key"], i["state"], i["reason"], i["respaced"]) for i in body["items"]] == \
+        [("k1", "unsettled", "TimeoutError", False), ("k2", "priced", None, False)]
+    assert (body["presets"], body["presets_from"]) == (None, "not listed: RuntimeError")
+    assert seen == [("Boom", ("Home 2,6",)), ("Home 2,6", ())]          # the other items' presets: spacers
+
+
+def test_a_price_interrupted_by_a_restart_keeps_what_it_did(tmp_path, monkeypatch):
+    from scraper import runner
+    from scraper.parsers import bb_presets
+    r = _runner(tmp_path, TARGETS)
+    _bb_tab(r, _builder())
+    monkeypatch.setattr(bb_presets, "up", lambda page, now: None)
+    monkeypatch.setattr(bb_presets, "price_reading", lambda *a: bb_presets.Reading(3.0, "d", None, None))
+    real = runner.behaviour.get
+    monkeypatch.setattr(runner.behaviour, "get", lambda k: 0.0 if k == "bb.call_budget_s" else real(k))
+    _drop(tmp_path, "p", _price(items=[ITEM, {**ITEM, "key": "k2"}]))
+    r._requests(now=1_000.0)
+    assert [i["key"] for i in _result(tmp_path, "p")["items"]] == ["k1"]      # at least one a tick
+    _runner(tmp_path, TARGETS)                                                 # the service restarts
+    body = _result(tmp_path, "p")
+    assert (body["state"], [i["key"] for i in body["items"]]) == ("interrupted", ["k1"])
+
+
 # --- the CLI: python -m scraper ask '<json>' -------------------------------------
 @pytest.fixture
 def cli(tmp_path, monkeypatch):
@@ -424,6 +613,26 @@ def test_ask_gives_an_id_when_none_is_named_and_prints_the_items(tmp_path, cli, 
     assert "done" in out and "Arsenal v Chelsea" in out and "2 row(s)" in out and "/d/ask-x-1" in out
     (done,) = (tmp_path / "requests" / "done").glob("ask-*.json")
     assert re.fullmatch(r"ask-\d{8}-\d{6}-[0-9a-f]{4}\.json", done.name)
+
+
+def test_ask_prints_a_price_result(tmp_path, cli, capsys):
+    items = [{**ITEM, "state": "priced", "fair": 2.1, "saved": "no", "reason": None, "data_age_s": 40,
+              "description": "All of Arsenal (Over 1.5 goals)"},
+             {**ITEM, "key": "k2", "preset": "Home 9,9", "state": "no_preset", "fair": None, "saved": "no",
+              "reason": "no preset 'Home 9,9'"}]
+    assert cli([json.dumps({"id": "c7", "kind": "price", "job": "bb-look", "items": [ITEM]})],
+               answer={"state": "done", "items": items, "presets": [{"name": "Home 2,6", "count": 1}],
+                       "presets_from": "Arsenal v Chelsea - 15:00 (already chosen)"}) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert "  presets  1 name(s), from Arsenal v Chelsea - 15:00 (already chosen)" in out
+    assert out[-2:] == ["  priced    k1  Arsenal v Chelsea  Home 2,6  fair 2.1  (data 40 s old)",
+                        "  no_preset k2  Arsenal v Chelsea  Home 9,9  (no preset 'Home 9,9')"]
+
+
+def test_ask_refuses_a_price_that_saves(tmp_path, cli, capsys):
+    assert cli([json.dumps({"id": "c8", "kind": "price", "job": "bb-look", "items": [ITEM],
+                            "save": "dry"}), "--json"]) == 2
+    assert json.loads(capsys.readouterr().out) == {"error": "save not built"}
 
 
 def test_ask_exits_1_when_stopped_and_2_when_refused(tmp_path, cli, capsys):

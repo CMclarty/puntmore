@@ -14,7 +14,7 @@ that will not parse) is refused when its name gives an id, and moved aside
 to data/requests/rejected/ when it cannot be removed or has no id. Results
 and the pages requests saved are kept PRUNE_DAYS (`prune`, once a day).
 
-One kind so far:
+Two kinds:
 
   read   load Paddy Power match pages, one at a time, each in a tab of its
          own, run a parser over what arrived, close the tab. The pages are
@@ -38,6 +38,34 @@ One kind so far:
          or back-off (Callum, 26 Nov 2026: docs/decisions.md). A block on a
          requested load is a block like any other.
 
+  price  read Bookie Bashing's fair (Total Odds) for named presets on named
+         games, on the bet builder page a Bookie Bashing builder job keeps
+         open ("job": a job whose parser is bb_builder, e.g. bb-look). Read
+         only: nothing is saved and nothing that changes the account is
+         pressed ("save": "no", the default; "dry" and "press" are refused,
+         "save not built"). "items": at most MAX_ITEMS of {"key",
+         "competition", "home", "away", "preset"}, each key once. Nothing is
+         loaded: with the job's page not open, its site cooling off, backing
+         off or signing in, or the builder not up, the request stops and
+         says why. Each tick works through items for at most
+         `bb.call_budget_s` (at least one), so a long request spans ticks
+         and its result shows the items done so far. A result item: the
+         request's item as given, "state" (priced, no_game, no_preset,
+         unsettled), "fair" (Total Odds, or null: a fair is taken only with
+         proof the preset was applied to that game), "saved" ("no"),
+         "reason", "description" (the bet as the builder words it),
+         "data_age_s" (the page's "Ns since data update"), "respaced" (the
+         preset was already chosen, so a spacer preset was chosen first).
+         Items may be taken out of order, so that an item whose preset is
+         the one already chosen does not come next; each keeps its key. An
+         unexpected failure on one item (a timeout) leaves it unsettled, its
+         reason the exception's class; the request goes on. "list_presets": true
+         (items may then be empty) adds "presets": [{"name", "count"}] (Use
+         Preset's names, whitespace collapsed, and how many options carry
+         each) and "presets_from" (the game the panel was drawn for; with
+         none chosen, the first listed is chosen). The driver is
+         parsers/bb_presets.py.
+
 What happens in the browser is Runner._ask's; this module is the files.
 """
 import json
@@ -53,14 +81,20 @@ from . import browser
 from . import config
 from .parsers import PARSERS
 
-KINDS = ("read",)
+KINDS = ("read", "price")
 # The parsers a read may run: ones that only read what arrived and click
 # nothing (on a Paddy page nothing is clicked but the cookie banner).
 READ_PARSERS = ("pp_most",)
 MAX_URLS = 60
+MAX_ITEMS = 60
+MAX_TEXT = 200                       # a price item's field, at most
+SAVES = ("no", "dry", "press")
 MAX_BYTES = 1024 * 1024             # a request file larger than this is refused unread
 PRUNE_DAYS = 14
-FIELDS = {"id", "kind", "job", "from", "to", "urls", "parser", "keep"}
+FIELDS = {"read": {"id", "kind", "job", "from", "to", "urls", "parser", "keep"},
+          "price": {"id", "kind", "job", "items", "save", "list_presets"}}
+ITEM_FIELDS = ("key", "competition", "home", "away", "preset")
+BUILDER_SITE, BUILDER_PARSER = "bookiebashing", "bb_builder"
 LONDON = ZoneInfo("Europe/London")
 _ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 ANOTHER = "another request is running"
@@ -97,15 +131,27 @@ def scrub(text: str | None) -> str | None:
 
 
 @dataclass(frozen=True)
+class PriceItem:
+    key: str
+    competition: str
+    home: str
+    away: str
+    preset: str
+
+
+@dataclass(frozen=True)
 class Request:
     id: str
     kind: str
-    job: str | None             # a Paddy matches job, with start and end ...
+    job: str | None             # read: a Paddy matches job, with start and end ...; price: a builder job
     start: float | None         # epoch seconds ("from")
     end: float | None           # epoch seconds ("to")
     urls: tuple[str, ...]       # ... or the pages by address
     parser: str | None
     keep: bool
+    items: tuple[PriceItem, ...] = ()    # price
+    save: str = "no"                     # price
+    list_presets: bool = False           # price: the result also lists Use Preset's names
 
 
 def iso(ts: float | None) -> str | None:
@@ -128,21 +174,69 @@ def _paddy_job(name, targets) -> bool:
     return any(t.name == name and t.site == "paddypower" and t.matches for t in targets)
 
 
+def builder_job(name, targets):
+    """The Bookie Bashing builder job (parser bb_builder) called `name`, or None."""
+    return next((t for t in targets if t.name == name and t.site == BUILDER_SITE
+                 and t.parser == BUILDER_PARSER), None)
+
+
+def _price(raw: dict, rid: str, targets) -> Request:
+    job = raw.get("job")
+    if not isinstance(job, str) or not job:
+        raise Refused("job must be a job's name")
+    if targets is not None and builder_job(job, targets) is None:
+        raise Refused(f"no Bookie Bashing builder job called {job!r}")
+    save = raw.get("save", "no")
+    if save not in SAVES:
+        raise Refused(f"save must be one of {', '.join(SAVES)}")
+    if save != "no":
+        raise Refused("save not built")
+    list_presets = raw.get("list_presets", False)
+    if not isinstance(list_presets, bool):
+        raise Refused("list_presets must be true or false")
+    items = raw.get("items", [] if list_presets else None)
+    if not isinstance(items, list) or not all(isinstance(x, dict) for x in items):
+        raise Refused("items must be a list of objects")
+    if not items and not list_presets:
+        raise Refused("items is empty")
+    if len(items) > MAX_ITEMS:
+        raise Refused(f"at most {MAX_ITEMS} items in one request (got {len(items)})")
+    out, keys = [], set()
+    for n, x in enumerate(items, 1):
+        extra = sorted(set(x) - set(ITEM_FIELDS))
+        if extra:
+            raise Refused(f"item {n}: unknown field(s): {', '.join(extra)}")
+        for f in ITEM_FIELDS:
+            v = x.get(f)
+            if not isinstance(v, str) or not v.strip():
+                raise Refused(f"item {n}: {f} must be text")
+            if len(v) > MAX_TEXT:
+                raise Refused(f"item {n}: {f} is over {MAX_TEXT} characters")
+        if x["key"] in keys:
+            raise Refused(f"item {n}: key {x['key']!r} is given twice")
+        keys.add(x["key"])
+        out.append(PriceItem(*(x[f] for f in ITEM_FIELDS)))
+    return Request(rid, "price", job, None, None, (), None, False, tuple(out), save, list_presets)
+
+
 def parse(raw: dict, targets=None) -> Request:
     """The request, checked for shape; Refused says why not. With `targets`
     (the CLI's and the runner's), a job must be one of them: a Paddy Power
-    matches job."""
+    matches job for a read, a Bookie Bashing builder job for a price."""
     if not isinstance(raw, dict):
         raise Refused("the request is not a JSON object")
-    extra = sorted(set(raw) - FIELDS)
+    kind = raw.get("kind")
+    known = FIELDS[kind] if isinstance(kind, str) and kind in FIELDS else set().union(*FIELDS.values())
+    extra = sorted(set(raw) - known)
     if extra:
         raise Refused(f"unknown field(s): {', '.join(extra)}")
     rid = raw.get("id")
     if not isinstance(rid, str) or not _ID.match(rid):
         raise Refused("id must be 1-64 letters, digits, '.', '_' or '-'")
-    kind = raw.get("kind")
     if kind not in KINDS:
         raise Refused(f"unknown kind {kind!r} (known: {', '.join(KINDS)})")
+    if kind == "price":
+        return _price(raw, rid, targets)
     parser = raw.get("parser")
     if parser is not None and (not isinstance(parser, str) or parser not in PARSERS):
         raise Refused(f"no parser called {parser!r}")

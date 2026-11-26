@@ -67,8 +67,8 @@ prices are `scraper_prices` files that the Hub posts to Render.
   of `hub/puntmore_hub/ids.py`; a test in each suite pins the same vector).
 - `parsers/` - one module per page kind; rows only from what the page shows.
   `bb_builder` keeps the Bookie Bashing bet builder up and reads nothing
-  (`bb_saves.bring_up`, shared): a page to `look` at, the start of the
-  preset-driven bet-builder job. `tc_reload` reads Team Casino's
+  (`bb_saves.bring_up`, shared): a page to `look` at, and the page a
+  `price` request (`ask.py`, `bb_presets.py`) works on. `tc_reload` reads Team Casino's
   reload-offers dashboard, one row per offer, from the page's HTML; it
   clicks nothing (every control there changes Callum's account). `bb_2up`
   reads Bookie Bashing's Early Payout Tracker for `/api/2up/bb`: the rows
@@ -122,12 +122,31 @@ prices are `scraper_prices` files that the Hub posts to Render.
   tick; a page that ends off Paddy's hosts is failed unread; a parser from
   `READ_PARSERS` (parsers that click nothing) runs over it; it is saved
   with its payloads (`keep`); the tab is closed. Page urls are written
-  without their query (`bare`). Its loads keep the pacer and the hosts rule
-  and stop on a cool-off or back-off; they skip Paddy's budget and quiet
-  hours and the 48-hour window (Callum, 26 Nov 2026). On the page it clicks
-  only the cookie banner. Results and saved pages go after 14 days
-  (`prune`). Localhost counts as Paddy's (`config.paddy_page`) only under
-  `config.LOCAL_PADDY`, which the tests set.
+  without their query (`bare`). A read's loads keep the pacer and the hosts
+  rule and stop on a cool-off or back-off; they skip Paddy's budget and
+  quiet hours and the 48-hour window (Callum, 26 Nov 2026). On the page it
+  clicks only the cookie banner. Kind `price` (26 Nov 2026): Total Odds for
+  named presets on named games, on the page a Bookie Bashing builder job
+  (`bb_builder`, e.g. `bb-look`) keeps open, driven by
+  `parsers/bb_presets.py` (not a parser a job can name): choose the game,
+  open "Show/Hide Presets", choose the preset, take Total Odds only with
+  proof the preset was applied to that game (the bet's description changed
+  and names no team of the last game, Total Odds changed, both held a
+  second, every block on the game; a name listed twice is never priced; a
+  preset already chosen is applied afresh by choosing a spacer preset first,
+  another real one named once, as Use Preset has no empty option). Read
+  only: it loads nothing, saves nothing, never presses Save, Save As Preset,
+  Delete Preset or a tracker control, never types into the tracker panel;
+  the Use Preset select is the only control it sets besides the game, and
+  a preset it was not asked for is chosen only as such a spacer; `save`
+  other than "no" is refused ("save not built"). An unexpected failure on
+  one item leaves that item unsettled.
+  At most 60 items, `bb.call_budget_s` of work a tick; it stops when the
+  job's page is not open, its site is cooling off, backing off or signing
+  in, or the builder is not up. `list_presets` adds Use Preset's names.
+  Results and saved pages go after 14 days (`prune`). Localhost counts as
+  Paddy's (`config.paddy_page`) only under `config.LOCAL_PADDY`, which the
+  tests set.
 - `look.py` - `python -m scraper look <job> '<steps>'`: a few plain steps
   (click a named control with `browser.click`, set a select, type in a
   field, wait, save) on a job's open page, answered by `Runner._look` from

@@ -58,7 +58,9 @@ A request (ask.py, `python -m scraper ask`) is answered here too, one item a
 tick so the sweep keeps running: a `read` loads each page in a tab of its own
 through the pacer and the hosts rule, but not the budget or quiet hours
 (guard.record_load(requested=True)), and stops at once on a cool-off or a
-back-off (Runner._ask).
+back-off (Runner._ask). A `price` loads nothing: it works on the page its
+Bookie Bashing builder job keeps open, for at most `bb.call_budget_s` a tick
+(parsers/bb_presets.py; Runner._ask_price_step).
 """
 import collections
 import dataclasses
@@ -83,7 +85,8 @@ from . import schedule
 from . import standing
 from .capture import Capture, DiskBudget
 from .config import host_allowed
-from .parsers import PARSERS, pp_listing
+from .parsers import PARSERS, bb_presets, pp_listing
+from .parsers.bb_saves import BuilderNotReady
 from .sinks import Sinks, _safe, deliver_to_hub, emit_event  # noqa: F401  (re-exported)
 from .sites import SITES
 from .status import (HEALTH_PING_S, STATUS_EVERY_S, Reporter, market_tabs_said,  # noqa: F401
@@ -105,6 +108,7 @@ BEHAVIOUR_LOG = "behaviour"      # data/logs/behaviour.log (joblog's file for th
 DELIVERY_SAID_S = 600
 ASK_LOG = "ask"                  # data/logs/ask.log: what each request did
 ASK_SITE = "paddypower"          # the site a `read` request loads
+PRICE_SITE = ask.BUILDER_SITE    # the site whose open builder page a `price` request works on
 
 
 class Tab:
@@ -1471,16 +1475,16 @@ class Runner:
         self._ask_unwritten(body["id"])
         return False
 
-    def _ask_stopped(self, now) -> str | None:
-        """Why a request loads nothing more: its site cooling off or backing
-        off. Quiet hours and the budget do not stop it (the register,
+    def _ask_stopped(self, now, site=ASK_SITE, what="loaded") -> str | None:
+        """Why a request does nothing more: its site cooling off or backing
+        off. Quiet hours and the budget do not stop a read (the register,
         26 Nov 2026)."""
-        if self.guard.cooloff_active(ASK_SITE, now):
-            c = self.guard.cooloff(ASK_SITE) or {}
-            return f"{ASK_SITE} is cooling off ({c.get('reason')}) - nothing more loaded"
-        st = self.sites[ASK_SITE]
+        if self.guard.cooloff_active(site, now):
+            c = self.guard.cooloff(site) or {}
+            return f"{site} is cooling off ({c.get('reason')}) - nothing more {what}"
+        st = self.sites[site]
         if st.retry_at > now:
-            return f"{ASK_SITE} is backing off ({st.blocked_for}) - nothing more loaded"
+            return f"{site} is backing off ({st.blocked_for}) - nothing more {what}"
         return None
 
     def _ask_start(self, req, now):
@@ -1492,6 +1496,15 @@ class Runner:
         self.asking = {"req": req, "result": result, "todo": [], "job": None,
                        "listings_todo": [], "links": {}, "seen": {}}
         a = self.asking
+        if req.kind == "price":
+            self._say(ASK_LOG, f"{req.id}: taken (price, {req.job}, {len(req.items)} item(s))")
+            a["job"] = ask.builder_job(req.job, self.targets)
+            if a["job"] is None:
+                self._ask_finish("refused", f"no Bookie Bashing builder job called {req.job!r}", now)
+                return
+            a["todo"] = list(req.items)
+            result.update(presets=None, presets_from=None)
+            return
         self._say(ASK_LOG, f"{req.id}: taken ({req.kind}, "
                            + (f"{req.job} {ask.iso(req.start)} to {ask.iso(req.end)})" if req.job
                               else f"{len(req.urls)} page(s))"))
@@ -1556,6 +1569,9 @@ class Runner:
         when the pacer allows one; the result written after it (`running`,
         or how it ended)."""
         a = self.asking
+        if a["req"].kind == "price":
+            self._ask_price_step(now)
+            return
         stop = self._ask_stopped(now)
         if stop:
             self._ask_finish("stopped", stop, now)
@@ -1594,6 +1610,120 @@ class Runner:
             self._ask_finish("done", None, now)
         else:
             self._ask_save(a["result"])
+
+    def _ask_price_why(self, t, now) -> str | None:
+        """Why a price request can do nothing more on its job's page: the
+        site cooling off, backing off, in quiet hours or signing in, or the
+        page not open. It never loads the page itself."""
+        stop = self._ask_stopped(now, PRICE_SITE, "priced")
+        if stop:
+            return stop
+        if _quiet_applies(PRICE_SITE) and self.guard.in_quiet(now):
+            return f"{PRICE_SITE} is in its quiet hours - nothing more priced"
+        if PRICE_SITE in self.login_pending:
+            return f"{PRICE_SITE} is signing in - nothing more priced"
+        if self.tabs.get(t.name) is None:
+            return f"{t.name} has no open page"
+        return None
+
+    def _ask_price_step(self, now):
+        """A tick of a price request: on its job's open builder page (brought
+        up first, bb_presets.up), the items one after another for at most
+        bb.call_budget_s (at least one); the result written after."""
+        a = self.asking
+        req, t = a["req"], a["job"]
+        why = self._ask_price_why(t, now)
+        if why:
+            self._ask_finish("stopped", why, now)
+            return
+        tab = self.tabs[t.name]
+        page = tab.page
+        try:
+            bb_presets.up(page, time.time())
+        except BuilderNotReady as exc:
+            self._ask_finish("stopped", ask.scrub(f"builder not ready: {exc}"), now)
+            return
+        started, budget = time.time(), behaviour.get("bb.call_budget_s")
+        if req.list_presets and not a.get("listed"):
+            a["listed"] = True
+            try:
+                listed, came_from = bb_presets.list_presets(page)
+            except BuilderNotReady as exc:
+                self._ask_finish("stopped", ask.scrub(f"builder not ready: {exc}"), now)
+                return
+            except Exception as exc:                # a timeout, anything: said, and the items go on
+                listed, came_from = None, f"not listed: {exc.__class__.__name__}"
+            a["result"].update(presets=listed, presets_from=came_from)
+            self._say(ASK_LOG, f"{req.id}: {len(listed or [])} preset name(s) listed, from {came_from}")
+        while a["todo"]:
+            n = self._ask_price_next(page, a["todo"])
+            try:
+                item = self._ask_price_item(page, a["todo"][n],
+                                            [it.preset for k, it in enumerate(a["todo"]) if k != n])
+            except BuilderNotReady as exc:
+                self._ask_finish("stopped", ask.scrub(f"builder not ready: {exc}"), now)
+                return
+            a["todo"].pop(n)
+            a["result"]["items"].append(item)
+            self._say(ASK_LOG, f"{req.id}: {item['state']} {item['key']} ({item['home']} v {item['away']}, "
+                               f"{item['preset']})"
+                               + (f" {item['fair']}" if item["fair"] is not None else "")
+                               + (f" - {item['reason']}" if item["reason"] else ""))
+            if time.time() - started >= budget:
+                break
+        if getattr(tab, "capture", None) is not None:
+            tab.capture.last_activity = time.time()  # driven, not idle: never reloaded as stale
+        if not a["todo"]:
+            self._ask_finish("done", None, now)
+        else:
+            self._ask_save(a["result"])
+
+    @staticmethod
+    def _ask_price_next(page, todo) -> int:
+        """Which item next: the first whose preset is not the one Use Preset
+        shows chosen (that one needs a spacer preset chosen first:
+        bb_presets), else the first."""
+        try:
+            chosen = bb_presets.chosen_preset(page)
+        except Exception:                       # only a hint: the first item then
+            return 0
+        if chosen is None:
+            return 0
+        return next((i for i, it in enumerate(todo) if bb_presets.collapse(it.preset) != chosen), 0)
+
+    def _ask_price_item(self, page, it, spacers=()) -> dict:
+        """One item priced (bb_presets.price_reading; `spacers`, the other
+        items' presets, are its first choice of spacer): its result as the
+        request gave it, with state, fair, saved, reason, description,
+        data_age_s and respaced. Anything unexpected on the page (a timeout)
+        leaves the item unsettled, its reason the exception's class, and the
+        request goes on; a builder not ready stops it (raised)."""
+        item = {"key": it.key, "competition": it.competition, "home": it.home, "away": it.away,
+                "preset": it.preset, "state": "unsettled", "fair": None, "saved": "no", "reason": None,
+                "description": None, "data_age_s": None, "respaced": False}
+        try:
+            got = bb_presets.price_reading(page, it.competition, it.home, it.away, it.preset,
+                                           spacers=spacers)
+        except bb_presets.NoGame as exc:
+            item.update(state="no_game", reason=str(exc))
+        except bb_presets.NoPreset as exc:
+            item.update(state="no_preset", reason=str(exc))
+        except bb_presets.Unpriced as exc:
+            item.update(reason=str(exc))
+        except BuilderNotReady:
+            raise
+        except Exception as exc:
+            item.update(reason=exc.__class__.__name__)
+            self._say(ASK_LOG, ask.scrub(f"{it.key}: {exc.__class__.__name__}: "
+                                         f"{(str(exc).splitlines() or [''])[0][:200]}"))
+        else:
+            item.update(description=got.description, data_age_s=got.data_age_s, reason=got.reason,
+                        respaced=got.respaced)
+            if got.fair is not None:
+                item.update(state="priced", fair=got.fair)
+        if item["data_age_s"] is None:
+            item["data_age_s"] = bb_presets.data_age(page)
+        return item
 
     def _ask_open(self, key, url, parser, now) -> tuple[Tab | None, str | None]:
         """A requested load (_open, requested), then the page checked: it
@@ -1666,7 +1796,9 @@ class Runner:
         for entry in a["result"]["listings"]:
             if entry["state"] == "waiting":
                 entry.update(state="skipped", reason=f"not loaded: {reason}")
-        for game in a["todo"]:
+        # A price's items not reached are left out: its items are those done
+        # (their states are the four a price gives); the reason says why.
+        for game in a["todo"] if a["req"].kind == "read" else ():
             a["result"]["items"].append({"url": ask.bare(game[0]), "home": game[1], "away": game[2],
                                          "kickoff": ask.iso(game[3]), "state": "skipped",
                                          "reason": f"not read: {reason}", "rows": [], "saved": None})
