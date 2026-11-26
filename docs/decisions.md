@@ -287,7 +287,20 @@ names and no other; older names appear only in `docs/retired.md`.
   are closed and nothing loads until 48 hours before the next game it saw, or a day,
   whichever is sooner (`python -m scraper wake <job>` ends a rest by hand). (12 Nov 2026,
   Callum: "I wouldn't want to waste budget on scraping games more than 48 hours out";
-  bb-saves since 11 Nov 2026)
+  bb-saves since 11 Nov 2026) A request (below) is not a job: it may read games further
+  out. (26 Nov 2026, Callum)
+- **The Scraper reads Paddy Power on request.** `python -m scraper ask` (`scraper/ask.py`;
+  Claude Code on the Hub) has the running Scraper read Paddy Power match pages now: named by
+  a Paddy listing job and a kick-off range (off the listings it already holds open; no
+  listing is loaded for it) or by address, one page at a time, each in a tab of its own,
+  clicking nothing but the cookie banner, the result in `data/requests/done/`. One request
+  runs at a time. **A request disregards Paddy's hourly and daily budget and its quiet
+  hours**: its loads are recorded apart, shown on their own line in `status`, and spend
+  none of the sweep's. It keeps the gap between loads (`paddypower.load_gap_s` and the
+  spacing across sites), and only Paddy's own pages; it stops at once on a cool-off, and a
+  challenge on a requested load is a block like any other (every Paddy page closed, the
+  cool-off, `resume`); nothing answers it. A request may read games more than 48 hours out.
+  (26 Nov 2026, Callum: "Paddy budget should be disregarded for requests made")
 - **Never guess a tip.** Parsers are written from real pages only; a parser
   that cannot read the page returns nothing and `min_rows` raises the alarm.
 

@@ -102,6 +102,20 @@ prices are `scraper_prices` files that the Hub posts to Render.
 - `guard.py` - every load asks it first: budget, cool-off, quiet hours (SQLite);
   built from `behaviour.py`'s limits, which it keeps a copy of (`use`). Its
   record of loads (two days) also gives a fetch job's last load (`last_load`).
+  A request's load (`ask.py`) is recorded `requested`: in the record and in
+  `requested`, never in `spent` or `can_load` (26 Nov 2026).
+- `ask.py` - `python -m scraper ask '<json>'`: a request for the running
+  service, `data/requests/ask-<id>.json`, answered by `Runner._ask` in
+  `data/requests/done/ask-<id>.json` (`running` with the items so far, then
+  `done`, `refused`, `stopped`, or `interrupted` when the service restarted
+  mid-request; never run twice). One at a time: another is refused. Kind
+  `read`: Paddy Power match pages, by a Paddy listing job and a kick-off
+  range (off its open listings; none loaded for it) or by address (at most
+  60), each loaded in a tab of its own, one a tick, a parser run over it,
+  saved with its payloads (`keep`; query strings never written), closed.
+  Its loads keep the pacer and the hosts rule and stop on a cool-off or
+  back-off; they skip Paddy's budget and quiet hours and the 48-hour window
+  (Callum, 26 Nov 2026). On the page it clicks only the cookie banner.
 - `look.py` - `python -m scraper look <job> '<steps>'`: a few plain steps
   (click a named control with `browser.click`, set a select, type in a
   field, wait, save) on a job's open page, answered by `Runner._look` from
@@ -144,7 +158,10 @@ prices are `scraper_prices` files that the Hub posts to Render.
   `min_rows` breaches and blocks go to `data/hub/events/`. The Hub's
   `puntmore inbox` reads both. Never let a generic target reach Paddy Power,
   Bookie Bashing or Team Casino (`config.OWN_SITE_HOSTS`); never add a second
-  budget anywhere.
+  budget anywhere. The one exception (Callum, 26 Nov 2026): a request's loads
+  (`ask.py`) are recorded apart and are outside Paddy's hourly and daily
+  budget and its quiet hours; they still keep the gaps between loads and
+  stop on a cool-off.
 - targets.toml is edited only through `scraper/targets.py` (the CLI, the
   Console, HubAI's scraper-manager); never by hand while the Scraper runs.
   Validation stays in `config._target`; `targets.py` must not grow its own
@@ -179,6 +196,8 @@ prices are `scraper_prices` files that the Hub posts to Render.
   hours (Paddy 15/h, 01-07, by default) are `behaviour.py`'s settings, which
   only Callum changes (the Console's Behaviour pane or `python -m scraper
   behaviour`; every change logged); no `targets.toml` edit can loosen them.
+  A request (`ask.py`) disregards Paddy's budget and quiet hours, and only
+  those (Callum, 26 Nov 2026; the register).
   It detects challenges and logouts (also on an already-open page: 3+
   refusals in 10 min, Cloudflare, logout) and never answers a challenge — no
   fingerprint spoofing, no solvers, no proxies, no user-agent or navigator
@@ -211,4 +230,5 @@ prices are `scraper_prices` files that the Hub posts to Render.
   added, enabled or changed run it at once; a fetch load that signs in gets
   one load at once, then `fetch.retry_s`. Every job that reads games reads only those kicking off within 48
   hours (`games.within_h`, or a job's own `within_h`; 0 is no limit): with
-  none that near it rests (`rest.py`; Callum, 11 and 12 Nov 2026).
+  none that near it rests (`rest.py`; Callum, 11 and 12 Nov 2026). A request
+  (`ask.py`) is not a job: it may read games further out (Callum, 26 Nov 2026).

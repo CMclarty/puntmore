@@ -5,6 +5,7 @@ browser isn't installed.
 """
 import http.server
 import json
+import pathlib
 import re
 import threading
 import time
@@ -682,3 +683,147 @@ def test_a_click_on_a_real_page_checks_what_is_under_the_pointer(tmp_path):
             assert page.evaluate("[window.n_once || 0, window.n_price || 0]") == [1, 0]
         finally:
             ctx.close()
+
+
+# --- requests (ask.py): `read` ------------------------------------------------
+def _ask(tmp_path, body):
+    req = tmp_path / "requests"
+    req.mkdir(parents=True, exist_ok=True)
+    (req / f"ask-{body['id']}.json").write_text(json.dumps(body))
+
+
+def _answer(tmp_path, rid):
+    f = tmp_path / "requests" / "done" / f"ask-{rid}.json"
+    return json.loads(f.read_text()) if f.exists() else None
+
+
+def _asked(path):
+    return [p for p in Handler.seen if p.startswith(path)]
+
+
+@pytest.fixture
+def prices_parser(monkeypatch):
+    """A parser over the fake match page: its title, and how many price
+    payloads the capture held when it ran."""
+    from scraper.parsers import PARSERS
+    monkeypatch.setitem(PARSERS, "test_prices", lambda page, cap: [
+        {"title": page.title(), "payloads": sum('"prices"' in r[3] for r in cap.recent)}])
+    return "test_prices"
+
+
+def test_a_read_request_loads_each_page_in_its_own_tab_spaced_and_saves_it(tmp_path, site, prices_parser):
+    """Two urls: each loaded in a tab of its own, one a tick, with Paddy's gap
+    between them, the tab closed; the result goes running, then done, each
+    item read by the parser and saved (HTML, screenshot, payloads.json). The
+    sweep's budget is already spent and it is quiet hours: the request loads
+    anyway, and its loads are counted apart."""
+    from playwright.sync_api import sync_playwright
+    a, b = site + "/football/arsenal-v-chelsea", site + "/football/spurs-v-everton"
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [], p)
+        t0 = time.time()
+        per_hour = r.guard.limit("paddypower")[0]
+        for _ in range(per_hour):
+            r.guard.record_load("paddypower", "spent", t0 - 60)
+        assert not r.guard.can_load("paddypower", t0)[0]
+        r.guard.quiet = (0, 24)                              # every hour quiet
+        _ask(tmp_path, {"id": "r1", "kind": "read", "urls": [a, b], "parser": prices_parser,
+                        "keep": True})
+        r.tick(t0)
+        mid = _answer(tmp_path, "r1")
+        assert mid["state"] == "running" and [i["url"] for i in mid["items"]] == [a]
+        assert _asked("/football/arsenal") and not _asked("/football/spurs")
+        assert not [k for k in r.tabs if k.startswith("ask:")]   # its tab closed
+        assert not (tmp_path / "requests" / "ask-r1.json").exists()
+        r.tick(t0 + 1)                                       # Paddy's gap: not yet
+        assert not _asked("/football/spurs") and len(_answer(tmp_path, "r1")["items"]) == 1
+        r.tick(t0 + 200)
+        done = _answer(tmp_path, "r1")
+        assert done["state"] == "done" and done["reason"] is None and done["finished"]
+        assert [i["url"] for i in done["items"]] == [a, b]
+        for item in done["items"]:
+            assert item["state"] == "read" and item["reason"] is None
+            assert item["rows"][0]["title"] == "Match" and item["rows"][0]["payloads"] >= 1
+            saved = tmp_path / "dumps" / pathlib.Path(item["saved"]).name
+            assert saved.parent == tmp_path / "dumps"
+            assert "<title>Match</title>" in (saved / "page.html").read_text()
+            assert (saved / "page.png").read_bytes()[:4] == b"\x89PNG"
+            body = json.loads((saved / "payloads.json").read_text())
+            prices = [x for x in body["recent"] if x["path"] == "/api/prices"]
+            assert prices and '"prices"' in prices[0]["text"]
+            assert "?m=" not in (saved / "payloads.json").read_text()   # never a query
+        assert not [k for k in r.tabs if k.startswith("ask:")]
+        assert r.guard.spent("paddypower", t0 + 200) == (per_hour, per_hour)   # unchanged
+        assert r.guard.requested("paddypower", t0 + 200) == (2, 2)
+        r.close_all()
+        ctx.close()
+
+
+def test_a_read_request_in_a_cooloff_loads_nothing(tmp_path, site, prices_parser):
+    from playwright.sync_api import sync_playwright
+    a = site + "/football/arsenal-v-chelsea"
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [], p)
+        t0 = time.time()
+        r.guard.start_cooloff("paddypower", "HTTP 429", t0 - 60)
+        _ask(tmp_path, {"id": "r2", "kind": "read", "urls": [a], "parser": prices_parser})
+        r.tick(t0)
+        body = _answer(tmp_path, "r2")
+        assert body["state"] == "stopped" and "cooling off" in body["reason"]
+        assert [(i["url"], i["state"]) for i in body["items"]] == [(a, "skipped")]
+        assert not _asked("/football")
+        assert r.guard.requested("paddypower", t0) == (0, 0)
+        ctx.close()
+
+
+def test_a_challenge_on_a_requested_page_stops_the_request_and_cools_off(tmp_path, site, prices_parser):
+    from playwright.sync_api import sync_playwright
+    Handler.blocked_path = "/football/arsenal"
+    a, b = site + "/football/arsenal-v-chelsea", site + "/football/spurs-v-everton"
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [], p)
+        t0 = time.time()
+        _ask(tmp_path, {"id": "r3", "kind": "read", "urls": [a, b], "parser": prices_parser})
+        r.tick(t0)
+        body = _answer(tmp_path, "r3")
+        assert body["state"] == "stopped" and "cooling off" in body["reason"]
+        assert [(i["url"], i["state"], i["reason"]) for i in body["items"]] == [
+            (a, "failed", "HTTP 429"), (b, "skipped", "not read: " + body["reason"])]
+        assert r.guard.cooloff_active("paddypower", t0)       # the same cool-off as any load
+        assert "cooling off" in (tmp_path / "alerts.log").read_text()
+        r.tick(t0 + 400)
+        assert not _asked("/football/spurs") and not r.tabs
+        ctx.close()
+
+
+def test_a_read_request_by_job_takes_the_games_in_its_range_off_the_open_listing(tmp_path, site,
+                                                                                prices_parser):
+    """The job's listing is already open: the request reads the games whose
+    kick-off is in the range, nearest first, with their teams and kick-off
+    from the listing, and loads no listing of its own."""
+    import dataclasses
+    from playwright.sync_api import sync_playwright
+    pp = _pp(site)
+    t = dataclasses.replace(pp, parser=None, matches=dataclasses.replace(pp.matches, market_tabs=(),
+                                                                         max_tabs=1))
+    with sync_playwright() as p:
+        r, ctx = _runner(tmp_path, [t], p)
+        t0 = time.time()
+        r.tick(t0)                                           # the listing
+        assert "pp:list" in r.tabs and len(_asked("/football")) == 1
+        iso = lambda h: datetime.fromtimestamp(t0 + h * 3600, LONDON).isoformat()
+        _ask(tmp_path, {"id": "r4", "kind": "read", "job": "pp", "from": iso(20.5), "to": iso(22.5),
+                        "parser": prices_parser})
+        for off in (1, 200, 400, 600, 800):
+            r.tick(t0 + off)
+        body = _answer(tmp_path, "r4")
+        assert body["state"] == "done"
+        assert [(i["url"], i["home"], i["away"]) for i in body["items"]] == [
+            (site + "/football/spurs-v-everton", "Spurs", "Everton"),
+            (site + "/football/leeds-v-wolves", "Leeds", "Wolves")]
+        k = datetime.fromisoformat(body["items"][0]["kickoff"]).timestamp()
+        assert abs(k - (t0 + 21 * 3600)) <= 60
+        assert all(i["saved"] is None for i in body["items"])     # keep false: nothing saved
+        assert Handler.seen.count("/football") == 1                # the listing once, by the sweep
+        r.close_all()
+        ctx.close()

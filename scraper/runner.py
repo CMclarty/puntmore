@@ -53,6 +53,12 @@ limits (guard.py). A job failing the same way, or running with pages open
 and handing over no rows, is alerted once and once when it clears
 (standing.JobAlerts, which this module feeds: _parse, _start_rest,
 _watch_rows); the standing alert is the job's "alert" in status.json.
+
+A request (ask.py, `python -m scraper ask`) is answered here too, one item a
+tick so the sweep keeps running: a `read` loads each page in a tab of its own
+through the pacer and the hosts rule, but not the budget or quiet hours
+(guard.record_load(requested=True)), and stops at once on a cool-off or a
+back-off (Runner._ask).
 """
 import collections
 import dataclasses
@@ -63,6 +69,7 @@ import time
 from datetime import datetime
 from urllib.parse import urlparse
 
+from . import ask
 from . import behaviour
 from . import browser
 from . import config
@@ -96,6 +103,8 @@ BEHAVIOUR_LOG = "behaviour"      # data/logs/behaviour.log (joblog's file for th
 # A job that delivers every parse logs the same delivery line again only
 # after this long (a change in what was handed or left out is logged at once).
 DELIVERY_SAID_S = 600
+ASK_LOG = "ask"                  # data/logs/ask.log: what each request did
+ASK_SITE = "paddypower"          # the site a `read` request loads
 
 
 class Tab:
@@ -219,6 +228,11 @@ class Runner:
         # Each job's failing and no-rows alerts (standing.py), kept in data/alerted.json.
         self.job_alerts = standing.JobAlerts(settings.data_dir, alerts)
         self.job_alerts.keep_only(names)
+        # The request being answered (ask.py): {"req", "result", "todo"}; a
+        # result the last run left `running` is said to be `interrupted`.
+        self.asking: dict | None = None
+        for rid in ask.interrupt_running(settings.data_dir):
+            self._say(ASK_LOG, f"{rid}: interrupted - the Scraper restarted mid-request")
 
     # --- site-wide state ----------------------------------------------------
     def _paused(self, site, now) -> str | None:
@@ -423,6 +437,16 @@ class Runner:
         ok, _why = self.guard.can_load(site, now, quiet_applies=_quiet_applies(site))
         if not ok or not host_allowed(url, site):
             return None
+        return self._open(target, key, url, now)[0]
+
+    def _open(self, target, key, url, now, requested=False) -> tuple[Tab | None, str | None]:
+        """The load itself, once its gate has said yes (_load's: the pacer,
+        the guard, the hosts; _ask_read's for a request): spaced, recorded
+        with the guard (`requested`: a request's load, ask.py, outside the
+        budget), then the page checked for a block or a logout as every load
+        is. (tab, None), or (None, why) when not done; the tab of a load that
+        failed stays in self.tabs, as it always has."""
+        site = target.site
         self.pacer.spaced(site, now)
         tab = self.tabs.get(key)
         try:
@@ -442,28 +466,28 @@ class Runner:
                 except Exception:
                     pass
                 resp = page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-            self.guard.record_load(site, url, now)
+            self.guard.record_load(site, url, now, requested=requested)
             tab.last_load = now
             tab.due_at = None
         except Exception as exc:
-            self.guard.record_load(site, url, now)     # a failed load still went out
-            self._say(target.name, (f"{key}: " if key != target.name else "")
-                      + f"load failed: {exc.__class__.__name__}: {exc}")
-            return None
+            self.guard.record_load(site, url, now, requested=requested)   # a failed load still went out
+            why = f"load failed: {exc.__class__.__name__}: {exc}"
+            self._say(target.name, (f"{key}: " if key != target.name else "") + why)
+            return None, why
 
         reason = browser.blocked(tab.page, resp.status if resp else None)
         if reason is None and SITES[site].needs_login and browser.logged_out(tab.page, url, site):
             if self._try_login(site, tab, now):
-                return None
+                return None, "logged out - signing in"
             reason = "logged out"
         if reason:
             self._on_blocked(site, reason, now, tab)
-            return None
+            return None, reason
         self._on_clear(site)
         self.last_load_at[target.name] = now
         browser.dismiss_consent(tab.page)
         browser.settle(tab.page)
-        return tab
+        return tab, None
 
     # --- the tick -----------------------------------------------------------
     def tick(self, now=None):
@@ -1290,7 +1314,9 @@ class Runner:
         `look <job> '<steps>'` likewise takes a few plain steps on the job's
         open page and saves it (look.py; refused for a Paddy job; nothing
         from it escapes here).
-        `selfcheck` likewise, as the running browser holds the profile."""
+        `selfcheck` likewise, as the running browser holds the profile.
+        `ask '<json>'` (ask.py): one item of the request being answered
+        (_ask), the only request here that loads pages."""
         now = now or time.time()
         req = self.s.data_dir / "requests" / "selfcheck"
         if req.exists():
@@ -1340,6 +1366,14 @@ class Runner:
                 self._look(name, raw, now)
             except Exception as exc:            # a look never ends a tick
                 self._say(name, f"look: failed: {exc.__class__.__name__}: {exc}")
+        try:
+            self._ask(now)
+        except Exception as exc:                # a request never ends a tick
+            why = f"failed: {exc.__class__.__name__}: {exc}"
+            if self.asking is not None:
+                self._ask_finish("stopped", why, now)
+            else:
+                self._say(ASK_LOG, why)
 
     def _look(self, name, raw, now):
         """Answer one `look-<job>` request (look.py): refused for a Paddy job
@@ -1374,6 +1408,167 @@ class Runner:
                  capture=tab.capture,
                  on_load=lambda url: self.guard.record_load(site, login.safe_url(url), now))
 
+    # --- requests (ask.py) -----------------------------------------------------
+    def _ask(self, now):
+        """The request being answered gets one item this tick; with none, the
+        oldest waiting is taken (ask.pending, which also refuses any that
+        arrive while one runs)."""
+        if self.asking is None:
+            req = ask.pending(self.s.data_dir, self.targets, now)
+            if req is None:
+                return
+            self._ask_start(req, now)
+            if self.asking is None:
+                return
+        else:
+            ask.pending(self.s.data_dir, self.targets, now)
+        self._ask_step(now)
+
+    def _ask_stopped(self, now) -> str | None:
+        """Why a request loads nothing more: its site cooling off or backing
+        off. Quiet hours and the budget do not stop it (the register,
+        26 Nov 2026)."""
+        if self.guard.cooloff_active(ASK_SITE, now):
+            c = self.guard.cooloff(ASK_SITE) or {}
+            return f"{ASK_SITE} is cooling off ({c.get('reason')}) - nothing more loaded"
+        st = self.sites[ASK_SITE]
+        if st.retry_at > now:
+            return f"{ASK_SITE} is backing off ({st.blocked_for}) - nothing more loaded"
+        return None
+
+    def _ask_start(self, req, now):
+        """The pages a request reads: its urls, or its job's games in range."""
+        result = ask.result(req.id, req.kind, "running", started=ask.iso(now))
+        self.asking = {"req": req, "result": result, "todo": []}
+        self._say(ASK_LOG, f"{req.id}: taken ({req.kind}, "
+                           + (f"{req.job} {ask.iso(req.start)} to {ask.iso(req.end)})" if req.job
+                              else f"{len(req.urls)} page(s))"))
+        if req.job:
+            stop = self._ask_stopped(now)
+            if stop:                             # its listings are closed: nothing to list
+                self._ask_finish("stopped", stop, now)
+                return
+            todo, why = self._ask_games(req, now)
+            if why:
+                self._ask_finish("refused", why, now)
+                return
+            self.asking["todo"] = todo
+            if not todo:
+                self._ask_finish("done", f"no game on {req.job}'s listings kicks off in that range", now)
+        else:
+            seen = {}
+            for t in self.targets:               # the teams and kick-off, where a listing shows them
+                if t.site == ASK_SITE and t.matches:
+                    for u, f in self._listed(listing_keys(t), now).items():
+                        seen.setdefault(u, f)
+            self.asking["todo"] = [_game(u, seen.get(u)) for u in req.urls]
+
+    def _ask_games(self, req, now):
+        """(games, None) or (None, why): the match links on the job's open
+        listings whose kick-off (pp_listing) is in [start, end], nearest
+        first. No listing is loaded: every one of the job's must be open."""
+        t = next((t for t in self.targets
+                  if t.name == req.job and t.site == ASK_SITE and t.matches), None)
+        if t is None:
+            return None, f"no Paddy Power matches job called {req.job!r}"
+        listings = listing_keys(t)
+        open_ = [k for k, _u in listings if k in self.tabs]
+        if len(open_) < len(listings):
+            return None, (f"{req.job}'s listings are not all open ({len(open_)} of {len(listings)}): "
+                          "it may be resting, outside its window or in quiet hours - name the "
+                          "pages by urls instead")
+        seen = self._listed(listings, now)
+        links = interleave([match_links(self.tabs[k].page, t.matches.link_re, u) for k, u in listings])
+        known = [u for u in links if u in seen and seen[u].kickoff is not None]
+        if links and not known:
+            return None, UNREAD_KICKOFFS
+        games = sorted((u for u in known if req.start <= seen[u].kickoff <= req.end),
+                       key=lambda u: seen[u].kickoff)
+        if len(games) > ask.MAX_URLS:
+            return None, f"{len(games)} games in that range - at most {ask.MAX_URLS} in one request"
+        return [_game(u, seen[u]) for u in games], None
+
+    def _ask_step(self, now):
+        """One item of the request, when the pacer allows a load; the result
+        written after it (`running`, or how it ended)."""
+        a = self.asking
+        stop = self._ask_stopped(now)
+        if stop:
+            self._ask_finish("stopped", stop, now)
+            return
+        if not a["todo"]:
+            self._ask_finish("done", None, now)
+            return
+        if not self._may_load(ASK_SITE, now):
+            return                               # the gap between loads: a later tick
+        item = self._ask_read(a["req"], len(a["result"]["items"]) + 1, a["todo"][0], now)
+        a["todo"].pop(0)                         # after: one that raised is listed as skipped
+        a["result"]["items"].append(item)
+        self._say(ASK_LOG, f"{a['req'].id}: {item['state']} {item['url']}"
+                           + (f" ({item['reason']})" if item["reason"] else "")
+                           + (f", {len(item['rows'])} row(s)" if item["state"] == "read" else ""))
+        stop = self._ask_stopped(now)
+        if stop:
+            self._ask_finish("stopped", stop, now)
+        elif not a["todo"]:
+            self._ask_finish("done", None, now)
+        else:
+            ask.write_result(self.s.data_dir, a["result"])
+
+    def _ask_read(self, req, n, game, now) -> dict:
+        """One page: loaded in a tab of its own (_open, requested), the
+        parser run over it, saved (keep, or the parser failed), the tab
+        closed. A block seen on it is a block like any other (_on_blocked)."""
+        url, home, away, kickoff = game
+        item = {"url": url, "home": home, "away": away, "kickoff": ask.iso(kickoff),
+                "state": "failed", "reason": None, "rows": [], "saved": None}
+        if not (host_allowed(url, ASK_SITE) and config.paddy_page(url)):
+            item["reason"] = "not a Paddy Power page"
+            return item
+        target = config.Target(name=ASK_LOG, site=ASK_SITE, url=url, parser=req.parser)
+        key = f"ask:{req.id}:{n}"
+        try:
+            tab, why = self._open(target, key, url, now, requested=True)
+            if tab is None:
+                item["reason"] = why
+                return item
+            rows, failed = [], None
+            if req.parser:
+                try:
+                    rows = list(PARSERS[req.parser](tab.page, tab.capture) or [])
+                except Exception as exc:         # rest.Rest too: a request does not rest a job
+                    failed = f"parser failed: {(str(exc).splitlines() or [''])[0][:200]}"
+            # A block drawn once the page had settled (as _check_open sees one).
+            reason = ("repeated 403/429 on an open page" if tab.capture.refused_within(600) >= 3
+                      else browser.blocked(tab.page))
+            if reason:
+                self._on_blocked(ASK_SITE, reason, now, tab)
+                item["reason"] = reason
+                return item
+            item.update(state="failed" if failed else "read", reason=failed, rows=rows)
+            if req.keep or failed:
+                out = self.s.data_dir / "dumps" / _safe(f"ask-{req.id}-{n}")
+                try:
+                    ask.save_page(tab.page, tab.capture, out)
+                    item["saved"] = str(out)
+                except Exception as exc:
+                    item["reason"] = "; ".join(x for x in (failed, f"not saved: {exc}") if x)
+            return item
+        finally:
+            self._close(key)
+
+    def _ask_finish(self, state, reason, now):
+        """The request ends: what was not read is `skipped`, the result
+        written, said in the ask log."""
+        a, self.asking = self.asking, None
+        for game in a["todo"]:
+            a["result"]["items"].append({"url": game[0], "home": game[1], "away": game[2],
+                                         "kickoff": ask.iso(game[3]), "state": "skipped",
+                                         "reason": f"not read: {reason}", "rows": [], "saved": None})
+        a["result"].update(state=state, reason=reason, finished=ask.iso(now))
+        ask.write_result(self.s.data_dir, a["result"])
+        self._say(ASK_LOG, f"{a['req'].id}: {state}" + (f" - {reason}" if reason else ""))
+
     def _say(self, name: str, msg: str) -> None:
         """A line about one job: printed as "<name>: <msg>" for the journal, and
         written to the job's own log (joblog; a write that fails is dropped)."""
@@ -1396,6 +1591,15 @@ class Runner:
 def _inside(kickoff: float, now: float, within_h: float) -> bool:
     """A kick-off inside the window: after now, at most within_h hours ahead."""
     return now < kickoff <= now + within_h * 3600
+
+
+def _game(url, fixture) -> tuple:
+    """(url, home, away, kickoff) for a request's item, off the listing's
+    fixture when one shows the url ("Home v Away"), else Nones."""
+    if fixture is None:
+        return url, None, None, None
+    home, sep, away = fixture.name.partition(" v ")
+    return (url, home or None, away or None, fixture.kickoff) if sep else (url, None, None, fixture.kickoff)
 
 
 def _rest_detail(r: dict) -> str:

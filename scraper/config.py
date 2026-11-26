@@ -32,7 +32,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 # hosts?), any of them.
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")   # a target's `days`, in week order
 
-BOOKMAKER_HOSTS = ("paddypower.com", "bookiebashing.net")
+PADDY_HOSTS = ("paddypower.com",)
+BOOKMAKER_HOSTS = PADDY_HOSTS + ("bookiebashing.net",)
 TEAMCASINO_HOSTS = ("teamcasino.com",)
 LOCAL_HOSTS = ("localhost", "127.0.0.1")
 SITE_HOSTS = {"paddypower": BOOKMAKER_HOSTS, "bookiebashing": BOOKMAKER_HOSTS,
@@ -52,6 +53,14 @@ def host_allowed(url: str, site: str | None = None) -> bool:
     if site in SITE_HOSTS:
         return _on(host, SITE_HOSTS[site] + LOCAL_HOSTS)
     return _on(host, ALLOWED_HOSTS)
+
+
+def paddy_page(url: str) -> bool:
+    """An http(s) page on Paddy Power's own hosts (or the tests' fake site):
+    what a `read` request may name (ask.py). Narrower than host_allowed's
+    rule for a paddypower target, which may open Bookie Bashing too."""
+    u = urlparse(url)
+    return u.scheme in ("http", "https") and _on((u.hostname or "").lower(), PADDY_HOSTS + LOCAL_HOSTS)
 
 
 def _clamp(v, lo=None, hi=None):
