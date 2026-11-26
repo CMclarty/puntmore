@@ -446,6 +446,7 @@ export SCRAPER_DATA_DIR=/opt/puntmore-scraper/data
 ~/.venvs/puntmore/bin/python -m scraper look bb-look '[{"click": "Show/Hide Presets"}]'   # steps, then saved (below)
 ~/.venvs/puntmore/bin/python -m scraper wake bb-saves   # end a job's rest (rest.py)
 ~/.venvs/puntmore/bin/python -m scraper ask '{"kind": "read", "urls": ["https://www.paddypower.com/football/..."], "keep": true}'   # read pages now (below)
+~/.venvs/puntmore/bin/python -m scraper ask '{"kind": "price", "job": "bb-look", "items": [{"key": "1", "competition": "English Premier League", "home": "Arsenal", "away": "Chelsea", "preset": "Home 2,6"}]}'   # a preset's fair (below)
 ~/.venvs/puntmore/bin/python -m scraper resume paddypower
 ```
 
@@ -506,6 +507,41 @@ are removed after 14 days, and a result's leftover temp file after an hour
 failed before anything is done on it (no consent click, no scrolling). The
 gap holds across a restart: the service spaces its first Paddy load from the
 last requested one. Each request's lines are in `python -m scraper targets log ask`.
+
+### Pricing presets on request: `ask` with `price`
+The same command, `"kind": "price"`, has the service read Bookie Bashing's fair
+(the builder's Total Odds) for named presets on named games, on the bet builder
+page a Bookie Bashing builder job keeps open (a job whose parser is
+`bb_builder`: `bb-look`, which must be enabled and its page open):
+
+```json
+{"kind": "price", "job": "bb-look", "save": "no",
+ "items": [{"key": "ars-che-h26", "competition": "English Premier League",
+            "home": "Arsenal", "away": "Chelsea", "preset": "Home 2,6"}]}
+```
+
+At most 60 items, each `key` once. It is read only: nothing is saved to the
+tracker and nothing that changes the account is pressed (`save` is `no`, the
+default; `dry` and `press` are refused, "save not built"). Nothing is loaded:
+when the job's page is not open (`bb-look has no open page`), Bookie Bashing is
+cooling off, backing off or signing in, or the builder is not up (`builder not
+ready: ...`), the request stops and says so. On the page
+(`scraper/parsers/bb_presets.py`, written from the 12 Nov 2026 `bb-look`
+dumps): the game is chosen in the builder's first block (home and away matched
+against the Game(s) list under the competition named: the options whose name,
+less its `(n/m)` count, is the name given, any case, else those starting with
+it; the same teams listed twice is no game; a game already chosen is not chosen
+again), the presets panel opened with "Show/Hide Presets" when it is shut, the
+preset chosen in "Use Preset" (its name matched with whitespace collapsed, case
+as given), and Total Odds read once it reads the same twice `bb.settle_s` apart
+and is no longer the value before the preset (up to 6 s), with every block
+checked to be on the game. Each tick works through items for at most
+`bb.call_budget_s` (at least one), so a long request spans ticks; the result
+shows the items done so far, each the request's item as given with `state`
+(`priced`, `no_game`, `no_preset`, `unsettled`), `fair` (null unless priced),
+`saved` (`no`) and `reason`. Items not reached when a request stops are left
+out of `items`; the request's `reason` says why. One request at a time, of
+either kind.
 
 ### Looking at a page: `look`
 Parsers are written only from real saved pages, and some states of a page need

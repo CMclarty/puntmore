@@ -72,6 +72,7 @@ only happens if this parser keeps failing, which is the right self-heal.
 Every `bb.*` number is a setting in scraper/behaviour.py ("Bookie Bashing bet
 builder"), and the window `games.*` ("Games"), read when it is used.
 """
+import math
 import re
 import time
 from datetime import datetime, timedelta
@@ -181,12 +182,14 @@ def _stat_select(page, label: str):
 
 
 def _total_odds(page) -> float | None:
+    """Total Odds as a price, or None: "Infinity" (no price; float() reads it
+    as inf, which is not one), "NaN", text, or 1.0 and below."""
     box = page.locator("div.field:has(> div.control > button:text-is('Total Odds')) button").nth(1)
     try:
         v = float(box.inner_text().strip())
     except ValueError:
         return None
-    return v if v > 1.0 else None
+    return v if math.isfinite(v) and v > 1.0 else None
 
 
 def _read_total(page, previous: float | None) -> float | None:
