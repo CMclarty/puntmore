@@ -1644,18 +1644,22 @@ class Runner:
             self._ask_finish("stopped", ask.scrub(f"builder not ready: {exc}"), now)
             return
         started, budget = time.time(), behaviour.get("bb.call_budget_s")
-        if req.list_presets and a["result"]["presets"] is None:
+        if req.list_presets and not a.get("listed"):
+            a["listed"] = True
             try:
                 listed, came_from = bb_presets.list_presets(page)
             except BuilderNotReady as exc:
                 self._ask_finish("stopped", ask.scrub(f"builder not ready: {exc}"), now)
                 return
+            except Exception as exc:                # a timeout, anything: said, and the items go on
+                listed, came_from = None, f"not listed: {exc.__class__.__name__}"
             a["result"].update(presets=listed, presets_from=came_from)
-            self._say(ASK_LOG, f"{req.id}: {len(listed)} preset name(s) listed, from {came_from}")
+            self._say(ASK_LOG, f"{req.id}: {len(listed or [])} preset name(s) listed, from {came_from}")
         while a["todo"]:
             n = self._ask_price_next(page, a["todo"])
             try:
-                item = self._ask_price_item(page, a["todo"][n])
+                item = self._ask_price_item(page, a["todo"][n],
+                                            [it.preset for k, it in enumerate(a["todo"]) if k != n])
             except BuilderNotReady as exc:
                 self._ask_finish("stopped", ask.scrub(f"builder not ready: {exc}"), now)
                 return
@@ -1677,8 +1681,8 @@ class Runner:
     @staticmethod
     def _ask_price_next(page, todo) -> int:
         """Which item next: the first whose preset is not the one Use Preset
-        shows chosen (that one cannot be applied afresh: bb_presets), else
-        the first."""
+        shows chosen (that one needs a spacer preset chosen first:
+        bb_presets), else the first."""
         try:
             chosen = bb_presets.chosen_preset(page)
         except Exception:                       # only a hint: the first item then
@@ -1687,23 +1691,34 @@ class Runner:
             return 0
         return next((i for i, it in enumerate(todo) if bb_presets.collapse(it.preset) != chosen), 0)
 
-    def _ask_price_item(self, page, it) -> dict:
-        """One item priced (bb_presets.price_reading): its result as the
-        request gave it, with state, fair, saved, reason, description and
-        data_age_s."""
+    def _ask_price_item(self, page, it, spacers=()) -> dict:
+        """One item priced (bb_presets.price_reading; `spacers`, the other
+        items' presets, are its first choice of spacer): its result as the
+        request gave it, with state, fair, saved, reason, description,
+        data_age_s and respaced. Anything unexpected on the page (a timeout)
+        leaves the item unsettled, its reason the exception's class, and the
+        request goes on; a builder not ready stops it (raised)."""
         item = {"key": it.key, "competition": it.competition, "home": it.home, "away": it.away,
                 "preset": it.preset, "state": "unsettled", "fair": None, "saved": "no", "reason": None,
-                "description": None, "data_age_s": None}
+                "description": None, "data_age_s": None, "respaced": False}
         try:
-            got = bb_presets.price_reading(page, it.competition, it.home, it.away, it.preset)
+            got = bb_presets.price_reading(page, it.competition, it.home, it.away, it.preset,
+                                           spacers=spacers)
         except bb_presets.NoGame as exc:
             item.update(state="no_game", reason=str(exc))
         except bb_presets.NoPreset as exc:
             item.update(state="no_preset", reason=str(exc))
         except bb_presets.Unpriced as exc:
             item.update(reason=str(exc))
+        except BuilderNotReady:
+            raise
+        except Exception as exc:
+            item.update(reason=exc.__class__.__name__)
+            self._say(ASK_LOG, ask.scrub(f"{it.key}: {exc.__class__.__name__}: "
+                                         f"{(str(exc).splitlines() or [''])[0][:200]}"))
         else:
-            item.update(description=got.description, data_age_s=got.data_age_s, reason=got.reason)
+            item.update(description=got.description, data_age_s=got.data_age_s, reason=got.reason,
+                        respaced=got.respaced)
             if got.fair is not None:
                 item.update(state="priced", fair=got.fair)
         if item["data_age_s"] is None:

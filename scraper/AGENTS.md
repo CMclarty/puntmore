@@ -132,11 +132,15 @@ prices are `scraper_prices` files that the Hub posts to Render.
   open "Show/Hide Presets", choose the preset, take Total Odds only with
   proof the preset was applied to that game (the bet's description changed
   and names no team of the last game, Total Odds changed, both held a
-  second, every block on the game; a preset already chosen, or a name
-  listed twice, is never priced). Read only: it loads nothing, saves
-  nothing, never presses Save, Save As Preset, Delete Preset or a tracker
-  control, never types into the tracker panel, never chooses a preset it
-  was not asked for; `save` other than "no" is refused ("save not built").
+  second, every block on the game; a name listed twice is never priced; a
+  preset already chosen is applied afresh by choosing a spacer preset first,
+  another real one named once, as Use Preset has no empty option). Read
+  only: it loads nothing, saves nothing, never presses Save, Save As Preset,
+  Delete Preset or a tracker control, never types into the tracker panel;
+  the Use Preset select is the only control it sets besides the game, and
+  a preset it was not asked for is chosen only as such a spacer; `save`
+  other than "no" is refused ("save not built"). An unexpected failure on
+  one item leaves that item unsettled.
   At most 60 items, `bb.call_budget_s` of work a tick; it stops when the
   job's page is not open, its site is cooling off, backing off or signing
   in, or the builder is not up. `list_presets` adds Use Preset's names.

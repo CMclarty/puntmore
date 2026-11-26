@@ -542,16 +542,25 @@ and ...") is there and changed when the preset was chosen, and names no team of
 a game a block was on before; Total Odds is a price and changed; both have read
 the same for a second (read every `bb.settle_s`, up to 8 s); and every block is
 on the game. Otherwise the item is `unsettled` with the reason. Use Preset has
-no empty option, so a preset already chosen cannot be applied afresh: an item
-whose preset is the one showing is `unsettled`, and the service takes another
-item first where it can (items may finish out of order; each keeps its key). A
-true fair equal to the item before's is also `unsettled`, never a stale number.
+no empty option, and choosing the option already chosen may not apply it
+again, so a preset that is already chosen is applied afresh through a spacer:
+another real preset is chosen first (one of the request's other items', else
+the first in the list named only once; never a name listed twice), and once
+its description has changed and held a second the wanted one is chosen and
+proved against the spacer's description and Total Odds (the item says
+`"respaced": true`; a spacer that never shows as applied leaves it
+`unsettled`). Choosing presets only rebuilds the builder; nothing is saved.
+The service takes next, where it can, an item whose preset is not the one
+showing, which saves spacers (items may finish out of order; each keeps its
+key). A true fair equal to the one before is `unsettled`, never a stale
+number. Anything unexpected on one item (a timeout) leaves that item
+`unsettled`, the exception's class as its reason, and the request goes on.
 
 Each tick works through items for at most `bb.call_budget_s` (at least one),
 so a long request spans ticks; the result shows the items done so far, each
 the request's item as given with `state` (`priced`, `no_game`, `no_preset`,
 `unsettled`), `fair` (null unless priced), `saved` (`no`), `reason`,
-`description` and `data_age_s` (the page's "Ns since data update"; the data is
+`description`, `respaced` and `data_age_s` (the page's "Ns since data update"; the data is
 pulled no more often than the `bb-look` job pulls it). Items not reached when a
 request stops are left out of `items`; the request's `reason` says why.
 `"list_presets": true` (items may then be `[]`) adds `presets`, every Use

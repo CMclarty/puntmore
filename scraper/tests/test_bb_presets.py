@@ -120,26 +120,62 @@ def test_a_wrong_total_shown_for_900_ms_is_never_taken(page):  # noqa: F811
     assert mod.price(page, CUP, "Bradford", "Peterborough", "Away 2,6") == _expected(page, "user5", BRADFORD)
 
 
-def test_the_same_preset_again_on_the_same_game_is_unsettled(page):  # noqa: F811
-    """No shortcut: a preset already chosen cannot be shown to apply afresh."""
+def test_the_same_preset_again_on_the_same_game_is_applied_afresh_through_a_spacer(page):  # noqa: F811
+    """No shortcut: the preset already chosen is applied afresh by choosing
+    another real preset first (Use Preset has no empty option), then it."""
     _up(page)
-    mod.price(page, CUP, "Bradford", "Peterborough", "Home 2,6")
+    page.evaluate("REAPPLY = false")
+    a = mod.price(page, CUP, "Bradford", "Peterborough", "Home 2,6")
     got = mod.price_reading(page, CUP, "Bradford", "Peterborough", "Home 2,6")
-    assert got.fair is None and "already chosen" in got.reason
+    assert (got.fair, got.respaced, got.reason) == (a, True, None)
+    assert page.evaluate("LOADED") == ["user4", "user0", "user4"]       # GG: the first named once
+    assert page.evaluate("PRESSED") == NOTHING_PRESSED
 
 
 @pytest.mark.parametrize("reapply", [True, False])
-def test_the_same_preset_on_the_next_game_is_never_the_last_games_number(page, reapply):  # noqa: F811
-    """Use Preset has no empty option (12 Nov 2026 dump), so the option already
-    chosen cannot be gone through again: the item is unsettled, whether or not
-    choosing it again would re-apply it (REAPPLY)."""
+def test_one_preset_across_several_games_prices_each_game(page, reapply):  # noqa: F811
+    """Use Preset has no empty option (12 Nov 2026 dump) and a change handler
+    may ignore the option already chosen (REAPPLY false): each game after the
+    first goes through a spacer, and each fair is that game's own."""
     _up(page)
     page.evaluate(f"REAPPLY = {'true' if reapply else 'false'}")
-    a = mod.price(page, CUP, "Bradford", "Peterborough", "GG")             # one block
-    assert a == _expected(page, "user0", BRADFORD)
-    got = mod.price_reading(page, CUP, "Fleetwood Town", "Arsenal", "GG")
-    assert got.fair is None and "already chosen" in got.reason
-    assert got.fair != a
+    games = [(CUP, "Bradford", "Peterborough", BRADFORD), (CUP, "Fleetwood Town", "Arsenal", FLEETWOOD),
+             (EPL, "Chelsea", "Man Utd", CHELSEA), (CUP, "Bradford", "Peterborough", BRADFORD)]
+    got = [mod.price_reading(page, c, h, a, "Home 2,6") for c, h, a, _ in games]
+    assert [(g.fair, g.respaced) for g in got] == \
+        [(_expected(page, "user4", label), i > 0) for i, (*_, label) in enumerate(games)]
+    assert _games_shown(page) == [BRADFORD, BRADFORD]
+    assert page.evaluate("PRESSED") == NOTHING_PRESSED
+
+
+def test_a_spacer_from_the_requests_other_items_is_used_first(page):  # noqa: F811
+    _up(page)
+    mod.price(page, CUP, "Bradford", "Peterborough", "Home 2,6")
+    got = mod.price_reading(page, CUP, "Fleetwood Town", "Arsenal", "Home 2,6",
+                            spacers=["Home 2,6", "Nope", "Away  1,5"])
+    assert got.fair == _expected(page, "user4", FLEETWOOD) and got.respaced
+    assert page.evaluate("LOADED") == ["user4", "user6", "user4"]
+
+
+def test_the_spacer_is_never_a_name_listed_twice(page):  # noqa: F811
+    page.evaluate("""() => { PRESETS = [["Dups", [["glob1", "Twice"], ["glob2", "Twice"]]],
+                                        ["Paddy Power", [["user4", "Home 2,6"], ["user5", "Away 2,6"]]]]; }""")
+    _up(page)
+    mod.price(page, CUP, "Bradford", "Peterborough", "Home 2,6")
+    got = mod.price_reading(page, CUP, "Bradford", "Peterborough", "Home 2,6", spacers=["Twice"])
+    assert got.fair == _expected(page, "user4", BRADFORD) and got.respaced
+    assert page.evaluate("LOADED") == ["user4", "user5", "user4"]
+
+
+def test_a_spacer_that_never_shows_as_applied_is_unsettled(page, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(mod, "SETTLE_WAIT_S", 2.0)
+    _up(page)
+    mod.price(page, CUP, "Bradford", "Peterborough", "Home 2,6")
+    page.evaluate("REAPPLY = false; describe = () => {}")                  # the description never moves
+    got = mod.price_reading(page, CUP, "Bradford", "Peterborough", "Home 2,6")
+    assert got.fair is None and got.respaced
+    assert got.reason == "the spacer preset 'GG' never showed as applied"
+    assert page.evaluate("LOADED") == ["user4", "user0"]                   # the wanted one not chosen again
 
 
 def test_a_description_that_still_names_the_last_games_team_is_not_taken(page):  # noqa: F811
@@ -357,6 +393,22 @@ def test_unsettled_on_the_runner(tmp_path, page):  # noqa: F811
     assert (item["state"], item["fair"], item["reason"]) == ("unsettled", None, "Total Odds shows no price")
 
 
+def test_a_single_item_request_for_the_preset_already_showing_is_priced(tmp_path, page):  # noqa: F811
+    t = _bb_look()
+    r = _runner(tmp_path, [t])
+    r.tabs["bb-look"] = SimpleNamespace(target=t, page=page, capture=_Capture(), url=t.url)
+    page.evaluate("REAPPLY = false")
+    for rid, home, away, label in (("s1", "Bradford", "Peterborough", BRADFORD),
+                                   ("s2", "Fleetwood Town", "Arsenal", FLEETWOOD)):
+        _drop(tmp_path, {"id": rid, "kind": "price", "job": "bb-look",
+                         "items": [_item("k", home, away, "Home 2,6")]})
+        r._requests(now=1_000.0)
+        (item,) = ask.read_result(tmp_path, rid)["items"]
+        assert (item["state"], item["fair"]) == ("priced", _expected(page, "user4", label))
+    assert (ask.read_result(tmp_path, "s1")["items"][0]["respaced"], item["respaced"]) == (False, True)
+    assert page.evaluate("PRESSED") == NOTHING_PRESSED
+
+
 def test_the_runner_lists_presets_with_no_items(tmp_path, page):  # noqa: F811
     t = _bb_look()
     r = _runner(tmp_path, [t])
@@ -371,8 +423,8 @@ def test_the_runner_lists_presets_with_no_items(tmp_path, page):  # noqa: F811
 
 
 def test_the_runner_does_not_take_next_an_item_whose_preset_is_already_chosen(tmp_path, page):  # noqa: F811
-    """GG on one game, then GG on another would be unsettled (already chosen):
-    another item goes between them. Each item keeps its key."""
+    """GG on one game, then GG on another would need a spacer: another item
+    goes between them instead. Each item keeps its key."""
     t = _bb_look()
     r = _runner(tmp_path, [t])
     r.tabs["bb-look"] = SimpleNamespace(target=t, page=page, capture=_Capture(), url=t.url)
@@ -386,6 +438,7 @@ def test_the_runner_does_not_take_next_an_item_whose_preset_is_already_chosen(tm
     body = ask.read_result(tmp_path, "o1")
     assert [(x["key"], x["state"]) for x in body["items"]] == [("a", "priced"), ("c", "priced"), ("b", "priced")]
     assert body["items"][2]["fair"] == _expected(page, "user0", FLEETWOOD)
+    assert not any(x["respaced"] for x in body["items"])
 
 
 def test_a_logged_out_builder_stops_the_request(tmp_path, page):  # noqa: F811

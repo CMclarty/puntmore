@@ -489,7 +489,7 @@ def test_a_price_spans_ticks_within_the_call_budget_and_shows_the_items_so_far(t
     monkeypatch.setattr(bb_presets, "up", lambda page, now: ups.append(now))
     monkeypatch.setattr(bb_presets, "data_age", lambda page: 42)
 
-    def price(page, competition, home, away, preset):
+    def price(page, competition, home, away, preset, spacers=()):
         priced.append(preset)
         time.sleep(0.03)
         if preset == "Nope":
@@ -506,7 +506,7 @@ def test_a_price_spans_ticks_within_the_call_budget_and_shows_the_items_so_far(t
     assert body["items"][0] == {"key": "k0", "competition": "English Premier League", "home": "Arsenal",
                                 "away": "Chelsea", "preset": "Home 2,6", "state": "priced", "fair": 2.1,
                                 "saved": "no", "reason": None, "description": "All of Arsenal (Over 1.5 goals)",
-                                "data_age_s": 40}
+                                "data_age_s": 40, "respaced": False}
     assert (body["items"][1]["state"], body["items"][1]["reason"]) == ("unsettled", "Total Odds shows no price")
     _drop(tmp_path, "q", _price(id="q"))
     r._requests(now=1_001.0)                                                  # one more tick
@@ -518,6 +518,33 @@ def test_a_price_spans_ticks_within_the_call_budget_and_shows_the_items_so_far(t
     assert body["items"][2]["reason"] == "no preset 'Nope'"
     assert (body["items"][2]["description"], body["items"][2]["data_age_s"]) == (None, 42)
     assert priced == presets and len(ups) == 3                               # once a tick
+
+
+def test_an_unexpected_failure_on_one_item_leaves_it_unsettled_and_the_request_goes_on(tmp_path, monkeypatch):
+    from scraper.parsers import bb_presets
+    r = _runner(tmp_path, TARGETS)
+    _bb_tab(r, _builder())
+    monkeypatch.setattr(bb_presets, "up", lambda page, now: None)
+
+    class TimeoutError(Exception):                       # as Playwright's is named
+        pass
+    seen = []
+
+    def price(page, competition, home, away, preset, spacers=()):
+        seen.append((preset, tuple(spacers)))
+        if preset == "Boom":
+            raise TimeoutError("Locator.select_option: Timeout 8000ms exceeded")
+        return bb_presets.Reading(2.5, "d", 10, None)
+    monkeypatch.setattr(bb_presets, "price_reading", price)
+    monkeypatch.setattr(bb_presets, "list_presets", lambda page: (_ for _ in ()).throw(RuntimeError("x")))
+    _drop(tmp_path, "p", _price(items=[{**ITEM, "preset": "Boom"}, {**ITEM, "key": "k2"}], list_presets=True))
+    r._requests(now=1_000.0)
+    body = _result(tmp_path, "p")
+    assert body["state"] == "done"
+    assert [(i["key"], i["state"], i["reason"], i["respaced"]) for i in body["items"]] == \
+        [("k1", "unsettled", "TimeoutError", False), ("k2", "priced", None, False)]
+    assert (body["presets"], body["presets_from"]) == (None, "not listed: RuntimeError")
+    assert seen == [("Boom", ("Home 2,6",)), ("Home 2,6", ())]          # the other items' presets: spacers
 
 
 def test_a_price_interrupted_by_a_restart_keeps_what_it_did(tmp_path, monkeypatch):

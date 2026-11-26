@@ -54,9 +54,12 @@ Two kinds:
          unsettled), "fair" (Total Odds, or null: a fair is taken only with
          proof the preset was applied to that game), "saved" ("no"),
          "reason", "description" (the bet as the builder words it),
-         "data_age_s" (the page's "Ns since data update"). Items may be
-         taken out of order, so that an item whose preset is the one already
-         chosen does not come next; each keeps its key. "list_presets": true
+         "data_age_s" (the page's "Ns since data update"), "respaced" (the
+         preset was already chosen, so a spacer preset was chosen first).
+         Items may be taken out of order, so that an item whose preset is
+         the one already chosen does not come next; each keeps its key. An
+         unexpected failure on one item (a timeout) leaves it unsettled, its
+         reason the exception's class; the request goes on. "list_presets": true
          (items may then be empty) adds "presets": [{"name", "count"}] (Use
          Preset's names, whitespace collapsed, and how many options carry
          each) and "presets_from" (the game the panel was drawn for; with

@@ -30,12 +30,20 @@ loaded one after another on one game):
   2,6 is chosen. (The Stat row sits in a message-body too, so the description
   is found as the one right after that field.)
 
+A preset that is already the chosen option is applied afresh through a
+SPACER: Use Preset has no empty option, and a change handler may ignore the
+option already chosen, so another real preset is chosen first (one named by
+the request's other items, `spacers`, else the first option that is not the
+wanted one and whose name is listed exactly once; never a name listed twice,
+never another control). Its description must change and hold STABLE_S
+before the wanted preset is chosen (else unsettled, "the spacer preset ...
+never showed as applied"), and the proof below is then against the spacer's
+description and Total Odds. Choosing a preset only rebuilds the builder:
+nothing is saved. The item says `respaced`.
+
 A FAIR IS TAKEN ONLY WITH PROOF the preset was applied to this game, as all
 of these, read every `bb.settle_s` for up to SETTLE_WAIT_S (else the item is
 unsettled, with the reason):
-- the preset was not already the chosen option: Use Preset has no empty
-  option to go through, so an option already chosen cannot be applied afresh
-  without choosing another real preset, which is not done;
 - the description is there, and not the one before the preset was chosen;
 - it names no team of a game any block was on before this item that is not
   in this game (a block left on the last game);
@@ -105,6 +113,7 @@ class Reading:
     description: str | None      # the bet's description as last read
     data_age_s: int | None       # "Ns since data update"
     reason: str | None
+    respaced: bool = False       # a spacer preset was chosen first (the wanted one was already chosen)
 
 
 def collapse(s: str) -> str:
@@ -321,6 +330,37 @@ def _find_preset(texts: list[str], preset: str) -> int:
     return hits[0]
 
 
+def _spacer(texts: list[str], wanted: int, spacers) -> int | None:
+    """The option to choose before the wanted one when that is already chosen:
+    one of `spacers` (the request's other items' presets), else the first
+    option; either way not the wanted name and a name listed exactly once."""
+    names = [collapse(t) for t in texts]
+    counts = Counter(names)
+    ok = [j for j, n in enumerate(names) if n != names[wanted] and counts[n] == 1]
+    for name in spacers:
+        j = next((j for j in ok if names[j] == collapse(name)), None)
+        if j is not None:
+            return j
+    return ok[0] if ok else None
+
+
+def _spacer_shown(page, desc_before) -> tuple[str, float | None] | None:
+    """The spacer's (description, Total Odds) once its description is there,
+    not `desc_before`, and both have held STABLE_S; None within SETTLE_WAIT_S."""
+    settle = behaviour.get("bb.settle_s")
+    deadline = time.time() + max(SETTLE_WAIT_S, STABLE_S + 4 * settle)
+    seen, since = None, 0.0
+    while time.time() < deadline:
+        desc, total = description(page), _total_odds(page)
+        now = time.time()
+        if (desc, total) != seen:
+            seen, since = (desc, total), now
+        if desc and desc != desc_before and now - since >= STABLE_S:
+            return desc, total
+        time.sleep(settle)
+    return None
+
+
 def _mentions(text: str, team: str) -> bool:
     return re.search(r"(?<!\w)" + re.escape(team) + r"(?!\w)", text) is not None
 
@@ -362,17 +402,20 @@ def _proved(page, desc_before, total_before, gone) -> tuple[float | None, str | 
     return None, desc, why
 
 
-def price_reading(page, competition: str, home: str, away: str, preset: str) -> Reading:
+def price_reading(page, competition: str, home: str, away: str, preset: str, spacers=()) -> Reading:
     """Total Odds for `preset` on the game home v away under `competition`,
     taken only with the proof in the module's docstring; with none, a Reading
-    whose fair is None and whose reason says why. Raises NoGame, NoPreset,
-    Unpriced (the builder not on the game after the preset), BuilderNotReady
-    (no builder, or no presets panel). The builder must be up (`up`)."""
+    whose fair is None and whose reason says why. `spacers`: presets the
+    request names for its other items, the first choice of spacer when the
+    wanted one is already chosen. Raises NoGame, NoPreset, Unpriced (the
+    builder not on the game after the preset), BuilderNotReady (no builder,
+    or no presets panel). The builder must be up (`up`)."""
     st = _state(page, _STATE)
     before_games = _shown_games(page)                   # every block, before this item
     comp_label, game_label = _find_game(page, st, competition, home, away)
     sel = _open_presets(page)
-    i = _find_preset(_texts(sel), preset)
+    texts = _texts(sel)
+    i = _find_preset(texts, preset)
     now_teams = _teams(game_label)
     gone = []
     for g in before_games:
@@ -380,18 +423,29 @@ def price_reading(page, competition: str, home: str, away: str, preset: str) -> 
         for t in (p["home"], p["away"]) if p else ():
             if _name(t) not in now_teams and (_name(t), t) not in gone:
                 gone.append((_name(t), t))
-    if _chosen(sel) == i:
-        return Reading(None, description(page), data_age(page),
-                       f"{preset!r} is already chosen in Use Preset, which has no empty option to go "
-                       f"through: it cannot be shown to apply afresh")
-    desc_before, total_before = description(page), _total_odds(page)
+    respaced = _chosen(sel) == i
+    if respaced:
+        j = _spacer(texts, i, spacers)
+        if j is None:
+            return Reading(None, description(page), data_age(page),
+                           f"{preset!r} is already chosen and no other preset is listed once to choose "
+                           f"before it", True)
+        before = description(page)
+        sel.select_option(index=j)
+        shown = _spacer_shown(page, before)
+        if shown is None:
+            return Reading(None, description(page), data_age(page),
+                           f"the spacer preset {collapse(texts[j])!r} never showed as applied", True)
+        desc_before, total_before = shown
+    else:
+        desc_before, total_before = description(page), _total_odds(page)
     sel.select_option(index=i)
     fair, desc, why = _proved(page, desc_before, total_before, gone)
     if fair is not None and not all(collapse(x or "") == collapse(game_label) for x in _shown_games(page)):
         raise Unpriced(f"the builder is not on {game_label} after the preset was chosen")
-    return Reading(fair, desc, data_age(page), why)
+    return Reading(fair, desc, data_age(page), why, respaced)
 
 
-def price(page, competition: str, home: str, away: str, preset: str) -> float | None:
+def price(page, competition: str, home: str, away: str, preset: str, spacers=()) -> float | None:
     """price_reading's fair: Total Odds, or None when not proved."""
-    return price_reading(page, competition, home, away, preset).fair
+    return price_reading(page, competition, home, away, preset, spacers).fair
