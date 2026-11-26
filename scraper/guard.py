@@ -12,6 +12,14 @@ Its limits (each site's loads an hour and a day, the quiet hours, the
 cool-off's hours) are settings in behaviour.py. The guard takes them when it
 is built (`from_behaviour`) and keeps its own copy; `use` replaces that copy,
 which the runner does after each load of data/behaviour.toml.
+
+A load made for a request (ask.py, `python -m scraper ask`) is recorded with
+`requested=True` in a table of its own, `requested_loads`: never in `loads`,
+so it spends none of the site's budget (`spent`, `can_load`; Callum,
+26 Nov 2026: "Paddy budget should be disregarded for requests made.") and
+`requested` counts it. `loads` keeps the shape it has always had: a service
+of the version before (still running while a new CLI asks, or after a
+rollback) inserts three values into it.
 """
 import sqlite3
 import time
@@ -39,6 +47,8 @@ class Guard:
         self.db.executescript("""
             CREATE TABLE IF NOT EXISTS loads (site TEXT, ts REAL, url TEXT);
             CREATE INDEX IF NOT EXISTS loads_site_ts ON loads(site, ts);
+            CREATE TABLE IF NOT EXISTS requested_loads (site TEXT, ts REAL, url TEXT);
+            CREATE INDEX IF NOT EXISTS requested_loads_site_ts ON requested_loads(site, ts);
             CREATE TABLE IF NOT EXISTS cooloff (
                 site TEXT PRIMARY KEY, since REAL, reason TEXT, resumed INTEGER);
         """)
@@ -80,11 +90,27 @@ class Guard:
             return False, f"daily budget ({per_day}) spent"
         return True, ""
 
-    def record_load(self, site, url, now=None):
+    def record_load(self, site, url, now=None, requested=False):
+        """One load went out. `requested`: one made for a request (ask.py),
+        kept in requested_loads, outside the budget."""
         now = now or time.time()
-        self.db.execute("INSERT INTO loads VALUES (?,?,?)", (site, now, url))
-        self.db.execute("DELETE FROM loads WHERE ts < ?", (now - 2 * 24 * HOUR,))
+        table = "requested_loads" if requested else "loads"
+        self.db.execute(f"INSERT INTO {table} VALUES (?,?,?)", (site, now, url))
+        self.db.execute(f"DELETE FROM {table} WHERE ts < ?", (now - 2 * 24 * HOUR,))
         self.db.commit()
+
+    def last_requested(self, site) -> float | None:
+        """When the site's newest requested load (kept two days) went out, or
+        None: what a new runner spaces its next load from (Runner.__init__)."""
+        return self.db.execute("SELECT MAX(ts) FROM requested_loads WHERE site = ?",
+                               (site,)).fetchone()[0]
+
+    def requested(self, site, now=None) -> tuple[int, int]:
+        """(this hour, today) of the site's loads made for requests (ask.py)."""
+        now = now or time.time()
+        count = lambda since: self.db.execute(
+            "SELECT COUNT(*) FROM requested_loads WHERE site=? AND ts>=?", (site, since)).fetchone()[0]
+        return count(now - HOUR), count(now - 24 * HOUR)
 
     def last_load(self, site, url) -> float | None:
         """When `url` was last loaded for `site` (kept two days), or None."""

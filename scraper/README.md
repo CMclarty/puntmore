@@ -130,9 +130,11 @@ python -m scraper targets set bb-2up --post /api/2up/bb --every-min none --stale
   and 400/day.
   `targets.toml` cannot raise them; only Callum changes them, from the
   Console's Behaviour pane or `python -m scraper behaviour set` ("Changing
-  how it behaves", below); HubAI does not.
+  how it behaves", below); HubAI does not. A request (`ask`, below) is
+  outside Paddy's: its loads are counted apart (Callum, 26 Nov 2026).
 - No Paddy traffic between 01:00 and 07:00 (Europe/London; `quiet.hours`,
-  by default). Its pages are closed for those hours.
+  by default), except a request's (`ask`, below). Its pages are closed for
+  those hours.
 - Paddy 403/429 or Cloudflare check → every Paddy page closes and a 24 h
   cool-off starts. It also needs `resume`, and you get an alert.
 - Bookie Bashing logout → it signs in once, on the page already open, with the
@@ -443,8 +445,67 @@ export SCRAPER_DATA_DIR=/opt/puntmore-scraper/data
 ~/.venvs/puntmore/bin/python -m scraper dump bb-saves
 ~/.venvs/puntmore/bin/python -m scraper look bb-look '[{"click": "Show/Hide Presets"}]'   # steps, then saved (below)
 ~/.venvs/puntmore/bin/python -m scraper wake bb-saves   # end a job's rest (rest.py)
+~/.venvs/puntmore/bin/python -m scraper ask '{"kind": "read", "urls": ["https://www.paddypower.com/football/..."], "keep": true}'   # read pages now (below)
 ~/.venvs/puntmore/bin/python -m scraper resume paddypower
 ```
+
+### Reading Paddy on request: `ask`
+`python -m scraper ask '<request as JSON>' [--wait SECONDS] [--json]` has the
+running service read Paddy Power match pages now (`scraper/ask.py`; Callum,
+26 Nov 2026, `docs/decisions.md`). The command checks the request, writes it
+to `data/requests/ask-<id>.json`, waits for the answer in
+`data/requests/done/ask-<id>.json` (`--wait`, an hour by default) and prints
+it; it exits 0 when the request is `done`, 2 when it is refused, 1 otherwise
+(stopped, interrupted, not answered in time - the service carries on - or no
+service running, when nothing is written). A request:
+
+```json
+{"kind": "read", "job": "pp-epl-most", "from": "2026-11-28T17:00", "to": "2026-11-30T23:59",
+ "parser": "pp_most", "keep": false}
+```
+
+(an `id`, letters, digits, `.`, `_` and `-`, is made when not given)
+names the games by a Paddy listing job and a kick-off range (a time with no
+zone is London's): the match links on that job's listings whose kick-off is in
+the range, nearest first. A listing the sweep holds open, loaded within the
+job's `relist_min`, is read where it is; any other (the job resting, in quiet
+hours, outside its window, or the tab stale) the request loads itself, one a
+tick like its pages, reads and closes; each is in the result's `listings`
+(`open`, `loaded`, `failed` or `skipped`). Or `"urls": [...]` in place of job,
+from and to: at most 60, each on `paddypower.com`. `parser` is null or one of
+the parsers that click nothing (`ask.READ_PARSERS`: `pp_most`; a parser that
+drives a page, `bb_saves` say, is refused); `keep: true` saves each page to
+`data/dumps/ask-<id>-<n>/` (`page.html`, `page.url`, a full-page `page.png`,
+and `payloads.json`: what the tab's capture held, each body with its kind and
+its url's path). A page whose parser failed is saved anyway; a page that ends
+on another host (a redirect) is failed, not read and not saved. A page's url is
+written without its query (it can carry the site's key): in the result, the
+saved `page.url` and the log. On the page nothing is clicked but the cookie
+banner.
+
+The service answers one page a tick, so the sweep keeps running beside it,
+with Paddy's gap between loads (90 s and more; thirty games take about three
+quarters of an hour). A request's loads are not counted in Paddy's budget and
+are made in quiet hours too; `status` shows them on a line of their own
+(`paddypower  requested: 4 this hour, 12 today`). It stops at once on a
+cool-off (`stopped`, the pages left `skipped`), and a challenge on a page it
+loads is a block like any other: every Paddy page closed, the cool-off,
+`resume`. One request runs at a time; another is refused ("another request is
+running"). The result is written `running` with each item as it is done
+(`url`, `home`, `away` and `kickoff` off the listing when it shows the game,
+`state` read, failed or skipped, `reason`, the parser's `rows`, `saved`); if
+the service restarts mid-request it is rewritten `interrupted`, keeping what
+was done, and is never run again. A request file is removed only once its
+result is written (a result that cannot be written is alerted and tried again
+every tick); anything in `data/requests/` that is not a readable request (a
+directory, a file over 1 MB, text that will not parse) is refused, or moved to
+`data/requests/rejected/` when it cannot be removed. Results, entries moved
+aside and the pages requests saved (`ask-<id>-<n>` only: never another dump)
+are removed after 14 days, and a result's leftover temp file after an hour
+(checked once a day). A page a request loads that lands on another host is
+failed before anything is done on it (no consent click, no scrolling). The
+gap holds across a restart: the service spaces its first Paddy load from the
+last requested one. Each request's lines are in `python -m scraper targets log ask`.
 
 ### Looking at a page: `look`
 Parsers are written only from real saved pages, and some states of a page need

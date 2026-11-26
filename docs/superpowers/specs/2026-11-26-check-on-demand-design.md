@@ -13,8 +13,9 @@ the Hub and get the value ones back, and to ask for other checks the same way la
 
 "Check wops for the weekend" (Friday 17:00 to Sunday 23:59, London):
 
-1. **Screen.** Every game in the covered leagues (the listings the Paddy sweep already holds
-   open: Premier League, La Liga, Serie A, growing as listings are added), both teams, on two
+1. **Screen.** Every game in the covered leagues (the Paddy sweep's listing jobs' listings:
+   Premier League, La Liga, Serie A, growing as listings are added; a listing the sweep does
+   not hold open and fresh, the request loads itself), both teams, on two
    WOPs: team 1+ goals, 5+ corners and the other team 2+ cards ("1,5,2"), and team 2+ goals
    and 6+ corners ("2,6"). Paddy's price comes off the game's match page; the fair comes from
    Bookie Bashing's builder by loading a preset. Plain "1,5" is not in the screen.
@@ -68,7 +69,9 @@ write a request for the running service and read what it produces.
    `data/requests/done/`. Two kinds:
    - `read`: load these Paddy match pages (named by listing job and a kick-off range, or by
      address), one at a time in a tab of its own, run a named parser over what arrived, save
-     the page and its captured payloads, close the tab.
+     the page and its captured payloads, close the tab. For a job, its listings are read
+     where the sweep holds them open and fresher than the job's relist time; any other is
+     loaded by the request (a requested load, in a tab it closes once read).
    - `price`: on the open Bookie Bashing builder page, for each (game, preset) return Total
      Odds, and if asked save it to the tracker.
    The CLI writes the request and waits for the result.

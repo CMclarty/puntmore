@@ -22,6 +22,19 @@
                    that fails stops it, the page still saved. Nothing in it
                    loads a page. Not for Paddy Power jobs. --json for machine
                    output. (scraper/look.py)
+  ask '<request as JSON>' [--wait SECONDS] [--json]
+                   Ask the RUNNING service to read Paddy Power match pages
+                   now (scraper/ask.py): {"kind": "read", "job": "<a Paddy
+                   matches job>", "from": "<ISO>", "to": "<ISO>"} (the games
+                   on its open listings kicking off in that range) or
+                   {"kind": "read", "urls": [...]} (at most 60), with
+                   "parser": "<name>" or null and "keep": true to save each
+                   page to data/dumps/ask-<id>-<n>/; "id" is made when not
+                   given. One page a tick, Paddy's gap between loads; not in
+                   its budget or quiet hours; stops on a cool-off. Waits for
+                   the result (data/requests/done/ask-<id>.json; --wait,
+                   default 3600 s) and prints it: exit 0 when done, 2
+                   refused, 1 otherwise. One request at a time.
   wake <target>    Ask the RUNNING service to end that job's rest (a parser
                    that found nothing to do rested it: rest.py) - it runs on
                    its next tick.
@@ -215,6 +228,9 @@ def status(s):
             line += (f"  COOLING OFF ({st['cooloff']}), {st['cooloff_left_h']:.1f} h left, "
                      f"{'needs resume' if st['needs_resume'] else 'resumed'}")
         print(line)
+        if st["requested_hour"] or st["requested_day"]:     # ask.py's loads, not in the budget
+            print(f"{st['site']}  requested: {st['requested_hour']} this hour, "
+                  f"{st['requested_day']} today")
     rep = s.data_dir / "status.json"
     if rep.exists():
         import json
@@ -231,12 +247,19 @@ def status(s):
           else "heartbeat      none")
 
 
+def _service_running(s) -> bool:
+    """The running service's heartbeat is under two minutes old."""
+    hb = s.data_dir / "heartbeat"
+    try:
+        return time.time() - int(hb.read_text()) < 120
+    except (OSError, ValueError):
+        return False
+
+
 def selfcheck(s):
     import json
     from . import browser
-    hb = s.data_dir / "heartbeat"
-    running = hb.exists() and time.time() - int(hb.read_text()) < 120
-    if running:
+    if _service_running(s):
         out = s.data_dir / "selfcheck.json"
         out.unlink(missing_ok=True)
         req = s.data_dir / "requests"
@@ -468,6 +491,107 @@ def look_cmd(s, argv):
               f"(python -m scraper targets log {args.job})")
 
 
+_sleep = time.sleep           # (tests replace these two)
+_clock = time.monotonic
+ASK_POLL_S = 2.0
+
+
+def ask_cmd(s, argv):
+    """`python -m scraper ask '<json>' [--wait SECONDS] [--json]`: the request
+    checked (ask.parse, against the targets), written atomically to
+    data/requests/ask-<id>.json for the running service (Runner._ask), its
+    result (data/requests/done/ask-<id>.json) waited for and printed. Exit 0
+    only when it is done; 2 when refused (here or by the service); 1 when it
+    stopped, was interrupted, is not answered in time (it goes on) or there
+    is no service to ask (then nothing is written)."""
+    import argparse
+    import json
+    import secrets
+    from . import ask
+    p = argparse.ArgumentParser(
+        prog="python -m scraper ask",
+        description="Ask the running service to read Paddy Power match pages now (scraper/ask.py).")
+    p.add_argument("request", help='a JSON object, e.g. \'{"kind": "read", "urls": ["https://www.'
+                                   'paddypower.com/football/..."], "parser": "pp_most"}\'')
+    p.add_argument("--wait", type=float, default=3600.0,
+                   help="seconds to wait for the result (default 3600)")
+    p.add_argument("--json", action="store_true", help="machine output: the result as written")
+    args = p.parse_args(argv)
+
+    def refuse(why, code=2):
+        if args.json:
+            print(json.dumps({"error": why}))
+        else:
+            print(f"error: {why}", file=sys.stderr)
+        sys.exit(code)
+    try:
+        raw = json.loads(args.request)
+    except ValueError as exc:
+        refuse(f"the request is not JSON: {exc}")
+    if isinstance(raw, dict) and "id" not in raw:
+        raw = {"id": f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}", **raw}
+    try:
+        req = ask.parse(raw, targets=s.targets)
+    except ask.Refused as exc:
+        refuse(exc.reason)
+    if args.wait <= 0:
+        refuse("--wait must be more than 0 s")
+    if ask.read_result(s.data_dir, req.id) is not None:
+        refuse(f"a request {req.id!r} was answered already ({ask.result_path(s.data_dir, req.id)})")
+    if not _service_running(s):
+        refuse("the Scraper service is not running (no heartbeat in the last 120 s) - "
+               "nothing was written", code=1)
+    folder = s.data_dir / "requests"
+    folder.mkdir(parents=True, exist_ok=True)
+    final = folder / f"ask-{req.id}.json"
+    tmp = folder / f".ask-{req.id}.json.tmp"      # the service reads ask-*: a dot file is not one
+    tmp.write_text(json.dumps(raw), encoding="utf-8")
+    os.replace(tmp, final)
+    if not args.json:
+        print(f"asked the service ({req.id}); waiting up to {args.wait:g} s for "
+              f"{ask.result_path(s.data_dir, req.id)}", flush=True)
+    end = _clock() + args.wait
+    body = None
+    while _clock() < end:
+        body = ask.read_result(s.data_dir, req.id)
+        if body is not None and body.get("state") != "running":
+            break
+        _sleep(ASK_POLL_S)
+    else:
+        body = ask.read_result(s.data_dir, req.id)
+    if body is None or body.get("state") == "running":
+        where = ask.result_path(s.data_dir, req.id) if body else final
+        if args.json and body:
+            print(json.dumps(body, indent=1))
+        print(f"not answered within {args.wait:g} s - the service carries on with it; see {where}",
+              file=sys.stderr)
+        sys.exit(1)
+    if args.json:
+        print(json.dumps(body, indent=1))
+    else:
+        for line in _ask_lines(body):
+            print(line)
+    sys.exit({"done": 0, "refused": 2}.get(body.get("state"), 1))
+
+
+def _ask_lines(body) -> list[str]:
+    """A result as `ask` prints it: how it ended, then a line per item."""
+    out = [f"{body['id']}: {body['state']}" + (f" - {body['reason']}" if body.get("reason") else "")]
+    for x in body.get("listings") or []:
+        out.append(f"  listing  {x['state']:8} {x['url']}" + (f"  ({x['reason']})" if x.get("reason") else ""))
+    for i in body.get("items") or []:
+        game = f"{i['home']} v {i['away']}" if i.get("home") and i.get("away") else i["url"]
+        line = f"  {i['state']:8} {game}" + (f"  {i['kickoff']}" if i.get("kickoff") else "")
+        if i["state"] == "read":
+            line += f"  {len(i.get('rows') or [])} row(s)"
+        if i.get("reason"):
+            line += f"  ({i['reason']})"
+        if i.get("saved"):
+            line += f"  saved {i['saved']}"
+        out.append(line)
+    return out
+
+
 def _data_dir():
     return pathlib.Path(os.environ.get("SCRAPER_DATA_DIR", config.HERE / "data"))
 
@@ -613,6 +737,8 @@ def main(argv=None):
         print(f"asked the service to dump {rest[0]} - see data/dumps/ within ~15 s")
     elif cmd == "look":
         look_cmd(s, rest)
+    elif cmd == "ask":
+        ask_cmd(s, rest)
     elif cmd == "wake":
         if not rest or rest[0] not in {t.name for t in s.targets}:
             sys.exit(f"wake which target? {', '.join(t.name for t in s.targets)}")

@@ -4,7 +4,8 @@
                 healthchecks ping every HEALTH_PING_S)
   status.json   per target: state, detail, last load/parse, rows posted, the
                 standing alert (standing.py) or null; per
-                site: budget spent and cool-off. Written every STATUS_EVERY_S.
+                site: budget spent, loads made for requests (ask.py; not
+                in the budget) and cool-off. Written every STATUS_EVERY_S.
 
 Nothing here is sent off the box except the healthcheck ping.
 """
@@ -55,16 +56,19 @@ def target_entry(t, state, detail, last_load, last_parse, rows_posted,
 
 
 def site_status(guard, now) -> list[dict]:
-    """Budget spent and cool-off per site, off the guard's SQLite."""
+    """Budget spent, requested loads (ask.py) and cool-off per site, off the
+    guard's SQLite."""
     out = []
     for site in SITES:
         h, d = guard.spent(site, now)
+        rh, rd = guard.requested(site, now)
         per_hour, per_day = guard.limit(site)
         c = guard.cooloff(site)
         cooling = bool(c) and guard.cooloff_active(site, now)
         left = (max(0.0, guard.cooloff_hours * 3600 - (now - c["since"])) / 3600) if cooling else None
         out.append({"site": site, "loads_hour": h, "per_hour": per_hour,
                     "loads_day": d, "per_day": per_day,
+                    "requested_hour": rh, "requested_day": rd,
                     "cooloff": c["reason"] if cooling else None,
                     "cooloff_left_h": None if left is None else round(left, 2),
                     "needs_resume": bool(cooling and not c["resumed"])})

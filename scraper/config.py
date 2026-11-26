@@ -32,7 +32,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 # hosts?), any of them.
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")   # a target's `days`, in week order
 
-BOOKMAKER_HOSTS = ("paddypower.com", "bookiebashing.net")
+PADDY_HOSTS = ("paddypower.com",)
+BOOKMAKER_HOSTS = PADDY_HOSTS + ("bookiebashing.net",)
 TEAMCASINO_HOSTS = ("teamcasino.com",)
 LOCAL_HOSTS = ("localhost", "127.0.0.1")
 SITE_HOSTS = {"paddypower": BOOKMAKER_HOSTS, "bookiebashing": BOOKMAKER_HOSTS,
@@ -52,6 +53,24 @@ def host_allowed(url: str, site: str | None = None) -> bool:
     if site in SITE_HOSTS:
         return _on(host, SITE_HOSTS[site] + LOCAL_HOSTS)
     return _on(host, ALLOWED_HOSTS)
+
+
+# The tests' fake site counts as Paddy Power's for paddy_page only while this
+# is True: the tests set it (monkeypatch); the service never does.
+LOCAL_PADDY = False
+
+
+def paddy_page(url: str) -> bool:
+    """An http(s) page on Paddy Power's own hosts: what a `read` request may
+    name and where its pages must end up (ask.py). Narrower than
+    host_allowed's rule for a paddypower target, which may open Bookie
+    Bashing too; localhost only under LOCAL_PADDY (the tests)."""
+    try:
+        u = urlparse(url)
+        host = (u.hostname or "").lower()
+    except ValueError:
+        return False
+    return u.scheme in ("http", "https") and _on(host, PADDY_HOSTS + (LOCAL_HOSTS if LOCAL_PADDY else ()))
 
 
 def _clamp(v, lo=None, hi=None):
